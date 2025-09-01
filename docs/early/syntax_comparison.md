@@ -9,10 +9,12 @@
 ### Comp
 ```comp
 "/data/sales.csv" 
--> csv.read 
--> {row -> row.amount > 1000} 
--> {row -> {customer=row.name total=row.amount*1.1 tax=row.amount*0.15}} 
--> csv.write("/output/processed.csv")
+-> io:read 
+-> csv:parse 
+=> {row -> row.amount > 1000 ? row | skip} 
+=> {row -> {customer=row.name total=row.amount*1.1 tax=row.amount*0.15}} 
+-> csv:stringify
+-> io:write("/output/processed.csv")
 ```
 
 ### Python
@@ -78,15 +80,16 @@ WHERE amount > 1000;
 ### Comp
 ```comp
 "/data/input.json" 
--> file.read 
--> json.parse 
--> {data -> data.users ->each {user -> user.email@validate.email}} 
--> {emails -> emails@send.batch} 
--> print("Sent ${count} emails")
-->failed {error -> 
-    error.log("Processing failed: ${error.message}")
+-> io:read 
+-> json:parse 
+-> {data -> data.users => {user -> user.email@validate:email}} 
+-> {emails -> emails@send:batch} 
+-> {count -> "Sent ${count} emails"}
+-> io:print
+!> {error -> 
+    "Processing failed: ${error.message}" -> log:error
     -> {error.type="email_error"} 
-    -> error.report
+    -> error:report
 }
 ```
 
@@ -146,35 +149,9 @@ async function processEmails() {
   updated = {
     ...user 
     profile = {...user.profile age=31 verified=true}
-    last_updated = @now
+    last_updated = :time:now
   }
-} -> database.save
-```
-
-### Python
-```python
-from dataclasses import dataclass, replace
-from datetime import datetime
-
-@dataclass
-class Profile:
-    age: int
-    city: str
-    verified: bool = False
-
-@dataclass  
-class User:
-    name: str
-    profile: Profile
-    last_updated: datetime = None
-
-user = User(name="John", profile=Profile(age=30, city="NYC"))
-updated = replace(
-    user,
-    profile=replace(user.profile, age=31, verified=True),
-    last_updated=datetime.now()
-)
-database.save(updated)
+} -> database:save
 ```
 
 ### JavaScript
@@ -204,13 +181,10 @@ database.save(updated);
 ### Comp
 ```comp
 data 
--> {item -> item.type == "premium"} ->if {
-    item -> premium.process 
-    -> {result -> {...result discount=0.2}}
-} else {
-    item -> standard.process
-}
--> billing.calculate
+-> {item -> item.type == "premium"} 
+? {item -> item -> premium:process -> {...result discount=0.2}}
+| {item -> item -> standard:process}
+-> billing:calculate
 ```
 
 ### Python
@@ -241,18 +215,6 @@ const processed = processItem(data);
 const bill = billingCalculate(processed);
 ```
 
-## Key Advantages
-
-**Readability:** Comp's left-to-right flow matches how developers think about data transformation steps.
-
-**Conciseness:** Pipeline syntax eliminates intermediate variable declarations and nested function calls.
-
-**Consistency:** All data types (scalars, objects, arrays, SQL results) use the same transformation patterns.
-
-**Error handling:** Integrated into the pipeline flow rather than requiring separate try/catch blocks.
-
-**Immutability:** Built into the language design rather than requiring discipline and helper libraries.
-
 ---
 
-*These comparisons demonstrate how Comp's pipeline-based approach can simplify common data processing tasks while maintaining clarity and reducing boilerplate code.*
+*These comparisons demonstrate Comp's pipeline-based approach for common data processing tasks.*
