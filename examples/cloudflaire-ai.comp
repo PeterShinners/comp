@@ -16,12 +16,12 @@ $app.model = "@cf/baai/bge-base-en-v1.5"
 }
 
 !shape VectorizeVector = {
-    id(string)
-    values({number[1-]})
+    id ~string
+    values ~{number[1-]}
 }
 
-!func fetch(request(:cloudflare:Request)) = {
-    request.url -> :url:parse -> :url:dispatch
+!func fetch ~cloudflare~Request = {
+    url -> :url:parse -> :url:dispatch
         ."/favicon*" {:cloudflare:response_not_found}
         ."/insert" {:insert_vectors}
         .else {:query_vectors}
@@ -34,7 +34,7 @@ $app.model = "@cf/baai/bge-base-en-v1.5"
 
 // You only need to generate vector embeddings once (or as
 // data changes), not on every request
-!func insert_vectors() = {
+!func insert_vectors = {
     // In a real-world application, you could read content from R2 or
     // a SQL database (like D1) and pass it to Workers AI
     $stories = {
@@ -48,11 +48,11 @@ $app.model = "@cf/baai/bge-base-en-v1.5"
     -> $app.AI
     -> .data -> :enumerate 
     => {index, value -> {id="${index}" values=value}}
-    -> $app.VECTORIZE($in(VectorizeVector))
+    -> $app.VECTORIZE($in ~VectorizeVector)
     -> :cloudflare:vectorize:upsert
 }
 
-!func query_vectors() = {
+!func query_vectors = {
     // Your query: expect this to match vector ID. 1 in this example
     $user_query = "orange cloud"
     
@@ -68,8 +68,6 @@ $app.model = "@cf/baai/bge-base-en-v1.5"
     // This tutorial uses a cosine distance metric, where the closer to one,
     // the more similar.
 }
-
-
 
 /*  TypeScript version of the above Cloudflare Worker example */
 export interface Env {

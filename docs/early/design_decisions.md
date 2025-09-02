@@ -214,20 +214,6 @@
 - Creates feedback loop for language design improvements
 - Standard library and tooling should be primarily Comp code
 
-## Implementation Priorities
 
-**Current Status:** Early design phase focusing on:
-1. Core syntax and semantics
-2. Type system and structural compatibility
-3. Standard library design for collections and data manipulation
-4. Error handling and pipeline flow control
-
-**Next Phase:** Implementation planning for:
-1. Parser and AST design
-2. Type inference engine
-3. Standard library implementation
-4. Development tooling (syntax highlighting, LSP, etc.)
-
----
 
 *These decisions form the foundation for Comp's implementation and provide rationale for key language design choices.*
