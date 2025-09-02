@@ -1,14 +1,13 @@
 // Cloudflare Worker for vector embeddings and search
 // Original: https://developers.cloudflare.com/vectorize/get-started/embeddings/
-// 
-// This example demonstrates Comp's pipeline approach for serverless functions:
-// - Application state ($app) for service bindings and configuration
-// - URL-based routing with pattern matching blocks
-// - Direct resource invocation using stored bindings
-// - Pipeline operators create natural data flow from request to response
-// - Integrated error handling with !> operator and default status assignment
 
 $app.model = "@cf/baai/bge-base-en-v1.5"
+$app.VECTORIZE = <hint: ~cloudflare~vec_handle>  // hypothetical syntax
+$app.AI = <hint: ~cloudflare~ai_handle>  // hypothetical syntax
+
+$app.dependencies = {
+    cloudflare: "@cloudflare/workers-comp@2.7/comp"
+}
 
 !entry = {
     $app.VECTORIZE = :cloudflare:binding("VECTORIZE")
@@ -20,14 +19,14 @@ $app.model = "@cf/baai/bge-base-en-v1.5"
     values ~{number[1-]}
 }
 
-!func fetch ~cloudflare~Request = {
+!func fetch ~:cloudflare:Request = {
     url -> :url:parse -> :url:dispatch
         ."/favicon*" {:cloudflare:response_not_found}
         ."/insert" {:insert_vectors}
         .else {:query_vectors}
     !> {
         error = "Request processing failed: ${error.message}"
-        status ?= 500
+        status = status | 500
     }
     -> :cloudflare:response_json
 }
@@ -45,11 +44,11 @@ $app.model = "@cf/baai/bge-base-en-v1.5"
 
     // Direct invocation of AI binding with model configuration
     {model=$app.model text=$stories}
-    -> $app.AI
+    -> :cloudflare:ai_run
     -> .data -> :enumerate 
     => {index, value -> {id="${index}" values=value}}
-    -> $app.VECTORIZE($in ~VectorizeVector)
-    -> :cloudflare:vectorize:upsert
+    -> VECTORIZE($in ~VectorizeVector)
+    -> :cloudflare:vectorize_upsert
 }
 
 !func query_vectors = {
@@ -57,10 +56,10 @@ $app.model = "@cf/baai/bge-base-en-v1.5"
     $user_query = "orange cloud"
     
     {model=$app.model text=$user_query}
-    -> $app.AI
+    -> :cloudflare:ai_run
     -> .data.'0'
-    -> $app.VECTORIZE({topK=1})
-    -> :cloudflare:vectorize:query
+    -> VECTORIZE({topK=1})
+    -> :cloudflare:vectorize_query
     -> {matches=$in}
 
     // Expect a vector ID. 1 to be your top match with a score of
@@ -68,6 +67,8 @@ $app.model = "@cf/baai/bge-base-en-v1.5"
     // This tutorial uses a cosine distance metric, where the closer to one,
     // the more similar.
 }
+
+
 
 /*  TypeScript version of the above Cloudflare Worker example */
 export interface Env {

@@ -1,0 +1,168 @@
+// io_uring file reader using hypothetical Comp uring library
+// Compare with: https://unixism.net/loti/liburing_examples.html
+
+$mod.dependencies = {
+    uring = "@systems/uring@1.2/uring.comp"
+    fs = "@stdlib/fs@2.0/fs.comp" 
+    io = "@stdlib/io@1.8/io.comp"
+}
+
+$app.QUEUE_DEPTH = 1
+$app.BLOCK_SIZE = 1024
+
+// Library-provided shapes for io_uring operations
+!shape FileInfo = {
+    size ~number
+    blocks ~{IoVec}
+}
+
+!shape IoVec = {
+    base ~buffer
+    length ~number
+}
+
+// Tags for io_uring operation types
+!tag uring_op = {
+    read = {readv, read_fixed, read_multishot}
+    write = {writev, write_fixed}
+    sync = {fsync, fdatasync}
+}
+
+!func read_file_async ~{path ~string} = {
+    // Open file and get size - library handles error conversion
+    path -> :fs:open{flags=#fs.flags.read_only}
+    -> !label &file_descriptor
+    -> :fs:get_size 
+    -> !label &file_size
+
+    // Calculate block layout
+    &file_size -> {
+        total_size = &file_size
+        block_count = (&file_size / BLOCK_SIZE) + 
+            (&file_size % BLOCK_SIZE > 0 ? 1 | 0)
+    } -> !label &layout
+
+    // Allocate aligned buffers for each block
+    blocks = {} -> :range(&layout.block_count) 
+    => {block_index ->
+        $remaining = &layout.total_size - (block_index * BLOCK_SIZE)
+        $block_size = :math:min($remaining, BLOCK_SIZE)
+        
+        {
+            base = :uring:aligned_alloc{size=BLOCK_SIZE, align=BLOCK_SIZE}
+            length = $block_size
+        } ~IoVec
+    }
+
+    // Create file info structure
+    file_info = {
+        size = &file_size
+        blocks = blocks
+    } ~FileInfo
+
+    // Submit async read operation
+    :uring:get_ring -> !label &ring
+    -> :uring:get_sqe 
+    -> :uring:prep_readv{
+        fd = &file_descriptor
+        iovecs = file_info.blocks
+        offset = 0
+        op_type = #uring_op.read.readv
+    }
+    -> :uring:set_data(file_info)
+    -> :uring:submit
+
+    // Wait for completion and process result
+    &ring -> :uring:wait_completion
+    -> :uring:get_data
+    -> {blocks} 
+    => {{iovec.base length=iovec.length} -> :buffer:to_string -> :io:print}
+}
+
+!func main ~{args ~{string}} = {
+    args.length < 2 ? {
+        "Usage: file_reader [filename]" -> :io:print_error
+        :exit(1)
+    } | {}
+
+    // Initialize io_uring with queue depth
+    QUEUE_DEPTH -> :uring:init -> !label &ring_initialized
+
+    // Process each file argument
+    args -> :skip(1) => {filepath ->
+        filepath -> :read_file_async
+        !> {error -> 
+            "Error reading file ${filepath}: ${error.message}" -> :io:print_error
+        }
+    }
+    
+    // Ring cleanup handled automatically by Comp's scope management
+}
+
+
+/*  Original C version using liburing (simplified excerpt) */
+
+#include <liburing.h>
+#include <fcntl.h>
+#include <stdio.h>
+
+#define QUEUE_DEPTH 1
+#define BLOCK_SZ 1024
+
+struct file_info {
+    off_t file_sz;
+    struct iovec iovecs[];
+};
+
+int submit_read_request(char *file_path, struct io_uring *ring) {
+    int file_fd = open(file_path, O_RDONLY);
+    off_t file_sz = get_file_size(file_fd);
+    
+    // Calculate blocks and allocate iovecs
+    int blocks = (int) file_sz / BLOCK_SZ;
+    if (file_sz % BLOCK_SZ) blocks++;
+    
+    struct file_info *fi = malloc(sizeof(*fi) + (sizeof(struct iovec) * blocks));
+    
+    // Setup iovecs with aligned buffers
+    for (int i = 0; i < blocks; i++) {
+        posix_memalign(&fi->iovecs[i].iov_base, BLOCK_SZ, BLOCK_SZ);
+        fi->iovecs[i].iov_len = /* calculate length */;
+    }
+    
+    // Get SQE and prepare readv operation
+    struct io_uring_sqe *sqe = io_uring_get_sqe(ring);
+    io_uring_prep_readv(sqe, file_fd, fi->iovecs, blocks, 0);
+    io_uring_sqe_set_data(sqe, fi);
+    io_uring_submit(ring);
+    
+    return 0;
+}
+
+int get_completion_and_print(struct io_uring *ring) {
+    struct io_uring_cqe *cqe;
+    io_uring_wait_cqe(ring, &cqe);
+    
+    struct file_info *fi = io_uring_cqe_get_data(cqe);
+    
+    // Output each block
+    for (int i = 0; i < blocks; i++) {
+        output_to_console(fi->iovecs[i].iov_base, fi->iovecs[i].iov_len);
+    }
+    
+    io_uring_cqe_seen(ring, cqe);
+    return 0;
+}
+
+int main(int argc, char *argv[]) {
+    struct io_uring ring;
+    io_uring_queue_init(QUEUE_DEPTH, &ring, 0);
+    
+    for (int i = 1; i < argc; i++) {
+        submit_read_request(argv[i], &ring);
+        get_completion_and_print(&ring);
+    }
+    
+    io_uring_queue_exit(&ring);
+    return 0;
+}

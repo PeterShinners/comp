@@ -12,7 +12,7 @@ Everything in Comp is data transformation through pipelines. Structures cannot b
 
 ### Syntax Principles
 
-- Whitespace is optional everywhere in the language, only needed to sparate statements
+- Whitespace is optional everywhere in the language, only needed to separate statements
 - Statements can span multiple lines and split on any token
 - Multiple statements can be on a single line, separated by whitespace
 - Mathematical operators are reserved for number types only
@@ -107,7 +107,7 @@ array structure with no named fields.
 When the iteration operator is invoked, it is given a simple structure
 that that contains the value.
 
-This is instended to be a low level operator. The language library provides 
+This is intended to be a low level operator. The language library provides 
 more convenient and high level iterations that build on this. Those can do 
 filtering, accumulation and track progress.
 
@@ -133,7 +133,7 @@ the two
 Executes exactly one of two code branches based on a boolean condition. 
 Both branches must be provided, though one can be empty for no-op behavior.
 
-This is instended to be a low level operator. The language library provides 
+This is intended to be a low level operator. The language library provides 
 more convenient and high level conditionals that build on this. Those can do 
 do matching on more than two cases, provide other fallbacks, and allow
 structuring the code into more readable blocks.
@@ -146,11 +146,11 @@ condition ? {data -> transform} | {}  // Empty block for no-op
 ### Failure Handling Pipeline (`!>`)
 
 When an incoming structure represents a failure, all other pipeline operators
-are skipped, and the failure value is propogated past them. Using this
-error invokation allows getting the error condition. This statement can
+are skipped, and the failure value is propagated past them. Using this
+error invocation allows getting the error condition. This statement can
 provide a fallback value for error recovery, generate a new failure that is
-with better explenations, or pass through the incoming failure structure
-to continue propogating the failure.
+with better explanations, or pass through the incoming failure structure
+to continue propagating the failure.
 
 ```comp
 risky_operation -> process_data 
@@ -177,33 +177,30 @@ price * quantity  # No type juggling needed
 
 ### String Type
 
-Strings are sequences of unicode characters. This both single character and
-empty sequences.
+Strings are sequences of unicode characters supporting both single character and empty sequences.
 
-String literals are defined using double quotes. Triple quotes can be used
-to define multiline strings, and simplify escaping of internal quote characters.
-
-Strings can also be invoked to perform template expansion. See the 
-Invoked Values section on how this can be customized for strings, or any
-type of value.
-
-Numeric operators do not work on strings. Use the library `string` to
-manipulate and query string data.
+String literals use double quotes for simple strings and triple quotes for multiline strings or strings containing embedded quotes:
 
 ```comp
 name = "Peter"
-template = "Hello ${name}"
-greet = $name -> $template  
-loud = $greet -> :string:uppercase
-// Results in "HELLO PETER"
-
-# Triple quotes for multiline and embedded quotes
+message = """He said "Hello there!" and she replied 'Nice to meet you.'"""
 sql_query = """
     SELECT users.name, profiles.bio
     FROM users 
     WHERE users.active = true
 """
+```
 
+Strings support template expansion with `${}` interpolation that works in both regular and triple-quoted strings:
+
+```comp
+template = "Hello ${name}"
+html_template = """
+    <div class="user">
+        <h2>${user.name}</h2>
+        <p>${user.bio}</p>
+    </div>
+"""
 ```
 
 ### Boolean Type
@@ -235,12 +232,61 @@ Resources represent an object that is outside the control of the language
 itself. This can be things like system file handles, network sockets, or
 random number generators.
 
-Operating on resources is always non-determistic. Any call could fail at
+Operating on resources is always non-deterministic. Any call could fail at
 any time.
 
 Resources also require cleanup. References to resources are carefully tracked
 and automatically released when no longer needed. There are operators to
-explcitly release and uninitialize resources even while they are still accessible.
+explicitly release and uninitialize resources even while they are still accessible.
+
+## Lazy Structs and Evaluation
+
+### Lazy Structs with Square Brackets
+
+Lazy structs use square brackets `[]` instead of curly braces `{}` to create structures where fields are evaluated on-demand rather than immediately. This enables efficient conditional logic and expensive computations that may never be needed.
+
+```comp
+# Lazy struct - fields evaluate only when accessed
+lazy_data = [
+    cheap_field = simple_calculation
+    expensive_field = heavy_computation -> complex_analysis
+    conditional_field = condition ? expensive_operation | fallback_value
+]
+
+# Only evaluates expensive_field when accessed
+result = lazy_data.expensive_field
+```
+
+### Lazy Function Definitions
+
+Functions can be defined as lazy using square brackets, creating generator-like behavior where the function body executes incrementally:
+
+```comp
+!func process_items = [
+    setup = initialize_resources
+    data = input -> validate
+    results = data => {item -> expensive_transform}
+    cleanup = resources -> release
+    final_result = results -> aggregate
+]
+
+# Function executes up to accessed field, then pauses
+partial = process_items.setup  # Only runs initialization
+complete = process_items.final_result  # Runs everything through to completion
+```
+
+### Flow Control in Lazy Structs
+
+Lazy structs support flow control tags to stop evaluation early:
+
+```comp
+batch_processor = [
+    item1 = process_first_item
+    item2 = process_second_item
+    should_continue ? continue_processing | #loop#break
+    item3 = expensive_final_processing  # Never runs if break triggered
+]
+```
 
 ## Functions and Shapes
 
@@ -256,7 +302,6 @@ Some functions require no input argument, and can omit the type specification.
 A function is just a deferred block to create a structure. It can contain
 private local variables, but any attributes it yields become part of the
 outgoing structure.
-
 
 ```comp
 !func greet ~{name ~string} = {
@@ -300,8 +345,7 @@ Multiple functions can be defined with the same name. When this happens
 the functions must be defined to use unambiguous shapes. When called the
 system will dispatch to the most specific implementation.
 
-```code
-
+```comp
 !func describe ~number = {"It's a number"}
 !func describe ~string = {"It's a string"}
 
@@ -314,12 +358,12 @@ Functions can define that they accept additional blocks. These blocks are
 defined and handled with a special syntax.
 
 When calling a function with blocks, they are appended to the end of the
-function name, using a dot prefix to indeicate belonging  to the
+function name, using a dot prefix to indicate belonging to the
 function.
 
 Blocks are not executed immediately. The function receives them as an
 executable operation that can be invoked as many times as desired, including
-never behing called.
+never being called.
 
 This allows functions to create advanced flow control that resembles
 the code structure from other development languages, but still fits 
@@ -328,8 +372,6 @@ comfortably into the pipeline style of flow control.
 A function can define any number of blocks, but it must define the
 shape of the incoming argument for each block. Blocks can be optionally
 named, and allow being optionally by callers.
-
-(TODO simple example)
 
 Functions can accept blocks as structured parameters:
 
@@ -372,8 +414,7 @@ user_data -> nest.{
 } -> validate_and_save
 ```
 
-
-## Tags 
+## Tags and Polymorphism
 
 A module can define a set of static tags at the top level of the module.
 The tags work as both a unique value and a unique shape. Tags are defined
@@ -389,10 +430,9 @@ Tags can also define a hierarchy of names. This helps to think of tags
 as a classification of types and potential subtypes. These deeper names are
 referenced by their fully qualified definition, `#animal#mammal#dog`
 
-```code
-
+```comp
 !tag shape = {circle square triangle}
-!tag shape = {triangle{icosolese equilateral}}
+!tag shape = {triangle{isosceles equilateral}}
 ```
 
 A module can also extend the tags from another module by referencing it as
@@ -402,27 +442,65 @@ about, although the base module will not understand.
 When this tag inheritance happens, the tags defined in the original module and 
 matching tags in the extension are considered equivalent.
 
-### Tag Definitions
+### Tag Hierarchies
 
-Tags organize related values into hierarchical namespaces that can be extended across modules. They serve as both type discriminators and value enumerations.
+Tags can define hierarchical relationships to create organized classification systems with nested categories. Hierarchies use dot notation after the initial tag name:
 
 ```comp
-# Simple tag enumeration
-!tag status = {pending, completed, failed}
-
-# Hierarchical tags
+# Simple hierarchy - emotions with subcategories
 !tag emotions = {
-    anger = {fury, irritation, righteous}
-    joy = {happiness, excitement, contentment}
-    fear = {worry, terror, respect}
+    joy = {happiness, excitement, contentment, bliss}
+    anger = {fury, irritation, rage, annoyance}
+    fear = {terror, worry, anxiety, dread}
+    sadness = {grief, melancholy, disappointment}
 }
 
-# Cross-module tag importing
-!tag local_status = {
-    ..external#workflow#status    # Import all values
-    custom_pending                # Local extension  
-    urgent = external#workflow#status#high  # Alias
+# Multi-level hierarchy - animals with taxonomic structure  
+!tag animals = {
+    mammals = {
+        carnivores = {dog, cat, bear, lion}
+        herbivores = {rabbit, deer, elephant}  
+        primates = {human, chimpanzee, gorilla}
+    }
+    birds = {
+        raptors = {eagle, hawk, falcon}
+        songbirds = {sparrow, cardinal, robin}
+    }
+    fish = {sharks, salmon, goldfish}
 }
+
+# Using hierarchical tag values with mixed delimiters
+pet_mood = #emotions.joy.happiness
+species_type = #animals.mammals.carnivores.dog
+bird_category = #animals.birds.raptors.eagle
+```
+
+### Tag Inheritance and Extensions
+
+Tags can extend existing hierarchies from other modules:
+
+```comp
+# Extend base emotions with custom categories
+!tag workplace_emotions = {
+    ..emotions  # Import all base emotions
+    professional = {motivated, focused, stressed, overwhelmed}  
+    meeting = {engaged, bored, confused, frustrated}
+}
+
+# Reference extended hierarchy with mixed delimiters
+current_state = #workplace_emotions.professional.motivated
+base_emotion = #workplace_emotions.joy.contentment  # Still accessible
+```
+
+### Module-Qualified Tag References
+
+Tags from other modules use the hashtag delimiter for the module boundary, then dots for hierarchy navigation:
+
+```comp
+# Module-qualified tag references
+external_emotion = #psychology#emotions.anger.fury
+game_entity = #entities#creatures.hostile.dragon
+ui_state = #interface#widgets.buttons.pressed
 ```
 
 ### Tag-Based Polymorphism
@@ -438,7 +516,6 @@ They can be used as enumerations and then used as values or field names
 in structures.
 
 Defined tags from the same module are referenced with a leading hashtag.
-
 
 Fields can also define the shape of a structure. A structure field that
 has one or more fields with a tag type become a way to
@@ -485,6 +562,61 @@ to skip to more specific specializations.
 result -> !super(emotion=#emotions#anger)  # Skip intermediate levels
 ```
 
+## Documentation and Docstrings
+
+Comp provides built-in documentation syntax using angle brackets `< >` that can be attached inline or referenced externally.
+
+### Inline Documentation
+
+```comp
+!func greet ~{name ~string} = < Process user greeting > {
+    "Hello ${name}!"
+}
+
+!shape User = {
+    name ~string < Full display name >
+    age ~number < Age in years, may be approximate >
+    active ~bool = true < Account status flag >
+}
+```
+
+### Multi-line Documentation
+
+```comp
+!func complex_algorithm ~{data ~Dataset} = <<< 
+    Advanced data processing algorithm that handles
+    large datasets with memory-efficient streaming.
+    
+    Performance: O(n log n) time, O(1) space
+    Requires: data.size > 0
+>>> {
+    data -> preprocess -> analyze -> results
+}
+```
+
+### Referenced Documentation
+
+Documentation can be defined separately and attached by reference:
+
+```comp
+< User Represents a system user with authentication >
+< User.permissions Set of granted access rights >
+< User.last_login Timestamp of most recent session >
+
+!shape User = {
+    name ~string
+    permissions ~{string}
+    last_login ~number
+}
+```
+
+### Documentation Targets
+
+- `< FunctionName Description >` - Function documentation
+- `< ShapeName Description >` - Shape documentation  
+- `< ShapeName.field Description >` - Field-specific documentation
+- `< module:FunctionName Description >` - External function documentation
+
 ## Assignment and Variables
 
 Local variables can be assigned and referenced inside functions. These are
@@ -508,19 +640,41 @@ $name = "Alice"          # Assign and pass "Alice" forward
 $count = data.length     # Assign length and pass length forward
 ```
 
-### Pipeline Value Capture
+### Pipeline Checkpoint Labels
 
-A variable assignment can be made 
-The `$in` reference captures the current value flowing through the pipeline 
-without interrupting the flow. This enables side-channel data extraction.
-
-This isn't consistently needed, because the fields in this structure contribute
-to the active field lookup.
+Pipeline expressions can include checkpoint labels using `!label` to mark intermediate states for debugging, error handling, or conditional logic. Labels can target either pipeline-scoped checkpoints (`&name`) or function-scoped variables (`$name`).
 
 ```comp
-config_path -> $path = $in -> :io:read_data -> process -> $path -> :fs:delete
+# Pipeline-scoped labels - cleaned up when pipeline expression ends
+user_input -> :sanitize -> !label &clean -> :validate -> !label &valid -> :process -> :save
+
+# Function-scoped labels - persist until function end
+file_path -> :fs:open -> !label $fd -> :fs:get_size -> !label $file_size
+
+# Use labels in error handling within same pipeline
+risky_data -> !label &input -> :validate -> :process -> !label &result
+!> {error -> "Pipeline failed with input: ${&input}, reached: ${&result}"}
+
+# Use function-scoped labels across multiple statements
+{$fd "first line\n"} -> :fs:write
+{$fd "second line\n"} -> :fs:write
+# $fd automatically cleaned up at function end
+
+# Labels for conditional logic
+data -> :parse -> !label &parsed 
+-> parsed.type = "json" ? :json:process | :xml:process 
+-> !label &processed -> :finalize
 ```
 
+**Label Scope Rules:**
+- **Pipeline labels (`&name`)**: Only valid within their defining pipeline expression, automatically cleaned up when pipeline ends
+- **Function labels (`$name`)**: Valid throughout the function scope, cleaned up when function exits
+- Each pipeline maintains its own `&label` namespace independent of other pipelines
+- Function-scoped `$labels` share the same namespace as local variables
+- Labels capture the data state at their position in the pipeline
+
+**Resource Management:**
+Function-scoped labels are particularly useful for resources that need to persist across multiple operations, with automatic cleanup handled by Comp's scope management system.
 
 ### Spread Assignment
 
@@ -537,72 +691,91 @@ user ..?= {preferences={theme="dark"}}
 user ..*= {name="Updated Name"}
 ```
 
-## Field Access and Quoting
-
-Field access uses dot notation with special quoting rules to handle different types of field names. Most identifiers work without quotes, while special cases require explicit quoting.
-
-### Field Access Rules
-
-```comp
-# String identifiers - no quotes
-user.profile.name
-
-# Tags - no quotes (visually distinct)
-config.#priority#high.handler
-
-# Other types - quotes required
-matrix.'0'.'1'.value        # Numbers
-settings.'true'.enabled     # Booleans
-data.'"complex key"'.value  # Strings with special characters
-```
-
 ## Context and Scoping
 
-Comp uses explicit variable prefixes to manage different scopes and provide dependency injection. This system enables clean separation between local state, shared context, and global application state.
+Comp uses explicit variable prefixes to manage different scopes and provide dependency injection. Field name resolution follows a hierarchical lookup chain that provides predictable variable access across function calls.
 
-(Need to define field name lookups use a combined stack of namespaces using
-$out -> $in -> $mod and -> $app)
+### Scope Hierarchy and Field Lookup
 
-### Context Stack
+When resolving field names, Comp searches through scopes in this specific order:
 
-The context system provides hierarchical dependency injection that flows through pipeline operations. This eliminates explicit parameter passing for cross-cutting concerns like logging and database connections.
-
+1. **`$out`** - Output context (return values being constructed)
+2. **`$in`** - Input context (current pipeline data)  
+3. **`$mod`** - Module context (shared module state)
+4. **`$app`** - Application context (global application state)
 
 ```comp
-$mod.database.connection = "prod://server"
-$mod.logger.level = "DEBUG"
-
-# Context flows through pipelines
-data -> process_with_logging -> save_to_database
+!func process_user ~{name ~string} = {
+    $mod.logger.level = "DEBUG"  # Module-level setting
+    $app.current_session = session_id  # Application-level state
+    
+    # Field lookup searches: $out -> $in -> $mod -> $app
+    greeting = "Hello ${name}"  # 'name' found in $in (input data)
+    log_level = logger.level    # 'logger.level' found in $mod
+    session = current_session   # 'current_session' found in $app
+}
 ```
 
-### Application State
+### Context Modifications and Persistence
 
-Global application state uses explicit `$app` variables to make shared mutable state visible and intentional. This reduces hidden dependencies while providing necessary shared storage.
-
-```comp
-$app.current_user = authenticated_user
-$app.session_id = session.generate()
-
-# Application state accessible throughout program
-current_permissions = $app.current_user.permissions
-```
-
-### Thread Safety
-
-Context isolation at thread creation prevents race conditions and unexpected cross-thread modifications. Each thread gets its own copy of the parent's context at spawn time.
+Context changes are tied to the currently executing function scope and automatically inherit down to called functions. The scope of modifications depends on the assignment operator used:
 
 ```comp
-# Main thread context
-$mod.processing.mode = "batch"
-
-worker_thread = spawn.{
-    # Thread gets copy of parent context
-    $mod.processing.mode = "realtime"  # Only affects this thread
-    heavy_computation -> results
+!func setup_environment = {
+    # Weak assignment - only sets if not already defined
+    $mod.database.timeout ?= 30
+    
+    # Standard assignment - overwrites for current function scope
+    $mod.database.connection = production_url
+    
+    # Strong assignment - persists beyond current function
+    $mod.database.pool_size *= 10
+    
+    # Call child function - inherits modified context
+    result = initialize_database  # Sees all above modifications
 }
 
-# Main thread context unchanged
+# After setup_environment completes:
+# - timeout and connection revert to previous values  
+# - pool_size persists due to strong assignment (*=)
+```
+
+### Context Stack Inheritance
+
+Each function call creates a new context frame that inherits from its parent. Changes are visible to child functions but isolated from parent unless using strong assignment:
+
+```comp
+!func parent_function = {
+    $mod.config.debug = true
+    
+    child_result = child_function  # Child sees debug=true
+    # debug setting reverts after child_function returns
+}
+
+!func child_function = {
+    $mod.config.verbose *= true  # Persists beyond this function
+    debug_enabled = config.debug  # Accesses parent's debug setting
+}
+```
+
+### Thread Safety and Context Isolation
+
+When creating new threads, each thread receives a copy of the parent's context at spawn time, preventing race conditions:
+
+```comp
+!func spawn_workers = {
+    $mod.worker.batch_size = 100
+    
+    # Each worker thread gets independent copy of context
+    worker1 = spawn.{
+        $mod.worker.batch_size = 50  # Only affects this thread
+        heavy_computation
+    }
+    
+    worker2 = spawn.{
+        batch_size  # Still sees original value of 100
+    }
+}
 ```
 
 ### Configurable Number Operators
@@ -620,6 +793,256 @@ $mod.number.rounding = math.half_up  # Rounding method
 $mod.number.int = math.round       # Fractional to integer conversion
 ```
 
+## Field Access and Quoting
+
+Field access uses dot notation with special quoting rules to handle different types of field names. Simple identifiers work without quotes, while expressions and complex values require single quotes.
+
+### Field Access Rules
+
+```comp
+# String identifiers - no quotes needed
+user.profile.name
+config.database.timeout
+
+# Tags - no quotes needed (visually distinct with mixed delimiters)
+config.#priority.high.handler
+status.#workflow.pending.priority
+
+# Variables, expressions, and complex values - quotes required
+matrix.'$row'.'$col'.value           # Variables as field names
+settings.'(x + y)'.result            # Expressions as field names  
+data.'"complex key"'.value           # Strings with special characters
+positions.'{x=10 y=20} ~Point'       # Typed structures as field names
+```
+
+### Lookup Fallback Operations
+
+Field access can include fallback values using the `|` operator when a field doesn't exist:
+
+```comp
+# Basic fallback for missing fields
+user_name = user.name | "Anonymous"
+timeout = config.database.timeout | 30
+
+# Fallback with complex expressions
+location = positions.$current_point | {x=0 y=0} ~Point
+status = user.account.status | #account#inactive
+
+# Chained lookups with fallback
+display_name = user.profile.display_name | user.name | user.email | "Unknown User"
+
+# Fallback in pipeline expressions
+user.preferences.theme | "default" -> :ui:apply_theme
+```
+
+The fallback operator provides a default value when field access returns undefined, enabling robust data access patterns without explicit error checking.
+
+### Structure Keys with Types
+
+Structures can be used as field keys when explicitly typed. The field remembers the key type for efficient lookup and automatic type conversion:
+
+```comp
+# Create typed structure keys
+$origin = {x=0 y=0} ~Point
+$user_id = :generate_guid
+
+$data = {
+    '$origin' = "spawn_point"                    # Variable as typed key
+    '{x=10 y=20} ~Point' = "checkpoint_alpha"   # Direct typed structure as key
+    '$user_id' = {name="Alice" level=5}         # GUID as key
+}
+
+# Lookup with automatic type conversion
+location = data.{x=0 y=0}              # Converts to Point type for lookup
+location = data.$origin                # Direct variable lookup
+user_data = data.(:generate_guid -> existing_id)  # Converts result to Guid type
+```
+
+### Key Replacement with Equivalent Types
+
+When creating new structures with spread assignment, keys that convert to the same internal representation will replace existing keys rather than creating duplicates:
+
+```comp
+# Original structure with Point2d key
+$data = {
+    '{x=1 y=1} ~Point2d' = "2d_value"
+    other_field = "unchanged"
+}
+
+# Spread assignment with Point3d key that represents same coordinate
+$data ..= {'{x=1 y=1 z=0} ~Point3d' = "3d_value"}
+
+# Result: Point3d key replaces Point2d key (same coordinate representation)
+# $data now contains:
+# {
+#     '{x=1 y=1 z=0} ~Point3d' = "3d_value"  # Replaced the equivalent Point2d key
+#     other_field = "unchanged"               # Preserved from spread
+# }
+
+# All lookups that convert to the same representation find the current value
+location1 = data.{x=1 y=1}              # Converts to Point3d, finds "3d_value"
+location2 = data.{x=1 y=1} ~Point2d     # Point2d converts to Point3d representation
+location3 = data.{x=1 y=1 z=0} ~Point3d # Direct match, finds "3d_value"
+```
+
+This ensures that structures maintain logical consistency - there is only one value per unique key representation, with the most recent assignment taking precedence through spread operations.
+
+### Library Function Return Types
+
+Library functions should return explicitly typed structures to enable their use as keys:
+
+```comp
+!func create_point ~{x ~number y ~number} = {
+    {x=x y=y z=0.0} ~Point  # Returns properly typed Point structure
+}
+
+!func generate_session_id = {
+    random_data -> format_as_guid -> $result ~Guid
+}
+
+# Typed returns can be used directly as keys
+$session = generate_session_id
+$location = create_point{x=5 y=3}
+$game_state = {
+    '$session' = player_data
+    '$location' = {enemies=[] items=["sword"]}
+}
+```
+
+## Module System and Dependencies
+
+Comp supports both single-file modules (`.comp` extension) and directory-based modules (containing `.coms` files) for organizing code at different scales.
+
+### Module Types
+
+**Single-file modules** contain complete functionality in one `.comp` file:
+```
+graphics.comp          # Complete graphics utilities module
+math-utils.comp        # Mathematical operations module
+```
+
+**Directory modules** organize related functionality across multiple `.coms` files:
+```
+graphics/              # Directory module
+├── shapes.coms        # Shape rendering functions
+├── transforms.coms    # Transformation utilities
+├── rendering.coms     # Core rendering engine
+└── colors.coms        # Color manipulation
+```
+
+### Package Metadata and Dependencies
+
+Modules define package information and dependencies using `$mod` context variables:
+
+```comp
+$mod.package = {
+    name = "Graphics Utilities" 
+    version = "2.1.3"
+    author = "Graphics Team <team@company.com>"
+    description = "High-performance 2D and 3D graphics primitives"
+    website = "https://github.com/company/graphics"
+}
+
+$mod.dependencies = {
+    math = "@stdlib/math@2.1/math.comp"
+    color = "@company/color-theory@1.4/color.comp"
+}
+```
+
+### Module Entry Points and Special Behaviors
+
+Modules can define an `!entry` function for initialization logic. The module system guarantees that all regular dependencies complete their `!entry` functions before the current module's `!entry` runs, ensuring a stable foundation for extension and configuration.
+
+```comp
+# Standard module (default behavior)
+!entry = {
+    :log("Module initialized")
+}
+
+# Module extending from dependencies with guaranteed order
+$mod.dependencies = {
+    base_emotions = "@psychology/emotions@1.2/emotions.comp"
+}
+
+$mod.entry.features = {#entry.modifies_tags}
+
+!entry = {
+    # base_emotions module has completed !entry, so its tags are finalized
+    # Safe to extend from stable tag hierarchy
+    workplace_emotions.base = ..base_emotions#emotions
+    workplace_emotions.professional = {motivated, focused, stressed}
+    workplace_emotions.meeting = {engaged, bored, frustrated}
+}
+
+# Module with manual dependency control
+$mod.entry.features = {#entry.manual_dependencies #entry.modifies_tags}
+
+$mod.dependencies = {
+    animals = "@taxonomy/animals@2.1/animals.comp"  # Auto-initialized
+}
+
+$mod.manual_dependencies = {
+    graphics = "@engines/graphics@4.1/graphics.comp"  # Manual control
+}
+
+!entry = {
+    # animals module already completed - can safely extend its tags
+    local_animals.base = ..animals#creatures
+    
+    # Initialize manual dependencies conditionally
+    $has_gpu = :detect_gpu_capability
+    $has_gpu ? :initialize_module("graphics") | {}
+    
+    # Configure tags based on available capabilities
+    local_animals.rendered = $has_gpu ? {dragon, phoenix} | {cat, dog}
+}
+```
+
+**Entry Feature Flags:**
+- `#entry.manual_dependencies` - Module manually initializes some dependencies
+- `#entry.modifies_tags` - Module modifies tag hierarchies during initialization
+- `#entry.modifies_shapes` - Module modifies shape definitions during initialization
+- `#entry.platform_conditional` - Module behavior varies by platform/architecture
+
+### Static Analysis Hints for Dynamic Modules
+
+Modules that modify types or tags during initialization can provide hints to help static analysis tools and IDEs offer better developer experience:
+
+```comp
+$mod.entry.features = {#entry.modifies_tags #entry.modifies_shapes}
+
+# Hints for static analysis tools
+$mod.entry.hints = {
+    # Shape will be similar to existing type after entry completes
+    Vector = "~:math:SimpleVector"
+    Matrix = "~:math:Matrix3D"
+    
+    # Tag will have similar hierarchy to existing tag
+    "#animal" = "#zoo#animals"
+    "#status" = "#workflow#states"
+}
+
+!entry = {
+    # Actual runtime configuration may differ from hints
+    $platform = :detect_platform
+    Vector = $platform = "gpu" ? configure_gpu_vector | configure_cpu_vector
+    
+    # Tag hierarchy based on detected features  
+    animal.detected = :scan_available_creatures -> build_hierarchy
+}
+```
+
+**Benefits of Static Hints:**
+- IDEs can provide autocompletion using similar types as templates
+- Static analysis tools can catch basic errors without runtime initialization
+- Developers get immediate feedback while coding
+- Hints serve as documentation of expected runtime behavior
+- Tools can warn when hints diverge significantly from actual usage
+
+The hints are advisory only - the actual runtime behavior takes precedence, but the hints provide a reasonable approximation for development-time tooling.
+
+After all `!entry` functions complete, the module system locks down - no further modifications to shapes, tags, or dependencies are allowed, ensuring static analysis tools have complete and stable information.
+
 ## Error Handling
 
 Error handling is integrated into pipeline flow rather than exceptions. Errors are special tagged structures that skip normal processing and flow to error handlers.
@@ -631,6 +1054,52 @@ file_path -> :io:read !> {error -> "Could not read file: ${error.path}"}
 -> validate_data !> {error -> "Data validation failed: ${error.details}"}
 -> process_successfully
 ```
+
+## Platform-Specific Variations
+
+Comp supports conditional compilation through platform-specific function and shape definitions, allowing fine-grained customization without separate files for minor variations.
+
+### Platform-Specific Definitions
+
+Functions and shapes can have platform or architecture-specific variants using dotted suffixes:
+
+```comp
+# Platform-specific file operations
+!func file_open.win32 ~{path ~string} = {
+    path -> win32:CreateFile -> handle_to_fd
+}
+
+!func file_open.linux ~{path ~string} = {
+    path -> posix:open -> validate_fd  
+}
+
+!func file_open ~{path ~string} = {  # Generic fallback
+    path -> generic:file_system_open
+}
+
+# Architecture-specific data layouts
+!shape buffer.x64 = {
+    data ~buffer 
+    size ~number 
+    alignment ~number = 8
+}
+
+!shape buffer.arm64 = {
+    data ~buffer
+    size ~number  
+    alignment ~number = 4  # Different alignment requirements
+}
+```
+
+### Selection and Fallback Resolution
+
+The compiler selects the most specific match first, falling back to less specific variants:
+
+1. Most specific: `function.platform.architecture` (e.g., `file_open.linux.arm64`)
+2. Platform-specific: `function.platform` (e.g., `file_open.linux`)  
+3. Generic fallback: `function` (e.g., `file_open`)
+
+This system allows keeping related platform variants together for easier maintenance while providing clean fallback behavior for unsupported combinations.
 
 ## Key Standard Library Functions
 
@@ -679,18 +1148,34 @@ These functions are designed to work seamlessly with Comp's pipeline operators a
 - **Tag Dispatch**: Compile-time resolution of polymorphic function calls
 - **Numeric Specialization**: Optimize common numeric operations despite unified type
 
+### Phase 1: Core Language
+- Basic pipeline operators and struct manipulation
+- Structural typing and shape inference
+- Standard library for common operations
+
+### Phase 2: Advanced Features  
+- Tag system and hierarchical polymorphism
+- Context stack and dependency injection
+- Lazy evaluation and optimization
+
+### Phase 3: Tooling Ecosystem
+- Syntax highlighting and language server
+- Package management and module system
+- Development tools and debugging support
+
 ## Symbol Reference
 
 **Pipeline and Flow Control:**
 - `->` - Basic pipeline operator, passes data to next function
 - `=>` - Iteration pipeline, applies function to each element in collection
-- `?` and `|` - Ternary conditional operators for branching (`condition ? true_block | false_block`)
+- `?` and `|` - Conditional operators for branching (`condition ? true_block | false_block`) and field access fallback (`field | default_value`)
 - `!>` - Failure handling operator, catches and processes error structures
 
 **Type and Shape System:**
 - `~` - Type annotation separator (`field ~type`)
 - `~module~Shape` - Shape references  
-- `#tag#value` - Tag references and hierarchical tag values
+- `#tag.hierarchy.value` - Tag references with dot-separated hierarchical navigation
+- `#module#tag.hierarchy.value` - Module-qualified tags with mixed delimiters
 - `" "` - Quoting to create string literals
 - `""" """` - Quoting for multiline string literals
 - `' '` - Single quote to use an expression or value as field name
@@ -706,17 +1191,22 @@ These functions are designed to work seamlessly with Comp's pipeline operators a
 - `!entry` - Module entry point function definition
 - `!super` - Call parent implementation in tag hierarchy
 - `!delete` - Use with assignment to remove fields
+- `!label` - Pipeline checkpoint label definition
 
 **Field access and assignment:**
-- `=` - assign to value
-- `*=` - strong assignment (assigns and protects)
+- `=` - assign to value or comparison operator (context-dependent)
+- `*=` - strong assignment (persists beyond current scope, acts like `=` for locals)
 - `?=` - weak assignment (ignore if already defined)
+- `.field = value` - field assignment on structures (creates new immutable structure)
+- `.field ?= value` - weak field assignment (only sets if field doesn't exist)
+- `.field *= value` - strong field assignment (acts like `=` for local variables)
 - `..value` - spread assignment inside a block
-- `..*value` - strong spread, as if each field was strong assigned
-- `..?value` - weak spread, as if each field as weak assigned
+- `..*value` - strong spread assignment
+- `..?value` - weak spread assignment
 - `..=` - shorthand for spread assigning a value to itself with changes
 - `..*=` - shorthand for strong spread assigning a value to itself with changes
 - `..?=` - shorthand for weak spread assigning a value to itself with changes
+- `&label` - reference to pipeline checkpoint label
 
 **Mathematical operators:**
 - `+` `-` `/` `*` - Only for basic number types, follows Python's definitions

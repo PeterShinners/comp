@@ -1,0 +1,125 @@
+// Lock-free stack using linked nodes and atomic head pointer
+// Simpler approach focusing on the core lock-free algorithm
+
+$mod.dependencies = {
+    atomic = "@systems/atomic@1.0/atomic.comp"
+}
+
+!shape StackNode = {
+    data ~string
+    next ~StackNode | undefined
+}
+
+!shape LockFreeStack = {
+    head ~atomic~StackNode
+}
+
+!func create_stack = {
+    {head = undefined -> :atomic:new} ~LockFreeStack
+}
+
+!func push ~{stack ~LockFreeStack, data ~string} = {
+    $new_node = {data=data next=undefined} ~StackNode
+    
+    :retry_until_success [
+        // Load current head
+        current_head = stack.head -> :atomic:load -> !label &current_head
+        
+        // Set new node to point to current head
+        $new_node.next = &current_head
+        
+        // Try to atomically update head to new node
+        stack.head -> :atomic:compare_exchange{
+            expected = &current_head
+            desired = $new_node
+        } -> .success ? #loop.break | #loop.continue
+    ]
+    
+    stack
+}
+
+!func pop ~{stack ~LockFreeStack} = {
+    :retry_until_success [
+        // Load current head
+        current_head = stack.head -> :atomic:load -> !label &current_head
+        
+        // Check if empty
+        &current_head = undefined ? {
+            success = false 
+            data = undefined
+        } -> #loop.break | {}
+        
+        // Try to swing head to next node
+        stack.head -> :atomic:compare_exchange{
+            expected = &current_head
+            desired = &current_head.next
+        } -> .success ? {
+            success = true
+            data = &current_head.data
+        } -> #loop.break | #loop.continue
+    ]
+}
+
+!func test_stack = {
+    $stack = :create_stack
+    
+    // Push some items
+    $stack -> :push{data="first"}
+    $stack -> :push{data="second"} 
+    $stack -> :push{data="third"}
+    
+    // Pop them back
+    :while {true} [
+        result = $stack -> :pop
+        result.success ? {
+            "Popped: ${result.data}" -> :io:print
+        } | #loop.break
+    ]
+}
+
+
+/*  C++ comparison using atomic operations */
+
+#include <atomic>
+#include <memory>
+
+template<typename T>
+class LockFreeStack {
+private:
+    struct Node {
+        T data;
+        std::atomic<Node*> next;
+        Node(T data) : data(std::move(data)), next(nullptr) {}
+    };
+    
+    std::atomic<Node*> head;
+    
+public:
+    LockFreeStack() : head(nullptr) {}
+    
+    void push(T item) {
+        auto new_node = std::make_unique<Node>(std::move(item));
+        Node* current_head = head.load();
+        
+        do {
+            new_node->next = current_head;
+        } while (!head.compare_exchange_weak(current_head, new_node.release()));
+    }
+    
+    bool pop(T& result) {
+        Node* current_head = head.load();
+        
+        do {
+            if (!current_head) return false;
+            
+        } while (!head.compare_exchange_weak(current_head, current_head->next));
+        
+        result = std::move(current_head->data);
+        delete current_head;
+        return true;
+    }
+    
+    bool empty() const {
+        return head.load() == nullptr;
+    }
+};
