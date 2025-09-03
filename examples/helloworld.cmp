@@ -1,4 +1,0 @@
-// Hello World example in Comp language, getting name from envvars
-
-$names = {"USERNAME" "USER" "LOGNAME"} => os.getenv
-{$names fallback="World"} -> struct.pickone -> "Hello ${}" -> io.print

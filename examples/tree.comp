@@ -1,0 +1,30 @@
+!shape ~TreeNode = {
+    value ~number
+    left ~TreeNode? = {}
+    right ~TreeNode? = {}
+}
+
+!func :insert_value ~{tree ~TreeNode? value ~number} -> ~TreeNode = {
+    tree | {value=value left={} right={}} -> (
+        value < tree.value ?
+            {...tree left=(:insert_value {tree=left value=value})} |
+            {...tree right=(:insert_value {tree=right value=value})}
+    )
+}
+
+!func :find_value ~{tree ~TreeNode? target ~number} -> ~bool = {
+    tree | false -> (
+        value == target | (
+            target < value ?
+                :find_value {tree=left target=target} |
+                :find_value {tree=right target=target}
+        )
+    )
+}
+
+!main = {
+    $tree = {} ~TreeNode?
+    {5 3 8 1 7 9} => {tree=$tree value=@in} -> :insert_value
+    
+    $tree -> :tree_size -> :io:print
+}
