@@ -1,10 +1,10 @@
-# Comp Language Specification v2.0
+# Comp Language Specification v2.1
 
 ## Overview
 
 Comp is a programming language designed for data transformation, tool building, and computational workflows. The language emphasizes readability, immutability, and the natural flow of data through processing pipelines.
 
-All data is treated as immutable structures that flow through transformation functions using left-to-right pipeline operators.
+All data is treated as immutable structures that flow through transformation functions using left-to-right pipeline operators. The language draws theoretical inspiration from CUE's lattice-based type system and constraint model, while focusing on computational transformation rather than pure validation.
 
 ## Core Philosophy
 
@@ -59,6 +59,25 @@ Shapes define the expected structure and types of data:
 }
 ```
 
+### Union Types and Built-in Nil
+
+The language provides built-in shapes including `~nil` for representing empty/null values:
+
+```comp
+// Built-in global shapes (cannot be redefined)
+~string     // String type
+~number     // Number type  
+~bool       // Boolean type
+~nil        // Empty/null type
+
+// Union types require tildes on each component
+!shape ~OptionalUser = ~User|~nil
+!shape ~DatabaseId = ~string|~number|~nil
+
+// Type aliases for common patterns
+!shape ~Background = ~Image|~css~Gradient|~color~Rgb
+```
+
 ### Shape-Based Compatibility
 
 Functions accept any data containing the required structure. Extra fields are ignored, enabling flexible data transformation:
@@ -79,12 +98,26 @@ Type annotations use tildes to connect fields with their types:
 
 ```comp
 !shape ~Rectangle = {width ~number height ~number color ~string}
-!func :area ~Rectangle = {width * height}
+!func :area ~Rectangle -> ~number = {width * height}
 
 // Type validation in pipelines
 user_data ~User -> :validate -> :save
 value ~string -> :display
 complex_shape ~module~ComplexType -> :process
+```
+
+### Type Constraints (Future Feature)
+
+The language reserves syntax for type constraints, though full implementation is deferred:
+
+```comp
+// Proposed constraint syntax (implementation pending)
+~number|min=1|max=100        // Constrained number
+~string|len>5|matches="^[A-Z]"  // String with length and pattern constraints
+~User|age>=18|verified=true   // User with validation constraints
+
+// Constraints would be pure validation, not affecting dispatch
+// All validation would need to be evaluable at compile-time (constexpr)
 ```
 
 ## Pipeline Operators
@@ -140,11 +173,17 @@ user.name | "Anonymous" -> :display
 settings.timeout | 30 -> :network:configure
 ```
 
-Note: `|` only triggers when the field doesn't exist, not when the field has a falsy value.
+**Important**: `|` only triggers when the field doesn't exist, not when the field has a falsy value like `""`, `0`, or `false`.
 
 ## Failure Propagation
 
 When any pipeline operation (`->`, `=>`) encounters a failure structure as input, all subsequent operations in that pipeline are automatically skipped. This creates consistent error handling across function calls, structure generation, and iteration.
+
+```comp
+// If any step fails, remaining steps are skipped
+data -> :step1 -> :step2 -> :step3
+users => :transform -> :validate  // Per-item failure skipping
+```
 
 ## Privacy System
 
@@ -160,16 +199,19 @@ Functions, shapes, and tags can be marked private with `&` suffix, making them a
 
 ### Private Data Attachment
 
-Each module can attach private data to any structure using `&` syntax:
+Each module can attach private data to any structure using `&` syntax. Other modules cannot access private data attached by different modules:
 
 ```comp
-// Create structure with private data
+// Create structure with private data inline
 $user = {login="pete" email="pete@example.com"}&{session="abc123" id=789}
 
 // Access private data (only in same module)
 $user.login          // "pete" - public field
-$user&.session       // "abc123" - private field
-$user&.id           // 789 - private field
+$user&.session       // "abc123" - private field (same module only)
+$user&.id           // 789 - private field (same module only)
+
+// Manual private data assignment
+$user& = {session="abc123", internal_id=789}
 ```
 
 ### Private Data Inheritance
@@ -205,6 +247,42 @@ $merged = {field1=$source1.name, field2=$source2.email}
 // First reference wins: $source1& merged before $source2&
 ```
 
+## Structure Manipulation
+
+### Deep Field Assignment
+
+Field assignments can modify nested structures, automatically creating new immutable copies:
+
+```comp
+// Deep assignment creates new structures at each level
+tree.left.right.value = 42
+
+// Equivalent to creating new nested structures with spread
+tree = {...tree 
+    left = {...tree.left 
+        right = {...tree.left.right 
+            value = 42
+        }
+    }
+}
+```
+
+### Deep Spread Updates
+
+Spread operators support deep field modifications:
+
+```comp
+// Deep updates with spread syntax
+user = {...user 
+    profile.settings.theme = "dark"
+    profile.preferences.notifications = false
+    account.lastLogin = :time:now
+}
+
+// Tree manipulation example
+tree = {...tree left.right.value = 12}
+```
+
 ## Variable Scopes and Labels
 
 ### Pipeline Labels
@@ -219,6 +297,12 @@ path -> :fs:open -> !label $fd -> :process_file
 // Statement-scoped label (limited to current pipeline)  
 data -> :validate -> !label ^clean -> :transform
 // ^clean only available until this pipeline ends
+
+// Reuse labeled values
+^processed = data -> :expensive_transform
+^processed -> :validate
+^processed -> :cache
+^processed -> :send_notification
 ```
 
 ### Scoped Namespaces
@@ -236,15 +320,28 @@ Access different levels of context using `@` prefix:
 
 ### Basic Function Syntax
 
+Functions use consistent definition syntax with colon prefixes:
+
 ```comp
-!func :function_name ~InputShape = {
+!func :function_name ~InputShape -> ~OutputShape = {
     // Function body - single expression that transforms input
     input -> :some_operation -> {result=@.value}
 }
 
-// With return type annotation
-!func :calculate ~Point -> ~number = {
+// Simple function without explicit types
+!func :calculate = {
     input.x * input.y
+}
+```
+
+### Application Entry Points
+
+Complete programs use `!main` as the execution entry point:
+
+```comp
+!main = {
+    $user = {"USERNAME" "USER" "LOGNAME"} => :os:getenv
+    $user -> {:struct:pickone | "World"} -> "Hello ${}" -> :io:print
 }
 ```
 
@@ -269,8 +366,8 @@ data -> :process_list handler={item -> item.name}
 !shape ~User = {
     name ~string
     age ~number
-    emails ~string[]     // Array of strings
-    tags ~string[2-4]    // 2 to 4 string elements (syntax needs validation)
+    emails ~string[]           // Array of strings
+    tags ~string[2-4]         // 2 to 4 string elements (syntax needs validation)
 }
 ```
 
@@ -411,12 +508,95 @@ data -> :risky_operation !> {error="Failed", input=@}
 result -> :validate !> :use_default_value
 ```
 
+## Example Programs
+
+### Hello World
+
+```comp
+!main = {
+    $names = {"USERNAME" "USER" "LOGNAME"} => :os:getenv 
+    $names -> {:struct:pickone | "World"} -> "Hello ${}" -> :io:print
+}
+```
+
+### Shopping Cart Example
+
+```comp
+!shape ~Item = {
+    name ~string
+    price ~number
+    quantity ~number
+}
+
+!shape ~Cart = {
+    items ~Item[] = {}
+    discount ~number = 0
+}
+
+!func :add_item ~{cart ~Cart item ~Item} = {
+    $items = cart.items => name == item.name ?| item | @in
+    {...cart items=$items}
+}
+
+!func :cart_total ~Cart = {
+    items => (price * quantity) -> :sum -> (@in * (1 - discount))
+}
+
+!main = {
+    $cart = {} ~Cart
+    {
+        {name="Apple" price=1.00 quantity=2}
+        {name="Banana" price=0.50 quantity=3}
+        {name="Apple" price=1.00 quantity=1}
+    } => {cart=$cart item=@in} -> :add_item -> !label $cart
+
+    $cart -> :cart_total -> :io:print
+}
+```
+
+### Tree Data Structure
+
+```comp
+!shape ~TreeNode = {
+    value ~number
+    left ~TreeNode|~nil = {}
+    right ~TreeNode|~nil = {}
+}
+
+!func :insert_value ~{tree ~TreeNode|~nil value ~number} -> ~TreeNode = {
+    tree | {value=value left={} right={}} -> (
+        value < tree.value ?|
+            {...tree left=(:insert_value {tree=left value=value})} |
+            {...tree right=(:insert_value {tree=right value=value})}
+    )
+}
+
+!func :find_value ~{tree ~TreeNode|~nil target ~number} -> ~bool = {
+    tree | false -> (
+        value == target | (
+            target < value ?|
+                :find_value {tree=left target=target} |
+                :find_value {tree=right target=target}
+        )
+    )
+}
+
+!main = {
+    $tree = {} ~TreeNode|~nil
+    {5 3 8 1 7 9} => {tree=$tree value=@in} -> :insert_value -> !label $tree
+    
+    $tree -> :tree_size -> :io:print     // 6
+    {tree=$tree target=7} -> :find_value -> :io:print  // true
+    {tree=$tree target=4} -> :find_value -> :io:print  // false
+}
+```
+
 ## Implementation Notes
 
 ### Core Language Features
 - Basic pipeline operators and struct manipulation
 - Structural typing and shape inference  
-- Private data attachment system
+- Private data attachment system with automatic inheritance
 - Failure propagation and error handling
 - Standard library for common operations
 
@@ -426,9 +606,17 @@ result -> :validate !> :use_default_value
 - Module loading with conditional overrides
 - Introspection and metadata access
 - Template processing and string interpolation
+- Deep field assignment and spread operations
+
+### Compile-Time Evaluation (Constexpr)
+- Certain functions must be evaluable at compile-time for static analysis
+- Required for `!entry` module initialization
+- Future constraint validation will require constexpr-compatible functions
+- Enables optimization and early error detection
 
 ### Future Considerations
-- Binary buffer types for extension interoperability
+- Full constraint system implementation with user-defined validators
+- Binary buffer types for extension interoperability  
 - Performance optimizations for large data processing
 - Development tooling and debugging support
 - Package management and distribution
@@ -437,8 +625,9 @@ result -> :validate !> :use_default_value
 - Module dependency sharing between applications and libraries  
 - Shape size constraint syntax validation (`[2-4]` notation)
 - Platform-specific module loading semantics
-- Complex conditional module resolution patterns
+- Constraint composition and validation timing
+- Constexpr function capabilities and limitations
 
 ---
 
-*This specification defines the core language features and provides implementation guidance for the Comp programming language, emphasizing explicit data transformation through immutable pipeline operations.*
+*This specification defines the core language features and implementation guidance for the Comp programming language, emphasizing explicit data transformation through immutable pipeline operations with elegant error handling and privacy systems.*
