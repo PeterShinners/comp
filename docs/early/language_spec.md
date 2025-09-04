@@ -226,6 +226,48 @@ Type conversions between Comp types:
 
 ## Implementation Details
 
+### Pipeline Operations
+
+#### Spread Arrow Operator (`..>`)
+
+The spread arrow merges additional fields into the flowing data:
+
+```comp
+// Equivalent expressions
+data ..> {min=0 max=10} -> :clamp
+data -> {..$in min=0 max=10} -> :clamp
+
+// Works with functions returning structures
+data ..> :get_defaults -> :process
+
+// Can spread from namespaces
+data ..> @func -> :process
+```
+
+This operator is particularly useful for adding parameters to a value flowing through a pipeline without wrapping it in a nested structure.
+
+### Namespace Scoping
+
+#### Scope Hierarchy
+1. `@in` - Function input parameters
+2. `@func` - Function-local scope (automatically cleared on exit)
+3. `@mod` - Module-level constants and configuration
+4. `@env` - Environment-wide settings
+
+#### Function Scope Behavior
+The `@func` namespace provides function-local storage that is automatically cleaned up:
+
+```comp
+!func process(data) = {
+    @func.retries = 3        // Set function-scoped value
+    @func.timeout = 30       // Available throughout function
+    
+    data -> :fetch -> :parse  // Can access @func values
+}  // @func namespace cleared here
+```
+
+Unlike `@mod` and `@env`, the `@func` namespace is isolated to each function invocation and cannot persist beyond the function's scope.
+
 ### Structure Access Patterns
 
 #### Named Field Access
