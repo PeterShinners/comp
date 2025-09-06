@@ -21,26 +21,8 @@ comp/
 │       └── grammar.lark # Language grammar definition
 ├── implementation/     # (Currently empty)
 ├── docs/               # Documentation and design notes
-│   └── early/          # Early design documents and examples
-│       ├── 02-syntax_comparison.md
-│       ├── 03-project_knowledge.md
-│       ├── 04-design_decisions.md
-│       ├── 05-design-decisions.md
-│       ├── 06-language_spec.md
-│       ├── 07-language-spec.md
-│       ├── 08-language_spec.md
-│       ├── 10-namespace-tokens.md
-│       ├── 11-units-constblocks-import.md
-│       ├── 12-transact-resource-security.md
-│       └── *.comp      # Example .comp files
-│           ├── cart.comp
-│           ├── cloudflaire-ai.comp
-│           ├── helloworld.comp
-│           ├── io-uring.comp
-│           ├── lockless.comp
-│           ├── nushell.comp
-│           ├── resouce.comp
-│           └── tree.comp
+│   ├── ancient/        # Super old notes extracted from notion
+│   └── early/          # Iterative design docs from claude
 └── tests/              # Test suites
     └── test_specs/     # (Currently empty)
 ```
