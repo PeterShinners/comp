@@ -1,51 +1,94 @@
-# Comp
-Compositional computation language
+# Comp Language Implementation
 
-**Shape-based data flow through chained pipelines**
+A spec-driven implementation of the Comp programming language in Python.
 
-Comp is a programming language designed around immutable data transformation through left-to-right pipelines. All data is treated as structures that flow through transformation functions, creating elegant and readable code for data processing, tool building, and computational workflows.
+## Project Structure
 
-## Core Philosophy
-
-Everything in Comp is data transformation. Instead of imperative commands that modify state, you express programs as pipelines where immutable structures flow through transformation functions. The language automatically handles type compatibility based on data shape rather than rigid type hierarchies.
-
-```comp
-# Read CSV, filter rows, transform data, write output
-"/data/sales.csv" 
--> csv.read 
--> {row -> row.amount > 1000} 
--> {row -> {customer=row.name total=row.amount*1.1}} 
--> csv.write("/output/processed.csv")
+```
+comp/
+├── LICENSE             # Project license
+├── README.md           # This file
+├── specs/              # Language specifications
+│   ├── core-spec.md    # Core language specification
+│   └── examples/       # Example programs
+│       └── basic-examples.md
+├── design/             # Design documents
+│   └── roadmap.md      # Implementation roadmap
+├── tasks/              # Implementation tasks
+│   └── phase0-setup.md # Current phase setup tasks
+├── src/                # Implementation source code
+│   └── comp/
+│       └── grammar.lark # Language grammar definition
+├── implementation/     # (Currently empty)
+├── docs/               # Documentation and design notes
+│   └── early/          # Early design documents and examples
+│       ├── 02-syntax_comparison.md
+│       ├── 03-project_knowledge.md
+│       ├── 04-design_decisions.md
+│       ├── 05-design-decisions.md
+│       ├── 06-language_spec.md
+│       ├── 07-language-spec.md
+│       ├── 08-language_spec.md
+│       ├── 10-namespace-tokens.md
+│       ├── 11-units-constblocks-import.md
+│       ├── 12-transact-resource-security.md
+│       └── *.comp      # Example .comp files
+│           ├── cart.comp
+│           ├── cloudflaire-ai.comp
+│           ├── helloworld.comp
+│           ├── io-uring.comp
+│           ├── lockless.comp
+│           ├── nushell.comp
+│           ├── resouce.comp
+│           └── tree.comp
+└── tests/              # Test suites
+    └── test_specs/     # (Currently empty)
 ```
 
-## Key Features
+## Quick Start
 
-- **Immutable data flow**: All structures are immutable; transformations create new data
-- **Shape-based compatibility**: Functions work with any data that has the required structure
-- **Pipeline syntax**: Left-to-right `->` operators for readable data transformations
-- **Automatic type promotion**: Scalars automatically become structures when needed
-- **Universal data model**: SQL results, JSON, function returns all handled identically
+1. **Review Specs**: Start with `specs/core-spec.md` for language overview
+2. **Check Roadmap**: See `design/roadmap.md` for implementation phases
+3. **Current Task**: Check `tasks/` for current implementation focus
+4. **Run Tests**: `pytest tests/` to verify implementation matches specs
 
-## Design Status
+## Development Workflow
 
-Comp is currently in **early design phase**. The language specification, syntax, and core concepts are being actively developed. This repository contains design documents, syntax explorations, and implementation planning.
+### Spec-Driven Development Process
 
-## Early Design Documents
+1. **Spec First**: Every feature starts with a specification
+2. **Examples Next**: Write example code that should work
+3. **Tasks Breakdown**: Break implementation into small tasks
+4. **Test Driven**: Write tests from examples before implementing
+5. **Implement**: Build feature following the spec
+6. **Validate**: Ensure all examples pass
 
-The `/docs/early-design/` directory contains the foundational design work:
+### Adding a New Feature
 
-- **[Design Decisions](docs/early-design/design-decisions.md)** - Key architectural choices and their rationale
-- **[Syntax Comparison](docs/early-design/syntax-comparison.md)** - How Comp syntax compares to existing languages
-- **[Language Specification](docs/early-design/language-spec.md)** - Detailed technical specification
+1. Write/update specification in `specs/`
+2. Add examples to `specs/examples/`
+3. Create tasks in `tasks/`
+4. Write tests in `tests/`
+5. Implement in `src/comp/`
+6. Update `design/decisions.md` with any design choices made
 
-## Contributing
+## Dependencies
 
-Comp is in active design phase. Comments on language concepts, syntax, and use cases would be benefitial.
+```bash
+pip install lark pytest attrs
+```
 
-## License
+## Current Status
 
-MIT License - see [LICENSE](LICENSE) file for details.
+- [ ] Phase 0: Project Setup
+- [ ] Phase 1: Basic Parser
+- [ ] Phase 2: Core Evaluator
+- [ ] Phase 3: Type System
+- [ ] Phase 4: Standard Library
+- [ ] Phase 5: REPL & Dev Tools
 
----
+## Resources
 
-*Comp is designed for developers who work with data transformation, tool building, and computational workflows. The language emphasizes readability, immutability, and the natural flow of data through processing pipelines.*
+- Original design discussions: [See design/decisions.md]
+- Language philosophy: [See design/philosophy.md]
+- Implementation roadmap: [See design/roadmap.md]
