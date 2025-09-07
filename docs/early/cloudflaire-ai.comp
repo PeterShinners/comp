@@ -1,17 +1,17 @@
 // Cloudflare Worker for vector embeddings and search
 // Original: https://developers.cloudflare.com/vectorize/get-started/embeddings/
 
-@app.model = "@cf/baai/bge-base-en-v1.5"
-@app.vectorize = <hint: ~cloudflare~vec_handle>  // hypothetical syntax
-@app.ai = <hint: ~cloudflare~ai_handle>  // hypothetical syntax
+.mod.model = "@cf/baai/bge-base-en-v1.5"
+.mod.vectorize = <hint: ~cloudflare~vec_handle>  // hypothetical syntax
+.mod.ai = <hint: ~cloudflare~ai_handle>          // hypothetical syntax
 
-@app.dependencies = {
+.ctx.dependencies = {
     cloudflare: !gitmod "@cloudflare/workers-comp@2.7/complib"
 }
 
 !entry = {
-    @app.vectorize = :cloudflare:binding("VECTORIZE")
-    @app.ai = :cloudflare:binding("AI")
+    .mod.vectorize = :cloudflare:binding("VECTORIZE")
+    .mod.ai = :cloudflare:binding("AI")
 }
 
 
@@ -38,10 +38,10 @@
         "This is a story about a hugging emoji"
     }
 
-    {text=$stories}  // automatic @app.model and @app.ai
+    {text=$stories}  // automatic .mod.model and .mod.ai
     -> :cloudflare:ai_run
     -> :iter:enumerate 
-        => {id="${index}" values=value} // automatic @app.vectorize
+        => {id="${index}" values=value} // automatic .mod.vectorize
     -> :cloudflare:vectorize_upsert
 }
 
@@ -50,7 +50,7 @@
     $user_query = "orange cloud"
     
     matches = 
-    {text=$user_query}  // model is supplied from @app.model
+    {text=$user_query}  // model is supplied from .mod.model
     -> :cloudflare:ai_run
     ..> {topK=1}
     -> :cloudflare:vectorize_query

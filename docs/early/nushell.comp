@@ -1,15 +1,16 @@
-@mod.github = !import git @gh/github-comp@1.0/lib
+.mod.github = !import git @gh/github-comp@1.0/lib
 
 !main = {
-    $after = :datetime:now ..> week=-1 -> :datetime:offset
+    $after = :datetime:now ..> -1@time@wk -> :datetime:offset
 
     {repo = "complang/comp" fields = {"createdAt" "reactionGroups" "title" "url"}}
     -> :github:issues -> :loop:filter .{createdAt > $after}
     => {
         issue=@in
-        thumbs = reactionGroups -> :struct:makefields .{content} 
-                 -> #github#content.thumbs_up.totalCount | 0
+        thumbs = reactionGroups 
+        -> :struct:makefields .{content} 
+        -> #github#content.thumbs_up .{totalCount | 0}
     }
     -> :loop:filter .{thumbs > 0}
-    -> :loop:sort .{{thumbs #loop#descend} {issue.createdAt #loop#ascend}}
+    -> :loop:sort .{thumbs {issue.createdAt #loop#ascend}}
     -> issue -> {:take 5}

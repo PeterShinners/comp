@@ -1,0 +1,22 @@
+// Comp version
+!main = {
+    $frequencies = :io:stdin -> :io:read_lines 
+        => :string:split ", " -> :flatten 
+        -> :iter:tally 
+
+    $largest = $frequencies -> :max .{value} -> key
+
+    "The most frequent word is '${largest}'" -> :io:print
+}
+
+
+// Nim version
+import tables, strutils
+
+var wordFrequencies = initCountTable[string]()
+
+for line in stdin.lines:
+  for word in line.split(", "):
+    wordFrequencies.inc(word)
+
+echo "The most frequent word is '", wordFrequencies.largest, "'"
