@@ -10,14 +10,14 @@
 !main = {
     // Build tree from values using fold
     $tree = {{5 3 8 1 7 9} accum={}} 
-        -> :fold .{{tree=accum value} -> :insert_value}
+        -> :fold .{{accum value} -> :insert_value}
     
     // Test finding values
-    {tree=$tree target=7} -> :find_value -> :io:print  // true
-    {tree=$tree target=4} -> :find_value -> :io:print  // false
+    {$tree 7} -> :find_value -> :io:print  // true
+    {$tree 4} -> :find_value -> :io:print  // false
 }
 
-// insert (either at ending or node)
+// inserts
 !func :insert_value ~{tree ~nil value ~number} -> ~TreeNode = {
     {value} ~TreeNode
 }
@@ -29,7 +29,7 @@
 }
 
 
-// find (either at ending or node)
+// finds
 !func :find_value ~{tree ~nil value ~number} -> ~bool = {
     #false
 }

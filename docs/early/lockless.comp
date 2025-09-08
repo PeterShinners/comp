@@ -21,7 +21,7 @@
 !func :push ~{stack ~LockFreeStack, data ~string} = {
     $new_node = {data=data next=undefined} ~StackNode
     
-    :retry_until_success [
+    :retry_until_success .{
         // Load current head
         current_head = stack.head -> :atomic:load -> !label &current_head
         
@@ -32,14 +32,14 @@
         stack.head -> :atomic:compare_exchange{
             expected = &current_head
             desired = $new_node
-        } -> .success ? #loop.break | #loop.continue
-    ]
+        } -> success ? #loop.break | #loop.continue
+    }
     
     stack
 }
 
 !func :pop ~{stack ~LockFreeStack} = {
-    :retry_until_success [
+    :retry_until_success .{
         // Load current head
         current_head = stack.head -> :atomic:load -> !label &current_head
         
@@ -57,7 +57,7 @@
             success = true
             data = &current_head.data
         } -> #loop.break | #loop.continue
-    ]
+    }
 }
 
 !func :test_stack = {
