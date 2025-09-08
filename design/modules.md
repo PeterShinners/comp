@@ -615,6 +615,32 @@ Functions safe for use in `!entry` (compile-time evaluation):
 !import graphics = comp "./graphics.comp"
 ```
 
+
+## Platform-Specific Definitions
+
+Functions and shapes can have platform variants:
+
+```comp
+// Generic definition
+!func :file_open ~{path ~string} = {
+    path -> :posix:open
+}
+
+// Windows-specific override
+!func :file_open.win32 ~{path ~string} = {
+    path -> :win32:CreateFile
+}
+
+// ARM64-specific buffer layout
+!shape ~buffer.arm64 = {
+    data ~bytes
+    alignment ~number = 8
+}
+```
+
+**Resolution Order**: `func.platform.arch` → `func.platform` → `func`
+
+
 ### Development vs Production Configuration
 
 ```comp
