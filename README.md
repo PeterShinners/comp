@@ -13,7 +13,13 @@ comp/
 │   └── examples/       # Example programs
 │       └── basic-examples.md
 ├── design/             # Design documents
-│   └── roadmap.md      # Implementation roadmap
+│   ├── roadmap.md      # Implementation roadmap
+│   ├── builtin-types-operators-units-tags.md
+│   ├── modules-imports-namespaces-entry.md
+│   ├── functions-shapes-blocks-pure.md
+│   ├── structures-spreads-lazy.md
+│   ├── failures-flow-control-pipelines.md
+│   └── resources-transactions.md
 ├── tasks/              # Implementation tasks
 │   └── phase0-setup.md # Current phase setup tasks
 ├── src/                # Implementation source code
