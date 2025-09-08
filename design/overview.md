@@ -25,7 +25,7 @@ and independent ordering of definitions.
 
 ## Example
 
-```javascript
+```comp
 // Hello World example in Comp language
 
 !main = {
@@ -52,15 +52,46 @@ The standard libraries and language code will follow the style guidelines.
     * Prefer the closing curly brace to end on its own line and match the indentation of the line with the leading curly brace.
 * When complicated pipeline contains layers of nesting, consider a double curly brace to easily identify the entry and exit of subsections in the pipeline.
 
+## Whitespace and Separators
+
+The language allows any optional whitespace in between any tokens. The
+only requirement is that whitespace is required between statements.
+
+There are no commas or separators used between field definitions. There is
+no semicolon or terminating symbol to mark the end of statements or pipelines.
+
+## Tokens
+
+Tokens are used for naming everything in Comp. There are several rules for
+valid token names.
+* Tokens must follow the UAX #31 specification for valid tokens.
+  * This matches the behavior of Python and Rust.
+* The `ID_Continue` set is expanded to also include the ascii hyphen.
+
+The language convention is to use all lowercase characters where writing
+purely Comp specific identifiers. When interfacing with other languages or
+data specifications, use capitalizations and underscores where preferred.
+
+The style preference is to use the hyphens as word separators instead of compacting
+token names into abnormal compound words.
+
+The style of using lowercase words with hyphen separates is referred
+to as **lisp-case**.
+
+Examples
+* `html5`
+* `content-accept`
+* `_parity_bit`
+* `用户名`
+
 ## Module contents
 
-A module defines a set of **functions**, **shapes**, and **tags**. There are
-several other definitions available, but these are the common ones.
-Each of these concepts is always prefixed with a specific character.
+A module defines a set of **functions**, **shapes**, and **tags**. Each 
+type of definition uses a unique character to prefix the name when it is defined
+and every time it is referenced.
 
-When referencing definitions from other modules, the syntax keeps the character
-prefix on the module and object reference. This prefix is used on definition
-and reference of these objects.
+When referencing definitions from other modules, the language requies the 
+character prefix on the module and object reference.
 
 * **Function** `:` prefixed with a colon, like `:process` or `:number:absolute`
 * **Shape** `~` prefixed with tilde, like `~Rect` and `~io~Stream`
@@ -89,45 +120,27 @@ The structure is an immutable object. The language defines operators and functio
 that allow creating new, derived structures in ways that feel like making
 changes. Be aware that these operations are creating new immutable pieces of data.
 
-'''javascript
+```comp
 a = {color="red"}
 b = a
 a.color = "blue"
 // b color is still "red"
 ```
 
+The language also supports the concept of lazy structures, which behave
+more like iterators, or generators from other languages. The fields in the
+lazy structure are not computed until requested. Lazy structures use the
+same definitions and rules as structures, but are surrounded with `[]`
+square brackets. A lazy structure is only evaluated once and preserves
+the values it creates, operating like a regular structure once iteration
+completes.
 
-## Tokens
-
-Tokens are used for naming everything in Comp. There are several rules for
-valid token names.
-* Tokens must follow the UAX #31 specification for valid tokens.
-  * This matches the behavior of Python and Rust.
-* The `ID_Continue` set is expanded to also include the ascii hyphen.
-
-The language convention is to use all lowercase characters where writing
-purely Comp specific identifiers. When interfacing with other languages or
-data specifications, use capitalizations and underscores where preferred.
-
-The style preference is to use the hyphens as word separators instead of compacting
-token names into abnormal compound words.
-
-The style of using lowercase words with hyphen separates is referred
-to as **lisp-case**.
-
-Examples
-* `html5`
-* `content-accept`
-* `_parity_bit`
-* `用户名`
-
-## Whitespace and Separators
-
-The language allows any optional whitespace in between any tokens. The
-only requirement is that whitespace is required between statements.
-
-There are no commas or separators used between field definitions. There is
-no semicolon or terminating symbol to mark the end of statements or pipelines.
+```comp
+$expensive = [
+  "server" -> :expensive-hash
+  "client" -> :expensive-hash
+] // returns immediately, no expensive hashing completed
+```
 
 ## Field References and Namespaces
 
@@ -149,10 +162,12 @@ The undecorated token references are used to lookup fields from this stack of
 namespaces. An undecorated assignment to a field represent as assignment into
 the `.out` namespace, which will win all future lookups.
 
-```javascript
-a = 123
-b = 321 + a  // becomes 444
-server-port -> :listen  // locate this port token in one of the defined namespaces
+```comp
+a = 123                 // assigned to .out namespace
+b = 321 + a             // assigns 444 to .out namespace
+.mod.server-port = 8080
+.ctx.server-port = 8200
+server-port -> :listen  // References `8200` from the context namespace
 ```
 
 ## Shapes
@@ -163,7 +178,7 @@ leading `~` tilde. Shapes are often applied to structures to morph their
 shape to match the given definition. There are complete rules on
 how this morphing is applied to arbitrary structures.
 
-```javascript
+```comp
 !shape ~circle = {x~number y~number radius~number}
 {12 5.5 3.13}~circle
 ```
@@ -178,7 +193,7 @@ be a valid token.
 Tags in a structure heavily influence its shape, and can be used to create
 polymorphic behaviors and overrides.
 
-```javascript
+```comp
 !tag #terrain = {mountain grain grass dirt}
 
 {location = #terrain.grass}
@@ -193,12 +208,14 @@ can contain arbitrary code these are a natural fit for functions.
 There are sevaral variations on functions types and optional features like
 defining additional blocks of unevaluated structures.
 
-```javascript
+```comp
 
 !func :area ~circle = {
   radius * radius * #math#pi
 }
 
+$area = {12 5.5 3.13} -> :area
+```
 
 ## Local Temporaries
 
@@ -215,6 +232,13 @@ mid-pipeline.
 Both types of local temporaries cannot be referenced before they have been
 defined.
 
+## Booleans
+
+Booleans are represented by the special built-in tags `#true` and `#false`. 
+No value types can be automatically converted to a boolean.
+Many comparison operations require booleans, and will interperet all 
+except `{}` empty structures as true. 
+
 ## Comparison Operators
 
 All values can be compared with the comparison operators. The comparison is 
@@ -228,7 +252,7 @@ There are two families of comparisons that are implemnted differently.
 
 * **Equality** is handled by the `==` and `!=` operators
 * **Ordered** comparisons use `<` and `>` and can be used for sorting values
-* **Hybrid** comparisong `<=` and `<=` check equality first and fallback on ordered.
+* **Hybrid** comparisons `<=` and `>=` check equality first and fallback on ordered.
 
 ### Equality Comparison (`==`, `!=`)
 Tests for strict structural equality:
@@ -238,7 +262,7 @@ Tests for strict structural equality:
 - No type coercion or shape morphing occurs
 - The results of `==` are always the opposite of `!=`
 
-```javascript
+```comp
 {x=1 y=2} == {y=2 x=1}    // true (named field order doesn't matter)
 {1 2} == {1 2}            // true (position matches)
 5 == {5}                  // true (scalar auto-wrapping)
@@ -254,7 +278,7 @@ Compare for ordering
 - Different types compare by priority: `boolean < tag < number < string`
 - The results of `<` are always the opposite of `>`
 
-```javascript
+```comp
 {} < 5 < "hello"           // true (empty < number < string)
 {x=1 y=2} < {x=1 y=3}      // true (x equal, y compared)
 {a=1} < {b=2}              // true (both become {1} < {2})
@@ -273,6 +297,43 @@ They are not extensible or customizeable by operator overload.
 String types will rely heavily on the templating syntax and a library of
 functions in the language libraries. There are no math operators for string
 types.
+
+## Flow Control
+
+The Comp language provides only a handful of conditional operations. The
+language library provides a richer set of branching and looping behaviors
+that build on these concept.
+
+The Ternary operator takes three statements. The first is a condition,
+then a condition to use when the condition is true, and a final condition
+to use when the condition is false. Only one of the conditions will be
+executed. The result of the ternary statement is the result of whatever
+statement is executed. These statements are separated by a `?` question mark 
+and a `|` pipe operator.
+
+```comp
+{$remaining > 1} ? {:operate} | {:cleanup}
+```
+This example wraps the statements in braces to help identify each section, but
+for simple statements this isn't necessary.
+
+The ternary statement will often use an empty struct `{}` to represent on of
+the operations that has no effect. This is used because the ternary operator
+requires both a true and false expression to be provided.
+
+If the condition results in a failure, that will be propogated instead and
+neither branch will be executed.
+
+The language also provides a simple `|` operator to provide a fallback
+value for any immediate expression that may have failed.
+This prevents the normal failure value from propogating to the
+remaining pipeline. If the expression operates successfully then the fallback
+expression is ignored. This is commonly used for attribute lookups that
+may not be defined.
+
+```comp
+config.volume | 100   // use the config volume field or fallback on 100
+```
 
 ## Basic Function Definition Syntax
 
@@ -296,20 +357,36 @@ Functions are defined using the `!func` keyword with optional shape constraints:
 }
 ```
 
-## Pipeline Syntax
+## Pipelines
 
-Comp uses pipeline operators to chain operations:
+Functions are invoked through pipeline operations. This encourages chaining
+method calls in order with the `->` operator and is intended to read left
+to right.
+
+Each statement in the pipeline can be one of several types of values
+* **Function** which is passed the incoming structure and passes its return.
+* **Structure** defining a structure replaces (or often edits) the next structure used in the pipeline
+
+The language provides several pipeline operators that have different behaviors.
+* **Invoke** `->` Pass a structure to the next in one operation.
+* **Iterate** `=>` Invoke a function for each field in the structure and compine results.
+* **Spread** `..>` Spread a new structure to merge onto the previous output.
+* **Failed** `!>` Invoke a discovered upstream failure.
 
 ```comp
 // Basic pipeline with arrow operator
-data -> :transform -> :validate -> :save
-
-// Pipeline with fallback operator  
-data -> :risky_operation | default_value
-
-// Conditional pipeline with ternary
-condition ? success_pipeline | failure_pipeline
+data 
+-> {users=people} // rename field and remove other data
+-> :transform     // invoke a method
+=> :validate      // invoke a method on each entry
+-> :save          // invoke method on collected data
+!> {:log:error -> {}}  // log error and provide fallback
 ```
+
+Functions are intended to be invoked on structures. Some functions are defined
+as having no structure (they use the `~nil` shape). Normally these would need
+to be invoked with `{} -> :simple-func`. As a shortcut these can be invoked
+starting the expression with the function reference, `:simple-func`.
 
 ## Assignment Operators
 
@@ -332,10 +409,10 @@ of the operator that is using them.
 
 A variable or field assignment must always be the first part of a statement,
 immediately following the target. When the assignment value is a pipeline or
-flow control statement the assignment will be made with the final resulting
+_flow_ control statement the assignment will be made with the final resulting
 value, or possibly an error result.
 
-```javascript
+```comp
 !function :example ~example-shape = {
     .ctx.server-port = 8000
     $temporary = 5
@@ -371,19 +448,9 @@ These strength alternatives are used for
 * **Spread** Structures can be created using spread operators from existing structs. These `..*` and `..?` spread variants act as if the strong or weak assignment was used on each
     field.
 
-```javascript
+```comp
 {color='white' type*='cat' name?='felix'
  color='brown' type='dog', name?='rex'}
 // results in {color=brown  type='cat' name='felix'}
 ```
-
-## Flow Control
-
-Ternary `cond ? trueval | falseval`
-Fallback `| fallbackval`
-Is the shortcut ternary `{cond} ?| {falseval}` still a thing? Why?
-
-## Pipelines
-
-## Failures
 

@@ -64,11 +64,6 @@ pip install lark pytest attrs
 - [ ] Phase 1: Basic Parser
 - [ ] Phase 2: Core Evaluator
 - [ ] Phase 3: Type System
-- [ ] Phase 4: Standard Library
+- [ ] Phase 4: Language Library
 - [ ] Phase 5: REPL & Dev Tools
-
-## Resources
-
-- Original design discussions: [See design/decisions.md]
-- Language philosophy: [See design/philosophy.md]
-- Implementation roadmap: [See design/roadmap.md]
+- [ ] Phase 6: Standard Library
