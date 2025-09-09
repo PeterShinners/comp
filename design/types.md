@@ -6,49 +6,51 @@
 
 This document details the core data types provided by the Comp language and their implementation behavior. It covers the unified number system, string templates and formatting, boolean operations, the unit system for domain-specific constraints, and the hierarchical tag system for semantic typing.
 
-**Core Types Covered:**
-* **String** - Array of utf8 characters *(Included)*
-* **Number** Number with infinite precision, not restricted to traditional hardware accuracy or limitations.  *(Included)*
-* **Boolean** Primitive true or false value.  *(Included)*
-* **Buffer** Container for binary, mutable data  *(Included)*
-* **Structure** Flexible container for iteratable fields and values
-* **Handle** handle for interacting with resources
-* **Block** a structure in unexecuted form that can be invoked directly
+# Core Types
 
-The Comp language represents several other types of objects, but these
-cannot be referenced or used as values directly. There are others, but 
-they are detailed separately.
+Each of the types comes with a named shape to represent it. Most of these also
+have a support module with common functions, definitions, and enumerations
+for working with the types.
+
+* **String** - `~str` Array of utf8 characters
+* **Number** - `~num` Number with infinite precision, not restricted to hardware accuracy or limitations
+* **Boolean** - `~bool` Primitive true or false value
+* **Buffer** - `~buffer` Container for binary, mutable data 
+* **Handle** - `~handle` handle for interacting with resources
+* **Structure** Flexible container for iteratable fields and values
+* **Tag** is a predefined named hierarchy that works like a value and its own shape
+
+The Comp language represents several other definition, but these cannot be
+referenced as values. Most use a namespace to lookup the needed definitions
+where the language explicitly expects to parse them.
 
 * **Shape** a schema definition that looks like a structure
-* **Tag** is a predefined named hierarchy that works like a shape and a value *(Included)*
 * **Module** used to access definitions from external sources
+* **Block** an unexecuted stricture functions can invoke dynamically
 
 ## Core Type System
+
+The language defines these types for values. There is no way to extend or
+define new ones in the language.
 
 ### Universal Structure Model
 
 The Number, String, and Boolean types are not considered structures. They
 are lower level values used to build more complicated objects.
 
-But these scalar values are freely promoted into a structure containing a
-single value with no field name.
+The types cannot be directly converted into one another. The scalar values 
+are freely promoted into a structure containing a single value with no field 
+name.
 
 ```comp
-42                    // Scalar number
-{x=1.0, y=2.0}        // Named field structure
-{10 20 30}          // Unnamed field structure (array-like)
+42             // Scalar number
+{x=1.0 y=2.0}  // Named field structure
+{10 20 30}     // Unnamed field structure (array-like)
 ```
 
-### Built-in Global Shapes
+## Shapes
 
-The language provides fundamental global shapes that cannot be redefined:
-
-```comp
-~string     // UTF-8 text data
-~number     // Unified numeric type
-~bool       // Boolean values (!true, !false)
-~nil        // Empty/null value
-```
+Shapes are definitions of types. Shapes defined in a
 
 ### Union Types
 

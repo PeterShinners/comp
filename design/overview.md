@@ -84,6 +84,14 @@ Examples
 * `_parity_bit`
 * `用户名`
 
+## Comments
+
+The language supports line comments using the style `//` of double-slashes,
+similar to Javascript and Rust. There is no support for block style comments.
+Everything until the end of the line will be ignored by the compiler.
+
+See the secion on Docstrings for related information.
+
 ## Module contents
 
 A module defines a set of **functions**, **shapes**, and **tags**. Each 
@@ -133,7 +141,8 @@ lazy structure are not computed until requested. Lazy structures use the
 same definitions and rules as structures, but are surrounded with `[]`
 square brackets. A lazy structure is only evaluated once and preserves
 the values it creates, operating like a regular structure once iteration
-completes.
+completes. When the fields are requested from the lazy structure, it will 
+execute as many fields are needed to respond to the requested field.
 
 ```comp
 $expensive = [
@@ -236,8 +245,8 @@ defined.
 
 Booleans are represented by the special built-in tags `#true` and `#false`. 
 No value types can be automatically converted to a boolean.
-Many comparison operations require booleans, and will interperet all 
-except `{}` empty structures as true. 
+Many conditional operations require booleans, and will interpret `#false` and 
+`{}` (empty structures) as false, all other values as true. 
 
 ## Comparison Operators
 
@@ -305,7 +314,7 @@ language library provides a richer set of branching and looping behaviors
 that build on these concept.
 
 The Ternary operator takes three statements. The first is a condition,
-then a condition to use when the condition is true, and a final condition
+expression to use when the condition is true, and a final expression
 to use when the condition is false. Only one of the conditions will be
 executed. The result of the ternary statement is the result of whatever
 statement is executed. These statements are separated by a `?` question mark 
@@ -337,23 +346,22 @@ config.volume | 100   // use the config volume field or fallback on 100
 
 ## Basic Function Definition Syntax
 
-Functions are defined using the `!func` keyword with optional shape constraints:
+Functions are defined using the `!func` keyword and require a shape:
 
 ```comp
 // Basic function definition
-!func :function_name = {
-    // Single expression that transforms input
-    @in -> :some_operation -> {result=@.value}
+!func :function-name ~{incoming} = {
+    incoming -> :some-operation -> {outgoing=value}
 }
 
 // Function with input/output shape constraints
-!func :calculate ~InputShape -> ~OutputShape = {
-    @in.x * @in.y + @in.z
+!func :calculate ~axis = {
+    x * y + z
 }
 
 // Function with default parameters
-!func :process ~{data, timeout=30, retries=3} = {
-    data -> :transform {timeout=@in.timeout, retries=@in.retries}
+!func :exclamations ~{message count=1} = {
+    count -> :repeat .{"${message}!}
 }
 ```
 
@@ -366,10 +374,11 @@ to right.
 Each statement in the pipeline can be one of several types of values
 * **Function** which is passed the incoming structure and passes its return.
 * **Structure** defining a structure replaces (or often edits) the next structure used in the pipeline
+* **Value** Any value can have an invoke function attached when it is used as a pipeline statement, this is done by default for strings to invoke formatting.
 
 The language provides several pipeline operators that have different behaviors.
 * **Invoke** `->` Pass a structure to the next in one operation.
-* **Iterate** `=>` Invoke a function for each field in the structure and compine results.
+* **Iterate** `=>` Invoke a function for each field in the structure and combine results.
 * **Spread** `..>` Spread a new structure to merge onto the previous output.
 * **Failed** `!>` Invoke a discovered upstream failure.
 
@@ -454,3 +463,167 @@ These strength alternatives are used for
 // results in {color=brown  type='cat' name='felix'}
 ```
 
+## Private Data Attachment
+
+Private and unexported data uses the `&` in different ways to prevent other
+modules from accessing values and definitions. Remember this by tilting your
+head and imagining the symbol represents a padlock.
+
+Each module has a private namespace `.mod` that allows storing and
+updating data that no code outside the current module can reference or modify.
+
+### Private Definitions
+
+Shape, function, and tag definitions that are internal for the module use only. 
+These definitions place an `&` ampersand as a suffix on the name. This also
+applies to namespace aliases which are exported by default.
+
+```comp
+!func :secret_hash& ~str = {...}
+!tag @attachment& = {precall postcall}
+!shape bunker& = {width~number length~number depth~number}
+```
+
+The & suffix is not used when referencing private definitions. The privacy
+is an access control mechanism, not part of the interface itself.
+
+This also applies when using the `!alias` operator. Aliases default to being
+exposed definitions for the module itself. Adding the `&` ampersand suffix
+allows them to be used privately.
+
+```comp
+!alias :leftpad = :str:ljust    // global definition
+!alias #logsev& = #log#severity // private definition
+```
+
+### Private Data Attachment
+
+Each module can attach private data to any structure using `&` syntax. 
+Other modules cannot access private data attached by different modules:
+
+This private data exists outside the value itself, which means the shape is
+not modified by hidden or internal fields.
+
+Referencing and assigning private data can be done either individual fields
+or the entire private structure.
+
+```comp
+// Create structure with private data inline
+$user = {login="pete" email="pete@example.com"}&{session="abc123" id=789}
+
+// Access private data (only in same module)
+$user.login          // "pete" - public field
+$user&.session       // "abc123" - private field (same module only)
+$user&.id           // 789 - private field (same module only)
+
+// Manual private data assignment
+$user& = {session="abc123", internal_id=789}
+```
+
+This private data is natually transferred to every value passed through
+a pipeline's chain of statement. This includes full spread operators.
+
+```comp
+$user& = {session="abc", token="xyz"}
+
+// Automatic preservation in pipelines
+$result = $user -> :transform -> :validate
+// $result& = {session="abc", token="xyz"}
+
+// Automatic preservation in full spread
+$copy = {...$user extra="field"}
+// $copy& = {session="abc", token="xyz"}
+
+// Manual copying when needed
+$selective = {name=$user.name}
+$selective& = $user&  // Manual private data transfer
+```
+
+When the result of a structure comes from the combination of mutliple existing
+structure then the private data will be merged, using "first reference wins"
+collision rules. There is no way to override this merging behavior using
+strong or weak operations.
+
+When strict handling of private data is needed through complex merging
+operations, the private data can always be saved and modified from earlier 
+steps in the operation, then applied back to the resulting object directly.
+
+```comp
+$source1& = {token="abc", shared="first"}
+$source2& = {cache="xyz", shared="second"}
+
+$merged = {field1=$source1.name, field2=$source2.email}
+// $merged& = {token="abc", shared="first", cache="xyz"}
+// First reference wins: $source1& merged before $source2&
+```
+
+## Docstrings
+
+The language supports docstrings which are extended user information
+attached to any shape, function, tag, or field. These are more powerful than
+comments because they are recognized by the language and can be accessed at
+runtime.
+
+A docstring is a string literal that follow the `!doc` operator. These can use 
+single or triple string quotes for single and multiline use cases. There are two
+forms of these documentation strings.
+* **Inline** is the simplest, it uses `!doc "Information"` to immediately apply
+the docstring to whatever function, shape, tag, or field definition follows.
+* **Detached** adds a reference to the object being documented, like `!doc
+#severity = "Logging level strengths."
+
+Docstrings for the module must use the detached form of `!doc module "Top level
+info."`.
+
+Multiple docstrings attached to the same definition are appended together in
+file order, with a blank line inserted between each docstring. Docstring tools
+will expect docstrings to use Markdown formatting to style the information.
+
+Use inline `!doc` for:
+* *Brief single-line descriptions
+* *Simple field documentation
+
+Use detached `!doc target` for:
+* *Extended multi-paragraph documentation  
+* *Documentation in separate files
+* *Avoiding clutter in complex definitions
+* *Module-level documentation (required)
+
+More documentation guidelines:
+* Single line summaries whould be written like a sentence with capitalization
+  and punctuation.
+* Multiple definitions of detached documentation will be joined with an empty
+  line.
+* When a definition only has a multiline detached docstring it should still
+  include a summary line that is separated by a single blank line from the
+  remaining documentation.
+
+```comp
+!tag #status = {
+    pending={review approved rejected}
+    !doc "Actively being developed."
+    active
+    !doc "All work completed and ready to deliver."
+    complete
+}
+
+!doc #status "Workflow status indicators."
+!doc #status.pending "Awaiting decision."
+!doc #status.pending.review "Under active review."
+!doc #status.pending.approved "Approved but not yet active."
+```
+
+Documentation strings are regular string literals and can include formatting
+instructions `${}`. Documentation strings expanded in a special context that
+has access to
+* `.mod` the defined module metdata
+* `doc.toc` table of contents for the active object (module, shape, or tag)
+* `describe` structure created using the `!describe` operator for the attached object
+
+Documentation tools should attempt to auto-recognize references to functions
+shapes and tags and generate properly linked references where possible.
+
+It should not be necessary to document information clearly defined in
+the language, like field shapes or default values. Tools displaying documentation
+should also consider grouping multiple implementations of a function with the
+same name, when defined with different shape signatures.
