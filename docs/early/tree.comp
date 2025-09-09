@@ -1,44 +1,51 @@
-!shape ~TreeNode = {
-    value ~number
-    left ~Branch = {}
-    right ~Branch = {}
+!shape ~Tree = {
+    value~number
+    left~Branch
+    right~Branch
 }
 
-!shape ~Branch = ~TreeNode|~nil
+!shape ~Branch = ~Tree|~nil = {}
 
 
 !main = {
     // Build tree from values using fold
     $tree = {{5 3 8 1 7 9} accum={}} 
-        -> :fold .{{accum value} -> :insert_value}
+        -> :fold .{{accum value} -> :insert}
     
     // Test finding values
-    {$tree 7} -> :find_value -> :io:print  // true
-    {$tree 4} -> :find_value -> :io:print  // false
+    $seven = {$tree 7} -> :contains  // true
+    $four = {$tree 4} -> :contains  // false
 }
 
 // inserts
-!func :insert_value ~{tree ~nil value ~number} -> ~TreeNode = {
-    {value} ~TreeNode
+!func :insert ~{tree~nil value~number} = {
+    value~Tree
 }
 
-!func :insert_value ~{tree ~TreeNode value ~number} -> ~TreeNode = {
+!func :insert ~{tree~Tree value~number} = {
     value < tree.value 
-        ? {..tree left={{tree.left value} -> :insert_value}}
-        | {..tree right={{tree.right value} -> :insert_value}}
+        ? {..tree left={{tree.left value} -> :insert}}
+        | {..tree right={{tree.right value} -> :insert}}
 }
-
 
 // finds
-!func :find_value ~{tree ~nil value ~number} -> ~bool = {
+!func :contains ~{tree~nil value~number} = {
     #false
 }
 
-!func :find_value ~{tree ~TreeNode value ~number} -> ~bool = {
+!func :contains ~{tree~Tree value~number} = {
     :lang:switch
-        .'tree.value < value' {{tree.left value} -> :find_value}
-        .'tree.value > value' {{tree.right value} -> :find_value}
+        .'tree.value < value' {{tree.left value} -> :contains}
+        .'tree.value > value' {{tree.right value} -> :contains}
         .else {#true}
 }
 
+// iterate values
+!func :values~nil = {
+}
 
+!func :values~Tree = [
+    value
+    ..{left -> :values}
+    ..{right -> :values}
+]
