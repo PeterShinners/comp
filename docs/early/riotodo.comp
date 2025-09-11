@@ -1,0 +1,60 @@
+!doc module "TODO UI App, based on hypothetical migration from the Rio UI library for Python."
+
+!import rio = git "https://github.com/rio-labs/rio-comp/lib"
+
+!main {
+    $state = :rio:reactive({
+        todos={}
+        input=""
+        filter="all"  // all, active, completed
+    })
+    
+    {#rio#column spacing=1 padding=2
+        // Header with input
+        {#rio#row
+            {#rio#textinput text=$state.input->:rio:get placeholder="What needs doing?"
+                :rio:on_change.{{$state.input .in.value}->:rio:set}
+                :rio:on_submit.{
+                    $state.todos->:rio:get => {
+                        {id=:uuid() text=$state.input->:rio:get completed=false}
+                    } -> {$state.todos .in}->:rio:set
+                    -> {$state.input ""}->:rio:set
+                }
+            }
+            {#rio#button text="Add" :rio:on_click.{/* Same as on_submit */}}
+        }
+        
+        // Todo list
+        $state.todos->:rio:get 
+            -? $state.filter->:rio:get == "active" -& => completed == false
+            -? $state.filter->:rio:get == "completed" -& => completed == true
+            => :todo_item
+        
+        // Filter buttons
+        {#rio#row spacing=0.5
+            {"all" "active" "completed"} => {
+                {#rio#button text=.in variant=$state.filter->:rio:get == .in ?? "primary" | "secondary"
+                    :rio:on_click.{{$state.filter .in}->:rio:set}
+                }
+            }
+        }
+    }^:todo_app
+}
+
+!func :todo_item ~{id text completed} = {
+    {#rio#row spacing=1
+        {#rio#checkbox checked=.in.completed
+            :rio:on_change.{
+                $state.todos->:rio:get => {
+                    id == .in.id ?? {....in completed=!completed} | .in
+                } -> {$state.todos .in}->:rio:set
+            }
+        }
+        {#rio#text text=.in.text style=.in.completed ?? "dim" | "normal"}
+        {#rio#iconbutton icon="material/delete"
+            :rio:on_click.{
+                $state.todos->:rio:get => id != .in.id -> {$state.todos .in}->:rio:set
+            }
+        }
+    }
+}
