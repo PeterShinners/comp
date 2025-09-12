@@ -1,46 +1,47 @@
 # Basic Types
 
-*Comprehensive specification of Comp's core type system: numbers, strings, booleans, and tags*
+*Comprehensive specification of Comp's core type system: numbers, strings,
+booleans, and tags*
 
 ## Overview
 
-This document details the core data types provided by the Comp language and their implementation behavior. It covers the unified number system, string templates and formatting, boolean operations, the unit system for domain-specific constraints, and the hierarchical tag system for semantic typing.
+This document details the core data types provided by the Comp language and
+their implementation behavior. It covers the unified number system, string
+templates and formatting, boolean operations, the unit system for
+domain-specific constraints, and the hierarchical tag system for semantic
+typing.
 
-# Core Types
+## Builtin Data Types
 
-Each of the types comes with a named shape to represent it. Most of these also
-have a support module with common functions, definitions, and enumerations
-for working with the types.
+There are a handful of types defined by the language. The most common will be
+`num` for numberic values, and `str` for strings of text.
+
+Each of the types comes with a defined shape to represent it. Most of these also
+provide an importable module from the standard library with additional functions
+and definitions to manipulate these values.
+
+### Types
 
 * **String** - `~str` Array of utf8 characters
-* **Number** - `~num` Number with infinite precision, not restricted to hardware accuracy or limitations
+* **Number** - `~num` Number with infinite precision, not restricted to hardware
+  accuracy or limitations
 * **Boolean** - `~bool` Primitive true or false value
+* **Tag** is a predefined named hierarchy that works like a value and its own
+  shape
+
+There are a handful of more specialized types, which contain separate documents
+to describe their usage and implementation.
+
 * **Buffer** - `~buffer` Container for binary, mutable data 
 * **Handle** - `~handle` handle for interacting with resources
-* **Structure** Flexible container for iteratable fields and values
-* **Tag** is a predefined named hierarchy that works like a value and its own shape
 
-The Comp language represents several other definition, but these cannot be
-referenced as values. Most use a namespace to lookup the needed definitions
-where the language explicitly expects to parse them.
+The builtin types are not considered structures. They do not contain fields or
+iterable values. They cannot be directly converted from one type into another
+without using functions to translate their values. These fields can be used to
+define richer structures which combine multiple values into more complex shapes.
 
-* **Shape** a schema definition that looks like a structure
-* **Module** used to access definitions from external sources
-* **Block** an unexecuted stricture functions can invoke dynamically
-
-## Core Type System
-
-The language defines these types for values. There is no way to extend or
-define new ones in the language.
-
-### Universal Structure Model
-
-The Number, String, and Boolean types are not considered structures. They
-are lower level values used to build more complicated objects.
-
-The types cannot be directly converted into one another. The scalar values 
-are freely promoted into a structure containing a single value with no field 
-name.
+Any of these plain values will automatically be promoted into a basic structure
+continaing a single item with no defined field name.
 
 ```comp
 42             // Scalar number
@@ -48,57 +49,142 @@ name.
 {10 20 30}     // Unnamed field structure (array-like)
 ```
 
-## Shapes
+### Definitions
 
-Shapes are definitions of types. Shapes defined in a
+A Comp module can create several other types of definitions that are used by the
+language, but not representable as values or data. The syntax understands where
+these types of lookups are needed and will use specially formatted references to
+their names, or allowing them to be referenced from other modules.
 
-### Union Types
+* **Shape** a schema definition that looks like a structure
+* **Module** used to access definitions from external sources
+* **Block** an unexecuted stricture functions can invoke dynamically
 
-Union types require tildes on each component:
+### Structure Basics
+
+Structures are collections of values, including other structures. The values in
+the structure can have an optionally assigned field name. The values are
+ordered, and can be iterated or referenced by position in the structure.
+
+The language allows the definition of shapes, which act like a schema for a
+structure. This can define fields that belong to a structure, along with
+optional default values, typing information, and documentation.
+
+Any structure that has the required fields and positional values can be
+considered compatible with a defined shape. Every function defines a required
+shape, which allows any compatible structure to be used to call that function.
+
+
+## Booleans
+
+Booleans are the simplest builtin type. They can only represent one of two
+possible tag values, `#true` and `#false`. The leading hash on these symbols
+defines them as tag references.
+
+Any comparison operator will result in one of these boolean values. Booleans
+have a defined shape, `~bool` which can be used in shape definitions.
+
+Booleans are a builtin type that can only represent two values representing true
+or false. Other types cannot be converted to booleans.
+
+Other types cannot automatically be converted into booleans. Attempting to morph
+a string or number into a boolean will not work. 
+
+### Boolean Operators
+
+There are several operators in the language only for boolean types. The
+operators for numbers cannot be used on booleans.
+
+* `&&` logical _and_, when both values are #true
+* `||` logical _or_, when either values is #true
+* `!!` negation, switch a boolean to the opposite state
+
+These logical  operators will "short circuit" while evaluating statements, which
+means once a single value is found that defines the results, it will stop
+processing additional statements.
+
+### Conditionals
+
+The only conditional operator in the language is a ternary `?|`. It will treat
+all values as `#true` except for
+* `#false`
+* `{}` an empty structure, which also has a predefined shape `~nil`
+
+This means using an empty string, or a number 0 will result in a true condition.
 
 ```comp
-~User|~nil                    // Optional user
-~string|~number               // String or number
-~Image|~css~Gradient|~color~Rgb  // Complex union with namespaced types
-```
+!shape ~onoff = {on~boolean}
+yes = #true
+{"car"}~onoff  // Fails, string cannot coerce
 
-### Collection Constraints
-
-Structures support size constraints using range syntax:
+This means the language requires the use of functions or comparison operators
+to generate booleans for the conditionals.
 
 ```comp
-{User[1-]}      // 1 or more users
-{string[3]}     // Exactly 3 strings  
-{Item[0-10]}    // 0 to 10 items
-{Tag[]}         // Any number of tags
+{"car" -> :str:empty}~onoff
 ```
-## Number System
 
-### Unified Number Type
+## Numbers
 
-A single number type combines the many hardware related number specifications
-from other languages. This unified number type support infinite precision.
-Fractional values are represented accurately and precise, without error.
+The number type is a unified implementation that combines the behavior of the
+various numerical values defined in other languages
+
+* Unlimited size. There is no maximum value for a number, positive or negative.
+  Once integer values exceed the capacity of hardware computation there will be
+  a performance penalty, but the developer never needs to worry about overflows.
+* Accurate precision. The fractional values are handled in a way that provides
+  reliable and accurate precision without the unintentional errors and rounding
+  of hardware fractional values. Repeating fractional values do not lose
+  accuracy.
+* Extendable restrictions. The language allows extending a number's type with
+  Units to define restrictions that ensure they can safely be used with hardware
+  numberic values.
+
+Numbers have a shape, `~num` which can be used in shape definitions. There is
+also a `num` module in the standard library with more mathematic operators and
+converters.
+
+Number shapes can also be combined with units, which helps define limits and
+interactions between multiple number values.
+
 
 **Key Properties**:
-- No integer division truncation: `10 / 3` always returns `3.333...`
-- No integer overflow: large numbers remain exact
-- Arbitrary precision decimal support
-- Consistent mathematical behavior across all operations
+* No integer division truncation: `10 / 3` always returns `3.333...`
+* No integer overflow: large numbers remain exact
+* Arbitrary precision decimal support
+* Consistent mathematical behavior across all operations
+* Does not support special "infinity" and "nan" values by default
 
-**Context-Controlled Behavior**:
+### Literals
+
+Number values can be defined as literal values in the code. They use a
+traditional syntax seen in other languages and data formats.
+* An optional zero and letter prefix can define different bases for the number.
+    The default is base 10, but `0x` hex, `0o` octal, and `0b` binary are all
+    supported.
+* A leading `-` negative or `+` positive can define positive or negative values,
+  although positive is implied.
+* Contain any number of digits, allowing a single period as decimal for base 10
+  values.
+* Can be interspersed with undercores which are ignored in parsing but can be
+  used as a visual separators
+* Can end with a scientific notation with a positive or negative "e" value.
+
 ```comp
-$ctx.number.precision = 28          // Set decimal precision
-$ctx.number.rounding = math.half_up  // Control rounding
-$ctx.number.epsilon = 1e-9          // Equality tolerance
-$ctx.number.int = math.round         // Fractional-to-integer conversion
+12.3
+15+e3
+0b0110_1000
+0o644
+-.7
 ```
-
-**Thread-Safe Context**: Context cloned for each thread to prevent race conditions.
 
 ### Mathematical Operators
 
-Operators are reserved exclusively for numbers:
+The language defines traditional operators for numbers. These allow numbers to
+be combined in a mathematical notation. 
+
+These operators are exclusively for number types, they cannot be used with
+strings, booleans, or other values.
 
 ```comp
 a + b       // Addition
@@ -113,84 +199,85 @@ a ** b      // Exponentiation
 **No Operator Overloading**: Other types use explicit method calls:
 ```comp
 // Strings use methods, not operators
-text1 -> :string:concat text2
+text1 -> :str:concat text2
 path1 -> :path:join path2
 list1 -> :list:append list2
 ```
 
-## Booleans
+### Illegal Numbers
 
-Booleans are a builtin type that can only represent two values representing
-true or false. Other types cannot be converted to booleans.
+Mathematical operations can generate special values. These are standard
+definitions used in other hardware and languages to represent results like
+"infinity". By default these values cannot be assigned to fields with a number
+shape. The math module defines tags for these constants and a shape that can be
+unioned with numbers for values that should allow these.
 
-Conditional operators will treat any non-boolean value a `#true` except for
-an empty structure `{}`.
+The language defines several specialied tags to define these values
+* `#math#nan` The "not a number" value
+* `#math#inf` Infinity value
+* `#math#ninf` Negative infinity value
 
-```javascript
-!shape ~onoff = {on~boolean}
-yes = #true
-{"car"}~onoff  // Fails, string cannot coerce
-
-This means the language requires the use of functions or comparison operators
-to generate booleans for the conditionals.
-
-```javascript
-{"car" -> :string:empty}~onoff
-```
-
-Booleans do have operators that apply logic between other conditionals. These will treat all values as `#true` other than `#false` or `{}`.
-
-```comp
-condition && other      // Logical AND
-condition || other      // Logical OR
-!condition             // Logical NOT (different from !true/!false)
-```
+The `~math~inf` shape includes all three of these tags. By combining this with
+numbers you can create a shape that combines these values together,
+`~num|~math~inf`
 
 ## Strings
 
-Strings are immutable
+A string is an immutable sequence of UTF-8 encoded characters. There are no
+operators like `+` or `*` to modify or create new string values. There is a
+robust standard `str` module that defines many common and advanced string
+editing and evaluation.
+
+Strings can only represent valid and allowable UTF-8 encoded characters. For
+managing binary data, the `buffer` must be used.
+
+All string values can be used as a template for formatting. The string is parsed
+for special `${}` tokens with values inside the braces. Invoking a string will
+apply the formatting. 
 
 ### Literals
 
-String literals are defined by any text in between double quotation marks.
-Triple quotations can be used to create multiline string literals. This also
-becomes a convenient way to create literals that also have quotations in
-the text.
+Strings literals must be defined with the `"` double quotation marks. The single
+quotation marks have a different meaning in Comp.
 
-```javascript
+Triple quotations can also be used to create multiline string literals. This
+also becomes a convenient way to create literals that also have quotations marks
+in the text. Whitespace inside the multiline string literals is preserved as it
+appears. But remember the whitespace outside the quotes is optional and use as
+desired. This should allow positioning the opening quotes wherever is most
+convenient.
 
+**Design Philosophy**: No operators for strings - use explicit functions and
+templates instead:
 
-### String Formatting and Templates
-
-**Design Philosophy**: No operators for strings - use explicit functions and templates instead:
 
 ```comp
+$name = "Peter"
+$projects = 
+"""
+Pygame
+Comp
+"""
+
 // No string concatenation operator
 text1 + text2           // ERROR: operators reserved for numbers
 
 // Use explicit methods or templates
-{text1, text2} -> :string:concat
-{text1, text2} -> "${}{}"        // Template concatenation
-{"=" 40} -> :string:repeat       // Repetition via functions
+{text1, text2} -> :str:concat
+{text1, text2} -> "${}${}"        // Template concatenation
+{"=" 40} -> :str:repeat       // Repetition via functions
 ```
 
-### String Template Syntax
+### Templates
 
-String templates use `${}` interpolation syntax and are reusable values:
+The string templates will convert values to strings using generic formatting
+rules. There is no way to invoke functions or apply shapes to the values inside
+the template syntax. Those changes should be pipelined to the structure the
+template is invoked on. For example, no `"Hello, ${name->:str:uppercase}"`
 
-```comp
-// Template creation (not immediately evaluated)
-greeting = "Hello ${name}!"
-welcome_msg = "Welcome ${name}, you have ${count} messages"
-
-// Template invocation with data
-{name="Alice"} -> greeting                    // "Hello Alice!"
-{name="Bob", count=5} -> welcome_msg         // "Welcome Bob, you have 5 messages"
-```
-
-### Three Interpolation Modes
-
-Following Python's interpolation behavior with strict rules:
+The `${}` tokens in the string template can use several values to resovle values
+from the incoming structure. These rules follow the principals of Python's
+string formatting lookups.
 
 **1. Positional Interpolation**:
 ```comp
@@ -232,248 +319,118 @@ user -> "Hello ${name}, your role is ${role}"
 {name="Alice", "A", "B"} -> "${name} sees ${#0} and ${#1}"
 ```
 
-### Formatting Without Format Specifiers
+### String Formatters
 
-**No inline format specifiers** - use preprocessing pipelines instead:
+Comp allows attaching functions to any value as an invokable attachment. All
+strings default to using a basic formatting function that can be defined in the
+current context. Each string can be attached to a different function to apply
+templates in different ways. This is commonly used to provide language specific
+escaping or quoting rules to the string template.
 
-```comp
-// Traditional (not in Comp):
-// f"π is approximately {pi:.2f}"
-
-// Comp approach: preprocess data
-{pi=3.14159} 
-  -> {pi = pi -> :number:round 2}
-  -> "π is approximately ${pi}"
-
-// Complex formatting with pipeline
-financial_data -> {
-    amount = amount -> :number:commify -> :number:currency "USD"
-    date = date -> :date:format "MMM DD"
-    rate = rate -> :number:percent 1
-} -> "Transaction: ${amount} on ${date} at ${rate}"
-```
-
-### Formatter Objects
-
-Configure consistent formatting rules as data structures:
+The `^` caret operator attach a function to a any type of value. The language
+defines rules to determine how the attachment survives various data
+transformations. (Tags cannot have an attached invoke)
 
 ```comp
-// Formatter configuration
-$currency_fmt = {
-    number.separators = !true
-    number.digits = 2
-    number.currency = "USD"
-    date.format = "MMM DD, YYYY"
-}
-
-// Apply formatter during template invocation
-transaction_data -> {
-    @ 
-    formatter = $currency_fmt
-} -> "Amount: ${amount} on ${date}"
-
-// Set as context default
-$ctx.formatter = $currency_fmt
-// Now all templates use this formatter by default
+html_template = "<h1>${title}</h1><p>${content}</p>"^:html:safe
+sql_template = "SELECT * FROM users WHERE id = ${id}"^:sql:escape
 ```
 
-### Advanced String Features
+When used with string literals this provides a hint to developer tools about how
+to highlight or annotate the string contents.
 
-**Invoke Handlers for Specialized Formatting**:
-```comp
-// Attach formatters to templates using unit-like syntax
-html_template = "<h1>${title}</h1><p>${content}</p>"@html.safe
-sql_template = "SELECT * FROM users WHERE id = ${id}"@sql.escape
-
-// Context can set default handlers
-$ctx.default_string_invoke = :html:safe
-
-// Usage
-{title="Welcome", content="Hello World"} -> html_template
-// Automatically applies HTML escaping via @html.safe handler
-```
-
-**Type Hints for Domain Strings**:
-```comp
-// Type hints provide metadata for validation/processing
-query = @sql"SELECT * FROM users WHERE id = ${id}"
-html_content = @html"<div>${content}</div>"
-shell_cmd = @shell"ls ${directory}"
-
-// When invoked, type hints enable domain-specific processing
-{id=123} -> query        // Applies SQL escaping for security
-{content="<script>"} -> html_content  // Applies HTML escaping
-{directory="../etc"} -> shell_cmd     // Applies shell escaping
-```
+These formatters are regular functions and they can be invoked directly without
+attaching them to strings.
 
 ### String Operations
 
-**Core String Functions**:
+The core library privides a rich set of string operations in the `:str`
+namespace.
+
 ```comp
-// Concatenation (likely builtin shorthand)
-{"ERROR: ", error_message} -> :cat    // Short Unix-style concatenation
 
 // Standard string operations
-text -> :string:length                // Get length
-text -> :string:trim                  // Remove whitespace
-text -> :string:uppercase             // Convert case
-text -> :string:split ","            // Split on delimiter
-text -> :string:replace "old" "new"   // Replace substring
+text -> :length                    // Get length
+text -> :str:trim                  // Remove whitespace
+text -> :str:uppercase             // Convert case
+{text ","} -> :str:split           // Split on delimiter
+{text "old" "new"} -> :str:replace // Replace substring
+{"ERROR: " message} -> :str:cat    // Short Unix-style concatenation
 ```
 
 **String Processing Patterns**:
 ```comp
 // Preprocessing pattern for complex formatting
 !func :format_financial ~{amount, date} = {
-    amount = amount -> :number:commify -> :number:currency "USD"
-    date = date -> :date:format "MMM DD"
+    amount = amount -> {:num:commify "USD"} -> :num:currency
+    date = {date "MMM DD"} -> :date:format
 }
 
 transactions
-  -> each :format_financial
-  -> each {"Transaction: ${amount} on ${date}"}
-  -> :string:join "\n"
+  => :format_financial
+  =? {"Transaction: ${amount} on ${date}"}
+  ..> "\n" -> :str:join
 ```
 
-**Logging with `:nest` Pattern**:
-```comp
-// Log while preserving pipeline value
-recipe -> :nest {
-    {op -> :string:prefix 4, count = values -> :length} 
-    -> "Running ${op} with ${count} values"
-    -> :log:info
-} -> :run:recipe
-```
-
-### String Template Compilation
-
-Templates are first-class values that can be stored, passed, and reused:
-
-```comp
-// Store templates in data structures
-$templates = {
-    error = "ERROR: ${message} at line ${line}"
-    warning = "WARNING: ${message}"
-    info = "INFO: ${message} (${timestamp})"
-}
-
-// Use templates from structure
-error_data -> $templates.error        // "ERROR: File not found at line 42"
-
-// Pass templates as function parameters
-!func :log_with_template ~{data, template} = {
-    data -> template -> :log:write
-}
-
-log_data -> :log_with_template {template=$templates.error}
-```
-
-### Integration with Security
-
-String templates integrate with Comp's security model through units:
-
-```comp
-// Security-aware string templates
-user_query = @sql"SELECT * FROM users WHERE name = ${name}"
-html_output = @html"<h1>${title}</h1><p>${content}</p>"  
-shell_command = @shell"ls ${directory}"
-
-// When invoked, units provide automatic escaping
-{name="'; DROP TABLE users; --"} -> user_query
-// SQL unit automatically escapes dangerous input
-
-{title="<script>alert('xss')</script>"} -> html_output  
-// HTML unit escapes script tags
-
-{directory="../../../etc/passwd"} -> shell_command
-// Shell unit prevents directory traversal
-```
-
-## Unit System
-
-### Unit Definition Syntax
-
-```comp
-!unit @distance ~number = {
-    m = !nil                    // Base unit
-    km = {mult=0.001}          // Conversion factor
-    inch = {mult=39.3701}      // Inches per meter
-    lightyear = {mult=1.057e-16}
-}
-
-!unit @temperature ~number = {
-    celsius = !nil
-    fahrenheit = {offset=32, mult=1.8}    // Custom conversion
-    kelvin = {offset=-273.15}
-}
-```
-
-### Unit Usage and Conversion
-
-```comp
-distance = 5@distance@km
-converted = distance -> :units:to @distance@m    // 5000@distance@m
-
-// Automatic validation
-speed = 60@distance@km / 1@time@hour    // Type-safe unit arithmetic
-```
-
-### Unit-Aware Security
-
-Units can apply domain-specific escaping for security:
-
-```comp
-$query = "SELECT * FROM users WHERE id=${user_id}"@sql
-// @sql unit automatically applies SQL escaping
-
-$html = "<div>${content}</div>"@html
-// @html unit applies HTML escaping
-
-$shell = "ls ${directory}"@shell  
-// @shell unit applies shell escaping
-```
-
-### Custom Unit Formatters
-
-Unit formatters must be `!pure` functions for compile-time evaluation:
-
-```comp
-!pure :format_currency ~{value @currency} = {
-    "$${value -> :number:format {decimals=2}}"
-}
-
-@currency = {formatter=:format_currency}
-```
 
 ## Tag System
 
 ### Basic Tag Definition with Values
 
-Tags are compile-time metadata markers that can optionally carry values for type casting and morphing:
+Tags are compile-time tokens that can be used as both types and values. They are
+prefixed with a `#` hash when referenced.
+
+They can form a hierarchical naming structure that allows shapes to match
+specific values or their organizational parents.
+
+Placing tag values has a strong influence on the shape of that structure. This
+is used to drive polymorphic behavior to the and function dispatch based on any
+untyped structure.
+
+Tags can optionally have values assigned directly, or use helper functions to
+assign automatic values. When types are defined tags can be interchanged with
+regular data types. A tag can have both children and a value, even the root tag
+type can have a value.
+
+Tags are referenced with the `#` on the leading hash type. Optional children
+values are referenced through regular `.` dot access like field names.
+
+Tags can also be used as fields for structures. When used this way the field is
+specifically the tag object, not the optional value it contains.
 
 ```comp
 !tag #status = {
     active = 1
     inactive = 0  
-    pending        // No value - cannot be cast from values
+    pending        // No value - cannot be morphed from values
 }
 
-!tag #role = {
-    user = "user"
-    admin = "admin"
-    guest = "guest"
+!tag #role = "Unknown" {
+    user = "User"
+    admin = "Admin"
+    guest = "Guest" {
+        limited = "GuestHi"
+        invisible = "GuestLo"
+    }
 }
+
+$dev = #other-mod#status.pending
+$rol = #role.guest.limited
+$who = #role
+
 ```
 
 ### Auto-Value Generation
 
-Tags can use `!pure` functions to automatically generate values:
+Tags can use `!pure` functions to automatically generate values. The function
+will be called on each defined tag, which gets a structure defining the states
+and values of related tags.
 
 ```comp
 // Built-in auto-value functions
-!pure :tag:name = {ctx -> ctx.name}                    // Use tag name as string value
-!pure :tag:sequence = {ctx -> ctx.prev_value + 1}      // Sequential numbers
-!pure :tag:bitwise = {ctx -> 1 << ctx.index}          // Bit flags for permissions
+!pure :tag:name = {ctx -> ctx.name}                // Use tag name as string value
+!pure :tag:sequence = {ctx -> ctx.prev_value + 1}  // Sequential numbers
+!pure :tag:bitwise = {ctx -> 1 << ctx.index}       // Bit flags for permissions
 
 // Usage examples
 !tag #color {:tag:name} = {
@@ -490,7 +447,7 @@ Tags can use `!pure` functions to automatically generate values:
 }
 ```
 
-### Auto-Value Context Structure
+#### Auto-Value Context Structure
 
 Auto-value functions receive context about the tag being defined:
 
@@ -508,57 +465,40 @@ Auto-value functions receive context about the tag being defined:
 }
 ```
 
-### Hierarchical Tags with Values
-
-Tags support both parent values and child hierarchies:
-
-```comp
-!tag #failure = {
-    network = 1000 {          // network has value 1000 AND children
-        timeout = 1001        // Child with explicit value
-        refused = 1002
-        dns_error = 1003
-    }
-    parse {                   // No value - pure namespace
-        syntax = 2001
-        semantic = 2002
-        eof = 2003
-    }
-    system = 3000 {
-        memory = 3001
-        disk = 3002
-    }
-}
-```
-
 ### Tag Type Casting and Morphing
 
 Tags with values can be cast to and from their associated values:
 
 ```comp
 // Casting from value to tag
-1001 ~#failure                    // Returns #failure#network#timeout
-"red" ~#color                     // Returns #color#red  
-99 ~#failure                      // FAILS: no matching value
+1001 #failure                 // Returns #failure#network#timeout
+"red" #color                  // Returns #color#red  
+99 #failure                   // FAILS: no matching value
 
 // Casting tag to value
-#color#red ~string                // Returns "red"
-#permissions#write ~number        // Returns 2
-#failure#parse ~number            // FAILS: parse has no value
+#color#red ~str             // Returns "red"
+#permissions#write ~num        // Returns 2
+#failure#parse ~num            // FAILS: parse has no value
 
 // Tags without values cannot be cast
-#status#pending ~number           // FAILS: pending has no value
+#status#pending ~num           // FAILS: pending has no value
+
+// Automatic casting in function calls
+200 -> :handle_request    // Casts to #http#status#success (if 200 is its value)
+
 ```
 
 ### Shape Integration with Tag Casting
 
-Tags work as type constraints in shape definitions and automatically cast during morphing:
+Tags work as type constraints in shape definitions and automatically cast during
+morphing. When multiple tags share the same value, resolution follows
+first-match policy.
 
 ```comp
 !shape ~Config = {
-    status ~#status
-    port ~number
-    mode ~#mode
+    status #status
+    port ~num
+    mode #mode
 }
 
 // Shape morphing with automatic value-to-tag casting
@@ -567,71 +507,32 @@ Tags work as type constraints in shape definitions and automatically cast during
 // (assuming 1 maps to active, "strict" maps to mode)
 
 !shape ~User = {
-    role ~#role
-    permissions ~#permissions
-    active ~bool = !true
+    role #role
+    permissions #permissions
+    active ~bool = #true
 }
 
 // Morphing with tag values
-{"admin", 7, !false} ~User
-// Result: {role=#role#admin, permissions=#permissions#all, active=!false}
-```
-
-### Tag Families as Types
-
-Tag families (root tags) are types/namespaces, not values:
-
-```comp
-$x = #status                      // ERROR: #status is a type, not a value
-$x = #status#active               // OK: Leaf tag is a value
-$type = ~#status                  // OK: Tag family as type reference
-
-// Function parameters use tag families as type constraints  
-!func :process ~{mode ~#mode} = {
-    mode -> match {
-        #mode#strict -> "Using strict validation"
-        #mode#lenient -> "Using lenient validation"  
-        #mode#debug -> "Using debug mode"
-    }
-}
-
-// All these calls work (assuming appropriate tag values)
-1 -> :process                     // Casts to matching tag
-"lenient" -> :process             // Casts to #mode#lenient
-#mode#debug -> :process           // Direct tag usage
-```
-
-### Ambiguous Value Resolution
-
-When multiple tags share the same value, resolution follows first-match policy:
-
-```comp
-!tag #permission = {
-    write = 2
-    modify = 2    // Same value as write
-}
-
-// Ambiguous value casting
-2 ~#permission    // Returns #permission#write (first match)
-                  // Alternative: Could fail as ambiguous (implementation choice)
-
-// Explicit disambiguation
-#permission#modify    // Explicit tag reference
+{"admin", 7, #false} ~User
+// Result: {role=#role#admin, permissions=#permissions#all, active=#false}
 ```
 
 ### Tag Extension Across Modules
 
-Tags can be extended in other modules:
+Modules can extend tags defined in other modules. The values inherited will be
+interchangeable with the tag values from the original module. The original
+module will not see or understand the individual tags in the extension, but can
+still match values based on any hierarchical structure they both share.
 
 ```comp
 // base.comp
-!tag #error {:tag:sequence} = {
+!tag #error = {
     network = 1000
     parse = 2000
 }
 
 // extended.comp  
-!extend #error = {
+!tag extend #base#error = {
     storage = 3000    // Continues sequence from previous values
     memory = 3001
     filesystem = 3002
@@ -639,220 +540,62 @@ Tags can be extended in other modules:
 
 // Usage - extended tags work across modules
 storage_error -> :handle_error    // Can match #error#storage
+
+
+// Possible to extend at a nested level of the tags
+!tag extend #
+
 ```
 
-### Tag Inheritance and Polymorphic Dispatch
-
-```comp
-!tag #animal = {
-    mammal = 100 {
-        cat = 101 {indoor=!true}
-        dog = 102 {loyalty=!true}
-        whale = 103 {environment="ocean"}
-    }
-    bird = 200 {
-        penguin = 201 {flight=!false}
-        eagle = 202 {flight=!true}
-    }
-}
-
-// Polymorphic function dispatch with tag values
-!func :feed ~{animal ~#animal} = "Feeding generic animal"
-!func :feed ~{animal ~#animal#mammal} = "Feeding mammal"
-!func :feed ~{animal ~#animal#bird} = "Feeding bird"
-!func :feed ~{animal ~#animal#mammal#cat} = "Feeding cat with special diet"
-
-// Most specific match wins based on tag hierarchy
-101 -> :feed    // "Feeding cat with special diet" (most specific)
-100 -> :feed    // "Feeding mammal" (parent level)
-{type=102} -> :feed  // "Feeding mammal" (dog is mammal)
-```
-
-### Tag References and Usage Patterns
-
-```comp
-// Direct tag references
-current_status = #status#active
-user_role = #role#admin
-
-// Module-qualified tag references  
-http_status = http#response#success
-auth_level = security#clearance#top_secret
-
-// Tag-typed function parameters
-!func :handle_request ~{status ~#http#status} = {
-    status -> match {
-        #http#status#success -> :process_success
-        #http#status#error -> :handle_error
-        #http#status#redirect -> :follow_redirect
-        else -> :log_unknown
-    }
-}
-
-// Tag values in structure creation
-response = {
-    status = #http#status#success
-    data = result
-    headers = default_headers
-}
-
-// Automatic casting in function calls
-200 -> :handle_request    // Casts to #http#status#success (if 200 is its value)
-```
-
-### Super Calls in Tag Hierarchies
-
-```comp
-!func :process_emotion ~{data #emotion} = {
-    data -> :validate -> !super(process_emotion) -> :log
-}
-
-!func :process_emotion ~{data #emotion#anger} = {
-    // Calls parent #emotion handler
-    data -> :intensify -> !super(process_emotion)
-}
-
-// Explicit parent targeting
-!func :process_emotion ~{data #emotion#anger#fury} = {
-    data -> !super(process_emotion=#emotion#anger) -> :escalate
-}
-```
-
-### Cross-Module Tag Usage
-
-```comp
-// In module A
-!tag #priority = {low, medium, high, critical}
-
-// In module B  
-!import prioritymod = comp ./priority_module
-
-// Usage - values are interchangeable
-local_priority = #priority#high
-imported_priority = prioritymod#priority#high
-same_value = local_priority == imported_priority    // !true
-```
-
-### Tag Aliasing and Extension
-
-```comp
-// Import and extend
-!tag #my_priorities = {
-    ..external#priority        // Import all values
-    urgent = external#priority#critical    // Alias existing
-    emergency = {escalate=!true}           // Add new
-}
-
-// Values remain interchangeable
-#my_priorities#urgent == external#priority#critical    // !true
-```
-
-
-
-## Type Validation and Constraints
-
-### Inline Type Validation
-
-```comp
-data : {name ~string, age ~number}    // Runtime validation
-user ~User -> :process                // Shape application
-```
+When the base tag has a function to generate automatic names, it will also be
+applied do these extended values. (This will cause errors if two extensions
+expect an incremented id but keep getting loaded in different orders.)
 
 ### Future Constraint System
 
-Reserved syntax for compile-time constraints:
+Reserved syntax for compile-time constraints. These rules would come from pure
+functions, and probably need access to some level of AST or parsed data to allow
+the variety of syntaxes used in various languages and examples.
 
 ```comp
 // Planned constraint syntax
-~number|min=1|max=100                    // Numeric constraints
-~string|len>5|matches="^[A-Z]"          // String constraints  
-~User|age>=18|verified=!true            // Complex constraints
-
-// Constraints would be pure validation only
-// All validation evaluable at compile-time (constexpr)
+~num|min=1|max=100                    // Numeric constraints
+~str|len>5|matches="^[A-Z]"          // String constraints  
+~User|age>=18|verified=#true            // Complex constraints
 ```
 
-## Type Promotion and Conversion
 
-### Data Type Transformations
+### Context-Controlled Behavior
 
-**Promotion** - External data → Comp types:
-```comp
-json_data -> :json:promote      // "2024-01-15" → datetime
-cli_args -> :cli:promote        // "yes" → !true
-```
+Rules and behavior for managing numbers and string formatting will be able to be
+controlled through the incoming field namespace, which includes `!mod` and
+`!ctx` where this behavior can be changed across parts of a codebase.
 
-**Casting** - Type conversion between Comp types:
-```comp
-"123" -> :number:cast          // String to number
-#status#ok -> :string:cast     // Tag to string  
-```
-
-**Morphing** - Structure shape transformation (see [Structures Document](structures-spreads-lazy.md#structure-transformation-and-morphing)):
-```comp
-{10, 20} ~ Point2d             // Positional → named fields
-```
-
-### Domain-Specific Promotion
-
-Different contexts use different promotion rules:
+These are initial examples. The known list of settings will be defined when the
+implementation is ready.
 
 ```comp
-:cli:promote     // "yes"→!true, "0"→!false, "3"→3
-:json:promote    // ISO dates→datetime, JSON booleans→!true/!false  
-:sql:promote     // 1/0→boolean, SQL dates→datetime
-:env:promote     // Environment variables, selective promotion
+$ctx.num.precision = 28
+$ctx.num.rounding = math.half_up
+$ctx.num.epsilon = 1e-9
+$ctx.num.int = math.round
+$ctx.fmt.commas = #true
+$ctx.fmt.locale = "en-US"
 ```
-
-
-
-## Error Handling Types
-
-### Failure Structures
-
-Shape application failures return structured information:
-
-```comp
-{
-    #failure
-    #shape_application_failed
-    message = "Type validation failed"
-    partial = {x="hello", y=20}         // Partial results
-    mapping = {field pairing details}
-    errors = {specific error list}
-}
-```
-
-### Hierarchical Error Tags
-
-```comp
-!tag #error = {
-    validation = {
-        type_mismatch = !nil
-        missing_field = !nil
-        constraint_violation = !nil
-    }
-    runtime = {
-        resource_unavailable = !nil
-        permission_denied = !nil
-        timeout = !nil
-    }
-    system = {
-        memory_exhausted = !nil
-        io_error = !nil
-    }
-}
-```
-
 
 ## Implementation Priorities
 
 1. **Unified Number Type**: Context-controlled precision and behavior
-2. **String Template System**: `${}` interpolation, three modes, and template compilation
+2. **String Template System**: `${}` interpolation, three modes, and template
+   compilation
 3. **Unit System**: Definition, conversion, and security integration  
 4. **Tag Hierarchy**: Inheritance, polymorphism, and super calls
-5. **String Security Integration**: Unit-based escaping for SQL, HTML, shell contexts
+5. **String Security Integration**: Unit-based escaping for SQL, HTML, shell
+   contexts
 6. **Type Validation**: Inline validation and constraint framework
 7. **Platform Variants**: Conditional compilation support
 
-This design provides a foundation for Comp's type system that prioritizes mathematical correctness, secure string processing, semantic clarity through tags, and flexibility through structural typing while maintaining compile-time analyzability.
+This design provides a foundation for Comp's type system that prioritizes
+mathematical correctness, secure string processing, semantic clarity through
+tags, and flexibility through structural typing while maintaining compile-time
+analyzability.

@@ -255,7 +255,7 @@ user -> database:save -> {
 !import http = std "http"           // Standard HTTP client
 !import math = std "math"           // Built-in math functions
 
-!func :process_api_data ~{url ~string} = {
+!func :process_api_data ~{url ~str} = {
     url -> http:get -> json:parse -> math:analyze
 }
 ```
@@ -361,7 +361,7 @@ connection_limit = @ctx.max_connections    // Finds @app.max_connections
 !require read, write, net
 
 // Functions inherit module permissions
-!func :fetch_and_save ~{url ~string} = {
+!func :fetch_and_save ~{url ~str} = {
     url -> :http:get -> :file:write "output.json"
 }
 
@@ -437,8 +437,8 @@ Functions safe for use in `!entry` (compile-time evaluation):
 // Hardcoded safe list (initial implementation)
 :args:*              // Command line argument processing
 :config:load         // Configuration file loading  
-:string:*            // String manipulation
-:number:*            // Numeric operations
+:str:*            // String manipulation
+:num:*            // Numeric operations
 :struct:*            // Structure operations
 :json:parse          // JSON parsing (for config files)
 
@@ -521,7 +521,7 @@ Functions safe for use in `!entry` (compile-time evaluation):
 ```comp
 // Runtime module loading (requires import permission)
 !require import
-!func :load_plugin ~{name ~string} = {
+!func :load_plugin ~{name ~str} = {
     // Dynamic import syntax (future feature)
     $plugin = !import_runtime plugin = path "plugins/${name}"
     $plugin -> :initialize
@@ -573,7 +573,7 @@ Functions safe for use in `!entry` (compile-time evaluation):
 !import cache = std "cache"          // Default, overridable  
 !import json = std "json"            // Default, overridable
 
-!func :get_user ~{id ~string} = {
+!func :get_user ~{id ~str} = {
     // Check cache first
     cached = id -> cache:get "user:${id}" | {}
     cached ? cached | {
@@ -622,23 +622,53 @@ Functions and shapes can have platform variants:
 
 ```comp
 // Generic definition
-!func :file_open ~{path ~string} = {
+!func :file_open ~{path ~str} = {
     path -> :posix:open
 }
 
 // Windows-specific override
-!func :file_open.win32 ~{path ~string} = {
+!func :file_open.win32 ~{path ~str} = {
     path -> :win32:CreateFile
 }
 
 // ARM64-specific buffer layout
 !shape ~buffer.arm64 = {
     data ~bytes
-    alignment ~number = 8
+    alignment ~num = 8
 }
 ```
 
 **Resolution Order**: `func.platform.arch` → `func.platform` → `func`
+
+### Cross-Module Tag Usage
+
+```comp
+// In module A
+!tag #priority = {low, medium, high, critical}
+
+// In module B  
+!import prioritymod = comp ./priority_module
+
+// Usage - values are interchangeable
+local_priority = #priority#high
+imported_priority = prioritymod#priority#high
+same_value = local_priority == imported_priority    // #true
+```
+
+### Tag Aliasing and Extension
+
+```comp
+// Import and extend
+!tag #my_priorities = {
+    ..external#priority        // Import all values
+    urgent = external#priority#critical    // Alias existing
+    emergency = {escalate=#true}           // Add new
+}
+
+// Values remain interchangeable
+#my_priorities#urgent == external#priority#critical    // #true
+```
+
 
 
 ### Development vs Production Configuration

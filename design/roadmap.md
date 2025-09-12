@@ -100,7 +100,7 @@ data ?> condition -> action
 data ~ Shape                // Apply shape
 data ~? Shape               // Check shape
 #tag_name                   // Tags
-~number(1..100)            // Constraints
+~num(1..100)            // Constraints
 ```
 
 ### Deliverables
@@ -121,8 +121,8 @@ data ~? Shape               // Check shape
 
 ### Library Modules
 ```comp
-:string:*     // String operations
-:number:*     // Math operations
+:str:*     // String operations
+:num:*     // Math operations
 :list:*       // Collection operations
 :io:*         // Input/output
 :sys:*        // System operations

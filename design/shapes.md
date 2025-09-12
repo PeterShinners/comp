@@ -12,14 +12,14 @@ This document covers Comp's shape system for structural typing, block-based high
 
 ```comp
 !shape ~Point2d = {
-    x ~number = 0
-    y ~number = 0
+    x ~num = 0
+    y ~num = 0
 }
 
 !shape ~User = {
-    name ~string
-    age ~number
-    email ~string
+    name ~str
+    age ~num
+    email ~str
     active ~bool = !true
     preferences? // Optional field
     tags #user_tag[]  // Array of user tags
@@ -31,16 +31,16 @@ This document covers Comp's shape system for structural typing, block-based high
 ```comp
 !shape ~Point3d = {
     ...~Point2d    // Inherit x, y fields
-    z ~number = 0  // Add z coordinate
+    z ~num = 0  // Add z coordinate
 }
 
 !shape ~ColoredPoint = {
     ...~Point2d
-    color ~string = "black"
+    color ~str = "black"
 }
 
 // Function parameter spreading
-!func :analyze ~{...~RawData, complexity ~number = 0} = {
+!func :analyze ~{...~RawData, complexity ~num = 0} = {
     // Has all RawData fields plus complexity parameter
     @in -> :process_with_complexity
 }
@@ -66,8 +66,8 @@ data ~@ Shape          // Include namespace lookups for defaults
 
 ```comp
 !shape ~Config = {
-    host ~string = "localhost"
-    port ~number = 8080
+    host ~str = "localhost"
+    port ~num = 8080
     debug ~bool = !false
 }
 
@@ -85,7 +85,7 @@ data ~@ Shape          // Include namespace lookups for defaults
 Functions automatically apply `?~@` (weak morph with namespace) to incoming arguments:
 
 ```comp
-!func :create_user ~{name ~string, age ~number, active ~bool = !true} = {
+!func :create_user ~{name ~str, age ~num, active ~bool = !true} = {
     // Automatically morphs input using ?~@
     @in -> :validate -> :save
 }
@@ -107,13 +107,13 @@ Functions automatically apply `?~@` (weak morph with namespace) to incoming argu
 
 // Usage with inline blocks
 data -> :process_list 
-    handler={item -> item.name -> :string:uppercase}
+    handler={item -> item.name -> :str:uppercase}
 ```
 
 ### Named Block Parameters
 
 ```comp
-!func :http_request ~{url ~string} blocks={
+!func :http_request ~{url ~str} blocks={
     on_success = {response -> response}      // Default handler
     on_error = {error -> :log_error error}   // Default error handler
     on_timeout?                              // Optional timeout handler
@@ -189,9 +189,9 @@ response ~ HttpResponse -> match {
 
 ```comp
 !shape ~ValidUser = {
-    name ~string|len>0      // Non-empty string
-    age ~number|min=0|max=150  // Reasonable age range
-    email ~string|matches=/^[^@]+@[^@]+$/  // Email pattern
+    name ~str|len>0      // Non-empty string
+    age ~num|min=0|max=150  // Reasonable age range
+    email ~str|matches=/^[^@]+@[^@]+$/  // Email pattern
 }
 
 !func :create_user ~ValidUser = {
@@ -207,9 +207,9 @@ response ~ HttpResponse -> match {
 ```comp
 // Shapes can be compiled for faster repeated application
 !shape ~ValidatedUser = {
-    name ~string|len>0
-    email ~string|matches=/^[^@]+@[^@]+$/
-    age ~number|min=0|max=150
+    name ~str|len>0
+    email ~str|matches=/^[^@]+@[^@]+$/
+    age ~num|min=0|max=150
 }
 
 // First application compiles shape rules
@@ -223,9 +223,9 @@ similar_data ~ ValidatedUser  // Uses cached compiled shape
 
 ```comp
 !shape ~UserCreateRequest = {
-    name ~string|len>0
-    email ~string|matches=/^[^@]+@[^@]+$/
-    age ~number|min=13|max=120
+    name ~str|len>0
+    email ~str|matches=/^[^@]+@[^@]+$/
+    age ~num|min=13|max=120
     notifications ~bool = !true
 }
 
@@ -241,7 +241,7 @@ similar_data ~ ValidatedUser  // Uses cached compiled shape
 ### Data Processing Pipeline with Blocks
 
 ```comp
-!func :etl_pipeline ~{source ~string, target ~string} blocks={
+!func :etl_pipeline ~{source ~str, target ~str} blocks={
     extract = {source -> :load_data}
     transform = {data -> data}  // Default identity transform
     load = {data, target -> :save_data {data=data, destination=target}}
@@ -277,6 +277,63 @@ similar_data ~ ValidatedUser  // Uses cached compiled shape
     payload -> :escalate_error -> :notify_administrators
 }
 ```
+
+## Unit System
+
+### Unit Definition Syntax
+
+```comp
+!unit @distance ~num = {
+    m = !nil                    // Base unit
+    km = {mult=0.001}          // Conversion factor
+    inch = {mult=39.3701}      // Inches per meter
+    lightyear = {mult=1.057e-16}
+}
+
+!unit @temperature ~num = {
+    celsius = !nil
+    fahrenheit = {offset=32, mult=1.8}    // Custom conversion
+    kelvin = {offset=-273.15}
+}
+```
+
+### Unit Usage and Conversion
+
+```comp
+distance = 5@distance@km
+converted = distance -> :units:to @distance@m    // 5000@distance@m
+
+// Automatic validation
+speed = 60@distance@km / 1@time@hour    // Type-safe unit arithmetic
+```
+
+### Unit-Aware Security
+
+Units can apply domain-specific escaping for security:
+
+```comp
+$query = "SELECT * FROM users WHERE id=${user_id}"@sql
+// @sql unit automatically applies SQL escaping
+
+$html = "<div>${content}</div>"@html
+// @html unit applies HTML escaping
+
+$shell = "ls ${directory}"@shell  
+// @shell unit applies shell escaping
+```
+
+### Custom Unit Formatters
+
+Unit formatters must be `!pure` functions for compile-time evaluation:
+
+```comp
+!pure :format_currency ~{value @currency} = {
+    "$${value -> :num:format {decimals=2}}"
+}
+
+@currency = {formatter=:format_currency}
+```
+
 
 ## Implementation Priorities
 

@@ -49,7 +49,7 @@ person = {name=$name, age=$age, active=!true}
 // Construction from function results
 config = {
     host = :env:get "HOST" | "localhost"
-    port = :env:get "PORT" -> :number:parse | 8080
+    port = :env:get "PORT" -> :num:parse | 8080
     debug = :env:get "DEBUG" -> :bool:parse | !false
 }
 ```
@@ -300,13 +300,13 @@ Square brackets create lazy evaluation blocks:
 // Eager evaluation (immediate)
 config = {
     database_url = :env:get "DATABASE_URL"
-    max_connections = :env:get "MAX_CONN" -> :number:parse
+    max_connections = :env:get "MAX_CONN" -> :num:parse
 }
 
 // Lazy evaluation (deferred until accessed)
 lazy_config = {
     database_url = [:env:get "DATABASE_URL"]
-    max_connections = [:env:get "MAX_CONN" -> :number:parse]
+    max_connections = [:env:get "MAX_CONN" -> :num:parse]
 }
 ```
 
@@ -390,8 +390,8 @@ raw_data ~ {
 ### Structure Template Application
 
 ```comp
-!shape ~Point2d = {x ~number, y ~number}
-!shape ~Point3d = {x ~number, y ~number, z ~number}
+!shape ~Point2d = {x ~num, y ~num}
+!shape ~Point3d = {x ~num, y ~num, z ~num}
 
 // Convert 2D to 3D with default z
 point_2d = {x=10, y=20}
@@ -438,7 +438,7 @@ admin_profile = {
 
 ```comp
 // Template function for structure creation
-!func :user_template ~{name ~string, role ~string = "user"} = {
+!func :user_template ~{name ~str, role ~str = "user"} = {
     name = name
     role = role
     permissions = role -> :get_default_permissions
@@ -460,9 +460,9 @@ user = "Bob" -> :user_template
 ```comp
 // Validation with shape application
 !shape ~ValidUser = {
-    name ~string|len>0
-    age ~number|min=0|max=150
-    email ~string|matches=/^[^@]+@[^@]+$/
+    name ~str|len>0
+    age ~num|min=0|max=150
+    email ~str|matches=/^[^@]+@[^@]+$/
     active ~bool = !true
 }
 
@@ -579,8 +579,8 @@ app_config = {
 processed_data = raw_data -> {
     // Clean and normalize
     ...@ except {password, secret_key}  // Remove sensitive fields
-    name = @.name -> :string:trim -> :string:title_case
-    email = @.email -> :string:lowercase
+    name = @.name -> :str:trim -> :str:title_case
+    email = @.email -> :str:lowercase
     
     // Add computed fields
     display_name = @.first_name + " " + @.last_name

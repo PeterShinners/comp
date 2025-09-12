@@ -4,65 +4,136 @@
 
 ## Overview
 
-Comp's function system centers around structural parameter matching with sophisticated dispatch algorithms. Functions use lexicographic scoring for polymorphic dispatch, support both pure and effectful execution, and integrate seamlessly with the pipeline-oriented architecture.
+Any structure definition comp contains a fully executable language; fields can
+be defined by expressions and pipelines, temporary values can be created and
+referenced. Flow control and error handling are regular parts of these
+operations.
 
-struct in, struct out behavior
-output type unspecified
+A function defines a structure like this that is not immediately invoked. The
+function is given a name that becomes part of the module namespace, and defines
+a shape which defines the input shape that work like arguments.
 
+Functions in comp are always prefixed with a `:` colon. They are not
+referenceable values, but this is no limitation. Structures have their own lazy
+evaluation syntaxes which work much like an anonymous function.
 
-## Function Definition and Dispatch
+Functions can also be invoked with special blocks which are another form of
+unexecuted structures under the control of the defining function.
 
-### Basic Function Syntax
+A function takes an input structure, matched by the the definition of the
+function's shape. The function generates a structure result, but it's type is
+arbitrary and determined at runtime.
+
+Functions are invoked by passing them to a pipeline operator, like `->`.
+
+## Definition Basics
+
+Functions are defined with the `!func` operator. They must define a name,
+a shape, and an optional definition for blocks.
+
+The shape can refer to defined shape, or be defined inline. Remember that
+shapes can define types, defaults, and documentation for each field.
+
+The fields that make up the input structure become available to use as
+undecorated field names.
+
+Some functions require no input arguments. These use an explicit 
+`~nil` in their definition.
 
 ```comp
-!func :function_name ~InputShape -> ~OutputShape = {
-    // Single expression that transforms input
-    @in -> :some_operation -> {result=@.value}
+!func :loud-name ~data-with-name = {
+    name -> :str:upper
 }
 
-// Simple function without explicit types
-!func :calculate = {
-    @in.x * @in.y + @in.z
+!func :current-favorite = {
+    70 * 7
 }
 
-// Function with default parameters
-!func :process ~{data, timeout=30, retries=3} = {
-    data -> :transform {timeout=@in.timeout, retries=@in.retries}
+!func :process ~{data settings=~web~request-settings} = {
+    // data uses the first positional argument in the structure
+    $clean = data -> :validate
+    {$clean settings} -> :web:request
 }
 ```
 
-### Function Reference Syntax
+Functions can be defined as private for the current module by using
+a `&` suffix on the function name. This suffix is only used on the
+function definition, not when referencing or invoking the function.
+Only the current module can use these function definitions.
 
-```comp
-:function_name              // Local function reference
-module:function_name        // Imported function reference
-
-// Function as first-class values
-$processor = :validate_data
-$handler = http:handle_request
-
-// Pipeline can start with function calls
-:gfx:init -> :gfx:setup -> :gfx:shutdown
 ```
-
-## Function shape matching
-
-## Pure Functions
-
-### Pure Function Definition
-
-```comp
-!pure :validate_email ~{email ~string} -> ~bool = {
-    // Receives completely empty @ctx - no security tokens, no permissions
-    email -> :string:match /^[^@]+@[^@]+$/
+!func :secret& ~number = {
+    ...
 }
 
-!pure :calculate_tax ~{amount ~number, rate ~number} -> ~number = {
-    amount * (rate / 100)
+$value = :secret  // Only internal module can access
+```
+
+### Ordering
+
+Functions are defined as part of the module namespace. Data defined in the
+module namespace is declarative. Functions can be referenced anywhere in
+the module, regardless of ordering.
+
+```comp
+!func :one ~nil = {
+    result = 15 * :two   // order independent reference
+}
+
+!func :two ~nil = {
+    10
 }
 ```
 
-### Pure Function Guarantees
+### Locals
+
+As with any structure definition, functions can define and references
+using a `$` prefix for function local temporaries. These values are
+lost when the function exits.
+
+### Context
+
+The language defines a shared namespace accessed with `!ctx`.
+This namespace is managed specially as it is passed down the call chain.
+The fields in this namespace are available for any downstream function
+to use, assuming they are not overridden by other namespaces like
+`!in` and `!out`.
+
+This means a function can define data in the context that is accessable 
+to downstream calls.
+
+```comp
+
+!func :begin ~nil = {
+    !ctx.server.port = 8000
+    !mod.static-data -> :server:run_forever
+}
+```
+
+## Function Usage
+
+### Pure Functions
+
+There is an alternative operator to define functions using `!pure`. These
+work like regular functions but run in a context that cannot access any
+external resources. Special features in the language will require they
+are used with pure functions, which can be run at compile time.
+
+A pure function is able to call other pure and regular functions. The 
+regular functions will fail immediately if they attempt to access external 
+resources like file streams or networking.
+
+```comp
+
+// Can be called at compile time where the language needs
+!pure :titlecase !{s~str} -> {
+    {$start $end} = {s 1} -> str:break
+    {$start->:str:uppercase $end->:str:lowercase} -> "${}${}"
+}
+```
+
+Any code can invoke any function with some or partial permissions revoked.
+There is no requirement to use `!pure` to get this functionality. 
 
 **Security Isolation**:
 - Receive empty `@ctx` regardless of caller permissions
@@ -78,7 +149,7 @@ $handler = http:handle_request
 
 ```comp
 // Compile-time evaluation example
-!pure :fibonacci ~{n ~number} -> ~number = {
+!pure :fibonacci ~{n ~num} -> ~num = {
     n <= 1 ? n | (:fibonacci {n=(n-1)} + :fibonacci {n=(n-2)})
 }
 
@@ -90,13 +161,13 @@ $fib_10 = 10 -> :fibonacci    // Computed at compile time: 55
 
 ```comp
 // Regular function - can access resources
-!func :load_config ~{path ~string} = {
+!func :load_config ~{path ~str} = {
     // Has caller's permissions and context
     path -> :file:read -> :json:parse
 }
 
 // Pure function - isolated execution
-!pure :parse_config ~{json_text ~string} = {
+!pure :parse_config ~{json_text ~str} = {
     // No permissions, no file access possible
     json_text -> :json:parse -> :validate_structure
 }
@@ -105,216 +176,205 @@ $fib_10 = 10 -> :fibonacci    // Computed at compile time: 55
 config_path -> :load_config -> :parse_config -> :apply_defaults
 ```
 
+### Permissions
 
-### Function Dispatch Algorithm
+A function can be decorated to explicitly state it requires additional
+permissions before being run. This uses the `!require` operator and is given a
+list of the hardcoded permission names built into Comp.
 
-Functions with the same name use **lexicographic scoring** for dispatch:
+This is never required, because a function can never succeed if it tries to
+access resources it has no permissions for.
 
-**Score Tuple**: `{named_matches, tag_matches, assignment_weight, position_matches}`
+These decorations are helpful for generating compile time errors and generating
+clear information for developer tools.
 
 ```comp
-!func :render ~{x, y} = "2D rendering"           // Score: {2, 0, 0, 0}
-!func :render ~{x, y} *= "priority 2D"          // Score: {2, 0, 1, 0}
-!func :render ~{x, y, z} = "3D rendering"       // Score: {3, 0, 0, 0}
+!require read network
+!func :send-csv ~{path~str where=~server~address} = {
+    path -> :read_csv -> {#0 address} -> :server:upload
+}
+```
+
+To reiterate; if this function did not define the `!require` it would
+still fail when invoked without the correct permissions.
+
+
+### Shape Dispatch
+
+Functions use Comp's shape to morph the current namespace fields into a
+single structure the function can use.
+
+There can be multiple functions defined with the same name. These
+must use unambigously different shape definitions.
+
+All shape definitions can compute a ranked matching score for
+any data. This allows the most specific function definition to
+be invoked for any piece of data.
+
+Functions can be created using the `*=` strong assignment or `?=` weak
+assignment break ties ambiguous ties, which would otherwise be an
+error in the module definition.
+
+```comp
+!func :render ~{x, y} = "2D rendering"
+!func :render ~{x, y} *= "priority 2D"
+!func :render ~{x, y, z} = "3D rendering"
 
 // Dispatch examples
-{x=5, y=10} -> :render           // "priority 2D" wins: {2,0,1,0} > {2,0,0,0}
-{x=5, y=10, z=15} -> :render     // "3D rendering" wins: {3,0,0,0} > others
-{x=5, y=10, extra="data"} -> :render  // "priority 2D": extra fields ignored
+{x=5, y=10} -> :render                // "priority 2D" wins
+{x=5, y=10, z=15} -> :render          // "3D rendering" wins
+{x=5, y=10, extra="data"} -> :render  // "priority 2D"
+
+## Pure Functions
+
+### Pure Function Definition
+
+```comp
+!pure :validate_email ~{email ~str} -> ~bool = {
+    // Receives completely empty @ctx - no security tokens, no permissions
+    email -> :str:match /^[^@]+@[^@]+$/
+}
+
+!pure :calculate_tax ~{amount ~num, rate ~num} -> ~num = {
+    amount * (rate / 100)
+}
 ```
 
 ### Polymorphic Dispatch with Tags
 
-```comp
-!func :process ~{item #status#pending} = "Processing pending item"
-!func :process ~{item #status#active} = "Processing active item"
-!func :process ~{item #priority#high} = "High priority processing"
+Shape morphing and matching rank is heavily inluenced by tag fields in
+the structure. These are the intended system for dynamic and polymorphic
+behavior.
 
-// Most specific match wins
-{item={}, status=#status#pending, priority=#priority#high} -> :process
-// "Processing pending item" (status match is more specific)
+```comp
+!tag #animal = {
+    mammal = 100 {
+        cat = 101 {indoor=#true}
+        dog = 102 {loyalty=#true}
+        whale = 103 {environment="ocean"}
+    }
+    bird = 200 {
+        penguin = 201 {flight=#false}
+        eagle = 202 {flight=#true}
+    }
+}
+
+// Polymorphic function dispatch with tag values
+!func :feed ~{animal #animal} = "Feeding generic animal"
+!func :feed ~{animal #animal#mammal} = "Feeding mammal"
+!func :feed ~{animal #animal#bird} = "Feeding bird"
+!func :feed ~{animal #animal#mammal#cat} = "Feeding cat with special diet"
+
+// Most specific match wins based on tag hierarchy
+101 -> :feed    // "Feeding cat with special diet" (most specific)
+100 -> :feed    // "Feeding mammal" (parent level)
+{type=102} -> :feed  // "Feeding mammal" (dog is mammal)
 ```
 
+### Super Calls in Tag Hierarchies
 
-## Function Metadata and Advanced Features
+Tags present a hierarchy that allow more and less specific
+function definitions to match a value. When a more specific function
+has been invoked, it can call to the more generic definitions using
+the tag hierarchy.
 
-### Function Argument Blocks as Pure Functions
+This is similar to using concepts like `super` or invoking
+base classes in other languages.
 
-**Current Design Decision**: All argument blocks passed to functions are treated as `!pure` functions by default.
 
 ```comp
-!func :transform_data ~{data} blocks={transformer} = {
-    // transformer block receives empty @ctx (pure environment)
-    data => transformer    // Block cannot access files, network, etc.
+!func :process_emotion ~{data #emotion} = {
+    data -> :validate -> !super(process_emotion) -> :log
+}
+
+!func :process_emotion ~{data #emotion#anger} = {
+    // Calls parent #emotion handler
+    data -> :intensify -> !super(process_emotion)
+}
+
+// Explicit parent targeting
+!func :process_emotion ~{data #emotion#anger#fury} = {
+    data -> !super(process_emotion=#emotion#anger) -> :escalate
+}
+```
+
+TODO NEED EXAMPLE
+
+### Cross Module Dispatch
+
+When a tag type has been extended across multiple modules this can
+complicate the dynamic dispatch mechanism.
+
+Functions still need to know which module to reference when invoking functions.
+The language provides a compile time syntax to automatically reference the
+correct module based on the definition of a value's tag.
+
+TODO NEED EXAMPLE
+
+### Blocks
+
+After the shape definition for a function can come an optional block.
+This defines a series of named values that are provided to the language
+through the `!block` operator.
+
+The function can choose to invoke the block as many times as desired
+with whatever structure. 
+
+TODO the shape for each block can be defined.
+TODO there are also can be any number of iterable named and unnabled blocks.
+TODO there are also optional and required blocks
+
+To supply blocks to an invoked function, follow the block with a `.` dot with
+or without the block name.
+
+The intention is to use blocks as callbacks and defining optional behavior
+for functions.
+
+```comp
+!func :walk-data ~{data} blocks={transform} = {
+    cities => !block.transform
 }
 
 // Usage
-dataset -> :transform_data
-    transformer={item -> item.value * 2}    // Pure computation only
+dataset -> :rank-city-crowds .transform{population -> :math:log}
 ```
 
-**Rationale**: Start conservative - gather empirical evidence for when resource access in blocks is actually needed.
-
 ### Function Metadata and Documentation
+
+Documentation can be attached to functions using the !doc operator.
+This operator requires a string literal, which can perform limited
+string template operations.
 
 ```comp
 !func :api_endpoint ~{request ~HttpRequest} -> ~HttpResponse = {
     request -> :validate -> :process -> :format_response
 }
 
-// Documentation integration
-!describe :api_endpoint -> {
-    params = @.shape_info
-    returns = @.return_type
-    description = @.docstring
-}
+The `!describe` operator accepts a function reference. On functions
+this gives information about the function's original name, shape,
+block definition, documentation, and more.
 ```
 
-### Function Composition Patterns
+### Lazy Functions
+
+Any structure can be defied as a lazy structure by using `[]` square brackets.
+The same is true for function definitions.
 
 ```comp
-// Function composition through pipeline
-$pipeline = :validate -> :transform -> :save
-data -> $pipeline
 
-// Conditional function application
-$processor = use_advanced ? :advanced_process | :simple_process
-data -> $processor
-
-// Function with context injection
-!func :process_with_context ~{data} = {
-    @func.start_time = :time:now
-    @func.correlation_id = :uuid:generate
-    
-    data -> :validate -> :transform -> :audit_log
-}
+def :procession ~name~str = [
+    name -> :preamble
+    name -> :ensemble
+    $court = name -> :with-friends
+    $court -> :participate
+    $court -> :disperse
+]
 ```
 
-## Pattern-Based Function Dispatch
+When this function is executed it returns a structure that has no evaluated
+fields. This follows the same rules and restrictions as regular lazy structures.
 
+The function works similar to a generator in other languages. Fields will
+be computed on demand as needed. Once a field is known the data ia preserved
+and the object works like a regular structure.
 
-```comp
-!func :handle_response ~{status #http_status#success, data} = {
-    data -> :process_success_data
-}
-
-!func :handle_response ~{status #http_status#error, message} = {
-    message -> :log_error -> :send_alert
-}
-
-!func :handle_response ~{status #http_status#redirect, location} = {
-    location -> :follow_redirect
-}
-
-// Automatic dispatch based on structure
-response -> :handle_response    // Calls appropriate overload
-```
-
-## Function Scope and Lifecycle
-
-### Function-Scoped Namespace
-
-```comp
-!func :batch_process ~{items} = {
-    @func.processed_count = 0
-    @func.error_count = 0
-    @func.start_time = :time:now
-    
-    items => {
-        item -> :process_item 
-        -> {@ ? (@func.processed_count += 1) | (@func.error_count += 1)}
-    }
-    
-    // Generate summary report
-    {
-        processed = @func.processed_count
-        errors = @func.error_count
-        duration = :time:now - @func.start_time
-    }
-}  // @func namespace automatically cleared here
-```
-
-### Function Entry and Exit Hooks
-
-```comp
-!func :database_transaction ~{operations} = {
-    // Setup
-    $transaction = :db:begin_transaction
-    @func.transaction = $transaction
-    
-    // Main processing with automatic cleanup
-    operations -> {
-        @ -> :execute_in_transaction @func.transaction
-    } -> {
-        // Success: commit
-        @func.transaction -> :db:commit
-        @
-    } !> {
-        // Error: rollback
-        @func.transaction -> :db:rollback
-        @ // Re-raise error
-    }
-}
-```
-
-## Performance and Optimization
-
-### Compile-Time Function Evaluation
-
-```comp
-// Pure functions with constant inputs evaluated at compile-time
-!pure :power ~{base ~number, exponent ~number} = {
-    base ** exponent
-}
-
-$constant_result = {base=2, exponent=10} -> :power  // Compile-time: 1024
-$runtime_result = user_input -> :power              // Runtime evaluation
-```
-
-### Function Memoization
-
-```comp
-!pure :expensive_computation ~{input ~ComplexData} = {
-    // Pure functions automatically eligible for memoization
-    input -> :complex_algorithm -> :more_processing
-}
-
-// Automatic memoization based on input structure hash
-$result1 = data -> :expensive_computation  // Computed
-$result2 = data -> :expensive_computation  // Cached result
-```
-
-### Lazy Function Parameters
-
-```comp
-!func :conditional_process ~{data, expensive_backup=[{-> :expensive_operation}]} = {
-    data -> :primary_process -> (
-        @ ? @ | expensive_backup -> :evaluate  // Only evaluate if needed
-    )
-}
-
-// Usage
-input -> :conditional_process expensive_backup=[{-> :fallback_computation}]
-```
-
-## Implementation Priorities
-
-1. **Basic Function Dispatch**: Shape-based parameter matching and scoring
-2. **Pure Function System**: Security isolation and compile-time evaluation
-3. **Function Scoping**: `@func` namespace management and lifecycle
-4. **Pattern Matching**: Tag-based polymorphic dispatch
-5. **Performance**: Memoization and compile-time optimization
-
-## Open Design Questions
-
-1. **Block Purity**: Should all function argument blocks be restricted to pure execution, or should there be syntax for blocks that can access resources?
-
-2. **Function Overloading**: What happens when shape patterns are ambiguous? Should there be explicit disambiguation syntax?
-
-3. **Tail Call Optimization**: Should the language guarantee tail call optimization for recursive functions?
-
-4. **Async Functions**: How should asynchronous operations integrate with the pipeline model?
-
-5. **Function Metadata**: What introspection capabilities should be available for functions at runtime?
-
-This design provides a comprehensive function system that balances expressiveness with safety, enables powerful abstraction patterns while maintaining static analyzability, and supports both pure computational functions and effectful operations through clear distinctions.

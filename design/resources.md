@@ -31,7 +31,7 @@ Resources are opaque handles that provide controlled access to external system r
 
 ```comp
 !require read, write
-!func :open_file ~{path ~string, mode ~string} = {
+!func :open_file ~{path ~str, mode ~str} = {
     $fd = {path=path, mode=mode} -> :syscall:open
     
     // Create resource handle with lifecycle callbacks
@@ -132,7 +132,7 @@ Comp uses capability-based security with predefined system tokens:
 ```comp
 // Function-level requirements (checked at call time)
 !require read, write
-!func :process_file ~{path ~string} = {
+!func :process_file ~{path ~str} = {
     path -> :file:read -> :transform -> :file:write
 }
 
@@ -181,9 +181,9 @@ Security tokens stored in flowing `@ctx` namespace:
 Functions declared with `!pure` receive zero security tokens:
 
 ```comp
-!pure :validate_email ~{email ~string} = {
+!pure :validate_email ~{email ~str} = {
     // @ctx = {} - no tokens available
-    email -> :string:match /^[^@]+@[^@]+$/  // OK: pure computation
+    email -> :str:match /^[^@]+@[^@]+$/  // OK: pure computation
     email -> :file:read "config"            // ERROR: no read token
 }
 ```
@@ -374,14 +374,14 @@ untrusted -> :restricted_function {
 !handle %file_processor
 
 !shape ProcessorState& = {
-    fd ~number
-    path ~string  
-    lines_processed ~number
+    fd ~num
+    path ~str  
+    lines_processed ~num
     last_error?
 }
 
 !require read
-!func :open_processor ~{path ~string} = {
+!func :open_processor ~{path ~str} = {
     $fd = {path=path, mode="r"} -> :syscall:open
     
     $handle = $fd -> !resource %file_processor {
@@ -406,7 +406,7 @@ untrusted -> :restricted_function {
 }
 
 !require read, write  
-!func :process_file_transactionally ~{input ~string, output ~string} = {
+!func :process_file_transactionally ~{input ~str, output ~str} = {
     $input_handle = input -> :open_processor
     $output_handle = {path=output, mode="w"} -> :file:open_for_write
     
@@ -431,7 +431,7 @@ untrusted -> :restricted_function {
     .return_connection {pool, conn -> :pool:release_connection {pool=pool, connection=conn}}
 
 !require read, write
-!func :create_pool ~{database_url ~string, max_connections ~number = 10} = {
+!func :create_pool ~{database_url ~str, max_connections ~num = 10} = {
     $connections = {1..max_connections} => {
         database_url -> :db:connect -> !resource %db_connection {
             release = [@ -> :db:disconnect]

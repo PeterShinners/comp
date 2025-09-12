@@ -225,6 +225,12 @@ response -> :http:request !> {
 
 ### Pipeline Labels and Reuse
 
+
+All pipeline operators are given equal precedence. This means they are all
+processed in left to right order. Sometimes it will be necessary to group
+sub-operations within `{}` braces collapse operations into a single statement of
+their own.
+
 ```comp
 // Function-scoped labels
 path -> :fs:open -> !label $fd -> :process_file
@@ -267,7 +273,7 @@ user_data -> $validation_pipeline -> $processing_pipeline -> $storage_pipeline
 
 ```comp
 // Build pipeline based on data characteristics
-!func :create_pipeline ~{data_type ~string} = {
+!func :create_pipeline ~{data_type ~str} = {
     data_type -> match {
         "csv" -> (:csv:parse -> :validate -> :normalize)
         "json" -> (:json:parse -> :validate -> :transform)
