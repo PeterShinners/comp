@@ -318,7 +318,7 @@ are not extensible or customizeable by operator overload.
 String types will rely heavily on the templating syntax and a library of
 functions in the language libraries. There are no operators for string types.
 
-## Fallback operator
+## Fallback Operator
 
 The language also provides a simple `|` operator to provide a fallback
 value for any immediate expression that may have failed. This prevents the
@@ -329,6 +329,14 @@ is commonly used for attribute lookups that may not be defined.
 ```comp
 config.volume | 100   // use the config volume field or fallback on 100
 ```
+
+## Other Operators
+
+The language provides a placeholder symbol `...` of triple dots.
+This is a valid token in nearly all contexts. This will allow a module
+to compile and be usable without being fully implemented. When program
+flow reaches this `...` symbol it will result in an immediate failure.
+
 
 ## Basic Function Definition Syntax
 
@@ -399,9 +407,9 @@ behaviors.
   one of the namespace names that start with a leading dot (`!ctx`)
 
 Remember that structures and all values are immutable read only data. The
-assignment operator will use the assignments as a way to modify the original
-values into a newly created, immutable structure with the assigned changes
-applied.
+assignment operator is only used to create new values. The assignment 
+provides several high level ways to derive a new structure based on the
+contents of the original.
 
 The assignment operator is also used syntactically in all the keyword operators
 that define new values. These have special meanings based on the definition of
@@ -414,6 +422,12 @@ value, or possibly an error result.
 
 ```comp
 !function :example ~example-shape = {
+
+    a = {color=”red”}
+    b = a
+    a.color = “blue”
+    // b.color is still red; the original, immutable value
+
     !ctx.server-port = 8000
     $temporary = 5
     outgoing = :listen

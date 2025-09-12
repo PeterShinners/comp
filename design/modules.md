@@ -84,6 +84,77 @@ Libraries automatically inherit main module's dependency choices:
 // Tools can parse and update these automatically
 ```
 
+### Dynamic Module System
+
+The dynamic module system maintains static safety through a **construction-time dynamic, runtime static** approach:
+- Modules can be built programmatically at runtime
+- Once sealed, they behave exactly like statically imported modules
+- Full type safety and performance maintained
+
+### Three-Tier Flexibility
+
+**1. Automatic Import Translation (90% of cases)**
+```comp
+// Transparent imports via specialized importers
+!import api = "openapi://./swagger.json"
+!import db = "postgres://localhost/mydb?schema=public"
+!import py_utils = "python://./utils.py"
+!import proto = "protobuf://./messages.proto"
+
+// Use normally with full type safety
+api.users.get({id=123})
+db.User.findById(123)
+```
+
+**2. Module Builder Pattern (9% of cases)**
+```comp
+// For custom scenarios beyond importer capabilities
+builder = :module_builder.new()
+builder -> :add_function("connect", connect_impl)
+builder -> :add_shape("User", user_shape)
+database_mod = builder -> !seal  // Now immutable
+
+// Works exactly like static import
+database_mod.connect() -> database_mod.query("SELECT * FROM users")
+```
+
+**3. Manual Construction (1% of cases)**
+```comp
+// Full control for edge cases
+user_shape = :compile_shape({name: "string", age: "number"})
+validator_func = :compile_function("validate_user", user_shape, logic)
+
+builder -> :add_shape("User", user_shape)
+       -> :add_function("validate", validator_func)
+       -> !seal -> user_module
+```
+
+### Intelligent Caching
+
+Import providers implement appropriate caching strategies:
+
+**HTTP-based importers:** ETag + Last-Modified headers
+**Database importers:** Schema version + table timestamps  
+**File-based importers:** File mtime + content hash
+
+**Cache Integration:**
+- Source cache: Raw downloaded/accessed content
+- Translation cache: Converted Comp module definitions
+- Runtime cache: Compiled/optimized module instances
+
+**Key Benefits:**
+- **Flexibility without chaos:** Multiple pathways to achieve dynamic behavior
+- **Performance:** Sealed modules perform identically to static imports
+- **Type safety:** Full type checking maintained even for runtime-built modules
+- **Familiarity:** Builder pattern and import syntax feel natural
+- **Optimization:** Intelligent caching makes repeated access fast
+
+**Use Cases:**
+- **Configuration-driven modules:** Build database connections from runtime config
+- **Plugin systems:** Dynamically discover and load plugins
+- **Code generation:** Generate API clients from external schemas
+- **Schema reflection:** Create modules from database schemas or external APIs
+
 ## Import Statement Syntax
 
 ### Core Import Syntax
@@ -526,6 +597,32 @@ Functions safe for use in `!entry` (compile-time evaluation):
     $plugin = !import_runtime plugin = path "plugins/${name}"
     $plugin -> :initialize
 }
+
+// Module builder pattern for runtime construction
+!func :build_database_module ~{config ~{host ~str, port ~num}} = {
+    builder = :module_builder.new()
+    
+    // Add connection function
+    connect_impl = :compile_function("connect", {}, {
+        @func.host = config.host
+        @func.port = config.port
+        :database:connect {@func.host, @func.port}
+    })
+    
+    // Add query functions
+    query_impl = :compile_function("query", {sql ~str}, {
+        @func.connection -> :execute sql
+    })
+    
+    // Seal and return immutable module
+    builder -> :add_function("connect", connect_impl)
+           -> :add_function("query", query_impl)
+           -> !seal
+}
+
+// Usage - works exactly like static import
+$db_module = :build_database_module {host="localhost", port=5432}
+$db_module.connect() -> $db_module.query("SELECT * FROM users")
 ```
 
 ### Module Caching and Reloading
@@ -536,10 +633,18 @@ Functions safe for use in `!entry` (compile-time evaluation):
 // - Filesystem modules: Cached by modification time  
 // - HTTP modules: Cached with HTTP cache headers
 // - Python modules: Follow Python import caching
+// - Database modules: Schema version + table timestamps
+// - OpenAPI modules: ETag + Last-Modified headers
+
+// Cache layers for optimal performance:
+// 1. Source cache: Raw downloaded/accessed content
+// 2. Translation cache: Converted Comp module definitions  
+// 3. Runtime cache: Compiled/optimized module instances
 
 // Explicit cache control (development feature)
 !import utils = git @company/utils@latest !no-cache
 !import config = disk ./config.comp !reload-on-change
+!import api = openapi "https://api.service.com/spec.json" !cache-timeout=3600
 ```
 
 ## Integration Examples
@@ -692,15 +797,92 @@ same_value = local_priority == imported_priority    // #true
 !import app = comp "./app.comp"
 ```
 
+
+### Stable Module Identifiers
+
+The module system generates **deterministic, portable identifiers** for dependencies that remain consistent across machines and environments.
+
+**Identifier Generation Strategy:**
+- Base identifier on package name + namespace/owner + version
+- `colorlib_studio_v1` → `github.com/studio/colorlib@v1.0`
+- Import providers suggest tiered specificity: preferred → scoped → versioned → canonical → collision_token
+
+**Developer Tools:**
+```bash
+# Discover available module identifiers
+comp module identifiers "*color*"
+# Found: colorlib_studio_v1 → github.com/studio/colorlib@v1.0
+
+# Override dependencies at runtime
+comp run file.comp --override colorlib_studio_v1=./my-local-colors
+comp run file.comp --override colorlib_studio_v1=github://user/altcolorlib@1.2
+```
+
+### Static Packaging System
+
+**Bundle Creation:**
+```bash
+comp staticpackage file.comp
+# Creates: file.comp.bundle (self-contained archive)
+```
+
+**Bundle Usage:**
+```bash
+# Auto-discovery - uses bundle if found
+comp run file.comp
+
+# Manual control
+comp run file.comp --bundle=./custom.bundle
+comp run file.comp --no-bundle
+comp run file.comp --validate-bundle
+```
+
+**Benefits:**
+- Self-contained deployment artifacts
+- No external dependencies in production
+- Consistent execution across environments
+- Verifiable and cacheable distribution
+
+
 ## Implementation Priorities
 
 1. **Core Import Syntax**: Source tokens, specifiers, assignment operators
 2. **Automatic Main Override**: Default behavior for library compatibility
-3. **Standard Library Integration**: Built-in module loading with `std` source
-4. **Package Manager Integration**: Exact version specification with `pkg` source
-5. **Fallback Chain Processing**: Multiple source resolution with `|` operator
-6. **Git Repository Support**: Remote repository loading with version/tag specification
-7. **External Schema Integration**: OpenAPI, Protocol Buffers, and foreign language imports
+3. **Stable Module Identifiers**: Deterministic, portable dependency identifiers
+4. **Static Packaging System**: Self-contained bundle creation and deployment
+5. **Standard Library Integration**: Built-in module loading with `std` source
+6. **Package Manager Integration**: Exact version specification with `pkg` source
+7. **Fallback Chain Processing**: Multiple source resolution with `|` operator
+8. **Dynamic Module Builder**: Runtime module construction with builder pattern
+9. **Intelligent Caching**: Multi-layer caching with provider-specific strategies
+10. **Git Repository Support**: Remote repository loading with version/tag specification
+11. **External Schema Integration**: OpenAPI, Protocol Buffers, and foreign language imports
+
+## Key Design Principles
+
+### Construction-Time Dynamic, Runtime Static
+
+The dynamic module system provides a "pit of success" where:
+- **Common cases are trivial**: Standard imports work transparently
+- **Edge cases are possible**: Builder pattern available for complex scenarios  
+- **Type system remains intact**: Full type checking maintained throughout
+- **Performance is preserved**: Sealed modules perform identically to static imports
+
+### Flexibility without Chaos
+
+Multiple pathways to achieve dynamic behavior:
+- **90% of cases**: Automatic import translation via specialized importers
+- **9% of cases**: Module builder pattern for custom construction
+- **1% of cases**: Manual compilation for complete control
+
+### Developer-Friendly Tooling
+
+Built-in tools support the complete module lifecycle:
+- Module identifier discovery and resolution
+- Static packaging for deployment
+- Runtime dependency override for development
+- Cache management and invalidation
+- Bundle validation and verification
 
 ## Key Design Changes from Earlier Versions
 
