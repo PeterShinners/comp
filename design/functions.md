@@ -176,7 +176,31 @@ $fib_10 = 10 -> :fibonacci    // Computed at compile time: 55
 config_path -> :load_config -> :parse_config -> :apply_defaults
 ```
 
-### Permissions
+### Lazy Functions
+
+Any structure can be defied as a lazy structure by using `[]` square brackets.
+The same is true for function definitions.
+
+```comp
+
+def :procession ~name~str = [
+    name -> :preamble
+    name -> :ensemble
+    $court = name -> :with-friends
+    $court -> :participate
+    $court -> :disperse
+]
+```
+
+When this function is executed it returns a structure that has no evaluated
+fields. This follows the same rules and restrictions as regular lazy structures.
+
+The function works similar to a generator in other languages. Fields will
+be computed on demand as needed. Once a field is known the data ia preserved
+and the object works like a regular structure.
+
+
+## Function Permissions and Security
 
 A function can be decorated to explicitly state it requires additional
 permissions before being run. This uses the `!require` operator and is given a
@@ -198,7 +222,6 @@ clear information for developer tools.
 To reiterate; if this function did not define the `!require` it would
 still fail when invoked without the correct permissions.
 
-
 ### Shape Dispatch
 
 Functions use Comp's shape to morph the current namespace fields into a
@@ -211,9 +234,11 @@ All shape definitions can compute a ranked matching score for
 any data. This allows the most specific function definition to
 be invoked for any piece of data.
 
-Functions can be created using the `*=` strong assignment or `?=` weak
-assignment break ties ambiguous ties, which would otherwise be an
-error in the module definition.
+### Function Dispatch Scoring
+
+Functions with the same name use **lexicographic scoring** for dispatch based on shape matching:
+
+**Score Tuple**: `{named_matches, tag_matches, assignment_weight, position_matches}`
 
 ```comp
 !func :render ~{x, y} = "2D rendering"
@@ -221,24 +246,19 @@ error in the module definition.
 !func :render ~{x, y, z} = "3D rendering"
 
 // Dispatch examples
-{x=5, y=10} -> :render                // "priority 2D" wins
-{x=5, y=10, z=15} -> :render          // "3D rendering" wins
-{x=5, y=10, extra="data"} -> :render  // "priority 2D"
-
-## Pure Functions
-
-### Pure Function Definition
-
-```comp
-!pure :validate_email ~{email ~str} -> ~bool = {
-    // Receives completely empty @ctx - no security tokens, no permissions
-    email -> :str:match /^[^@]+@[^@]+$/
-}
-
-!pure :calculate_tax ~{amount ~num, rate ~num} -> ~num = {
-    amount * (rate / 100)
-}
+{x=5, y=10} -> :render           // "priority 2D" wins: {2,0,1,0} > {2,0,0,0}
+{x=5, y=10, z=15} -> :render     // "3D rendering" wins: {3,0,0,0} > others
+{x=5, y=10, extra="data"} -> :render  // "priority 2D": extra fields ignored
 ```
+
+#### Assignment Weight for Disambiguation
+
+Functions can be created using assignment operators to break ties:
+- `*=` **Strong assignment** - Higher priority
+- `=` **Normal assignment** - Standard priority
+- `?=` **Weak assignment** - Lower priority
+
+This allows explicit control over dispatch precedence when multiple functions would otherwise have identical scores.
 
 ### Polymorphic Dispatch with Tags
 
@@ -271,45 +291,97 @@ behavior.
 {type=102} -> :feed  // "Feeding mammal" (dog is mammal)
 ```
 
-### Super Calls in Tag Hierarchies
+### Tag-Based Parent Calls
 
-Tags present a hierarchy that allow more and less specific
-function definitions to match a value. When a more specific function
-has been invoked, it can call to the more generic definitions using
-the tag hierarchy.
+The tag dispatch mechanism allows calling parent implementations using field-based syntax, replacing the older `!super` mechanism.
 
-This is similar to using concepts like `super` or invoking
-base classes in other languages.
-
+#### Core Parent Call Syntax
 
 ```comp
-!func :process_emotion ~{data #emotion} = {
-    data -> :validate -> !super(process_emotion) -> :log
-}
+// Normal dispatch - finds implementation based on tag's origin module
+data -> :fieldname#:function
 
-!func :process_emotion ~{data #emotion#anger} = {
-    // Calls parent #emotion handler
-    data -> :intensify -> !super(process_emotion)
-}
-
-// Explicit parent targeting
-!func :process_emotion ~{data #emotion#anger#fury} = {
-    data -> !super(process_emotion=#emotion#anger) -> :escalate
-}
+// Parent dispatch - explicitly calls parent tag's implementation  
+data -> :fieldname#parent_tag:function
 ```
 
-TODO NEED EXAMPLE
+#### How Tag Dispatch Works
 
-### Cross Module Dispatch
+When a tag value is created, it carries metadata about which module defined it. The dispatch syntax uses this to find the correct implementation:
 
-When a tag type has been extended across multiple modules this can
-complicate the dynamic dispatch mechanism.
+1. **`:fieldname#:function`** - Looks at the tag in `fieldname`, determines its origin module, then finds the most specific `:function` implementation for that shape
+2. **`:fieldname#parent_tag:function`** - Temporarily masks the field's tag as `parent_tag` during shape matching, allowing explicit parent implementation calls
 
-Functions still need to know which module to reference when invoking functions.
-The language provides a compile time syntax to automatically reference the
-correct module based on the definition of a value's tag.
+#### Complete Tag Dispatch Example
 
-TODO NEED EXAMPLE
+```comp
+// base module
+!tag #animal = {#mammal #reptile}
+!tag #mammal = {#dog #cat}
+!func :speak ~{#mammal ...} = "generic mammal sound"
+!func :speak ~{#dog ...} = {
+    $parent = @in -> :type#mammal:speak  // Explicit parent call
+    "woof and ${parent}"
+}
+
+// extended module  
+!tag #mammal += {#wolf}
+!func :speak ~{#wolf ...} = "howl"
+
+// Usage - works across module boundaries
+my_pet = {type=#wolf, name="Luna"}
+my_pet -> :type#:speak         // "howl" - finds extended:speak
+my_pet -> :type#mammal:speak   // "generic mammal sound" - forces parent
+
+### Dynamic Tag-Based Dispatch
+
+The Comp language uses field-based tag dispatch for polymorphic behavior across modules, providing a powerful mechanism for cross-module polymorphism.
+
+#### Core Syntax
+
+```comp
+// Normal polymorphic dispatch - finds implementation based on tag's origin module
+data -> :fieldname#:function
+
+// Parent dispatch - explicitly calls parent tag's implementation  
+data -> :fieldname#parent_tag:function
+```
+
+#### How Tag Dispatch Works
+
+When a tag value is created (e.g., `#dog`), it carries metadata about which module defined it. The dispatch syntax uses this to find the correct implementation:
+
+1. **`:fieldname#:function`** - Looks at the tag in `fieldname`, determines its origin module, then finds the most specific `:function` implementation for that shape
+2. **`:fieldname#parent_tag:function`** - Temporarily masks the field's tag as `parent_tag` during shape matching, allowing explicit parent implementation calls
+
+#### Tag Dispatch Example
+
+```comp
+// base module
+!tag #animal = {#mammal #reptile}
+!tag #mammal = {#dog #cat}
+!func :speak ~{#mammal ...} = "generic mammal sound"
+!func :speak ~{#dog ...} = {
+    $parent = .in -> :type#mammal:speak  // Explicit parent call
+    "woof and ${parent}"
+}
+
+// extended module
+!tag #mammal += {#wolf}
+!func :speak ~{#wolf ...} = "howl"
+
+// Usage - works across module boundaries
+my_pet = {type=#wolf name="Luna"}
+my_pet -> :type#:speak         // "howl" - finds extended:speak
+my_pet -> :type#mammal:speak   // "generic mammal sound" - forces parent
+```
+
+#### Key Properties
+
+- **Static module resolution** - The module is determined by the tag's origin, no dynamic searching
+- **Dynamic shape matching** - Within the module, finds most specific implementation using the standard specificity tuple scoring
+- **Parent-only constraint** - Can only dispatch through actual parents in the tag hierarchy (not siblings)
+- **Consistent syntax** - Same mechanism works from inside implementations or external call sites
 
 ### Blocks
 
@@ -320,9 +392,89 @@ through the `!block` operator.
 The function can choose to invoke the block as many times as desired
 with whatever structure. 
 
-TODO the shape for each block can be defined.
-TODO there are also can be any number of iterable named and unnabled blocks.
-TODO there are also optional and required blocks
+Functions can define that they accept additional blocks with specific shapes for each block parameter:
+
+```comp
+!func :match ~single cases={
+        #status#pending ~single
+        #status#completed ~single
+        else = {input -> :error("Unhandled case")}  # Default block
+    } = {
+    input == #status#pending ? {input -> cases.#status#pending}
+    | input == #status#completed ? {input -> cases.#status#completed}  
+    | {input -> cases.else}
+}
+```
+
+#### Usage with Dotted Block Syntax
+
+```comp
+status -> :match
+    .#status#pending {data -> "Still processing"}
+    .#status#completed {data -> "All finished"}
+    .else {data -> "Unknown status"}
+
+# Custom match functions for different patterns
+user_input -> :match_values
+    .'0' {-> "Zero selected"}
+    .'"quit"' {-> "Exiting program"}
+    .else {-> "Unknown option"}
+```
+
+#### Nested Blocks for Side Effects
+
+The `:nest` function executes code for side effects while preserving the main pipeline data flow:
+
+```comp
+user_data -> :nest.{
+    $email = data.contact.email
+    $timestamp = :time:now
+    debug.log("Processing user: ${data.name}")
+} -> validate_and_save
+```
+
+#### Block Shape Definitions
+
+Functions can define specific shapes for each block parameter:
+
+```comp
+!func :process_list ~{items} blocks={
+    handler ~{item} -> ~string        // Block takes item, returns string
+    error_handler ~{error} -> ~nil    // Error block takes error, returns nothing
+    filter? ~{item} -> ~bool         // Optional filter block
+} = {
+    filtered_items = items => {
+        item -> filter ? {item -> filter} | !true ? item | :skip
+    }
+    
+    filtered_items => {
+        item -> handler !> error_handler
+    }
+}
+```
+
+#### Variadic and Optional Block Parameters
+
+Functions can accept variable numbers of blocks using spread syntax:
+
+```comp
+!func :url_dispatch ~{parsed_url} blocks={...routes} = {
+    // Accepts any number of route blocks
+    parsed_url.path -> :match_routes routes
+}
+
+!func :data_processor ~{data} blocks={
+    validator ~{item} -> ~bool = {item -> :default_validate}  // Default block
+    transform ~{item} -> ~item                                // Required block  
+    logger? ~{message} -> ~nil                               // Optional block
+    ...handlers ~{item, context} -> ~result                  // Variadic handlers
+} = {
+    data 
+    -> :validate_with validator
+    -> transform
+    -> :log_if_present logger
+    -> :apply_handlers handlers
+}
 
 To supply blocks to an invoked function, follow the block with a `.` dot with
 or without the block name.
@@ -339,42 +491,36 @@ for functions.
 dataset -> :rank-city-crowds .transform{population -> :math:log}
 ```
 
-### Function Metadata and Documentation
+### Function Documentation
 
-Documentation can be attached to functions using the !doc operator.
-This operator requires a string literal, which can perform limited
-string template operations.
-
-```comp
-!func :api_endpoint ~{request ~HttpRequest} -> ~HttpResponse = {
-    request -> :validate -> :process -> :format_response
-}
+Documentation can be attached to functions using the `!doc` operator with string literals that support template operations:
 
 The `!describe` operator accepts a function reference. On functions
 this gives information about the function's original name, shape,
 block definition, documentation, and more.
 ```
-
-### Lazy Functions
-
-Any structure can be defied as a lazy structure by using `[]` square brackets.
-The same is true for function definitions.
-
 ```comp
+!doc = "Processes HTTP requests and returns formatted responses"
 
-def :procession ~name~str = [
-    name -> :preamble
-    name -> :ensemble
-    $court = name -> :with-friends
-    $court -> :participate
-    $court -> :disperse
-]
+!func :api_endpoint ~{request ~HttpRequest} -> ~HttpResponse = {
+    request -> :validate -> :process -> :format_response
+}
+
+!doc :api_endpoint = """
+Additional documentation will be appended in definition order. Using triple
+quotes allows multiline information and requires less escaping for quotation
+characters.
+"""
+
+!describe :api_endpoint
 ```
 
-When this function is executed it returns a structure that has no evaluated
-fields. This follows the same rules and restrictions as regular lazy structures.
+The describe structure provides these fields for comprehensive function introspection and tooling support.
+* name
+* input_shape
+* output_shape
+* documentation
+* module
+* permissions
 
-The function works similar to a generator in other languages. Fields will
-be computed on demand as needed. Once a field is known the data ia preserved
-and the object works like a regular structure.
 
