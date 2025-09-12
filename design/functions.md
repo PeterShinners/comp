@@ -385,110 +385,93 @@ my_pet -> :type#mammal:speak   // "generic mammal sound" - forces parent
 
 ### Blocks
 
-After the shape definition for a function can come an optional block.
-This defines a series of named values that are provided to the language
-through the `!block` operator.
+Blocks are additional segments of code that are passed to a function. They are
+defined by using any number of dotted names after invoking a function and they
+each take one structure statement.
 
-The function can choose to invoke the block as many times as desired
-with whatever structure. 
+The structure is not evaluated immediately, but passed to the function as a
+callable value it can invoke as many times as desired.
 
-Functions can define that they accept additional blocks with specific shapes for each block parameter:
+Blocks are intended to be used as callbacks to handle special events or
+assist internal processing.
+
+### Standard Library Blocks
+
+The standard library is full of block usage. Code that deals with iterators and
+comparisons will usually have a `.key` block, which allows providing a value
+used for comparisons.
+
+Blocks are optionally defined by a field name, which supports using tags
+directly, or any expression when single quoted.
 
 ```comp
-!func :match ~single cases={
-        #status#pending ~single
-        #status#completed ~single
-        else = {input -> :error("Unhandled case")}  # Default block
-    } = {
-    input == #status#pending ? {input -> cases.#status#pending}
-    | input == #status#completed ? {input -> cases.#status#completed}  
-    | {input -> cases.else}
-}
+$ordered = users -> :sort .key{name -> :str:lowercase}
+$crowded = cities -> :maxmimum .key{population}
+
+$record.status -> :match
+    .#status.success{"Request completed"}
+    .#status.timeout{"Request timed out"}
+    .else{"Request had unknown status ${value}"}
+-> :log:info
 ```
 
-#### Usage with Dotted Block Syntax
+### Block Definition
+
+Blocks must be explicitly defined on a function that uses them. These are dotted
+named definitions that follow the function definition.
+
+Each definition is much like a function definiton itself. They must define a
+shape for the data they pass to their arguments along with an optional name.
+Each block can also define a default implementation, allowing them to be
+optional when the function is called.
+
+The function references the block with the dotted name. This is only available
+inside the function the block was defined for. The block can be invoked as many
+times as desired.
 
 ```comp
-status -> :match
-    .#status#pending {data -> "Still processing"}
-    .#status#completed {data -> "All finished"}
-    .else {data -> "Unknown status"}
+// Definition
+!func :handle-request ~{url~str} = {
+    $req = url -> :prepare_request
 
-# Custom match functions for different patterns
-user_input -> :match_values
-    .'0' {-> "Zero selected"}
-    .'"quit"' {-> "Exiting program"}
-    .else {-> "Unknown option"}
-```
-
-#### Nested Blocks for Side Effects
-
-The `:nest` function executes code for side effects while preserving the main pipeline data flow:
-
-```comp
-user_data -> :nest.{
-    $email = data.contact.email
-    $timestamp = :time:now
-    debug.log("Processing user: ${data.name}")
-} -> validate_and_save
-```
-
-#### Block Shape Definitions
-
-Functions can define specific shapes for each block parameter:
-
-```comp
-!func :process_list ~{items} blocks={
-    handler ~{item} -> ~string        // Block takes item, returns string
-    error_handler ~{error} -> ~nil    // Error block takes error, returns nothing
-    filter? ~{item} -> ~bool         // Optional filter block
-} = {
-    filtered_items = items => {
-        item -> filter ? {item -> filter} | !true ? item | :skip
-    }
-    
-    filtered_items => {
-        item -> handler !> error_handler
-    }
+    -?? req.method == #GET -&& $req -> .get
+    -|? req.method == #POST -&& $req -> .post
+    -|| {#fail.value "Http method ${req.method} not supported"}
 }
-```
-
-#### Variadic and Optional Block Parameters
-
-Functions can accept variable numbers of blocks using spread syntax:
-
-```comp
-!func :url_dispatch ~{parsed_url} blocks={...routes} = {
-    // Accepts any number of route blocks
-    parsed_url.path -> :match_routes routes
-}
-
-!func :data_processor ~{data} blocks={
-    validator ~{item} -> ~bool = {item -> :default_validate}  // Default block
-    transform ~{item} -> ~item                                // Required block  
-    logger? ~{message} -> ~nil                               // Optional block
-    ...handlers ~{item, context} -> ~result                  // Variadic handlers
-} = {
-    data 
-    -> :validate_with validator
-    -> transform
-    -> :log_if_present logger
-    -> :apply_handlers handlers
-}
-
-To supply blocks to an invoked function, follow the block with a `.` dot with
-or without the block name.
-
-The intention is to use blocks as callbacks and defining optional behavior
-for functions.
-
-```comp
-!func :walk-data ~{data} blocks={transform} = {
-    cities => !block.transform
-}
+.get~{request} {#fail.value "Http method GET not implemented"}
+.post~{request} {#fail.value "Http method POST not implemented"}
 
 // Usage
-dataset -> :rank-city-crowds .transform{population -> :math:log}
+url-arg -> :handle-request
+    .get(request.path -> :translate-path -> :fetch_response)
+    .post({request.path -> :translate-path request.body} -> :store_response)
+```
+
+### Block Names
+
+Block names follow the regular field name definitions. This means tokens and
+tags can be used directly. Any expression can be used when single quoted, and
+non-token strings are valid when double quoted.
+
+Functions can define one block that is passed without name. In the function
+definition this is treated as `.block`, but when invoking the function this is
+used as a single `.` dot. As an example, the standard library `:nest` is
+implemented as a function which executed a pipeline passes through the outer
+incoming data.
+
+```comp
+user_input -> :match_values
+    .'0' {-> "Zero selected"}
+    ."quit now!" {-> "Exiting program"}
+    .else {-> "Unknown option"}
+
+!function :nest ~{} = {
+    $temp = !in -> .block
+    $temp
+}
+.block ~{}
+
+$user = :load_user -> :nest .{"Hello, {$name}" -> :io:print}
 ```
 
 ### Function Documentation

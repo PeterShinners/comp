@@ -886,38 +886,9 @@ Built-in tools support the complete module lifecycle:
 
 ## Key Design Changes from Earlier Versions
 
-### Removed Features
-- **`.app` namespace**: Eliminated shared dependency namespace concept
-- **Modules as values**: Modules cannot be assigned to variables or passed as parameters
-- **Complex provider architecture**: Simplified to direct source token system
-- **Version ranges**: No fuzzy matching or semantic version ranges
-- **Lock files**: All versions explicitly specified in source code
-
-### Added Features  
-- **`main` import source**: Enables dependency injection from main module
-- **Automatic main override**: Default behavior makes libraries composable
-- **Assignment operator semantics**: Control override behavior with `=`, `*=`, `?=`
-- **Simplified fallback chains**: Uses existing `|` operator for consistency
-
 ### Design Principles Evolution
 1. **Libraries are both standalone AND composable**: Default behavior handles both cases
 2. **Single source of truth**: Main module controls all dependency versions  
 3. **Explicit over implicit**: All versions visible in source code
 4. **Minimal syntax burden**: Common case (automatic override) requires no special syntax
 5. **Clear dependency trees**: Tools can analyze complete dependency graph from source
-
-## Open Design Questions
-
-1. **Dynamic Import**: Should runtime module loading be supported beyond the current static import system?
-
-2. **Version Conflict Resolution**: How should the system handle cases where strong assignments (`*=`) conflict between different modules?
-
-3. **Circular Dependencies**: Should circular imports be detected and prevented, or should there be specific semantics for handling them?
-
-4. **Module Metadata**: What introspection capabilities should be available for imported modules at runtime?
-
-5. **Development Tooling**: Should there be tooling commands for analyzing dependency trees, updating versions, or detecting unused imports?
-
-6. **Package Registry**: Should there be a standard package registry format, or should `pkg` source support multiple registries?
-
-This updated design provides a much simpler and more practical import system that balances library independence with application control, while maintaining explicit dependency management and clear analyzability.

@@ -1,15 +1,15 @@
 # Basic Types
 
-*Comprehensive specification of Comp's core type system: numbers, strings,
-booleans, and tags*
+*Comprehensive specification of Comp's core numbers, strings, and booleans*
 
 ## Overview
 
 This document details the core data types provided by the Comp language and
 their implementation behavior. It covers the unified number system, string
 templates and formatting, boolean operations, the unit system for
-domain-specific constraints, and the hierarchical tag system for semantic
-typing.
+domain-specific constraints.
+
+Comp also defines tags, which work as both basic values and shapes.
 
 ## Builtin Data Types
 
@@ -20,14 +20,10 @@ Each of the types comes with a defined shape to represent it. Most of these also
 provide an importable module from the standard library with additional functions
 and definitions to manipulate these values.
 
-### Types
-
 * **String** - `~str` Array of utf8 characters
 * **Number** - `~num` Number with infinite precision, not restricted to hardware
   accuracy or limitations
 * **Boolean** - `~bool` Primitive true or false value
-* **Tag** is a predefined named hierarchy that works like a value and its own
-  shape
 
 There are a handful of more specialized types, which contain separate documents
 to describe their usage and implementation.
@@ -37,17 +33,9 @@ to describe their usage and implementation.
 
 The builtin types are not considered structures. They do not contain fields or
 iterable values. They cannot be directly converted from one type into another
-without using functions to translate their values. These fields can be used to
-define richer structures which combine multiple values into more complex shapes.
+without using functions. These builtin types are quite featureful, and can
+be used to combine into more complex data types through structures.
 
-Any of these plain values will automatically be promoted into a basic structure
-continaing a single item with no defined field name.
-
-```comp
-42             // Scalar number
-{x=1.0 y=2.0}  // Named field structure
-{10 20 30}     // Unnamed field structure (array-like)
-```
 
 ### Definitions
 
@@ -62,6 +50,16 @@ their names, or allowing them to be referenced from other modules.
 
 ### Structure Basics
 
+Any plain, standalone value can be automatically converted into a structure
+with that single value as an untyped field. This is what happens when invoking
+a function on a simple value.
+
+```comp
+42             // Scalar number
+{x=1.0 y=2.0}  // Named field structure
+{10 20 30}     // Unnamed field structure (array-like)
+```
+
 Structures are collections of values, including other structures. The values in
 the structure can have an optionally assigned field name. The values are
 ordered, and can be iterated or referenced by position in the structure.
@@ -73,7 +71,6 @@ optional default values, typing information, and documentation.
 Any structure that has the required fields and positional values can be
 considered compatible with a defined shape. Every function defines a required
 shape, which allows any compatible structure to be used to call that function.
-
 
 ## Booleans
 
@@ -103,27 +100,6 @@ These logical  operators will "short circuit" while evaluating statements, which
 means once a single value is found that defines the results, it will stop
 processing additional statements.
 
-### Conditionals
-
-The only conditional operator in the language is a ternary `?|`. It will treat
-all values as `#true` except for
-* `#false`
-* `{}` an empty structure, which also has a predefined shape `~nil`
-
-This means using an empty string, or a number 0 will result in a true condition.
-
-```comp
-!shape ~onoff = {on~boolean}
-yes = #true
-{"car"}~onoff  // Fails, string cannot coerce
-
-This means the language requires the use of functions or comparison operators
-to generate booleans for the conditionals.
-
-```comp
-{"car" -> :str:empty}~onoff
-```
-
 ## Numbers
 
 The number type is a unified implementation that combines the behavior of the
@@ -147,7 +123,6 @@ converters.
 Number shapes can also be combined with units, which helps define limits and
 interactions between multiple number values.
 
-
 **Key Properties**:
 * No integer division truncation: `10 / 3` always returns `3.333...`
 * No integer overflow: large numbers remain exact
@@ -155,7 +130,7 @@ interactions between multiple number values.
 * Consistent mathematical behavior across all operations
 * Does not support special "infinity" and "nan" values by default
 
-### Literals
+### Number Literals
 
 Number values can be defined as literal values in the code. They use a
 traditional syntax seen in other languages and data formats.
@@ -235,7 +210,7 @@ All string values can be used as a template for formatting. The string is parsed
 for special `${}` tokens with values inside the braces. Invoking a string will
 apply the formatting. 
 
-### Literals
+### String Literals
 
 Strings literals must be defined with the `"` double quotation marks. The single
 quotation marks have a different meaning in Comp.
@@ -249,7 +224,6 @@ convenient.
 
 **Design Philosophy**: No operators for strings - use explicit functions and
 templates instead:
-
 
 ```comp
 $name = "Peter"
@@ -372,184 +346,7 @@ transactions
   ..> "\n" -> :str:join
 ```
 
-
-## Tag System
-
-### Basic Tag Definition with Values
-
-Tags are compile-time tokens that can be used as both types and values. They are
-prefixed with a `#` hash when referenced.
-
-They can form a hierarchical naming structure that allows shapes to match
-specific values or their organizational parents.
-
-Placing tag values has a strong influence on the shape of that structure. This
-is used to drive polymorphic behavior to the and function dispatch based on any
-untyped structure.
-
-Tags can optionally have values assigned directly, or use helper functions to
-assign automatic values. When types are defined tags can be interchanged with
-regular data types. A tag can have both children and a value, even the root tag
-type can have a value.
-
-Tags are referenced with the `#` on the leading hash type. Optional children
-values are referenced through regular `.` dot access like field names.
-
-Tags can also be used as fields for structures. When used this way the field is
-specifically the tag object, not the optional value it contains.
-
-```comp
-!tag #status = {
-    active = 1
-    inactive = 0  
-    pending        // No value - cannot be morphed from values
-}
-
-!tag #role = "Unknown" {
-    user = "User"
-    admin = "Admin"
-    guest = "Guest" {
-        limited = "GuestHi"
-        invisible = "GuestLo"
-    }
-}
-
-$dev = #other-mod#status.pending
-$rol = #role.guest.limited
-$who = #role
-
-```
-
-### Auto-Value Generation
-
-Tags can use `!pure` functions to automatically generate values. The function
-will be called on each defined tag, which gets a structure defining the states
-and values of related tags.
-
-```comp
-// Built-in auto-value functions
-!pure :tag:name = {ctx -> ctx.name}                // Use tag name as string value
-!pure :tag:sequence = {ctx -> ctx.prev_value + 1}  // Sequential numbers
-!pure :tag:bitwise = {ctx -> 1 << ctx.index}       // Bit flags for permissions
-
-// Usage examples
-!tag #color {:tag:name} = {
-    red         // Automatically gets value "red"
-    green       // Automatically gets value "green"
-    blue        // Automatically gets value "blue"
-}
-
-!tag #permissions {:tag:bitwise} = {
-    read        // 1 (1 << 0)
-    write       // 2 (1 << 1)
-    execute     // 4 (1 << 2)
-    all = read | write | execute  // 7 (explicit combination)
-}
-```
-
-#### Auto-Value Context Structure
-
-Auto-value functions receive context about the tag being defined:
-
-```comp
-// Context passed to auto-value functions
-{
-    name = "car"              // Current tag name
-    full = "vehicles.car"     // Full hierarchical path
-    index = 1                 // Position within parent (0-based)
-    prev_value = 1000         // Previous sibling's value
-    parent_value = 0          // Parent tag's value (if any)
-    siblings = {              // Previously defined sibling values
-        truck = 1000
-    }
-}
-```
-
-### Tag Type Casting and Morphing
-
-Tags with values can be cast to and from their associated values:
-
-```comp
-// Casting from value to tag
-1001 #failure                 // Returns #failure#network#timeout
-"red" #color                  // Returns #color#red  
-99 #failure                   // FAILS: no matching value
-
-// Casting tag to value
-#color#red ~str             // Returns "red"
-#permissions#write ~num        // Returns 2
-#failure#parse ~num            // FAILS: parse has no value
-
-// Tags without values cannot be cast
-#status#pending ~num           // FAILS: pending has no value
-
-// Automatic casting in function calls
-200 -> :handle_request    // Casts to #http#status#success (if 200 is its value)
-
-```
-
-### Shape Integration with Tag Casting
-
-Tags work as type constraints in shape definitions and automatically cast during
-morphing. When multiple tags share the same value, resolution follows
-first-match policy.
-
-```comp
-!shape ~Config = {
-    status #status
-    port ~num
-    mode #mode
-}
-
-// Shape morphing with automatic value-to-tag casting
-{1, 8080, "strict"} ~Config
-// Result: {status=#status#active, port=8080, mode=#mode#strict}
-// (assuming 1 maps to active, "strict" maps to mode)
-
-!shape ~User = {
-    role #role
-    permissions #permissions
-    active ~bool = #true
-}
-
-// Morphing with tag values
-{"admin", 7, #false} ~User
-// Result: {role=#role#admin, permissions=#permissions#all, active=#false}
-```
-
-### Tag Extension Across Modules
-
-Modules can extend tags defined in other modules. The values inherited will be
-interchangeable with the tag values from the original module. The original
-module will not see or understand the individual tags in the extension, but can
-still match values based on any hierarchical structure they both share.
-
-```comp
-// base.comp
-!tag #error = {
-    network = 1000
-    parse = 2000
-}
-
-// extended.comp  
-!tag extend #base#error = {
-    storage = 3000    // Continues sequence from previous values
-    memory = 3001
-    filesystem = 3002
-}
-
-// Usage - extended tags work across modules
-storage_error -> :handle_error    // Can match #error#storage
-
-
-// Possible to extend at a nested level of the tags
-!tag extend #
-
-```
-
-When the base tag has a function to generate automatic names, it will also be
-applied do these extended values. (This will cause errors if two extensions
-expect an incremented id but keep getting loaded in different orders.)
+## Additional Plans
 
 ### Future Constraint System
 
@@ -582,20 +379,3 @@ $ctx.num.int = math.round
 $ctx.fmt.commas = #true
 $ctx.fmt.locale = "en-US"
 ```
-
-## Implementation Priorities
-
-1. **Unified Number Type**: Context-controlled precision and behavior
-2. **String Template System**: `${}` interpolation, three modes, and template
-   compilation
-3. **Unit System**: Definition, conversion, and security integration  
-4. **Tag Hierarchy**: Inheritance, polymorphism, and super calls
-5. **String Security Integration**: Unit-based escaping for SQL, HTML, shell
-   contexts
-6. **Type Validation**: Inline validation and constraint framework
-7. **Platform Variants**: Conditional compilation support
-
-This design provides a foundation for Comp's type system that prioritizes
-mathematical correctness, secure string processing, semantic clarity through
-tags, and flexibility through structural typing while maintaining compile-time
-analyzability.
