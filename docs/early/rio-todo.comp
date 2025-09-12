@@ -1,0 +1,64 @@
+!shape ~todo = {
+    title~string
+    complete~bool = false
+}
+
+!shape ~state = {
+    todos~todo[] = {}
+    input~string = ""
+    filter#filter = #filter.all
+}
+
+!tag #filter :tag:names = {
+    all = {"All" {#true #false}}
+    active = {"Active" {#false}}
+    complete = {"Complete" {#true}}
+}
+
+!main = {
+    {title="Todo App" state=~state} -> :rio:app .{:todo-app}
+}
+
+!func :todo-app ~{} = {
+    $s = :rio:fetch-state
+    
+    {#rio#column spacing=1 padding=2
+        // Creation field
+        {#rio#row
+            {#rio#textinput text=$s.input placeholder="What needs doing?"
+                :rio:on-change.{..$s input=value}
+                :rio:on-submit.{..$s input="" todos={..$s.todos $s.input~todo}}
+            }
+        }
+        // Show filtered todos
+        $s.todos 
+        -> :iter:filter .{{complete $s.filter~struct#1} -> :iter:contains}
+        => :todo-item
+        // Filter buttons
+        {#rio#row spacing=0.5
+            #filter -> :tag:iter-all => {
+                $variant = -?? $s.filter == tag -&& "primary" -|| "secondary"
+                #rio#button text=value#0 variant=$variant
+                    :rio:on-click.{..$s filter=tag}
+            }
+        }
+    }
+}
+
+!func :todo-item ~todo = {
+    $s = :rio:fetch-state
+
+    {#rio#row spacing=1
+        // Completed check
+        {#rio#checkbox checked=complete
+            :rio:on-change.{..$s todos={$s.todos $new} -> :iter:replace .key{title}}
+        }
+        // Styled title
+        $style = {-?? complete -&& "strikethrough" -|| "normal"}
+        {#rio#text text=title style=$style}
+        // Delete button
+        {#rio#iconbutton icon="material/delete"
+            :rio:on-click.{..$s todos={$s.todos} -> :iter:filter .key{$s.title == title}}
+        }
+    }
+}
