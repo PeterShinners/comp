@@ -1,69 +1,94 @@
 # Comp Language Implementation
 
-A spec-driven implementation of the Comp programming language in Python.
+The Comp language is a complete programming language with standard libraries. It
+is built around the concepts of immutable structures and pipelined function
+chains with a focus on developer approachability and consistency.
+
+There is no implementation and design is under heavy iteration. The initial
+implementation will be writtin in Python, and comfortably bridge between native
+Comp modules and the Python runtime.
+
+The language is high-level and practical, inspired by JavaScript and Python's
+accessibility. Developers familiar with functional languages like Clojure will
+recognize the emphasis on data transformation and uniform syntax.
+
+## Introduction
+
+```comp
+; Hello World example in Comp language
+
+!main = {
+  $names = {"USERNAME" "USER" "LOGNAME"} => .os:getenv 
+  $names -> {.iter:any | "World"} -> "Hello ${}" 
+    -> .io:print
+}
+```
+
+This Hello World has a few more frills than usual - it attempts to find a
+username from common environment variables. From this small example you can see:
+
+* Whitespace is completely optional and flexible
+* Functions are invoked with -> (single) and => (collection) operators
+* Other modules provide namespaced functions like `.os:getenv`
+* String interpolation, fallback values with `|`, and more
+
+## Highlights
+
+The best detail and overview is in the [design/] directory. Specifically,
+[design/overview.md] makes the best starting point.
+
+- **Everything is Data** - All values are immutable structures that flow through
+pipelines. These structures unify concepts from hashmaps, arrays, and objects
+into one flexible container. Data from JSON, SQL, or APIs becomes immediately
+usable without parsing or mapping layers.
+
+- **Pipeline Operators** - Transform data with intuitive left-to-right flow
+using `->` for single values and `=>` for collections. No more nested function
+calls or intermediate variables. Write `data -> validate -> transform -> save`
+instead of `save(transform(validate(data)))`.
+
+- **Shape System** - Define expected data shapes once, use everywhere. Shapes
+act like interfaces that any structure can satisfy, regardless of source. The
+same shape validates JSON input, database results, and function parameters with
+automatic morphing between compatible types.
+
+- **Pattern Matching Built-in** - Tags provide hierarchical enums with built-in
+pattern matching. Write `status ~ #error#timeout` to match error subtypes, or
+use shapes to destructure complex data in function signatures. No verbose switch
+statements needed.
+
+- **Zero Friction Modules** - Each `.comp` file is a complete, declarative
+module. No build system, no package.json, no headers. Import directly from git
+repos, local paths, or registries. The compiler handles versioning and
+dependencies.
+
+### Secondary Callouts
+
+Besides the core design, Comp includes powerful features that eliminate common
+pain points:
+
+- **Path Selectors** - Query nested data with syntax inspired by XPath/CSS
+  selectors.
+- **Transactions** - Immutable data makes transactions and rollbacks reliable.
+- **Unified numbers** - Single number type handles int/float/decimal with
+  optional units.
+- **Compile Time Execution** - Run functions at compile time for zero-cost
+  abstractions.
+- **Polymorphism without Classes** - Function overloading based on shapes, not
+  inheritance.
+
 
 ## Project Structure
 
 ```
 comp/
-├── LICENSE             # Project license
-├── README.md           # This file
-├── specs/              # Language specifications
-│   ├── core-spec.md    # Core language specification
-│   └── examples/       # Example programs
-│       └── basic-examples.md
-├── design/             # Design documents
-├── tasks/              # Implementation tasks
-├── src/                # Implementation source code
-│   └── comp/
-│       └── grammar.lark # Language grammar definition
-├── implementation/     # (Currently empty)
+├── specs/              # Language specifications (0%)
+├── examples/           # Theoretical examples in a wide variety
+├── design/             # Design documents (70%)
+├── tasks/              # Implementation tasks (0%)
+├── src/                # Implementation source code (0%)
 ├── docs/               # Documentation and design notes
-│   ├── ancient/        # Super old notes extracted from notion
-│   └── early/          # Iterative design docs from claude
-└── tests/              # Test suites
-    └── test_specs/     # (Currently empty)
+│   ├── ancient/        # Super old notes extracted from notion (100%)
+│   └── early/          # Iterative design docs from claude (70%)
 ```
 
-## Quick Start
-
-1. **Review Specs**: Start with `specs/core-spec.md` for language overview
-2. **Check Roadmap**: See `design/roadmap.md` for implementation phases
-3. **Current Task**: Check `tasks/` for current implementation focus
-4. **Run Tests**: `pytest tests/` to verify implementation matches specs
-
-## Development Workflow
-
-### Spec-Driven Development Process
-
-1. **Spec First**: Every feature starts with a specification
-2. **Examples Next**: Write example code that should work
-3. **Tasks Breakdown**: Break implementation into small tasks
-4. **Test Driven**: Write tests from examples before implementing
-5. **Implement**: Build feature following the spec
-6. **Validate**: Ensure all examples pass
-
-### Adding a New Feature
-
-1. Write/update specification in `specs/`
-2. Add examples to `specs/examples/`
-3. Create tasks in `tasks/`
-4. Write tests in `tests/`
-5. Implement in `src/comp/`
-6. Update `design/decisions.md` with any design choices made
-
-## Dependencies
-
-```bash
-pip install lark pytest attrs
-```
-
-## Current Status
-
-- [ ] Phase 0: Project Setup
-- [ ] Phase 1: Basic Parser
-- [ ] Phase 2: Core Evaluator
-- [ ] Phase 3: Type System
-- [ ] Phase 4: Language Library
-- [ ] Phase 5: REPL & Dev Tools
-- [ ] Phase 6: Standard Library

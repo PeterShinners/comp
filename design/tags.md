@@ -176,3 +176,35 @@ When the base tag has a function to generate automatic names, it will also be
 applied do these extended values. (This will cause errors if two extensions
 expect an incremented id but keep getting loaded in different orders.)
 
+
+
+### Cross-Module Tag Usage
+
+```comp
+; In module A
+!tag #priority = {low, medium, high, critical}
+
+; In module B  
+!import prioritymod = comp ./priority_module
+
+; Usage - values are interchangeable
+local_priority = #priority#high
+imported_priority = .prioritymod#priority#high
+same_value = local_priority == imported_priority    ; #true
+```
+
+### Tag Aliasing and Extension
+
+```comp
+; Import and extend
+!tag #my_priorities = {
+    ..external#priority        ; Import all values
+    urgent = .external#priority#critical    ; Alias existing
+    emergency = {escalate=#true}           ; Add new
+}
+
+; Values remain interchangeable
+#my_priorities#urgent == .external#priority#critical    ; #true
+```
+
+

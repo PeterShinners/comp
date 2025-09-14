@@ -1,25 +1,41 @@
 # Modules, Imports, Namespaces, and Entry Points
 
-*Design for Comp's module system, import mechanisms, namespace management, and program entry points*
+*Design for Comp's module system, imports, and namespaces*
 
 ## Overview
 
-Comp provides a flexible module system with multiple import providers, hierarchical namespace management, and clear entry point definitions. The system emphasizes security, explicit dependencies, and static analyzability while supporting diverse source types.
+Comp modules are isolated collections of functions, shapes, and tags.
 
-## Module System Architecture
+Modules define a declarative namespace that can be known without executing
+code. The contents and definitions in a model are known and validated
+analytically.
 
-### Modules as Namespaces
+Modules can be represented by a single `.comp` file or by a directory of 
+`.comd` files. In both cases the declaration and organization of the
+module contents are order independent.
 
-**Core Principle**: Modules are namespaces, not assignable values.
+Module can reference one another through a flat namespace. The modules are
+referenced from a variety of distribution formats, like git, websites, or
+plan filesystem locations. When imported the module is assigned to a namespace
+name, which is used to reference it's provided information.
+
+The Comp language provides several builtin and standard libraries for working
+with its builtin types, interacting with the system, and general computing
+needs, like sorting.
+
+Modules are a namespace used to access its defined functions, shapes, and
+tags. These references are prefixed with the module's namespace and a leading
+`.` dot character.
+
+There is no way to refer to a module as a value, only its provided information.
 
 ```comp
-!import json = std "json"
+!import .json = std "json"
 
-; Correct usage - module as namespace
-data -> json:stringify -> json:parse
+$data -> .json:stringify -> .json:parse
 
 ; Invalid - modules are not values
-$json_lib = json              ; ERROR: Cannot assign module to variable
+$json_lib = .json              ; ERROR: Cannot assign module to variable
 data -> $json_lib:stringify   ; ERROR: Module not a value
 ```
 
@@ -28,6 +44,264 @@ data -> $json_lib:stringify   ; ERROR: Module not a value
 - Prevents confusion about module lifecycle
 - Enables static analysis and tooling
 - Consistent with namespace-oriented design
+
+## Core modules
+
+Several important modules are defined as the core of the Comp language. These
+are imported automatically into every module. These are mainly related to
+managing the builtin datatypes and higher level flow control. 
+
+* `.iter` working with iteration and sequences
+* `.num` working with number values and mathematics
+* `.path` working with path structure values
+* `.store` working with mutable data storage
+* `.str` working with string values
+* `.struct` high level modifications and queries for structures
+* `.tag` working with tag definitions, values, and hierarchies
+
+From these libraries there are also several specially aliased
+values that can be referenced in every module, without providing the
+full namespace. This is a feature any module can configure for themselves
+using ~alias operarators. You can see these references are typed, based
+on the type of object they contain
+
+* `#break` iteration flow control to immediately stop processing iteratins
+* `#false` false boolean tag value
+* `#skip` iteration flow control to ignore a value (similar to a `continue` on other languages)
+* `#true` true boolean tag value
+* `~bool` shape for a boolean value
+* `~nil` shape of an empty structure
+* `~num` shape for a scalar numeric value
+* `~str` shape for a scalar string value
+
+## Package Information
+
+A module is a comp file or directory that is a standalone project, or package. 
+Metadata about the package is defined globally in the module's `!mod` namespace. This
+includes informtion like a publisheable name for the package, the version
+number, urls for websites and repositories, and author information. There
+is no separate "toml" or "json" file describing how the project is managed.
+
+```comp
+!mod.package = {
+    name = "Super Advanced Project"
+    version = "1.2.3"
+    author = "User<name@github.com>"
+}
+```
+
+## Import Statement
+
+Modules are always imported with the `!import` operator, which will assign
+a namespace name and then provide information needed to locate and import
+the module data.
+
+Each import operator imports only a single module. There is no way to directly
+import specific definitions from a module, but they can be renamed
+and provieded with `!alias` operations, separate from the import.
+
+```comp
+// !import .name = source "specifier"
+
+!import .store = std "core/store"
+!import .friend = comp "libs/buddy"
+!import .rand = python "random"
+```
+
+### Import Sources
+
+The language provides several defined sources for importing modules. 
+These are usually related to the type of data being imported. The source
+is given as a single token with no quoting or escaping used. Different
+types of sources will work with different values of specificiers.
+
+* `std` from the standard library. This will use a pathed name
+    like `"core/str"` or `"dev/fractal"`
+* `comp` a file or directory defined in a variety of storage locations described in the specifier.
+* `python` access a Python module at runtime as a namespace. The specificer must be the fully qualified python module name.
+* `main` share an imported dependency from the main, entry module
+
+The expectation is that other sources will be defined, and extendable by the
+runtime. These allow directly importing other data types into a native Comp
+namespace without precompiling or translating into `.comp` source code.
+
+The source allows generating a defined and reliable namespace from a variety
+of sources without needing to rely on dynamic information or precompile steps.
+
+* `protobuf` generate Comp namespace from Protocol Buffers specifications
+* `openapi` generate Comp namespace from an OpenAPI json specification
+* `qtui` generate Comp namespace from a Qt Designer xml definition
+* `ffi` basic C compatibility with a header and shared library
+
+### Import Specifiers
+
+Each import source can use the specificer however it needs. The language itself
+comes with a rich handler for downloading and managing packages. This generates 
+a cached and efficient stream of file contents to the importer source.
+
+The system will recognize different types of strings and provide their contents.
+The specifier is expected to be parsed and intrepreted so only a single best
+type of import is used. It should not try to provide fallbacks through
+multiple definitins.
+
+* Absolute file or directory on disk
+* Relative file or directory from the currently importing module
+* Relative file or directory from the main entry point module
+* Git repository
+* Github or Gitlab package releases
+
+When importing a module from larger packages, like git repositories
+or zip archives, the import is based on a single location in that container.
+The packaging itself is not considered the module. For example, a
+git repository could provide multiple comp modules and internally organize
+itself as multiple independent modules.
+
+### Import Fallbacks
+
+The import statement allows defining fallbacks for a module using the `|`
+operator. If any import cannot be found it will fallback on the next defined
+import.
+
+This fallback will only happen if the module is not found. Any other problems
+importing the module will result in an import failure immediately.
+
+```comp
+
+!import .jpeg = comp "contrib/jpeg-turbo" | comp "contrib/jpeg-basic"
+
+; Multiple fallback sources using | operator
+!import json = main "json" | std "json" | comp "./minimal-json.comp"
+
+; Complex fallback with version preferences
+!import database = main "database" | pkg "postgres@2.1" | pkg "sqlite@3.8"
+
+; Platform-specific fallbacks
+!import graphics = main "graphics" | pkg "opengl@4.6" | pkg "software-renderer@1.0"
+
+```
+
+### Coordinated Main Imports
+
+The default behavior for imports is to coordinate dependencies based on whatever
+is used by the main entry module. This behavior can be opted out by any
+module. 
+
+This means that every default import has an implied `main "<modulename>" |` condition.
+If the main module did not import a module with the same name, it falls back
+on using the regularly defined import.
+
+```comp
+; Library writes:
+!import .json = std "json"
+
+; Automatically behaves as:
+!import .json = main "json" | std "json"  ; Try main first, fallback to std
+```
+
+**Benefits**:
+- Any module work standalone with reasonable defaults (for testing or other needs)
+- Applications can override any dependency
+- No complex dependency injection syntax required
+- Clear single source of truth for versions
+
+This default import behavior can be overridden by using specific assignment
+operators.
+
+In the primary, main module for the program the imports have the following
+meanings.
+
+- `=` - Import normally
+- `*=` - Import normally
+- `?=` - Import, but do not define as an override for child libraries
+
+Inside any imported library the assignment rules are different.
+- `=` - First try dependency from the main module, otherwise normal import
+- `*=` - Import normally, not overrides from the main module
+- `?=` - First try dependency from the main module, otherwise normal import
+
+In a library, these look like
+```comp
+!import .json = std "json"      ; Normal: main can override
+!import .json *= std "json"     ; Strong: always use this exact version
+!import .json = main "json"     ; Explicit: must be provided by main module
+```
+
+## Security and Permission Integration
+
+### Module-Level Permissions
+
+```comp
+; Module declares required permissions
+!require read, write, net
+
+; Functions inherit module permissions
+!func :fetch_and_save ~{url ~str} = {
+    url -> .http:get -> .file:write "output.json"
+}
+
+; Permission restriction within module
+!func :safe_compute = {
+    @ctx -> .security:drop #net        ; Drop network access
+    @ctx -> .security:drop #write      ; Drop write access
+    data -> :pure_calculation
+}
+```
+
+### Cross-Module Permission Flow
+
+Each imported module gets isolated security context:
+
+```comp
+; Main module has full permissions
+!require read, write, net
+
+; Import with permission restriction
+!import sandboxed = comp ./untrusted_module
+; sandboxed module cannot access main module's permissions
+
+; Explicit permission delegation (if supported)
+sandboxed -> :restricted_function {
+    permissions = {#read}    ; Delegate only read permission
+}
+```
+
+### External Schema Security
+
+External schemas are naturally sandboxed by format limitations:
+
+```comp
+!import api = openapi ./external-api.json
+; Can only create HTTP client functions - no arbitrary code execution
+
+!import data = protobuf ./schema.proto  
+; Can only create serialization functions - no system access
+```
+
+## Entry Points
+
+### Module Entry Points
+
+```comp
+!entry = {
+    ; Module initialization - runs when imported
+    @mod.initialized = !true
+    @mod.version = "1.2.3" 
+    :setup_module_state
+}
+
+!main = {
+    ; Program execution entry point
+    $args = .cli:parse_args
+    $config = .config:load $args.config_file
+    
+    $args.command -> :match {
+        "serve" -> :start_server $config
+        "migrate" -> :run_migrations $config  
+        "test" -> :run_tests
+        else -> :show_help
+    }
+}
+```
 
 ### Single Source of Truth Architecture
 
@@ -129,404 +403,58 @@ builder -> :add_shape("User", user_shape)
        -> !seal -> user_module
 ```
 
+## Import Implementation
+
 ### Intelligent Caching
 
-Import providers implement appropriate caching strategies:
+When an import source needs to generate a module, it can coordinate with
+the import system to provide intelligent caching. Compiled bytecode can
+be saved. The general specification providers will use automatic caching
+of downloads, git repositories and more. When the source management has
+finished caching its information it can release interest in the specification
+provider's resources to minimize the cache space requirements.
 
-**HTTP-based importers:** ETag + Last-Modified headers
-**Database importers:** Schema version + table timestamps  
-**File-based importers:** File mtime + content hash
-
-**Cache Integration:**
-- Source cache: Raw downloaded/accessed content
-- Translation cache: Converted Comp module definitions
-- Runtime cache: Compiled/optimized module instances
-
-**Key Benefits:**
-- **Flexibility without chaos:** Multiple pathways to achieve dynamic behavior
-- **Performance:** Sealed modules perform identically to static imports
-- **Type safety:** Full type checking maintained even for runtime-built modules
-- **Familiarity:** Builder pattern and import syntax feel natural
-- **Optimization:** Intelligent caching makes repeated access fast
-
-**Use Cases:**
-- **Configuration-driven modules:** Build database connections from runtime config
-- **Plugin systems:** Dynamically discover and load plugins
-- **Code generation:** Generate API clients from external schemas
-- **Schema reflection:** Create modules from database schemas or external APIs
-
-## Import Statement Syntax
-
-### Core Import Syntax
-
-```comp
-!import name = source "specifier"
-```
-
-**Components**:
-- **name**: Module name (becomes namespace)
-- **source**: Unquoted token (`std`, `pkg`, `comp`, `git`, `python`, `openapi`, `main`)
-- **specifier**: Quoted string (allows interpolation)
-
-### Standard Library and Package Imports
-
-```comp
-!import json = std "json"
-!import http = std "http/client"  
-!import math = std "math/geometry"
-
-; Package manager with exact versions
-!import json = pkg "json@2.5.1"
-!import database = pkg "postgres-driver@1.8.3"
-```
-
-### External Repository and File Imports
-
-```comp
-; Git repository modules
-!import utils = git "github.com/company/utils@v1.4.2"
-!import crypto = git "gitlab.com/security/crypto@main"
-
-; Local Comp files
-!import config = comp "./config.comp"
-!import shared = comp "../shared/utilities.comp"
-!import remote = comp "https:;cdn.example.com/module.comp"
-```
-
-### Foreign Language and Schema Imports
-
-```comp
-; External schema integration
-!import api = openapi "https:;api.service.com/spec.json"
-!import events = protobuf "./schema.proto"
-
-; Python runtime integration
-!import numpy = python "numpy"
-!import pygame = python "pygame"
-```
-
-### Automatic Main Override System
-
-**Key Innovation**: Libraries write simple imports that are automatically overridable by the main module:
-
-```comp
-; Library writes:
-!import json = std "json"
-
-; Automatically behaves as:
-!import json = main "json" | std "json"  ; Try main first, fallback to std
-```
-
-**Benefits**:
-- Libraries work standalone with reasonable defaults
-- Applications can override any dependency
-- No complex dependency injection syntax required
-- Clear single source of truth for versions
-
-### Assignment Operators for Import Control
-
-```comp
-!import json = std "json"      ; Normal: main can override
-!import json *= std "json"     ; Strong: always use this exact version
-!import json ?= std "json"     ; Weak: only if not already provided  
-!import json = main "json"     ; Explicit: must be provided by main module
-```
-
-**Assignment Semantics**:
-- `=` - Normal assignment with automatic main override
-- `*=` - Strong assignment prevents main override
-- `?=` - Weak assignment, skipped if already imported
-- Direct `main` source requires explicit provision
-
-### Fallback Chain Syntax
-
-```comp
-; Multiple fallback sources using | operator
-!import json = main "json" | std "json" | comp "./minimal-json.comp"
-
-; Complex fallback with version preferences
-!import database = main "database" | pkg "postgres@2.1" | pkg "sqlite@3.8"
-
-; Platform-specific fallbacks
-!import graphics = main "graphics" | pkg "opengl@4.6" | pkg "software-renderer@1.0"
-```
-
-Uses existing `|` operator for consistency with field fallback behavior.
-
-## Module Usage Patterns
-
-### Function Invocation
-
-```comp
-; Local function calls
-result -> :local_function
-
-; Imported module functions  
-result -> io:write
-data -> math:sqrt -> color:to_hex
-
-; Qualified calls prevent naming conflicts
-user_data -> validation:check_email
-user_data -> http:check_email    ; Different validation logic
-```
-
-## Module Usage Patterns
-
-### Function Invocation
-
-```comp
-; Local function calls
-result -> :local_function
-
-; Imported module functions  
-result -> json:stringify -> json:parse
-data -> math:sqrt -> http:post
-user -> database:save
-
-; Qualified calls prevent naming conflicts
-user_data -> auth:validate_email     ; Authentication validation
-user_data -> forms:validate_email    ; Form validation
-```
-
-### Cross-Module Shape and Tag Usage
-
-```comp
-; Shapes from imported modules
-user_data ~ auth:UserProfile
-config ~ settings:AppConfig
-
-; Tags from imported modules  
-status = .http#response#success
-priority = .tasks#priority#high
-
-; Cross-module compatibility
-local_user ~ auth:UserProfile     ; Works if shapes are structurally compatible
-auth_status = #status#active      ; Local tag
-http_status = .http#status#200     ; Module-qualified tag
-```
-
-### Module Namespace Integration
-
-```comp
-; Modules integrate with namespace system
-@app.database_url = database:get_default_url
-@mod.json_config = json:parse config_text
-
-; Module functions can access application context
-user -> database:save -> {
-    ; database module can access @app.connection_pool
-    @app.audit_log = {...@app.audit_log, user_saved=@}
-}
-```
-
-**Standalone Libraries with Defaults**:
-```comp
-; library.comp - Works standalone
-!import json = std "json"           ; Reasonable default
-!import http = std "http"           ; Standard HTTP client
-!import math = std "math"           ; Built-in math functions
-
-!func :process_api_data ~{url ~str} = {
-    url -> http:get -> json:parse -> math:analyze
-}
-```
-
-**Application Override**:
-```comp
-; app.comp - Application with specific requirements  
-!import json *= pkg "fast-json@3.1"      ; High-performance JSON
-!import http *= pkg "secure-http@2.0"    ; Security-focused HTTP
-!import library = comp "./library.comp"  ; Library inherits overrides
-
-; library functions now use fast-json@3.1 and secure-http@2.0
-```
-
-**Conditional Library Imports**:
-```comp
-; library.comp - Flexible library
-!import json = std "json"                 ; Default
-!import encryption ?= main "encryption"  ; Optional if provided by main
-!import cache ?= std "cache"             ; Optional with standard fallback
-
-!func :secure_process ~{data} = {
-    processed = data -> json:parse
-    encrypted = encryption ? (processed -> encryption:encrypt) | processed
-    encrypted -> cache:store | processed  ; Cache if available
-}
-```
-
-## Namespace System
-
-### Hierarchical Namespace Access
-
-```comp
-@app.config         ; Application-level configuration
-@mod.state          ; Module-level state
-@env.production     ; Environment settings  
-@ctx.security       ; Context-specific data
-@in.data           ; Input context
-@out.result        ; Output context
-$func.temporary    ; Function-scoped (auto-cleared)
-```
-
-### Namespace Flow Through Pipelines
-
-Context flows automatically through pipeline operations:
-
-```comp
-; Context preservation
-@ctx.timeout = 30
-data -> :fetch -> :validate -> :process
-; All functions can access @ctx.timeout
-
-; Function-scoped isolation
-!func :process_data = {
-    $func.retries = 3        ; Function-local only
-    $func.start_time = .time:now
-    
-    data -> :transform -> :validate
-}  ; $func namespace cleared here
-```
-
-### Context Stack Hierarchy
-
-**Resolution Order**: `$func` → `@mod` → `@app` → `@env`
-
-```comp
-; Setting values at different levels
-@env.database_url = "postgres:;prod"      ; Environment
-@app.max_connections = 100                 ; Application  
-@mod.table_prefix = "user_"               ; Module
-$func.batch_size = 50                     ; Function
-
-; Access uses first match in hierarchy
-connection_limit = @ctx.max_connections    ; Finds @app.max_connections
-```
-
-### Thread-Safe Context Management
-
-**Context Isolation**: Each thread gets independent copy of parent context at spawn time.
-
-```comp
-; Main thread
-@app.config = {debug=!true, workers=4}
-@ctx.processing_mode = "batch"
-
-; Spawned thread gets copy
-.threading:spawn {
-    ; This thread has independent copy of @app and @ctx
-    ; Changes here don't affect parent or sibling threads
-    @ctx.processing_mode = "streaming"    ; Local to this thread
-}
-
-; Main thread unchanged
-@ctx.processing_mode    ; Still "batch"
-```
-
-## Security and Permission Integration
-
-### Module-Level Permissions
-
-```comp
-; Module declares required permissions
-!require read, write, net
-
-; Functions inherit module permissions
-!func :fetch_and_save ~{url ~str} = {
-    url -> .http:get -> .file:write "output.json"
-}
-
-; Permission restriction within module
-!func :safe_compute = {
-    @ctx -> .security:drop #net        ; Drop network access
-    @ctx -> .security:drop #write      ; Drop write access
-    data -> :pure_calculation
-}
-```
-
-### Cross-Module Permission Flow
-
-Each imported module gets isolated security context:
-
-```comp
-; Main module has full permissions
-!require read, write, net
-
-; Import with permission restriction
-!import sandboxed = comp ./untrusted_module
-; sandboxed module cannot access main module's permissions
-
-; Explicit permission delegation (if supported)
-sandboxed -> :restricted_function {
-    permissions = {#read}    ; Delegate only read permission
-}
-```
-
-### External Schema Security
-
-External schemas are naturally sandboxed by format limitations:
-
-```comp
-!import api = openapi ./external-api.json
-; Can only create HTTP client functions - no arbitrary code execution
-
-!import data = protobuf ./schema.proto  
-; Can only create serialization functions - no system access
-```
-
-## Entry Points
-
-### Module Entry Points
-
-```comp
-!entry = {
-    ; Module initialization - runs when imported
-    @mod.initialized = !true
-    @mod.version = "1.2.3" 
-    :setup_module_state
-}
-
-!main = {
-    ; Program execution entry point
-    $args = .cli:parse_args
-    $config = .config:load $args.config_file
-    
-    $args.command -> :match {
-        "serve" -> :start_server $config
-        "migrate" -> :run_migrations $config  
-        "test" -> :run_tests
-        else -> :show_help
-    }
-}
-```
-
-
-
-## Advanced Import Features
 
 ### Versioning and Dependencies
 
-```comp
-; Git-based versioning
-!import utils = git @company/utils@1.4.2
-!import experimental = git @company/utils@feature-branch
+Packages that come from versioned locations, like Github releases or 
+a future package centralized package management system, are able to
+use common semantic version tags. 
 
-; Semantic version constraints (future feature)
-!import compat = git @org/lib@^2.1.0    ; Compatible with 2.x
-!import stable = git @org/lib@~1.2.3    ; Patch-level updates only
-```
-
-### Import Aliases and Renaming
+There is are no conflicts no technical conflicts or problems for a runtime
+to have multiple versions of the same pacakge. This may run into conflicts
+with extensions or system resources, but the language itself treats them
+as independent. And their shapes will be just as interchangeable with anything
+that has compatible shape definitions.
 
 ```comp
-; Alias module name
-!import ui = git @company/user-interface@latest
-!import db = stdlib database/postgresql
-
-; Selective imports (future feature)
-!import {hash_password, verify_password} = stdlib crypto/bcrypt
-!import {Point2d as Point, Vector3d} = math geometry
+; Github release based versioning
+!import .utils = comp @company/utils@~1.2.3
 ```
+
+### Standard Library branches
+
+The standard library imports must specify a branch that their modules
+come from. This allows the library to provide both stable and tested
+implementation, along with experimental or proposed libraries.
+
+Shipping these dependencies with the language itself isn't ideal, but
+a simple and flexible solution until more general package management
+solutions arrive.
+
+The standard library branch names are
+
+* `core/` The core language level features that should be stabilized.
+* `propose/` Ideas that are worth wider evaluation but may change or drop.
+* `early/` Actively developed modules that are headed for core but.
+* `archive/` Unmaintained modules that will delete once they break, but still available.
+
+It is expected that modules will import from all of these locations, even
+for overlapping functionality. There will not be a lot of stability in the
+standard library until the language achieves several major milestones.
+
+This organization of modules is a concession to help balance
+convenience with responsibility.
 
 ### Conditional and Platform Imports
 
@@ -546,321 +474,72 @@ External schemas are naturally sandboxed by format limitations:
 
 ### Module Introspection
 
+The typical `!describe` operator generates a structure with information
+about a module.
+
 ```comp
-; Query module information
-!describe io -> {
+; Query module information (contents not yet certain)
+!describe .io -> {
     name = @.name           ; "io"
     version = @.version     ; "1.0.0"
-    functions = @.functions ; List of available functions
+    functions = @.functions ; List of available function descriptions
     source = @.source       ; Import source information
 }
-
-; List all imported modules
-@app.modules => {name=name, source=source} -> .debug:print
 ```
 
-### Dynamic Module Loading
+## Comp Module
 
-```comp
-; Runtime module loading (requires import permission)
-!require import
-!func :load_plugin ~{name ~str} = {
-    ; Dynamic import syntax (future feature)
-    $plugin = !import_runtime plugin = path "plugins/${name}"
-    $plugin -> :initialize
-}
+A comp modules is defined as either
+* A single, standalone `.comp` file
+* A directory containing any number of `.comd` files (at least one)
 
-; Module builder pattern for runtime construction
-!func :build_database_module ~{config ~{host ~str, port ~num}} = {
-    builder = :module_builder.new()
-    
-    ; Add connection function
-    connect_impl = :compile_function("connect", {}, {
-        $func.host = config.host
-        $func.port = config.port
-        .database:connect {$func.host, $func.port}
-    })
-    
-    ; Add query functions
-    query_impl = :compile_function("query", {sql ~str}, {
-        $func.connection -> :execute sql
-    })
-    
-    ; Seal and return immutable module
-    builder -> :add_function("connect", connect_impl)
-           -> :add_function("query", query_impl)
-           -> !seal
-}
+When comp modules are imported they do not specific a file extension. This
+allows library authors to change between single file and multi file
+implementations between any version.
 
-; Usage - works exactly like static import
-$db_module = :build_database_module {host="localhost", port=5432}
-$db_module.connect() -> $db_module.query("SELECT * FROM users")
-```
+There is no visible difference to users of the module how it was implemented.
 
-### Module Caching and Reloading
+The files in a directory module are treated as one contiguous stream of data.
+The definitions in a module are order independent.
 
-```comp
-; Module caching behavior (implementation detail)
-; - Git modules: Cached by commit hash
-; - Filesystem modules: Cached by modification time  
-; - HTTP modules: Cached with HTTP cache headers
-; - Python modules: Follow Python import caching
-; - Database modules: Schema version + table timestamps
-; - OpenAPI modules: ETag + Last-Modified headers
-
-; Cache layers for optimal performance:
-; 1. Source cache: Raw downloaded/accessed content
-; 2. Translation cache: Converted Comp module definitions  
-; 3. Runtime cache: Compiled/optimized module instances
-
-; Explicit cache control (development feature)
-!import utils = git @company/utils@latest !no-cache
-!import config = disk ./config.comp !reload-on-change
-!import api = openapi "https:;api.service.com/spec.json" !cache-timeout=3600
-```
-
-## Integration Examples
-
-### Application Dependency Management
-
-```comp
-; main.comp - Application with centralized dependency control
-!main = {
-    ; Force specific versions for entire application
-    !import json *= pkg "json@2.5.1"
-    !import database *= pkg "postgres@3.2.1" 
-    !import cache *= pkg "redis@4.1"
-    !import logging *= pkg "structured-logs@1.8"
-    
-    ; Import application modules (inherit dependency versions)
-    !import user_service = comp "./services/users.comp"
-    !import data_processor = comp "./processors/data.comp"
-    !import api_handlers = comp "./api/handlers.comp"
-    
-    ; Application logic
-    .api_handlers:start_server {port=8080}
-}
-```
-
-### Multi-Service Dependency Coordination
-
-```comp
-; services/users.comp
-!import database = std "database"    ; Default, overridable
-!import cache = std "cache"          ; Default, overridable  
-!import json = std "json"            ; Default, overridable
-
-!func :get_user ~{id ~str} = {
-    ; Check cache first
-    cached = id -> cache:get "user:${id}" | {}
-    cached ? cached | {
-        ; Load from database  
-        id -> database:query "SELECT * FROM users WHERE id = $1"
-        -> json:serialize
-        -> cache:set "user:${id}" {ttl=300}
-    }
-}
-
-; services/billing.comp  
-!import database = std "database"    ; Same defaults
-!import json = std "json"            ; Same defaults
-!import payment = std "payment"      ; Payment processing
-
-; main.comp coordinates all versions
-!import database *= pkg "postgres@3.2.1"  ; All services use same DB version
-!import json *= pkg "fast-json@3.1"       ; All services use same JSON library
-!import user_service = comp "./services/users.comp"
-!import billing_service = comp "./services/billing.comp"
-```
+In both single or module file modules, it is a module build error to contain
+multiple conflicting definitions of the same thing.
 
 ### Platform-Specific Module Selection
 
-```comp
-; graphics.comp - Cross-platform graphics library
-!import renderer = main "renderer" | std "software-renderer"
+Modules can be decorated with build tags that are part of the Comp runtime.
+This allows different implementations of a module to be implemented on
+for different platforms, architectures, and comp major versions.
 
-; main-linux.comp
-!import renderer *= pkg "opengl@4.6"
-!import graphics = comp "./graphics.comp"
+Comp will automatically pick the most specific match to one of these
+file variants. The comp language build and runtime provide these flags.
 
-; main-windows.comp  
-!import renderer *= pkg "directx@12"
-!import graphics = comp "./graphics.comp"
+* `platform` operating system; windows, linux, macos, android, etc
+* `runtime` implementation and major version; pycomp1
+* `arch` built binary support (not yet applicable); x64, arm64, wasm32
+* `environment` user definable overrides; production, development
 
-; main-web.comp
-!import renderer *= pkg "webgl@2.0" 
-!import graphics = comp "./graphics.comp"
-```
+This is available for individual files, either standalone or as part of
+a directory.
 
-
-## Platform-Specific Definitions
-
-Functions and shapes can have platform variants:
-
-```comp
-; Generic definition
-!func :file_open ~{path ~str} = {
-    path -> .posix:open
-}
-
-; Windows-specific override
-!func :file_open.win32 ~{path ~str} = {
-    path -> .win32:CreateFile
-}
-
-; ARM64-specific buffer layout
-!shape ~buffer.arm64 = {
-    data ~bytes
-    alignment ~num = 8
-}
-```
-
-**Resolution Order**: `func.platform.arch` → `func.platform` → `func`
-
-### Cross-Module Tag Usage
-
-```comp
-; In module A
-!tag #priority = {low, medium, high, critical}
-
-; In module B  
-!import prioritymod = comp ./priority_module
-
-; Usage - values are interchangeable
-local_priority = #priority#high
-imported_priority = .prioritymod#priority#high
-same_value = local_priority == imported_priority    ; #true
-```
-
-### Tag Aliasing and Extension
-
-```comp
-; Import and extend
-!tag #my_priorities = {
-    ..external#priority        ; Import all values
-    urgent = .external#priority#critical    ; Alias existing
-    emergency = {escalate=#true}           ; Add new
-}
-
-; Values remain interchangeable
-#my_priorities#urgent == .external#priority#critical    ; #true
-```
+* `render.comp` - fallback module for all other systems
+* `render.windows.comp` - overridden implementation for platform
 
 
+## Advanced Overrides
 
-### Development vs Production Configuration
+The import system provides an advanced way to override many types of imports.
+Each imported dependency for the whole runtime is provided a unique,
+semi-dependent identifier. This identifier can be used at startup time to
+provide alternative import specifiers.
 
-```comp
-; app.comp - Application module  
-!import database = std "database"
-!import logging = std "logging"
-!import cache = std "cache"
+This system can be controlled directly, although it is considered low level. 
+It cannot be controlled once modules begin importing dependencies, which
+requires a two pass operation to identify dependency handles and then restart
+to apply overrides.
 
-; main-development.comp
-!import database *= pkg "sqlite@3.8"          ; Lightweight for dev
-!import logging *= pkg "console-logs@1.0"     ; Console output
-!import cache *= pkg "memory-cache@2.1"       ; In-memory cache
-!import app = comp "./app.comp"
+The primary use case of this system is allowing packaging the full dependencies
+for an application into a single archive. This archive contains the 
+exact contents generated from the import specifications. This import time
+overrides allows an application to run entirely from its packaged archive.
 
-; main-production.comp
-!import database *= pkg "postgres@3.2.1"      ; Production database
-!import logging *= pkg "structured-logs@1.8"  ; Structured logging
-!import cache *= pkg "redis@4.1"              ; Redis cache
-!import app = comp "./app.comp"
-```
-
-
-### Stable Module Identifiers
-
-The module system generates **deterministic, portable identifiers** for dependencies that remain consistent across machines and environments.
-
-**Identifier Generation Strategy:**
-- Base identifier on package name + namespace/owner + version
-- `colorlib_studio_v1` → `github.com/studio/colorlib@v1.0`
-- Import providers suggest tiered specificity: preferred → scoped → versioned → canonical → collision_token
-
-**Developer Tools:**
-```bash
-# Discover available module identifiers
-comp module identifiers "*color*"
-# Found: colorlib_studio_v1 → github.com/studio/colorlib@v1.0
-
-# Override dependencies at runtime
-comp run file.comp --override colorlib_studio_v1=./my-local-colors
-comp run file.comp --override colorlib_studio_v1=github:;user/altcolorlib@1.2
-```
-
-### Static Packaging System
-
-**Bundle Creation:**
-```bash
-comp staticpackage file.comp
-# Creates: file.comp.bundle (self-contained archive)
-```
-
-**Bundle Usage:**
-```bash
-# Auto-discovery - uses bundle if found
-comp run file.comp
-
-# Manual control
-comp run file.comp --bundle=./custom.bundle
-comp run file.comp --no-bundle
-comp run file.comp --validate-bundle
-```
-
-**Benefits:**
-- Self-contained deployment artifacts
-- No external dependencies in production
-- Consistent execution across environments
-- Verifiable and cacheable distribution
-
-
-## Implementation Priorities
-
-1. **Core Import Syntax**: Source tokens, specifiers, assignment operators
-2. **Automatic Main Override**: Default behavior for library compatibility
-3. **Stable Module Identifiers**: Deterministic, portable dependency identifiers
-4. **Static Packaging System**: Self-contained bundle creation and deployment
-5. **Standard Library Integration**: Built-in module loading with `std` source
-6. **Package Manager Integration**: Exact version specification with `pkg` source
-7. **Fallback Chain Processing**: Multiple source resolution with `|` operator
-8. **Dynamic Module Builder**: Runtime module construction with builder pattern
-9. **Intelligent Caching**: Multi-layer caching with provider-specific strategies
-10. **Git Repository Support**: Remote repository loading with version/tag specification
-11. **External Schema Integration**: OpenAPI, Protocol Buffers, and foreign language imports
-
-## Key Design Principles
-
-### Construction-Time Dynamic, Runtime Static
-
-The dynamic module system provides a "pit of success" where:
-- **Common cases are trivial**: Standard imports work transparently
-- **Edge cases are possible**: Builder pattern available for complex scenarios  
-- **Type system remains intact**: Full type checking maintained throughout
-- **Performance is preserved**: Sealed modules perform identically to static imports
-
-### Flexibility without Chaos
-
-Multiple pathways to achieve dynamic behavior:
-- **90% of cases**: Automatic import translation via specialized importers
-- **9% of cases**: Module builder pattern for custom construction
-- **1% of cases**: Manual compilation for complete control
-
-### Developer-Friendly Tooling
-
-Built-in tools support the complete module lifecycle:
-- Module identifier discovery and resolution
-- Static packaging for deployment
-- Runtime dependency override for development
-- Cache management and invalidation
-- Bundle validation and verification
-
-## Key Design Changes from Earlier Versions
-
-### Design Principles Evolution
-1. **Libraries are both standalone AND composable**: Default behavior handles both cases
-2. **Single source of truth**: Main module controls all dependency versions  
-3. **Explicit over implicit**: All versions visible in source code
-4. **Minimal syntax burden**: Common case (automatic override) requires no special syntax
-5. **Clear dependency trees**: Tools can analyze complete dependency graph from source
