@@ -91,6 +91,18 @@ As with any structure definition, functions can define and references
 using a `$` prefix for function local temporaries. These values are
 lost when the function exits.
 
+These local scopes are not included in the regular field lookup namespaces,
+they must always be prefixed when used and referenced. Like assigning
+to a structure, fields can be assigned to inside these temporaries that
+creates a new structure with the given modifications.
+
+```comp
+!func temps ~nil = {
+    $a = 12 + 12
+    $b = {first=$a second="go"}
+    $b.second = "stop
+}
+
 ### Context
 
 The language defines a shared namespace accessed with `!ctx`.
@@ -199,7 +211,6 @@ The function works similar to a generator in other languages. Fields will
 be computed on demand as needed. Once a field is known the data ia preserved
 and the object works like a regular structure.
 
-
 ## Function Permissions and Security
 
 A function can be decorated to explicitly state it requires additional
@@ -224,15 +235,25 @@ still fail when invoked without the correct permissions.
 
 ### Shape Dispatch
 
-Functions use Comp's shape to morph the current namespace fields into a
-single structure the function can use.
+Functions use Comp's shape to morph the current namespace fields into a single
+structure the function can use.
 
-There can be multiple functions defined with the same name. These
-must use unambigously different shape definitions.
+There can be multiple functions defined with the same name. These must use
+unambigously different shape definitions. If the same function name is 
+defined with equivalent shape requirements the module will fail to import.
+A quick solution is to mark one of the functions with a string assignment,
+which will make it the preferred implementation.
 
-All shape definitions can compute a ranked matching score for
-any data. This allows the most specific function definition to
-be invoked for any piece of data.
+All shape definitions can compute a ranked matching score for any data. This
+allows the most specific function definition to be invoked for any piece of
+data.
+
+```comp
+
+def conflict ~num = {...}
+def conflict ~num = {...}  // Error because conflicting shapes
+def conflict ~num *= {...} // But ok because one is preferred
+```
 
 ### Function Dispatch Scoring
 

@@ -4,11 +4,39 @@
 
 ## Overview
 
-This document covers Comp's shape system for structural typing, block-based higher-order functions, and their integration patterns. Shapes provide flexible data validation and transformation, while blocks enable powerful functional programming patterns with controlled execution environments.
+A shape looks like a structure, but isn't a value or data itself.
+The shape defines a schema that can be used to match and morph structure
+data.
+
+For each field the shape can define an optional name, an optional shape,
+an optional default value, and an optional documentaion string.
+
+When shapes are used to define function, these characteristics make them
+work similar to positional and keyword arguments in languages like Python.
+
+Values also have an extensible units system. Units attach to values and
+control how they are converted with other values. The most typical use
+of this system is to assign units, like weights and measurements, to
+regular number values.
+
+### Builtin shapes
+
+Comp defined a handful of builtin shapes that are available in any namespace.
+* `~nil` an alias for an empty structure, or `~{}`
+
+Be aware that the empty structure is a shorthand of matching any possible
+structure, and the default shape morphing preserves fields that are undefined
+in the shape.
 
 ## Shape System
 
 ### Shape Definition Syntax
+
+Shapes use the `!shape` operator to define new ones. Shapes live declaratively
+in the module's namespace. Shapes can be defined and used in any position
+inside the module.
+
+The modules will fail to build when a shape name is defined multiple times.
 
 ```comp
 !shape ~Point2d = {
@@ -45,6 +73,35 @@ This document covers Comp's shape system for structural typing, block-based high
     @in -> :process_with_complexity
 }
 ```
+
+### Union Shapes
+
+The shape for a value can be a combination of multiple shapes, combined
+These are grouped with the `|` pipe operator.
+
+Combine a shape with `~nil` definition to allow setting to an empty
+structure, which represents having no value.
+
+Any shape can be defined from an existing shape definition. 
+This allows creating shortcuts or definitions to commonly used types.
+
+```comp
+!shape maybe-num = ~num|~nil
+!shape recipient = ~user|~group
+
+
+### Array Shapes
+
+A shape can define a container of a type by appending `[]` square brackets
+to the shape. This has several forms to define ranges of sizes.
+
+* `[]` any number of the items allowed, including none
+* `[4-8]` require at least four but no more than eight
+* `[-3]` require three at the most, including zero
+* `[1-]` require at least one item
+
+Note that there are no negative sizes allowed, so `[-3]` unambiguously defines
+a range like `[0-3]`.
 
 ### Shape Application Operators
 
@@ -230,3 +287,53 @@ Unit formatters must be `!pure` functions for compile-time evaluation:
 ### Unit morphing
 
 Coercion when using operators (left wins, right gets converted) (sometimes?)
+
+
+## Structure Transformation and Morphing
+
+### Shape Morphing
+
+Structure shape transformation allows converting between compatible structure formats:
+
+```comp
+// Positional to named fields
+{10, 20} ~ Point2d             // Converts to named fields based on shape
+{x=10, y=20}                   // Result if Point2d has x,y fields
+
+// Mixed structure morphing  
+{name="Alice", 30, #role#admin} ~ User
+// Converts to User shape with appropriate field mapping
+
+// Complex morphing with validation
+raw_data ~ {
+    ValidatedUser           // Apply shape validation
+    -> :assign_defaults     // Fill in default values  
+    -> :compute_derived     // Add computed fields
+}
+```
+
+### Structure Template Application
+
+```comp
+!shape ~Point2d = {x ~num, y ~num}
+!shape ~Point3d = {x ~num, y ~num, z ~num}
+
+// Convert 2D to 3D with default z
+point_2d = {x=10, y=20}
+point_3d = {...point_2d, z=0} ~ Point3d
+
+// Template-based conversion
+points_2d = [{x=1, y=2}, {x=3, y=4}]
+points_3d = points_2d => {@ ~ Point3d | {z=0}}
+```
+
+### Morphing with Type Promotion
+
+Morphing can combine with type promotion for data transformation:
+
+```comp
+// JSON to structured data
+json_input = '{"name": "Alice", "age": "30", "active": "true"}'
+user = json_input -> :json:parse -> :json:promote ~ User
+// Promotes "30" to number, "true" to !true, then applies User shape
+```
