@@ -13,7 +13,7 @@ Comp provides a comprehensive system for managing external resources through opa
 Resources are opaque handles that provide controlled access to external system resources:
 
 ```comp
-// Handle type declarations
+; Handle type declarations
 !handle %file_reader
 !handle %network_socket  
 !handle %database_cursor
@@ -32,16 +32,16 @@ Resources are opaque handles that provide controlled access to external system r
 ```comp
 !require read, write
 !func :open_file ~{path ~str, mode ~str} = {
-    $fd = {path=path, mode=mode} -> :syscall:open
+    $fd = {path=path, mode=mode} -> .syscall:open
     
-    // Create resource handle with lifecycle callbacks
+    ; Create resource handle with lifecycle callbacks
     $handle = $fd -> !resource %file_reader {
-        release = [$fd -> :syscall:close]
+        release = [$fd -> .syscall:close]
         #inherit#none
-        #thread#affinity.current
+        #thread#affinity#current
     }
     
-    // Attach private module data
+    ; Attach private module data
     $handle& = {fd=$fd, path=path, mode=mode, bytes_read=0}
     $handle
 }
@@ -50,26 +50,26 @@ Resources are opaque handles that provide controlled access to external system r
 **Resource Creation Parameters**:
 - `release`: Cleanup function called when handle released
 - `#inherit#*`: Process inheritance behavior (none/explicit/always)  
-- `#thread#affinity.*`: Thread restrictions (primary/current/any)
+- `#thread#affinity#*`: Thread restrictions (primary/current/any)
 
 ### Block-Based Resource Definitions
 
 **New Syntax** for resource lifecycle management:
 
 ```comp
-!resource %database_cursor {#thread#affinity.current}
-    .release {cursor -> :db:close}
-    .transact_begin {cursor -> :db:begin_transaction}
-    .transact_commit {cursor -> :db:commit}
-    .transact_rollback {cursor -> :db:rollback}
+!resource %database_cursor {#thread#affinity#current}
+    .release {cursor -> .db:close}
+    .transact_begin {cursor -> .db:begin_transaction}
+    .transact_commit {cursor -> .db:commit}
+    .transact_rollback {cursor -> .db:rollback}
 
 !resource %file_handle {}
-    .release {handle -> :fs:close}
-    .flush {handle -> :fs:sync}
+    .release {handle -> .fs:close}
+    .flush {handle -> .fs:sync}
 
 !resource %network_connection {#inherit#explicit}
-    .release {conn -> :net:close}
-    .timeout {conn, seconds -> :net:set_timeout {conn=conn, timeout=seconds}}
+    .release {conn -> .net:close}
+    .timeout {conn, seconds -> .net:set_timeout {conn=conn, timeout=seconds}}
 ```
 
 **Key Points**:
@@ -84,19 +84,19 @@ Resources are opaque handles that provide controlled access to external system r
 Modules can attach private data to handles for internal state management:
 
 ```comp
-// Private data during creation
+; Private data during creation
 $file_handle& = {
     internal_fd = file_descriptor
     bytes_processed = 0
-    last_access = :time:now
+    last_access = .time:now
     buffer_size = 4096
 }
 
-// Field-specific private assignment  
+; Field-specific private assignment  
 $handle&.position = 0
 $handle&.cache = {}
 
-// Multiple field assignment
+; Multiple field assignment
 $handle&.{buffer_size=8192, compression=!true, encoding="utf8"}
 ```
 
@@ -130,23 +130,23 @@ Comp uses capability-based security with predefined system tokens:
 ### Permission Declaration
 
 ```comp
-// Function-level requirements (checked at call time)
+; Function-level requirements (checked at call time)
 !require read, write
 !func :process_file ~{path ~str} = {
-    path -> :file:read -> :transform -> :file:write
+    path -> .file:read -> :transform -> .file:write
 }
 
-// Module-level requirements
+; Module-level requirements
 !require net, env
 !import config = stdlib config
 
-// Conditional permission requirements
+; Conditional permission requirements
 !func :conditional_network ~{use_api ~bool} = {
     use_api -> {
         !require net
-        data -> :http:post "https://api.example.com"
+        data -> .http:post "https:;api.example.com"
     } | {
-        data -> :local:process  
+        data -> .local:process  
     }
 }
 ```
@@ -156,16 +156,16 @@ Comp uses capability-based security with predefined system tokens:
 Security tokens stored in flowing `@ctx` namespace:
 
 ```comp
-// Check permissions
-@ctx -> :security:has #read     // !true or !false
+; Check permissions
+@ctx -> .security:has #read     ; !true or !false
 
-// Drop permissions (irreversible in current context)
-@ctx -> :security:drop #write
-@ctx -> :security:drop {#net, #ffi}  // Drop multiple tokens
+; Drop permissions (irreversible in current context)
+@ctx -> .security:drop #write
+@ctx -> .security:drop {#net, #ffi}  ; Drop multiple tokens
 
-// Create restricted context for function calls
-@ctx -> :security:only {#read} -> {
-    // This block can only read, no other permissions
+; Create restricted context for function calls
+@ctx -> .security:only {#read} -> {
+    ; This block can only read, no other permissions
     data -> :process_with_read_only
 }
 ```
@@ -182,9 +182,9 @@ Functions declared with `!pure` receive zero security tokens:
 
 ```comp
 !pure :validate_email ~{email ~str} = {
-    // @ctx = {} - no tokens available
-    email -> :str:match /^[^@]+@[^@]+$/  // OK: pure computation
-    email -> :file:read "config"            // ERROR: no read token
+    ; @ctx = {} - no tokens available
+    email -> .str:match /^[^@]+@[^@]+$/  ; OK: pure computation
+    email -> .file:read "config"            ; ERROR: no read token
 }
 ```
 
@@ -209,21 +209,21 @@ comp myapp.comp --no-network       # Network isolated
 
 ```comp
 !transact using $resource {
-    // Operations automatically wrapped in transaction
+    ; Operations automatically wrapped in transaction
     data -> :update_primary
     data -> :update_secondary  
     data -> :log_changes
 }
-// Automatic commit on success, rollback on error
+; Automatic commit on success, rollback on error
 ```
 
 ### Multi-Resource Transactions
 
 ```comp
 !transact using $database, $cache, $search_index {
-    // Resources coordinated in creation order
-    // Cleanup happens in reverse order (LIFO)
-    user -> :db:update -> :cache:invalidate -> :search:reindex
+    ; Resources coordinated in creation order
+    ; Cleanup happens in reverse order (LIFO)
+    user -> .db:update -> .cache:invalidate -> .search:reindex
 }
 ```
 
@@ -236,13 +236,13 @@ $counter = 5
 $config = {retry_limit=3}
 
 !transact using $resource {
-    // Snapshot of variables and context taken here
+    ; Snapshot of variables and context taken here
     $counter = $counter + 1
     @ctx.processing_mode = "batch"
     
     data -> :process
-    // On success: changes committed
-    // On error: $counter and @ctx restored to entry values
+    ; On success: changes committed
+    ; On error: $counter and @ctx restored to entry values
 }
 ```
 
@@ -257,20 +257,20 @@ $config = {retry_limit=3}
 Resources with transaction hooks:
 
 ```comp
-// Create transactional resource
+; Create transactional resource
 $db_handle -> !resource %database_cursor {
-    release = [$cursor -> :db:close]
-    transact_begin = [$cursor -> :db:begin_transaction]
-    transact_commit = [$cursor -> :db:commit]
-    transact_rollback = [$cursor -> :db:rollback]
+    release = [$cursor -> .db:close]
+    transact_begin = [$cursor -> .db:begin_transaction]
+    transact_commit = [$cursor -> .db:commit]
+    transact_rollback = [$cursor -> .db:rollback]
 }
 
-// Usage in transaction
+; Usage in transaction
 !transact using $db_handle {
-    // Automatically calls transact_begin
+    ; Automatically calls transact_begin
     users => :validate -> :save_user
-    // On success: calls transact_commit
-    // On error: calls transact_rollback
+    ; On success: calls transact_commit
+    ; On error: calls transact_rollback
 }
 ```
 
@@ -286,22 +286,22 @@ $db_handle -> !resource %database_cursor {
 **3D Graphics Transaction**:
 ```comp
 !transact using $maya_session {
-    "sphere" -> :maya:create_sphere 
-             ..> {scale={2.0, 2.0, 2.0}} -> :maya:transform
-    "light" -> :maya:create_directional_light
-            ..> {intensity=1.5} -> :maya:set_attr
+    "sphere" -> .maya:create_sphere 
+             ..> {scale={2.0, 2.0, 2.0}} -> .maya:transform
+    "light" -> .maya:create_directional_light
+            ..> {intensity=1.5} -> .maya:set_attr
 }
-// If any step fails, entire scene creation rolls back
+; If any step fails, entire scene creation rolls back
 ```
 
 **Multi-Service Update**:
 ```comp
 !transact using $user_db, $billing_db, $notification_service {
-    user -> :user_db:update_profile
-    user -> :billing_db:update_subscription  
-    user -> :notification_service:send_confirmation
+    user -> .user_db:update_profile
+    user -> .billing_db:update_subscription  
+    user -> .notification_service:send_confirmation
 }
-// All services updated atomically or none
+; All services updated atomically or none
 ```
 
 ## Advanced Security Patterns
@@ -309,24 +309,24 @@ $db_handle -> !resource %database_cursor {
 ### Permission Delegation
 
 ```comp
-// Create restricted execution context  
+; Create restricted execution context  
 !func :run_sandboxed ~{code, allowed_permissions} = {
-    // Create new context with only specified permissions
+    ; Create new context with only specified permissions
     @ctx -> :security:only allowed_permissions -> {
         code -> :evaluate
     }
 }
 
-// Usage
+; Usage
 user_script -> :run_sandboxed {allowed_permissions={#read}}
 ```
 
 ### Resource Access Control
 
 ```comp
-// Resources can check permissions at access time
+; Resources can check permissions at access time
 !func :secure_file_read ~{handle %file_reader} = {
-    // Check permission when accessing resource
+    ; Check permission when accessing resource
     @ctx -> :security:require #read
     handle&.fd -> :syscall:read -> {
         handle&.bytes_read += @.length
@@ -338,13 +338,13 @@ user_script -> :run_sandboxed {allowed_permissions={#read}}
 ### Module Permission Isolation
 
 ```comp
-// Each imported module gets isolated security context
+; Each imported module gets isolated security context
 !import untrusted = comp ./third_party_module
-// untrusted module cannot access main module's permissions
+; untrusted module cannot access main module's permissions
 
-// Explicit permission delegation (proposed feature)
+; Explicit permission delegation (proposed feature)
 untrusted -> :restricted_function {
-    permissions = {#read}    // Delegate only read permission
+    permissions = {#read}    ; Delegate only read permission
     data = sensitive_data
 }
 ```
@@ -352,7 +352,7 @@ untrusted -> :restricted_function {
 ### Security Monitoring
 
 ```comp
-// Monitor permission usage
+; Monitor permission usage
 @ctx -> :security:on_permission_use {
     permission, operation -> :audit:log {
         permission = permission
@@ -362,7 +362,7 @@ untrusted -> :restricted_function {
     }
 }
 
-// Set up alerts for sensitive operations
+; Set up alerts for sensitive operations
 @ctx -> :security:alert_on {#write, #net} -> :security:notify_admin
 ```
 
@@ -459,7 +459,7 @@ untrusted -> :restricted_function {
         @
     } !> {
         pool -> :pool:return_connection $conn
-        @  // Re-raise error
+        @  ; Re-raise error
     }
 }
 ```
@@ -469,23 +469,23 @@ untrusted -> :restricted_function {
 ```comp
 !require net, read
 !func :api_gateway ~{request} = {
-    // Check API key
+    ; Check API key
     api_key = request.headers."Authorization" | "" -> :extract_api_key
     
-    // Load permissions for API key
+    ; Load permissions for API key
     permissions = api_key -> :load_api_permissions !> {
         status = 401
         error = "Invalid API key"
         #http_response
     }
     
-    // Create restricted context  
+    ; Create restricted context  
     @ctx -> :security:only permissions -> {
         request -> match {
             {path="/users/*", method="GET"} -> :handle_user_get
             {path="/users/*", method="POST"} -> :handle_user_post
             {path="/admin/*"} -> {
-                // Admin endpoints require additional permission
+                ; Admin endpoints require additional permission
                 @ctx -> :security:require #admin -> {
                     request -> :handle_admin_request
                 }
@@ -504,19 +504,19 @@ untrusted -> :restricted_function {
 !func :create_distributed_transaction ~{participants %resource[]} = {
     $tx_id = :uuid:generate
     
-    // Prepare phase - all participants must agree
+    ; Prepare phase - all participants must agree
     $prepared = participants => {
         @ -> :send_prepare {transaction_id=$tx_id}
     } -> {
-        @ -> :all {vote="commit"}  // All must vote commit
+        @ -> :all {vote="commit"}  ; All must vote commit
     }
     
     $prepared ? {
-        // Commit phase
+        ; Commit phase
         participants => :send_commit {transaction_id=$tx_id}
         {status="committed", transaction_id=$tx_id}
     } | {
-        // Abort phase
+        ; Abort phase
         participants => :send_abort {transaction_id=$tx_id}  
         {status="aborted", transaction_id=$tx_id}
     }
@@ -528,18 +528,18 @@ untrusted -> :restricted_function {
 ### Resource Pooling
 
 ```comp
-// Connection pooling with automatic lifecycle
+; Connection pooling with automatic lifecycle
 !func :with_pooled_resource ~{pool, operation} = {
     $resource = pool -> :acquire !> {
-        :time:wait {milliseconds=100}  // Brief wait
-        pool -> :acquire  // Retry once
+        :time:wait {milliseconds=100}  ; Brief wait
+        pool -> :acquire  ; Retry once
     }
     
     operation -> :evaluate {resource=$resource} -> {
         pool -> :return $resource
         @
     } !> {
-        pool -> :return $resource  // Always return to pool
+        pool -> :return $resource  ; Always return to pool
         @
     }
 }
@@ -548,7 +548,7 @@ untrusted -> :restricted_function {
 ### Lazy Resource Initialization
 
 ```comp
-// Defer expensive resource creation
+; Defer expensive resource creation
 lazy_database = [
     database_url -> :create_connection_pool {max_connections=20}
 ]
@@ -578,7 +578,7 @@ lazy_database = [
             @
         } !> {
             resource -> :unlock
-            @  // Re-raise
+            @  ; Re-raise
         }
     }
 }

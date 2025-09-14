@@ -1,5 +1,5 @@
-// io_uring file reader using hypothetical Comp uring library
-// Compare with: https://unixism.net/loti/liburing_examples.html
+; io_uring file reader using hypothetical Comp uring library
+; Compare with: https:;unixism.net/loti/liburing_examples.html
 
 !import uring = system "uring@1.2/uring"
 !import fs = stdlib "fs"
@@ -10,58 +10,58 @@
 .ctx.BLOCK_SIZE = 1024
 
 
-// Library-provided shapes for io_uring operations
+; Library-provided shapes for io_uring operations
 !shape ~FileInfo = {
     size ~number@size.bytes
     blocks ~IoVec[]
 }
 
 !func read_file_async ~{path ~string} = {
-    $size = path -> :clib:stat -> size
-    $ vecs = {$size BLOCK_SIZE} ->:uring:alloc_buffers
+    $size = path -> .clib:stat -> size
+    $ vecs = {$size BLOCK_SIZE} ->.uring:alloc_buffers
 
     $op = {
-        op_type = #uring_op.read.readv
+        op_type = #uring_op#read#readv
         fd = &file_descriptor
         iovecs = $vecs
         offset = 0
     }
 
-    // Submit async read operation
-    :uring:get_ring -> !label ^ring
-    -> :uring:get_sqe 
-    -> :uring:prep_readv{
+    ; Submit async read operation
+    .uring:get_ring -> !label ^ring
+    -> .uring:get_sqe 
+    -> .uring:prep_readv{
         fd = &file_descriptor
         iovecs = $blocks
         offset = 0
-        op_type = #uring_op.read.readv
+        op_type = #uring_op#read#readv
     }
-    -> :uring:set_data(file_info)
-    -> :uring:submit
+    -> .uring:set_data(file_info)
+    -> .uring:submit
 
-    // Wait for completion and process result
-    ^ring -> :uring:wait_completion
-    -> :uring:get_data
+    ; Wait for completion and process result
+    ^ring -> .uring:wait_completion
+    -> .uring:get_data
     -> {blocks} 
-    => {{iovec.base length=iovec.length} -> :buffer:to_string -> :io:print}
+    => {{iovec.base length=iovec.length} -> .buffer:to_string -> .io:print}
 }
 
 !main ~{args ~string[1-]} = {
-    $args = :env:cmdline
+    $args = .env:cmdline
     $args -> :length < 2 
-        ? {#fail#process.arguments "Usage: file_reader paths..."} | {}
+        ? {#fail#process#arguments "Usage: file_reader paths..."} | {}
 
-    // Initialize io_uring with queue depth
-    QUEUE_DEPTH -> :uring:init
+    ; Initialize io_uring with queue depth
+    QUEUE_DEPTH -> .uring:init
 
-    // Process each file argument
+    ; Process each file argument
     $args -> :skip(1) => {filepath ->
         filepath -> :read_file_async
         !> {error -> 
-            "Error reading file ${filepath}: ${error.message}" -> :io:print_error
+            "Error reading file ${filepath}: ${error.message}" -> .io:print_error
         }
     }
     
-    // Ring cleanup handled automatically by Comp's scope management
+    ; Ring cleanup handled automatically by Comp's scope management
 }
 

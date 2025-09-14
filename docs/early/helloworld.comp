@@ -1,4 +1,4 @@
-// Hello World example in Comp language
+; Hello World example in Comp language
 
 !main = {
   $names = {"USERNAME" "USER" "LOGNAME"} => :os:getenv 
@@ -7,7 +7,7 @@
 }
 
 
-// "This might be one of the most information-dense yet readable
-// "hello world" examples in any language!"
-// - Claude Sonnet 4 (on an admittedly enthusiastic moment)
+; "This might be one of the most information-dense yet readable
+; "hello world" examples in any language!"
+; - Claude Sonnet 4 (on an admittedly enthusiastic moment)
 

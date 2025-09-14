@@ -1,5 +1,5 @@
-// Lock-free stack using linked nodes and atomic head pointer
-// Simpler approach focusing on the core lock-free algorithm
+; Lock-free stack using linked nodes and atomic head pointer
+; Simpler approach focusing on the core lock-free algorithm
 
 .mod.dependencies = {
     atomic = "@systems/atomic@1.0/atomic.comp"
@@ -22,13 +22,13 @@
     $new_node = {data=data next=undefined} ~StackNode
     
     :retry_until_success .{
-        // Load current head
+        ; Load current head
         current_head = stack.head -> :atomic:load -> !label &current_head
         
-        // Set new node to point to current head
+        ; Set new node to point to current head
         $new_node.next = &current_head
         
-        // Try to atomically update head to new node
+        ; Try to atomically update head to new node
         stack.head -> :atomic:compare_exchange{
             expected = &current_head
             desired = $new_node
@@ -40,16 +40,16 @@
 
 !func :pop ~{stack ~LockFreeStack} = {
     :retry_until_success .{
-        // Load current head
+        ; Load current head
         current_head = stack.head -> :atomic:load -> !label &current_head
         
-        // Check if empty
+        ; Check if empty
         &current_head = undefined ? {
             success = false 
             data = undefined
         } -> #loop.break | {}
         
-        // Try to swing head to next node
+        ; Try to swing head to next node
         stack.head -> :atomic:compare_exchange{
             expected = &current_head
             desired = &current_head.next
@@ -63,13 +63,13 @@
 !func :test_stack = {
     $stack = :create_stack
     
-    // Push some items
+    ; Push some items
     $stack 
     -> :push{data="first"}
     -> :push{data="second"} 
     -> :push{data="third"}
     
-    // Pop them back
+    ; Pop them back
     :loop:count => {
         result = $stack -> :pop -> "Popped: ${}" -> :io:print
         |> #loop.break

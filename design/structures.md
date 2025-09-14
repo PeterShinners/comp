@@ -39,14 +39,14 @@ in `{}` braces. Structure can contain other structure values.
 Fields that have already been assigned can by later fields.
 
 ```comp
-// Structure examples
-user = {name="Alice", age=30}                   // Named fields
-coordinates = {10.5, 20.3}                      // Unnamed fields
-mixed = {name="Bob", 25, #role#admin, active=#true}  // Multiple types
+; Structure examples
+user = {name="Alice", age=30}                   ; Named fields
+coordinates = {10.5, 20.3}                      ; Unnamed fields
+mixed = {name="Bob", 25, #role#admin, active=#true}  ; Multiple types
 
-counts = {start=12 next=count+1 finish=next+1}  // Named 12 13 14 fields
+counts = {start=12 next=count+1 finish=next+1}  ; Named 12 13 14 fields
 
-deep = {name="Carl" address={"123 Road" "City, ST" 12321}}  // Nested
+deep = {name="Carl" address={"123 Road" "City, ST" 12321}}  ; Nested
 ```
 
 ## Field References
@@ -56,7 +56,7 @@ can be any type of data, aside from other structures.
 
 * **Tokens** need no special quoting, `name` `age`
 * **Tags** tags can be field names (and field values), these no special quoting,
-  `#status.ok` `#log.warning`
+  `#status#ok` `#log#warning`
 * **Strings** fields can be defined from arbitrary text, these fields are required
   to use double quotes, `"Ready?"` `"Press Start"`
 * **Numbers** Numbers (and booleans) can be described with any expression wrapped in single quotes,
@@ -66,15 +66,15 @@ This same formatting syntax is used for assigning and referencing fields.
 
 ```comp
 
-data = {token=1 #status.bad=2 "North Dakota"=3 '12/2'=4}
+data = {token=1 '#status#bad'=2 "North Dakota"=3 '12/2'=4}
 
 one = data.token
-two = data.#status.bad
+two = data.'#status#bad'
 three = data."North Dakota"
 four = data.'3+3'
 
-user.'suffix->computed'   // Formatted field names
-user.'$variable'          // Computed access with variables
+user.'suffix->computed'   ; Formatted field names
+user.'$variable'          ; Computed access with variables
 ```
 
 ## Indexed References
@@ -93,9 +93,9 @@ size needed to contain that many fields.
 ```comp
 color = {r=80 g=160 b=240}
 
-color#1  // 160
-color#2 = 0    // new structure with {r=80 g=160 b=0}
-color#5 *= 255  // new structure with six fields
+color#1  ; 160
+color#2 = 0    ; new structure with {r=80 g=160 b=0}
+color#5 *= 255  ; new structure with six fields
 ```
 
 ### Field Overrides
@@ -117,7 +117,7 @@ conflicts = {
     *high=1 mid=2 low=3
     high=4  mid=5 low?=6
 }
-// Results in {high=1 mid=5 low=3}
+; Results in {high=1 mid=5 low=3}
 ```
 
 ### Spread Structures
@@ -145,23 +145,23 @@ Unnamed fields in the structure are applied in the order of each structure
 they come from. There is no overriding for unnamed fields.
 
 ```comp
-redgreen = {red=1 green*=2 'alpha'}  // strong assignment has no influence on spreading
+redgreen = {red=1 green*=2 'alpha'}  ; strong assignment has no influence on spreading
 greenblue = {blue=3 green=4 'beta'}
 
 {...redgreen ...greenblue}
-// {red=1 green=4 blue=3 'alpha' 'beta'}
+; {red=1 green=4 blue=3 'alpha' 'beta'}
 
 {green=99 ...?redgreen ...?greenblue}  
-// {green=99 red=1 blue=3 'alpha' 'beta'}
+; {green=99 red=1 blue=3 'alpha' 'beta'}
 
 {green=99 ...*redgreen ...*greenblue}
-// {red=1 green=4 blue=3 'alpha' 'beta'}
+; {red=1 green=4 blue=3 'alpha' 'beta'}
 
 {green=99 ...?redgreen ...*greenblue}
-// {green=4 red=1 blue=3 'alpha' 'beta'}
+; {green=4 red=1 blue=3 'alpha' 'beta'}
 
 {green*=99 ...?redgreen ...*greenblue}
-// {green=4 red=1 blue=3 'alpha' 'beta'}
+; {green=4 red=1 blue=3 'alpha' 'beta'}
 ```
 
 ### Field Ordering and Immutability
@@ -170,9 +170,9 @@ Structures maintain field insertion order and are completely immutable:
 
 ```comp
 original = {a=1, b=2, c=3}
-modified = {...original, b=20, d=4}    // Creates new structure
-// Result: {a=1, b=20, c=3, d=4}
-// original remains unchanged: {a=1, b=2, c=3}
+modified = {...original, b=20, d=4}    ; Creates new structure
+; Result: {a=1, b=20, c=3, d=4}
+; original remains unchanged: {a=1, b=2, c=3}
 ```
 
 ### Assignment Operators
@@ -180,10 +180,10 @@ modified = {...original, b=20, d=4}    // Creates new structure
 Context-aware assignment operators adapt behavior based on usage:
 
 ```comp
-=     // Normal assignment
-*=    // Strong assignment (force/persist, extends structure)
-?=    // Weak assignment (only if field doesn't exist)
-..=   // Spread assignment (merge operator)
+=     ; Normal assignment
+*=    ; Strong assignment (force/persist, extends structure)
+?=    ; Weak assignment (only if field doesn't exist)
+..=   ; Spread assignment (merge operator)
 ```
 
 ### Assignment Behavior Examples
@@ -191,16 +191,16 @@ Context-aware assignment operators adapt behavior based on usage:
 ```comp
 user = {name="Alice", age=30}
 
-// Normal assignment - overwrites existing
-user.location = "Boston"     // {name="Alice", age=30, location="Boston"}
-user.name = "Alicia"        // Overwrites existing name
+; Normal assignment - overwrites existing
+user.location = "Boston"     ; {name="Alice", age=30, location="Boston"}
+user.name = "Alicia"        ; Overwrites existing name
 
-// Conditional assignment - only if undefined
-user.nickname ?= "Al"        // Adds nickname only if it doesn't exist
-user.name ?= "Bob"          // Skips - name already exists
+; Conditional assignment - only if undefined
+user.nickname ?= "Al"        ; Adds nickname only if it doesn't exist
+user.name ?= "Bob"          ; Skips - name already exists
 
-// Strong assignment - forces assignment, extends if needed
-user.verified *= !true       // Forces assignment, extends structure if needed
+; Strong assignment - forces assignment, extends if needed
+user.verified *= !true       ; Forces assignment, extends structure if needed
 ```
 
 ### Deep Field Assignment
@@ -214,10 +214,10 @@ user = {
     }
 }
 
-// Deep assignment creates new structures at each level
+; Deep assignment creates new structures at each level
 user.profile.settings.theme = "dark"
 
-// Equivalent to:
+; Equivalent to:
 user = {
     ...user
     profile = {
@@ -229,10 +229,10 @@ user = {
     }
 }
 
-// More complex deep assignment
+; More complex deep assignment
 tree.left.right.value = 42
 
-// Equivalent to:
+; Equivalent to:
 tree = {...tree 
     left = {...tree.left 
         right = {...tree.left.right 
@@ -247,9 +247,9 @@ tree = {...tree
 ### Basic Spread Syntax
 
 ```comp
-...source           // Normal spread
-..*source          // Strong spread (protected)
-..?source          // Weak spread (conditional)
+...source           ; Normal spread
+..*source          ; Strong spread (protected)
+..?source          ; Weak spread (conditional)
 ```
 
 ### Spread in Structure Creation
@@ -258,14 +258,14 @@ tree = {...tree
 base = {name="Alice", age=30}
 permissions = {read=!true, write=!false}
 
-// Combine structures with spread
+; Combine structures with spread
 user = {
     ...base
     ...permissions
     active=!true
     created_at=:time:now
 }
-// Result: {name="Alice", age=30, read=!true, write=!false, active=!true, created_at=<timestamp>}
+; Result: {name="Alice", age=30, read=!true, write=!false, active=!true, created_at=<timestamp>}
 ```
 
 ### Spread Assignment
@@ -275,9 +275,9 @@ spread pipeline operator. That does not provide weak or strong spreading.
 When that level of control is needed, use more explicit spread statements.
 
 ```comp
-struct ..= changes           // Additive merge (default)
-struct ..?= changes         // Weak merge (won't overwrite existing)
-struct ..*= changes         // Strong merge (replace entirely)
+struct ..= changes           ; Additive merge (default)
+struct ..?= changes         ; Weak merge (won't overwrite existing)
+struct ..*= changes         ; Strong merge (replace entirely)
 ```
 
 **Spread Assignment Examples**:
@@ -285,19 +285,19 @@ struct ..*= changes         // Strong merge (replace entirely)
 user = {name="Alice", age=30, active=!true}
 updates = {age=31, city="Boston"}
 
-// Normal spread assignment (additive merge)
+; Normal spread assignment (additive merge)
 user ..= updates
-// Result: {name="Alice", age=31, active=!true, city="Boston"}
+; Result: {name="Alice", age=31, active=!true, city="Boston"}
 
-// Weak spread assignment (won't overwrite existing)
+; Weak spread assignment (won't overwrite existing)
 user ..?= {age=25, nickname="Al"}
-// Result: {name="Alice", age=31, active=!true, city="Boston", nickname="Al"}
-// age not updated because it already exists
+; Result: {name="Alice", age=31, active=!true, city="Boston", nickname="Al"}
+; age not updated because it already exists
 
-// Strong spread assignment (replace entirely)  
+; Strong spread assignment (replace entirely)  
 user ..*= {name="Alice", verified=!true}
-// Result: {name="Alice", verified=!true}
-// All other fields removed
+; Result: {name="Alice", verified=!true}
+; All other fields removed
 ```
 
 ### Spread with Field Filtering
@@ -344,12 +344,12 @@ as a regular structure.
 
 ```comp
 
-// Lazy structure does not invoke functions until fields needed.
+; Lazy structure does not invoke functions until fields needed.
 $lazy = [a=:func-one b=:func-two c=:func-three]
-$value = $lazy.b  // Both :func-one and :func-two invoked
+$value = $lazy.b  ; Both :func-one and :func-two invoked
 
 
-// Create structure where individual fields are resolve lazily
+; Create structure where individual fields are resolve lazily
 lazy_config = {
     database_url = ["DATABASE_URL" -> :env:get]
     max_connections = ["MAX_CONN" -> :env:get -> :num:parse]
@@ -367,17 +367,17 @@ longer influenced by the runtime.
     $multiplier = 10
     !ctx.base_value = 100
     
-    // Context captured here
+    ; Context captured here
     lazy_processor = [
         input -> input * $multiplier + @func.base_value
     ]
     
-    $multiplier = 20           // Change doesn't affect lazy block
-    lazy_processor            // Returns block with original context
+    $multiplier = 20           ; Change doesn't affect lazy block
+    lazy_processor            ; Returns block with original context
 }
 
 $processor = :create_lazy_processor
-$result = $processor -> :evaluate {input=5}  // Uses multiplier=10, base_value=100
+$result = $processor -> :evaluate {input=5}  ; Uses multiplier=10, base_value=100
 ```
 
 ### Lazy Morphing
@@ -399,7 +399,7 @@ user_profile = {
     computed_field = user.name -> :format_display_name
 }
 
-// Conditional composition
+; Conditional composition
 admin_profile = {
     ...user_profile
     -?? user.role == "admin" -&& admin_permissions
@@ -414,7 +414,7 @@ their contents, which allows actual logic, instead of the
 declartive shape definitions.
 
 ```comp
-// Template function for structure creation
+; Template function for structure creation
 !func :user_template ~{name ~str, role ~str = "user"} = {
     name = name
     role = role
@@ -427,7 +427,7 @@ declartive shape definitions.
     }
 }
 
-// Usage
+; Usage
 admin = "Alice" -> :user_template {role="admin"}
 user = "Bob" -> :user_template
 ```
@@ -439,21 +439,21 @@ user = "Bob" -> :user_template
 ```comp
 user = {name="Alice", age=30, #role#admin, active=!true}
 
-// Get field information
-field_names = user -> :struct:field_names    // ["name", "age", "#role", "active"]
-field_count = user -> :struct:length         // 4
-has_role = user -> :struct:has_field "#role" // !true
+; Get field information
+field_names = user -> :struct:field_names    ; ["name", "age", "#role", "active"]
+field_count = user -> :struct:length         ; 4
+has_role = user -> :struct:has_field "#role" ; !true
 ```
 
 ### Structure Analysis
 
 ```comp
-// Analyze structure composition
+; Analyze structure composition
 user -> :struct:analyze -> {
-    named_fields = @.named_count      // 3
-    tagged_fields = @.tagged_count    // 1
-    positional_fields = @.positional_count  // 0
-    field_types = @.type_summary     // {string: 1, number: 1, tag: 1, bool: 1}
+    named_fields = @.named_count      ; 3
+    tagged_fields = @.tagged_count    ; 1
+    positional_fields = @.positional_count  ; 0
+    field_types = @.type_summary     ; {string: 1, number: 1, tag: 1, bool: 1}
 }
 ```
 
@@ -461,16 +461,16 @@ user -> :struct:analyze -> {
 
 ```comp
 user1 = {name="Alice", age=30}
-user2 = {age=30, name="Alice"}  // Different order
+user2 = {age=30, name="Alice"}  ; Different order
 user3 = {name="Alice", age=30, city="Boston"}
 
-// Structural equality (ignores field order)
-user1 -> :struct:equals user2    // !true
-user1 -> :struct:equals user3    // !false
+; Structural equality (ignores field order)
+user1 -> :struct:equals user2    ; !true
+user1 -> :struct:equals user3    ; !false
 
-// Field subset checking
-user1 -> :struct:subset_of user3  // !true (user1 fields ⊆ user3 fields)
-user3 -> :struct:subset_of user1  // !false
+; Field subset checking
+user1 -> :struct:subset_of user3  ; !true (user1 fields ⊆ user3 fields)
+user3 -> :struct:subset_of user1  ; !false
 ```
 
 

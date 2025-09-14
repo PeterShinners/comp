@@ -15,12 +15,12 @@ Comp provides a flexible module system with multiple import providers, hierarchi
 ```comp
 !import json = std "json"
 
-// Correct usage - module as namespace
+; Correct usage - module as namespace
 data -> json:stringify -> json:parse
 
-// Invalid - modules are not values
-$json_lib = json              // ERROR: Cannot assign module to variable
-data -> $json_lib:stringify   // ERROR: Module not a value
+; Invalid - modules are not values
+$json_lib = json              ; ERROR: Cannot assign module to variable
+data -> $json_lib:stringify   ; ERROR: Module not a value
 ```
 
 **Benefits**:
@@ -38,15 +38,15 @@ data -> $json_lib:stringify   // ERROR: Module not a value
 - Explicit version management
 
 ```comp
-// Main module controls all versions
+; Main module controls all versions
 !main = {
-    // Override specific versions for entire application
-    !import json *= pkg "json@2.5.1"        // Force specific version
-    !import database *= pkg "postgres@3.2"   // Application-wide database version
+    ; Override specific versions for entire application
+    !import json *= pkg "json@2.5.1"        ; Force specific version
+    !import database *= pkg "postgres@3.2"   ; Application-wide database version
     
-    // Libraries automatically use these versions
-    :user_service:process_users
-    :data_processor:transform_data
+    ; Libraries automatically use these versions
+    .user_service:process_users
+    .data_processor:transform_data
 }
 ```
 
@@ -55,16 +55,16 @@ data -> $json_lib:stringify   // ERROR: Module not a value
 Libraries automatically inherit main module's dependency choices:
 
 ```comp
-// user_service.comp - Library module
-!import json = std "json"           // Default: standard library JSON
-!import database = std "database"   // Default: standard library database
+; user_service.comp - Library module
+!import json = std "json"           ; Default: standard library JSON
+!import database = std "database"   ; Default: standard library database
 
-// main.comp - Application
-!import json *= pkg "fast-json@3.1"     // Override with faster JSON library  
-!import database *= pkg "postgres@3.2"  // Override with PostgreSQL driver
+; main.comp - Application
+!import json *= pkg "fast-json@3.1"     ; Override with faster JSON library  
+!import database *= pkg "postgres@3.2"  ; Override with PostgreSQL driver
 !import user_service = comp "./user_service.comp"
 
-// user_service automatically uses fast-json@3.1 and postgres@3.2
+; user_service automatically uses fast-json@3.1 and postgres@3.2
 ```
 
 ### Explicit Version Management
@@ -76,12 +76,12 @@ Libraries automatically inherit main module's dependency choices:
 - Clear audit trail of version changes
 
 ```comp
-// Explicit, analyzable versions
-!import json = pkg "json@2.5.1"           // Exact version
-!import utils = git "github.com/org/utils@v1.4.2"  // Git tag
-!import api = openapi "https://api.example.com/v2/spec.json"  // URL with version
+; Explicit, analyzable versions
+!import json = pkg "json@2.5.1"           ; Exact version
+!import utils = git "github.com/org/utils@v1.4.2"  ; Git tag
+!import api = openapi "https:;api.example.com/v2/spec.json"  ; URL with version
 
-// Tools can parse and update these automatically
+; Tools can parse and update these automatically
 ```
 
 ### Dynamic Module System
@@ -95,32 +95,32 @@ The dynamic module system maintains static safety through a **construction-time 
 
 **1. Automatic Import Translation (90% of cases)**
 ```comp
-// Transparent imports via specialized importers
-!import api = "openapi://./swagger.json"
-!import db = "postgres://localhost/mydb?schema=public"
-!import py_utils = "python://./utils.py"
-!import proto = "protobuf://./messages.proto"
+; Transparent imports via specialized importers
+!import api = "openapi:;./swagger.json"
+!import db = "postgres:;localhost/mydb?schema=public"
+!import py_utils = "python:;./utils.py"
+!import proto = "protobuf:;./messages.proto"
 
-// Use normally with full type safety
+; Use normally with full type safety
 api.users.get({id=123})
 db.User.findById(123)
 ```
 
 **2. Module Builder Pattern (9% of cases)**
 ```comp
-// For custom scenarios beyond importer capabilities
+; For custom scenarios beyond importer capabilities
 builder = :module_builder.new()
 builder -> :add_function("connect", connect_impl)
 builder -> :add_shape("User", user_shape)
-database_mod = builder -> !seal  // Now immutable
+database_mod = builder -> !seal  ; Now immutable
 
-// Works exactly like static import
+; Works exactly like static import
 database_mod.connect() -> database_mod.query("SELECT * FROM users")
 ```
 
 **3. Manual Construction (1% of cases)**
 ```comp
-// Full control for edge cases
+; Full control for edge cases
 user_shape = :compile_shape({name: "string", age: "number"})
 validator_func = :compile_function("validate_user", user_shape, logic)
 
@@ -175,7 +175,7 @@ Import providers implement appropriate caching strategies:
 !import http = std "http/client"  
 !import math = std "math/geometry"
 
-// Package manager with exact versions
+; Package manager with exact versions
 !import json = pkg "json@2.5.1"
 !import database = pkg "postgres-driver@1.8.3"
 ```
@@ -183,24 +183,24 @@ Import providers implement appropriate caching strategies:
 ### External Repository and File Imports
 
 ```comp
-// Git repository modules
+; Git repository modules
 !import utils = git "github.com/company/utils@v1.4.2"
 !import crypto = git "gitlab.com/security/crypto@main"
 
-// Local Comp files
+; Local Comp files
 !import config = comp "./config.comp"
 !import shared = comp "../shared/utilities.comp"
-!import remote = comp "https://cdn.example.com/module.comp"
+!import remote = comp "https:;cdn.example.com/module.comp"
 ```
 
 ### Foreign Language and Schema Imports
 
 ```comp
-// External schema integration
-!import api = openapi "https://api.service.com/spec.json"
+; External schema integration
+!import api = openapi "https:;api.service.com/spec.json"
 !import events = protobuf "./schema.proto"
 
-// Python runtime integration
+; Python runtime integration
 !import numpy = python "numpy"
 !import pygame = python "pygame"
 ```
@@ -210,11 +210,11 @@ Import providers implement appropriate caching strategies:
 **Key Innovation**: Libraries write simple imports that are automatically overridable by the main module:
 
 ```comp
-// Library writes:
+; Library writes:
 !import json = std "json"
 
-// Automatically behaves as:
-!import json = main "json" | std "json"  // Try main first, fallback to std
+; Automatically behaves as:
+!import json = main "json" | std "json"  ; Try main first, fallback to std
 ```
 
 **Benefits**:
@@ -226,10 +226,10 @@ Import providers implement appropriate caching strategies:
 ### Assignment Operators for Import Control
 
 ```comp
-!import json = std "json"      // Normal: main can override
-!import json *= std "json"     // Strong: always use this exact version
-!import json ?= std "json"     // Weak: only if not already provided  
-!import json = main "json"     // Explicit: must be provided by main module
+!import json = std "json"      ; Normal: main can override
+!import json *= std "json"     ; Strong: always use this exact version
+!import json ?= std "json"     ; Weak: only if not already provided  
+!import json = main "json"     ; Explicit: must be provided by main module
 ```
 
 **Assignment Semantics**:
@@ -241,13 +241,13 @@ Import providers implement appropriate caching strategies:
 ### Fallback Chain Syntax
 
 ```comp
-// Multiple fallback sources using | operator
+; Multiple fallback sources using | operator
 !import json = main "json" | std "json" | comp "./minimal-json.comp"
 
-// Complex fallback with version preferences
+; Complex fallback with version preferences
 !import database = main "database" | pkg "postgres@2.1" | pkg "sqlite@3.8"
 
-// Platform-specific fallbacks
+; Platform-specific fallbacks
 !import graphics = main "graphics" | pkg "opengl@4.6" | pkg "software-renderer@1.0"
 ```
 
@@ -258,16 +258,16 @@ Uses existing `|` operator for consistency with field fallback behavior.
 ### Function Invocation
 
 ```comp
-// Local function calls
+; Local function calls
 result -> :local_function
 
-// Imported module functions  
+; Imported module functions  
 result -> io:write
 data -> math:sqrt -> color:to_hex
 
-// Qualified calls prevent naming conflicts
+; Qualified calls prevent naming conflicts
 user_data -> validation:check_email
-user_data -> http:check_email    // Different validation logic
+user_data -> http:check_email    ; Different validation logic
 ```
 
 ## Module Usage Patterns
@@ -275,56 +275,56 @@ user_data -> http:check_email    // Different validation logic
 ### Function Invocation
 
 ```comp
-// Local function calls
+; Local function calls
 result -> :local_function
 
-// Imported module functions  
+; Imported module functions  
 result -> json:stringify -> json:parse
 data -> math:sqrt -> http:post
 user -> database:save
 
-// Qualified calls prevent naming conflicts
-user_data -> auth:validate_email     // Authentication validation
-user_data -> forms:validate_email    // Form validation
+; Qualified calls prevent naming conflicts
+user_data -> auth:validate_email     ; Authentication validation
+user_data -> forms:validate_email    ; Form validation
 ```
 
 ### Cross-Module Shape and Tag Usage
 
 ```comp
-// Shapes from imported modules
+; Shapes from imported modules
 user_data ~ auth:UserProfile
 config ~ settings:AppConfig
 
-// Tags from imported modules  
-status = http#response#success
-priority = tasks#priority#high
+; Tags from imported modules  
+status = .http#response#success
+priority = .tasks#priority#high
 
-// Cross-module compatibility
-local_user ~ auth:UserProfile     // Works if shapes are structurally compatible
-auth_status = #status#active      // Local tag
-http_status = http#status#200     // Module-qualified tag
+; Cross-module compatibility
+local_user ~ auth:UserProfile     ; Works if shapes are structurally compatible
+auth_status = #status#active      ; Local tag
+http_status = .http#status#200     ; Module-qualified tag
 ```
 
 ### Module Namespace Integration
 
 ```comp
-// Modules integrate with namespace system
+; Modules integrate with namespace system
 @app.database_url = database:get_default_url
 @mod.json_config = json:parse config_text
 
-// Module functions can access application context
+; Module functions can access application context
 user -> database:save -> {
-    // database module can access @app.connection_pool
+    ; database module can access @app.connection_pool
     @app.audit_log = {...@app.audit_log, user_saved=@}
 }
 ```
 
 **Standalone Libraries with Defaults**:
 ```comp
-// library.comp - Works standalone
-!import json = std "json"           // Reasonable default
-!import http = std "http"           // Standard HTTP client
-!import math = std "math"           // Built-in math functions
+; library.comp - Works standalone
+!import json = std "json"           ; Reasonable default
+!import http = std "http"           ; Standard HTTP client
+!import math = std "math"           ; Built-in math functions
 
 !func :process_api_data ~{url ~str} = {
     url -> http:get -> json:parse -> math:analyze
@@ -333,25 +333,25 @@ user -> database:save -> {
 
 **Application Override**:
 ```comp
-// app.comp - Application with specific requirements  
-!import json *= pkg "fast-json@3.1"      // High-performance JSON
-!import http *= pkg "secure-http@2.0"    // Security-focused HTTP
-!import library = comp "./library.comp"  // Library inherits overrides
+; app.comp - Application with specific requirements  
+!import json *= pkg "fast-json@3.1"      ; High-performance JSON
+!import http *= pkg "secure-http@2.0"    ; Security-focused HTTP
+!import library = comp "./library.comp"  ; Library inherits overrides
 
-// library functions now use fast-json@3.1 and secure-http@2.0
+; library functions now use fast-json@3.1 and secure-http@2.0
 ```
 
 **Conditional Library Imports**:
 ```comp
-// library.comp - Flexible library
-!import json = std "json"                 // Default
-!import encryption ?= main "encryption"  // Optional if provided by main
-!import cache ?= std "cache"             // Optional with standard fallback
+; library.comp - Flexible library
+!import json = std "json"                 ; Default
+!import encryption ?= main "encryption"  ; Optional if provided by main
+!import cache ?= std "cache"             ; Optional with standard fallback
 
 !func :secure_process ~{data} = {
     processed = data -> json:parse
     encrypted = encryption ? (processed -> encryption:encrypt) | processed
-    encrypted -> cache:store | processed  // Cache if available
+    encrypted -> cache:store | processed  ; Cache if available
 }
 ```
 
@@ -360,13 +360,13 @@ user -> database:save -> {
 ### Hierarchical Namespace Access
 
 ```comp
-@app.config         // Application-level configuration
-@mod.state          // Module-level state
-@env.production     // Environment settings  
-@ctx.security       // Context-specific data
-@in.data           // Input context
-@out.result        // Output context
-@func.temporary    // Function-scoped (auto-cleared)
+@app.config         ; Application-level configuration
+@mod.state          ; Module-level state
+@env.production     ; Environment settings  
+@ctx.security       ; Context-specific data
+@in.data           ; Input context
+@out.result        ; Output context
+$func.temporary    ; Function-scoped (auto-cleared)
 ```
 
 ### Namespace Flow Through Pipelines
@@ -374,33 +374,33 @@ user -> database:save -> {
 Context flows automatically through pipeline operations:
 
 ```comp
-// Context preservation
+; Context preservation
 @ctx.timeout = 30
 data -> :fetch -> :validate -> :process
-// All functions can access @ctx.timeout
+; All functions can access @ctx.timeout
 
-// Function-scoped isolation
+; Function-scoped isolation
 !func :process_data = {
-    @func.retries = 3        // Function-local only
-    @func.start_time = :time:now
+    $func.retries = 3        ; Function-local only
+    $func.start_time = .time:now
     
     data -> :transform -> :validate
-}  // @func namespace cleared here
+}  ; $func namespace cleared here
 ```
 
 ### Context Stack Hierarchy
 
-**Resolution Order**: `@func` → `@mod` → `@app` → `@env`
+**Resolution Order**: `$func` → `@mod` → `@app` → `@env`
 
 ```comp
-// Setting values at different levels
-@env.database_url = "postgres://prod"      // Environment
-@app.max_connections = 100                 // Application  
-@mod.table_prefix = "user_"               // Module
-@func.batch_size = 50                     // Function
+; Setting values at different levels
+@env.database_url = "postgres:;prod"      ; Environment
+@app.max_connections = 100                 ; Application  
+@mod.table_prefix = "user_"               ; Module
+$func.batch_size = 50                     ; Function
 
-// Access uses first match in hierarchy
-connection_limit = @ctx.max_connections    // Finds @app.max_connections
+; Access uses first match in hierarchy
+connection_limit = @ctx.max_connections    ; Finds @app.max_connections
 ```
 
 ### Thread-Safe Context Management
@@ -408,19 +408,19 @@ connection_limit = @ctx.max_connections    // Finds @app.max_connections
 **Context Isolation**: Each thread gets independent copy of parent context at spawn time.
 
 ```comp
-// Main thread
+; Main thread
 @app.config = {debug=!true, workers=4}
 @ctx.processing_mode = "batch"
 
-// Spawned thread gets copy
-:threading:spawn {
-    // This thread has independent copy of @app and @ctx
-    // Changes here don't affect parent or sibling threads
-    @ctx.processing_mode = "streaming"    // Local to this thread
+; Spawned thread gets copy
+.threading:spawn {
+    ; This thread has independent copy of @app and @ctx
+    ; Changes here don't affect parent or sibling threads
+    @ctx.processing_mode = "streaming"    ; Local to this thread
 }
 
-// Main thread unchanged
-@ctx.processing_mode    // Still "batch"
+; Main thread unchanged
+@ctx.processing_mode    ; Still "batch"
 ```
 
 ## Security and Permission Integration
@@ -428,18 +428,18 @@ connection_limit = @ctx.max_connections    // Finds @app.max_connections
 ### Module-Level Permissions
 
 ```comp
-// Module declares required permissions
+; Module declares required permissions
 !require read, write, net
 
-// Functions inherit module permissions
+; Functions inherit module permissions
 !func :fetch_and_save ~{url ~str} = {
-    url -> :http:get -> :file:write "output.json"
+    url -> .http:get -> .file:write "output.json"
 }
 
-// Permission restriction within module
+; Permission restriction within module
 !func :safe_compute = {
-    @ctx -> :security:drop #net        // Drop network access
-    @ctx -> :security:drop #write      // Drop write access
+    @ctx -> .security:drop #net        ; Drop network access
+    @ctx -> .security:drop #write      ; Drop write access
     data -> :pure_calculation
 }
 ```
@@ -449,16 +449,16 @@ connection_limit = @ctx.max_connections    // Finds @app.max_connections
 Each imported module gets isolated security context:
 
 ```comp
-// Main module has full permissions
+; Main module has full permissions
 !require read, write, net
 
-// Import with permission restriction
+; Import with permission restriction
 !import sandboxed = comp ./untrusted_module
-// sandboxed module cannot access main module's permissions
+; sandboxed module cannot access main module's permissions
 
-// Explicit permission delegation (if supported)
+; Explicit permission delegation (if supported)
 sandboxed -> :restricted_function {
-    permissions = {#read}    // Delegate only read permission
+    permissions = {#read}    ; Delegate only read permission
 }
 ```
 
@@ -468,10 +468,10 @@ External schemas are naturally sandboxed by format limitations:
 
 ```comp
 !import api = openapi ./external-api.json
-// Can only create HTTP client functions - no arbitrary code execution
+; Can only create HTTP client functions - no arbitrary code execution
 
 !import data = protobuf ./schema.proto  
-// Can only create serialization functions - no system access
+; Can only create serialization functions - no system access
 ```
 
 ## Entry Points
@@ -480,16 +480,16 @@ External schemas are naturally sandboxed by format limitations:
 
 ```comp
 !entry = {
-    // Module initialization - runs when imported
+    ; Module initialization - runs when imported
     @mod.initialized = !true
     @mod.version = "1.2.3" 
     :setup_module_state
 }
 
 !main = {
-    // Program execution entry point
-    $args = :cli:parse_args
-    $config = :config:load $args.config_file
+    ; Program execution entry point
+    $args = .cli:parse_args
+    $config = .config:load $args.config_file
     
     $args.command -> :match {
         "serve" -> :start_server $config
@@ -500,58 +500,30 @@ External schemas are naturally sandboxed by format limitations:
 }
 ```
 
-### Entry-Safe Functions
 
-Functions safe for use in `!entry` (compile-time evaluation):
-
-```comp
-// Hardcoded safe list (initial implementation)
-:args:*              // Command line argument processing
-:config:load         // Configuration file loading  
-:str:*            // String manipulation
-:num:*            // Numeric operations
-:struct:*            // Structure operations
-:json:parse          // JSON parsing (for config files)
-
-// Future: Modules declare pure/safe functions
-!pure :my_safe_function = {
-    // Guaranteed no side effects - safe for !entry
-}
-```
-
-### Rejected Entry Points
-
-**Design Decision**: Only `!entry` and `!main` are language-defined entry points.
-
-**Rejected Ideas**:
-- `!test` - Should be framework/tooling convention
-- `!docs` - Should be documentation tooling concern
-- `!debug` - Should be development tooling concern
-- `!commandline` - Should be CLI framework concern
-- `!gui` - Should be GUI framework concern
 
 ## Advanced Import Features
 
 ### Versioning and Dependencies
 
 ```comp
-// Git-based versioning
+; Git-based versioning
 !import utils = git @company/utils@1.4.2
 !import experimental = git @company/utils@feature-branch
 
-// Semantic version constraints (future feature)
-!import compat = git @org/lib@^2.1.0    // Compatible with 2.x
-!import stable = git @org/lib@~1.2.3    // Patch-level updates only
+; Semantic version constraints (future feature)
+!import compat = git @org/lib@^2.1.0    ; Compatible with 2.x
+!import stable = git @org/lib@~1.2.3    ; Patch-level updates only
 ```
 
 ### Import Aliases and Renaming
 
 ```comp
-// Alias module name
+; Alias module name
 !import ui = git @company/user-interface@latest
 !import db = stdlib database/postgresql
 
-// Selective imports (future feature)
+; Selective imports (future feature)
 !import {hash_password, verify_password} = stdlib crypto/bcrypt
 !import {Point2d as Point, Vector3d} = math geometry
 ```
@@ -559,14 +531,14 @@ Functions safe for use in `!entry` (compile-time evaluation):
 ### Conditional and Platform Imports
 
 ```comp
-// Platform-specific imports
+; Platform-specific imports
 !import graphics = disk deps/basic-graphics
 !import graphics.linux ?= path hardware-accelerated-linux
 !import graphics.windows ?= path directx-graphics
 !import graphics.macos ?= path metal-graphics
 
-// Environment-based imports
-!import database = stdlib database/sqlite       // Development default
+; Environment-based imports
+!import database = stdlib database/sqlite       ; Development default
 !import database.production ?= stdlib database/postgresql
 ```
 
@@ -575,52 +547,52 @@ Functions safe for use in `!entry` (compile-time evaluation):
 ### Module Introspection
 
 ```comp
-// Query module information
+; Query module information
 !describe io -> {
-    name = @.name           // "io"
-    version = @.version     // "1.0.0"
-    functions = @.functions // List of available functions
-    source = @.source       // Import source information
+    name = @.name           ; "io"
+    version = @.version     ; "1.0.0"
+    functions = @.functions ; List of available functions
+    source = @.source       ; Import source information
 }
 
-// List all imported modules
-@app.modules => {name=@.name, source=@.source} -> :debug:print
+; List all imported modules
+@app.modules => {name=name, source=source} -> .debug:print
 ```
 
 ### Dynamic Module Loading
 
 ```comp
-// Runtime module loading (requires import permission)
+; Runtime module loading (requires import permission)
 !require import
 !func :load_plugin ~{name ~str} = {
-    // Dynamic import syntax (future feature)
+    ; Dynamic import syntax (future feature)
     $plugin = !import_runtime plugin = path "plugins/${name}"
     $plugin -> :initialize
 }
 
-// Module builder pattern for runtime construction
+; Module builder pattern for runtime construction
 !func :build_database_module ~{config ~{host ~str, port ~num}} = {
     builder = :module_builder.new()
     
-    // Add connection function
+    ; Add connection function
     connect_impl = :compile_function("connect", {}, {
-        @func.host = config.host
-        @func.port = config.port
-        :database:connect {@func.host, @func.port}
+        $func.host = config.host
+        $func.port = config.port
+        .database:connect {$func.host, $func.port}
     })
     
-    // Add query functions
+    ; Add query functions
     query_impl = :compile_function("query", {sql ~str}, {
-        @func.connection -> :execute sql
+        $func.connection -> :execute sql
     })
     
-    // Seal and return immutable module
+    ; Seal and return immutable module
     builder -> :add_function("connect", connect_impl)
            -> :add_function("query", query_impl)
            -> !seal
 }
 
-// Usage - works exactly like static import
+; Usage - works exactly like static import
 $db_module = :build_database_module {host="localhost", port=5432}
 $db_module.connect() -> $db_module.query("SELECT * FROM users")
 ```
@@ -628,23 +600,23 @@ $db_module.connect() -> $db_module.query("SELECT * FROM users")
 ### Module Caching and Reloading
 
 ```comp
-// Module caching behavior (implementation detail)
-// - Git modules: Cached by commit hash
-// - Filesystem modules: Cached by modification time  
-// - HTTP modules: Cached with HTTP cache headers
-// - Python modules: Follow Python import caching
-// - Database modules: Schema version + table timestamps
-// - OpenAPI modules: ETag + Last-Modified headers
+; Module caching behavior (implementation detail)
+; - Git modules: Cached by commit hash
+; - Filesystem modules: Cached by modification time  
+; - HTTP modules: Cached with HTTP cache headers
+; - Python modules: Follow Python import caching
+; - Database modules: Schema version + table timestamps
+; - OpenAPI modules: ETag + Last-Modified headers
 
-// Cache layers for optimal performance:
-// 1. Source cache: Raw downloaded/accessed content
-// 2. Translation cache: Converted Comp module definitions  
-// 3. Runtime cache: Compiled/optimized module instances
+; Cache layers for optimal performance:
+; 1. Source cache: Raw downloaded/accessed content
+; 2. Translation cache: Converted Comp module definitions  
+; 3. Runtime cache: Compiled/optimized module instances
 
-// Explicit cache control (development feature)
+; Explicit cache control (development feature)
 !import utils = git @company/utils@latest !no-cache
 !import config = disk ./config.comp !reload-on-change
-!import api = openapi "https://api.service.com/spec.json" !cache-timeout=3600
+!import api = openapi "https:;api.service.com/spec.json" !cache-timeout=3600
 ```
 
 ## Integration Examples
@@ -652,51 +624,51 @@ $db_module.connect() -> $db_module.query("SELECT * FROM users")
 ### Application Dependency Management
 
 ```comp
-// main.comp - Application with centralized dependency control
+; main.comp - Application with centralized dependency control
 !main = {
-    // Force specific versions for entire application
+    ; Force specific versions for entire application
     !import json *= pkg "json@2.5.1"
     !import database *= pkg "postgres@3.2.1" 
     !import cache *= pkg "redis@4.1"
     !import logging *= pkg "structured-logs@1.8"
     
-    // Import application modules (inherit dependency versions)
+    ; Import application modules (inherit dependency versions)
     !import user_service = comp "./services/users.comp"
     !import data_processor = comp "./processors/data.comp"
     !import api_handlers = comp "./api/handlers.comp"
     
-    // Application logic
-    :api_handlers:start_server {port=8080}
+    ; Application logic
+    .api_handlers:start_server {port=8080}
 }
 ```
 
 ### Multi-Service Dependency Coordination
 
 ```comp
-// services/users.comp
-!import database = std "database"    // Default, overridable
-!import cache = std "cache"          // Default, overridable  
-!import json = std "json"            // Default, overridable
+; services/users.comp
+!import database = std "database"    ; Default, overridable
+!import cache = std "cache"          ; Default, overridable  
+!import json = std "json"            ; Default, overridable
 
 !func :get_user ~{id ~str} = {
-    // Check cache first
+    ; Check cache first
     cached = id -> cache:get "user:${id}" | {}
     cached ? cached | {
-        // Load from database  
+        ; Load from database  
         id -> database:query "SELECT * FROM users WHERE id = $1"
         -> json:serialize
         -> cache:set "user:${id}" {ttl=300}
     }
 }
 
-// services/billing.comp  
-!import database = std "database"    // Same defaults
-!import json = std "json"            // Same defaults
-!import payment = std "payment"      // Payment processing
+; services/billing.comp  
+!import database = std "database"    ; Same defaults
+!import json = std "json"            ; Same defaults
+!import payment = std "payment"      ; Payment processing
 
-// main.comp coordinates all versions
-!import database *= pkg "postgres@3.2.1"  // All services use same DB version
-!import json *= pkg "fast-json@3.1"       // All services use same JSON library
+; main.comp coordinates all versions
+!import database *= pkg "postgres@3.2.1"  ; All services use same DB version
+!import json *= pkg "fast-json@3.1"       ; All services use same JSON library
 !import user_service = comp "./services/users.comp"
 !import billing_service = comp "./services/billing.comp"
 ```
@@ -704,18 +676,18 @@ $db_module.connect() -> $db_module.query("SELECT * FROM users")
 ### Platform-Specific Module Selection
 
 ```comp
-// graphics.comp - Cross-platform graphics library
+; graphics.comp - Cross-platform graphics library
 !import renderer = main "renderer" | std "software-renderer"
 
-// main-linux.comp
+; main-linux.comp
 !import renderer *= pkg "opengl@4.6"
 !import graphics = comp "./graphics.comp"
 
-// main-windows.comp  
+; main-windows.comp  
 !import renderer *= pkg "directx@12"
 !import graphics = comp "./graphics.comp"
 
-// main-web.comp
+; main-web.comp
 !import renderer *= pkg "webgl@2.0" 
 !import graphics = comp "./graphics.comp"
 ```
@@ -726,17 +698,17 @@ $db_module.connect() -> $db_module.query("SELECT * FROM users")
 Functions and shapes can have platform variants:
 
 ```comp
-// Generic definition
+; Generic definition
 !func :file_open ~{path ~str} = {
-    path -> :posix:open
+    path -> .posix:open
 }
 
-// Windows-specific override
+; Windows-specific override
 !func :file_open.win32 ~{path ~str} = {
-    path -> :win32:CreateFile
+    path -> .win32:CreateFile
 }
 
-// ARM64-specific buffer layout
+; ARM64-specific buffer layout
 !shape ~buffer.arm64 = {
     data ~bytes
     alignment ~num = 8
@@ -748,30 +720,30 @@ Functions and shapes can have platform variants:
 ### Cross-Module Tag Usage
 
 ```comp
-// In module A
+; In module A
 !tag #priority = {low, medium, high, critical}
 
-// In module B  
+; In module B  
 !import prioritymod = comp ./priority_module
 
-// Usage - values are interchangeable
+; Usage - values are interchangeable
 local_priority = #priority#high
-imported_priority = prioritymod#priority#high
-same_value = local_priority == imported_priority    // #true
+imported_priority = .prioritymod#priority#high
+same_value = local_priority == imported_priority    ; #true
 ```
 
 ### Tag Aliasing and Extension
 
 ```comp
-// Import and extend
+; Import and extend
 !tag #my_priorities = {
-    ..external#priority        // Import all values
-    urgent = external#priority#critical    // Alias existing
-    emergency = {escalate=#true}           // Add new
+    ..external#priority        ; Import all values
+    urgent = .external#priority#critical    ; Alias existing
+    emergency = {escalate=#true}           ; Add new
 }
 
-// Values remain interchangeable
-#my_priorities#urgent == external#priority#critical    // #true
+; Values remain interchangeable
+#my_priorities#urgent == .external#priority#critical    ; #true
 ```
 
 
@@ -779,21 +751,21 @@ same_value = local_priority == imported_priority    // #true
 ### Development vs Production Configuration
 
 ```comp
-// app.comp - Application module  
+; app.comp - Application module  
 !import database = std "database"
 !import logging = std "logging"
 !import cache = std "cache"
 
-// main-development.comp
-!import database *= pkg "sqlite@3.8"          // Lightweight for dev
-!import logging *= pkg "console-logs@1.0"     // Console output
-!import cache *= pkg "memory-cache@2.1"       // In-memory cache
+; main-development.comp
+!import database *= pkg "sqlite@3.8"          ; Lightweight for dev
+!import logging *= pkg "console-logs@1.0"     ; Console output
+!import cache *= pkg "memory-cache@2.1"       ; In-memory cache
 !import app = comp "./app.comp"
 
-// main-production.comp
-!import database *= pkg "postgres@3.2.1"      // Production database
-!import logging *= pkg "structured-logs@1.8"  // Structured logging
-!import cache *= pkg "redis@4.1"              // Redis cache
+; main-production.comp
+!import database *= pkg "postgres@3.2.1"      ; Production database
+!import logging *= pkg "structured-logs@1.8"  ; Structured logging
+!import cache *= pkg "redis@4.1"              ; Redis cache
 !import app = comp "./app.comp"
 ```
 
@@ -815,7 +787,7 @@ comp module identifiers "*color*"
 
 # Override dependencies at runtime
 comp run file.comp --override colorlib_studio_v1=./my-local-colors
-comp run file.comp --override colorlib_studio_v1=github://user/altcolorlib@1.2
+comp run file.comp --override colorlib_studio_v1=github:;user/altcolorlib@1.2
 ```
 
 ### Static Packaging System

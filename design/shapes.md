@@ -49,8 +49,8 @@ The modules will fail to build when a shape name is defined multiple times.
     age ~num
     email ~str
     active ~bool = !true
-    preferences? // Optional field
-    tags #user_tag[]  // Array of user tags
+    preferences? ; Optional field
+    tags #user_tag[]  ; Array of user tags
 }
 ```
 
@@ -58,8 +58,8 @@ The modules will fail to build when a shape name is defined multiple times.
 
 ```comp
 !shape ~Point3d = {
-    ...~Point2d    // Inherit x, y fields
-    z ~num = 0  // Add z coordinate
+    ...~Point2d    ; Inherit x, y fields
+    z ~num = 0  ; Add z coordinate
 }
 
 !shape ~ColoredPoint = {
@@ -67,9 +67,9 @@ The modules will fail to build when a shape name is defined multiple times.
     color ~str = "black"
 }
 
-// Function parameter spreading
+; Function parameter spreading
 !func :analyze ~{...~RawData, complexity ~num = 0} = {
-    // Has all RawData fields plus complexity parameter
+    ; Has all RawData fields plus complexity parameter
     @in -> :process_with_complexity
 }
 ```
@@ -106,10 +106,10 @@ a range like `[0-3]`.
 ### Shape Application Operators
 
 ```comp
-data ~ Shape           // Normal morph with defaults
-data *~ Shape          // Strong morph (strict, no extras allowed)
-data ?~ Shape          // Weak morph (lenient, missing fields OK)
-data ~@ Shape          // Include namespace lookups for defaults
+data ~ Shape           ; Normal morph with defaults
+data *~ Shape          ; Strong morph (strict, no extras allowed)
+data ?~ Shape          ; Weak morph (lenient, missing fields OK)
+data ~@ Shape          ; Include namespace lookups for defaults
 ```
 
 ### Shape Morphing Algorithm
@@ -128,13 +128,13 @@ data ~@ Shape          // Include namespace lookups for defaults
     debug ~bool = !false
 }
 
-// Morphing example
+; Morphing example
 {"192.168.1.1", debug=!true, extra="ignored"} ~ Config
-// Phase 1: debug=!true matches by name
-// Phase 2: (no tag matches)
-// Phase 3: "192.168.1.1" -> host by position
-// Phase 4: port=8080 from default
-// Result: {host="192.168.1.1", port=8080, debug=!true}
+; Phase 1: debug=!true matches by name
+; Phase 2: (no tag matches)
+; Phase 3: "192.168.1.1" -> host by position
+; Phase 4: port=8080 from default
+; Result: {host="192.168.1.1", port=8080, debug=!true}
 ```
 
 ### Shape Application in Function Calls
@@ -143,14 +143,14 @@ Functions automatically apply `?~@` (weak morph with namespace) to incoming argu
 
 ```comp
 !func :create_user ~{name ~str, age ~num, active ~bool = !true} = {
-    // Automatically morphs input using ?~@
+    ; Automatically morphs input using ?~@
     @in -> :validate -> :save
 }
 
-// All of these work:
-{name="Alice", age=30} -> :create_user                    // Uses default active=!true
-{name="Bob", age=25, active=!false} -> :create_user       // Explicit active
-{name="Carol", age=40, extra="data"} -> :create_user      // Extra fields ignored (weak morph)
+; All of these work:
+{name="Alice", age=30} -> :create_user                    ; Uses default active=!true
+{name="Bob", age=25, active=!false} -> :create_user       ; Explicit active
+{name="Carol", age=40, extra="data"} -> :create_user      ; Extra fields ignored (weak morph)
 ```
 
 ## Shape Pattern Matching
@@ -166,7 +166,7 @@ Shapes can be used for pattern matching and conditional processing:
     headers = {}
 }
 
-// Pattern matching on shapes
+; Pattern matching on shapes
 response ~ HttpResponse -> match {
     {status=#http_status#success} -> data -> :process_success
     {status=#http_status#error, data} -> data -> :handle_error  
@@ -178,13 +178,13 @@ response ~ HttpResponse -> match {
 
 ```comp
 !shape ~ValidUser = {
-    name ~str|len>0      // Non-empty string
-    age ~num|min=0|max=150  // Reasonable age range
-    email ~str|matches=/^[^@]+@[^@]+$/  // Email pattern
+    name ~str|len>0      ; Non-empty string
+    age ~num|min=0|max=150  ; Reasonable age range
+    email ~str|matches=/^[^@]+@[^@]+$/  ; Email pattern
 }
 
 !func :create_user ~ValidUser = {
-    // Input guaranteed to match validation rules
+    ; Input guaranteed to match validation rules
     @in -> :save_to_database
 }
 ```
@@ -194,16 +194,16 @@ response ~ HttpResponse -> match {
 ### Shape Compilation and Caching
 
 ```comp
-// Shapes can be compiled for faster repeated application
+; Shapes can be compiled for faster repeated application
 !shape ~ValidatedUser = {
     name ~str|len>0
     email ~str|matches=/^[^@]+@[^@]+$/
     age ~num|min=0|max=150
 }
 
-// First application compiles shape rules
-user_data ~ ValidatedUser  // Compiles validation rules
-similar_data ~ ValidatedUser  // Uses cached compiled shape
+; First application compiles shape rules
+user_data ~ ValidatedUser  ; Compiles validation rules
+similar_data ~ ValidatedUser  ; Uses cached compiled shape
 ```
 
 ## Integration Examples
@@ -233,15 +233,15 @@ similar_data ~ ValidatedUser  // Uses cached compiled shape
 
 ```comp
 !unit @distance ~num = {
-    m = !nil                    // Base unit
-    km = {mult=0.001}          // Conversion factor
-    inch = {mult=39.3701}      // Inches per meter
+    m = !nil                    ; Base unit
+    km = {mult=0.001}          ; Conversion factor
+    inch = {mult=39.3701}      ; Inches per meter
     lightyear = {mult=1.057e-16}
 }
 
 !unit @temperature ~num = {
     celsius = !nil
-    fahrenheit = {offset=32, mult=1.8}    // Custom conversion
+    fahrenheit = {offset=32, mult=1.8}    ; Custom conversion
     kelvin = {offset=-273.15}
 }
 ```
@@ -250,10 +250,10 @@ similar_data ~ ValidatedUser  // Uses cached compiled shape
 
 ```comp
 distance = 5@distance@km
-converted = distance -> :units:to @distance@m    // 5000@distance@m
+converted = distance -> :units:to @distance@m    ; 5000@distance@m
 
-// Automatic validation
-speed = 60@distance@km / 1@time@hour    // Type-safe unit arithmetic
+; Automatic validation
+speed = 60@distance@km / 1@time@hour    ; Type-safe unit arithmetic
 ```
 
 ### Unit-Aware Security
@@ -262,13 +262,13 @@ Units can apply domain-specific escaping for security:
 
 ```comp
 $query = "SELECT * FROM users WHERE id=${user_id}"@sql
-// @sql unit automatically applies SQL escaping
+; @sql unit automatically applies SQL escaping
 
 $html = "<div>${content}</div>"@html
-// @html unit applies HTML escaping
+; @html unit applies HTML escaping
 
 $shell = "ls ${directory}"@shell  
-// @shell unit applies shell escaping
+; @shell unit applies shell escaping
 ```
 
 ### Custom Unit Formatters
@@ -296,19 +296,19 @@ Coercion when using operators (left wins, right gets converted) (sometimes?)
 Structure shape transformation allows converting between compatible structure formats:
 
 ```comp
-// Positional to named fields
-{10, 20} ~ Point2d             // Converts to named fields based on shape
-{x=10, y=20}                   // Result if Point2d has x,y fields
+; Positional to named fields
+{10, 20} ~ Point2d             ; Converts to named fields based on shape
+{x=10, y=20}                   ; Result if Point2d has x,y fields
 
-// Mixed structure morphing  
+; Mixed structure morphing  
 {name="Alice", 30, #role#admin} ~ User
-// Converts to User shape with appropriate field mapping
+; Converts to User shape with appropriate field mapping
 
-// Complex morphing with validation
+; Complex morphing with validation
 raw_data ~ {
-    ValidatedUser           // Apply shape validation
-    -> :assign_defaults     // Fill in default values  
-    -> :compute_derived     // Add computed fields
+    ValidatedUser           ; Apply shape validation
+    -> :assign_defaults     ; Fill in default values  
+    -> :compute_derived     ; Add computed fields
 }
 ```
 
@@ -318,11 +318,11 @@ raw_data ~ {
 !shape ~Point2d = {x ~num, y ~num}
 !shape ~Point3d = {x ~num, y ~num, z ~num}
 
-// Convert 2D to 3D with default z
+; Convert 2D to 3D with default z
 point_2d = {x=10, y=20}
 point_3d = {...point_2d, z=0} ~ Point3d
 
-// Template-based conversion
+; Template-based conversion
 points_2d = [{x=1, y=2}, {x=3, y=4}]
 points_3d = points_2d => {@ ~ Point3d | {z=0}}
 ```
@@ -332,8 +332,8 @@ points_3d = points_2d => {@ ~ Point3d | {z=0}}
 Morphing can combine with type promotion for data transformation:
 
 ```comp
-// JSON to structured data
+; JSON to structured data
 json_input = '{"name": "Alice", "age": "30", "active": "true"}'
 user = json_input -> :json:parse -> :json:promote ~ User
-// Promotes "30" to number, "true" to !true, then applies User shape
+; Promotes "30" to number, "true" to !true, then applies User shape
 ```

@@ -55,9 +55,9 @@ with that single value as an untyped field. This is what happens when invoking
 a function on a simple value.
 
 ```comp
-42             // Scalar number
-{x=1.0 y=2.0}  // Named field structure
-{10 20 30}     // Unnamed field structure (array-like)
+42             ; Scalar number
+{x=1.0 y=2.0}  ; Named field structure
+{10 20 30}     ; Unnamed field structure (array-like)
 ```
 
 Structures are collections of values, including other structures. The values in
@@ -162,18 +162,18 @@ These operators are exclusively for number types, they cannot be used with
 strings, booleans, or other values.
 
 ```comp
-a + b       // Addition
-a - b       // Subtraction  
-a * b       // Multiplication
-a / b       // Division (always returns fractional result)
-a % b       // Modulo
-a ** b      // Exponentiation
-- a         // Negative
+a + b       ; Addition
+a - b       ; Subtraction  
+a * b       ; Multiplication
+a / b       ; Division (always returns fractional result)
+a % b       ; Modulo
+a ** b      ; Exponentiation
+- a         ; Negative
 ```
 
 **No Operator Overloading**: Other types use explicit method calls:
 ```comp
-// Strings use methods, not operators
+; Strings use methods, not operators
 text1 -> :str:concat text2
 path1 -> :path:join path2
 list1 -> :list:append list2
@@ -233,13 +233,13 @@ Pygame
 Comp
 """
 
-// No string concatenation operator
-text1 + text2           // ERROR: operators reserved for numbers
+; No string concatenation operator
+text1 + text2           ; ERROR: operators reserved for numbers
 
-// Use explicit methods or templates
+; Use explicit methods or templates
 {text1, text2} -> :str:concat
-{text1, text2} -> "${}${}"        // Template concatenation
-{"=" 40} -> :str:repeat       // Repetition via functions
+{text1, text2} -> "${}${}"        ; Template concatenation
+{"=" 40} -> :str:repeat       ; Repetition via functions
 ```
 
 ### Templates
@@ -256,40 +256,40 @@ string formatting lookups.
 **1. Positional Interpolation**:
 ```comp
 template = "Hello ${} and ${}!"
-{"World", "Pete"} -> template    // "Hello World and Pete!"
+{"World", "Pete"} -> template    ; "Hello World and Pete!"
 
-// Order matches template placeholders
+; Order matches template placeholders
 {user.first_name, user.last_name} -> "Name: ${} ${}"
 ```
 
 **2. Explicit Index Interpolation**:
 ```comp
-template = "${#2} ${#0} ${#1}"   // Explicit position references
-{"A", "B", "C"} -> template      // "C A B"
+template = "${#2} ${#0} ${#1}"   ; Explicit position references
+{"A", "B", "C"} -> template      ; "C A B"
 
-// Zero-indexed positioning
+; Zero-indexed positioning
 data = {"first", "second", "third"}
-data -> "Third: ${#2}, First: ${#0}"   // "Third: third, First: first"
+data -> "Third: ${#2}, First: ${#0}"   ; "Third: third, First: first"
 ```
 
 **3. Named Field Interpolation**:
 ```comp
 template = "${name} is ${age} years old"
-{name="Alice", age=30} -> template    // "Alice is 30 years old"
+{name="Alice", age=30} -> template    ; "Alice is 30 years old"
 
-// Works with any structure
+; Works with any structure
 user -> "Hello ${name}, your role is ${role}"
 ```
 
 **Mixing Rules** (Python-compatible):
 ```comp
-// Valid: positional + named
+; Valid: positional + named
 {name="Alice", "guest"} -> "Hello ${name}, you are a ${}"
 
-// Invalid: positional + explicit index
-{"A", "B"} -> "${#0} and ${}"  // ERROR: cannot mix modes
+; Invalid: positional + explicit index
+{"A", "B"} -> "${#0} and ${}"  ; ERROR: cannot mix modes
 
-// Valid: explicit index + named  
+; Valid: explicit index + named  
 {name="Alice", "A", "B"} -> "${name} sees ${#0} and ${#1}"
 ```
 
@@ -323,18 +323,18 @@ namespace.
 
 ```comp
 
-// Standard string operations
-text -> :length                    // Get length
-text -> :str:trim                  // Remove whitespace
-text -> :str:uppercase             // Convert case
-{text ","} -> :str:split           // Split on delimiter
-{text "old" "new"} -> :str:replace // Replace substring
-{"ERROR: " message} -> :str:cat    // Short Unix-style concatenation
+; Standard string operations
+text -> :length                    ; Get length
+text -> :str:trim                  ; Remove whitespace
+text -> :str:uppercase             ; Convert case
+{text ","} -> :str:split           ; Split on delimiter
+{text "old" "new"} -> :str:replace ; Replace substring
+{"ERROR: " message} -> :str:cat    ; Short Unix-style concatenation
 ```
 
 **String Processing Patterns**:
 ```comp
-// Preprocessing pattern for complex formatting
+; Preprocessing pattern for complex formatting
 !func :format_financial ~{amount, date} = {
     amount = amount -> {:num:commify "USD"} -> :num:currency
     date = {date "MMM DD"} -> :date:format
@@ -355,10 +355,10 @@ functions, and probably need access to some level of AST or parsed data to allow
 the variety of syntaxes used in various languages and examples.
 
 ```comp
-// Planned constraint syntax
-~num|min=1|max=100                    // Numeric constraints
-~str|len>5|matches="^[A-Z]"          // String constraints  
-~User|age>=18|verified=#true            // Complex constraints
+; Planned constraint syntax
+~num|min=1|max=100                    ; Numeric constraints
+~str|len>5|matches="^[A-Z]"          ; String constraints  
+~User|age>=18|verified=#true            ; Complex constraints
 ```
 
 

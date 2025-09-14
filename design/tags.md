@@ -27,7 +27,7 @@ specifically the tag object, not the optional value it contains.
 !tag #status = {
     active = 1
     inactive = 0  
-    pending        // No value - cannot be morphed from values
+    pending        ; No value - cannot be morphed from values
 }
 
 !tag #role = "Unknown" {
@@ -39,8 +39,8 @@ specifically the tag object, not the optional value it contains.
     }
 }
 
-$dev = #other-mod#status.pending
-$rol = #role.guest.limited
+$dev = .other-mod#status#pending
+$rol = #role#guest#limited
 $who = #role
 
 ```
@@ -52,23 +52,23 @@ will be called on each defined tag, which gets a structure defining the states
 and values of related tags.
 
 ```comp
-// Built-in auto-value functions
-!pure :tag:name = {ctx -> ctx.name}                // Use tag name as string value
-!pure :tag:sequence = {ctx -> ctx.prev_value + 1}  // Sequential numbers
-!pure :tag:bitwise = {ctx -> 1 << ctx.index}       // Bit flags for permissions
+; Built-in auto-value functions
+!pure :tag:name = {ctx -> ctx.name}                ; Use tag name as string value
+!pure :tag:sequence = {ctx -> ctx.prev_value + 1}  ; Sequential numbers
+!pure :tag:bitwise = {ctx -> 1 << ctx.index}       ; Bit flags for permissions
 
-// Usage examples
+; Usage examples
 !tag #color {:tag:name} = {
-    red         // Automatically gets value "red"
-    green       // Automatically gets value "green"
-    blue        // Automatically gets value "blue"
+    red         ; Automatically gets value "red"
+    green       ; Automatically gets value "green"
+    blue        ; Automatically gets value "blue"
 }
 
 !tag #permissions {:tag:bitwise} = {
-    read        // 1 (1 << 0)
-    write       // 2 (1 << 1)
-    execute     // 4 (1 << 2)
-    all = read | write | execute  // 7 (explicit combination)
+    read        ; 1 (1 << 0)
+    write       ; 2 (1 << 1)
+    execute     ; 4 (1 << 2)
+    all = read | write | execute  ; 7 (explicit combination)
 }
 ```
 
@@ -77,14 +77,14 @@ and values of related tags.
 Auto-value functions receive context about the tag being defined:
 
 ```comp
-// Context passed to auto-value functions
+; Context passed to auto-value functions
 {
-    name = "car"              // Current tag name
-    full = "vehicles.car"     // Full hierarchical path
-    index = 1                 // Position within parent (0-based)
-    prev_value = 1000         // Previous sibling's value
-    parent_value = 0          // Parent tag's value (if any)
-    siblings = {              // Previously defined sibling values
+    name = "car"              ; Current tag name
+    full = "vehicles.car"     ; Full hierarchical path
+    index = 1                 ; Position within parent (0-based)
+    prev_value = 1000         ; Previous sibling's value
+    parent_value = 0          ; Parent tag's value (if any)
+    siblings = {              ; Previously defined sibling values
         truck = 1000
     }
 }
@@ -95,21 +95,21 @@ Auto-value functions receive context about the tag being defined:
 Tags with values can be cast to and from their associated values:
 
 ```comp
-// Casting from value to tag
-1001 #failure                 // Returns #failure#network#timeout
-"red" #color                  // Returns #color#red  
-99 #failure                   // FAILS: no matching value
+; Casting from value to tag
+1001 #failure                 ; Returns #failure#network#timeout
+"red" #color                  ; Returns #color#red  
+99 #failure                   ; FAILS: no matching value
 
-// Casting tag to value
-#color#red ~str             // Returns "red"
-#permissions#write ~num        // Returns 2
-#failure#parse ~num            // FAILS: parse has no value
+; Casting tag to value
+#color#red ~str             ; Returns "red"
+#permissions#write ~num        ; Returns 2
+#failure#parse ~num            ; FAILS: parse has no value
 
-// Tags without values cannot be cast
-#status#pending ~num           // FAILS: pending has no value
+; Tags without values cannot be cast
+#status#pending ~num           ; FAILS: pending has no value
 
-// Automatic casting in function calls
-200 -> :handle_request    // Casts to #http#status#success (if 200 is its value)
+; Automatic casting in function calls
+200 -> :handle_request    ; Casts to #http#status#success (if 200 is its value)
 
 ```
 
@@ -126,10 +126,10 @@ first-match policy.
     mode #mode
 }
 
-// Shape morphing with automatic value-to-tag casting
+; Shape morphing with automatic value-to-tag casting
 {1, 8080, "strict"} ~Config
-// Result: {status=#status#active, port=8080, mode=#mode#strict}
-// (assuming 1 maps to active, "strict" maps to mode)
+; Result: {status=#status#active, port=8080, mode=#mode#strict}
+; (assuming 1 maps to active, "strict" maps to mode)
 
 !shape ~User = {
     role #role
@@ -137,9 +137,9 @@ first-match policy.
     active ~bool = #true
 }
 
-// Morphing with tag values
+; Morphing with tag values
 {"admin", 7, #false} ~User
-// Result: {role=#role#admin, permissions=#permissions#all, active=#false}
+; Result: {role=#role#admin, permissions=#permissions#all, active=#false}
 ```
 
 ## Tag Extension Across Modules
@@ -150,24 +150,24 @@ module will not see or understand the individual tags in the extension, but can
 still match values based on any hierarchical structure they both share.
 
 ```comp
-// base.comp
+; base.comp
 !tag #error = {
     network = 1000
     parse = 2000
 }
 
-// extended.comp  
+; extended.comp  
 !tag extend #base#error = {
-    storage = 3000    // Continues sequence from previous values
+    storage = 3000    ; Continues sequence from previous values
     memory = 3001
     filesystem = 3002
 }
 
-// Usage - extended tags work across modules
-storage_error -> :handle_error    // Can match #error#storage
+; Usage - extended tags work across modules
+storage_error -> :handle_error    ; Can match #error#storage
 
 
-// Possible to extend at a nested level of the tags
+; Possible to extend at a nested level of the tags
 !tag extend #
 
 ```

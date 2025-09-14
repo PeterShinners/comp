@@ -1,16 +1,16 @@
-// Comp version
+; Comp version
 !main = {
-    $frequencies = :io:stdin -> :io:read_lines 
-        => :string:split ", " -> :flatten 
-        -> :iter:tally 
+    $frequencies = .io:stdin -> .io:read_lines 
+        => .str:split ", " -> :flatten 
+        -> .iter:tally 
 
     $largest = $frequencies -> :max .{value} -> key
 
-    "The most frequent word is '${largest}'" -> :io:print
+    "The most frequent word is '${largest}'" -> .io:print
 }
 
 
-// Nim version
+; Nim version
 import tables, strutils
 
 var wordFrequencies = initCountTable[string]()

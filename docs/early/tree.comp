@@ -8,16 +8,16 @@
 
 
 !main = {
-    // Build tree from values using fold
+    ; Build tree from values using fold
     $tree = {{5 3 8 1 7 9} accum={}} 
-        -> :fold .{{accum value} -> :insert}
+        -> .fold .{{accum value} -> :insert}
     
-    // Test finding values
-    $seven = {$tree 7} -> :contains  // true
-    $four = {$tree 4} -> :contains  // false
+    ; Test finding values
+    $seven = {$tree 7} -> :contains  ; true
+    $four = {$tree 4} -> :contains  ; false
 }
 
-// inserts
+; inserts
 !func :insert ~{tree~nil value~number} = {
     value~Tree
 }
@@ -28,19 +28,19 @@
         | {..tree right={{tree.right value} -> :insert}}
 }
 
-// finds
+; finds
 !func :contains ~{tree~nil value~number} = {
     #false
 }
 
 !func :contains ~{tree~Tree value~number} = {
-    :lang:switch
+    .lang:switch
         .'tree.value < value' {{tree.left value} -> :contains}
         .'tree.value > value' {{tree.right value} -> :contains}
-        .else {#true}
+        .else {'#true'}
 }
 
-// iterate values
+; iterate values
 !func :values~nil = {
 }
 

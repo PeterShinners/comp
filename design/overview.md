@@ -26,12 +26,12 @@ independent ordering of definitions.
 ## Example
 
 ```comp
-// Hello World example in Comp language
+; Hello World example in Comp language
 
 !main = {
-  $names = {"USERNAME" "USER" "LOGNAME"} => :os:getenv 
-  $names -> {:iter:pickone | "World"} -> "Hello ${}" 
-    -> :io:print
+  $names = {"USERNAME" "USER" "LOGNAME"} => .os:getenv 
+  $names -> {.iter:pickone | "World"} -> "Hello ${}" 
+    -> .io:print
 }
 ```
 
@@ -94,8 +94,8 @@ Examples
 
 ## Comments
 
-The language supports line comments using the style `//` of double-slashes,
-similar to Javascript and Rust. There is no support for block style comments.
+The language supports line comments using the style `;` of semicolon,
+similar to Clojure and Lisp. There is no support for block style comments.
 Everything until the end of the line will be ignored by the compiler.
 
 See the secion on Docstrings for related information.
@@ -122,9 +122,9 @@ All data in Comp is represented as structures (ordered collections of fields).
 Scalars automatically promote to single-element structures when needed:
 
 ```comp
-42                    // Scalar number
-{x=1.0, y=2.0}        // Named field structure
-{10, 20, 30}          // Unnamed field structure (array-like)
+42                    ; Scalar number
+{x=1.0, y=2.0}        ; Named field structure
+{10, 20, 30}          ; Unnamed field structure (array-like)
 ```
 
 Structures are flexible containers that can mix named fields and unnamed fields.
@@ -142,7 +142,7 @@ of data.
 a = {color="red"}
 b = a
 a.color = "blue"
-// b color is still "red"
+; b color is still "red"
 ```
 
 The language also supports the concept of lazy structures, which behave more
@@ -158,7 +158,7 @@ needed to respond to the requested field.
 $expensive = [
   "server" -> :expensive-hash
   "client" -> :expensive-hash
-] // returns immediately, no expensive hashing completed
+] ; returns immediately, no expensive hashing completed
 ```
 
 ## Field References and Namespaces
@@ -185,11 +185,11 @@ namespaces. An undecorated assignment to a field represent as assignment into
 the `!out` namespace, which will win all future lookups.
 
 ```comp
-a = 123                 // assigned to !out namespace
-b = 321 + a             // assigns 444 to !out namespace
+a = 123                 ; assigned to !out namespace
+b = 321 + a             ; assigns 444 to !out namespace
 !mod.server-port = 8080
 !ctx.server-port = 8200
-server-port -> :listen  // References `8200` from the context namespace
+server-port -> :listen  ; References `8200` from the context namespace
 ```
 
 ## Shapes
@@ -217,7 +217,7 @@ polymorphic behaviors and overrides.
 ```comp
 !tag #terrain = {mountain grain grass dirt}
 
-{location = #terrain.grass}
+{location = #terrain#grass}
 ```
 
 ## Functions
@@ -285,10 +285,10 @@ Tests for strict structural equality:
 - The results of `==` are always the opposite of `!=`
 
 ```comp
-{x=1 y=2} == {y=2 x=1}    // true (named field order doesn't matter)
-{1 2} == {1 2}            // true (position matches)
-5 == {5}                  // true (scalar auto-wrapping)
-{x=1} == {x=1 y={}}       // false (different structure)
+{x=1 y=2} == {y=2 x=1}    ; true (named field order doesn't matter)
+{1 2} == {1 2}            ; true (position matches)
+5 == {5}                  ; true (scalar auto-wrapping)
+{x=1} == {x=1 y={}}       ; false (different structure)
 ```
 
 ### Order Comparison (`<`, `>`)
@@ -301,10 +301,10 @@ Compare for ordering
 - The results of `<` are always the opposite of `>`
 
 ```comp
-{} < 5 < "hello"           // true (empty < number < string)
-{x=1 y=2} < {x=1 y=3}      // true (x equal, y compared)
-{a=1} < {b=2}              // true (both become {1} < {2})
-{42 "hi" {} true} -> :sort // [{} true 42 "hi"]
+{} < 5 < "hello"           ; true (empty < number < string)
+{x=1 y=2} < {x=1 y=3}      ; true (x equal, y compared)
+{a=1} < {b=2}              ; true (both become {1} < {2})
+{42 "hi" {} true} -> :sort ; [{} true 42 "hi"]
 ```
 
 ## Math Operators
@@ -327,7 +327,7 @@ expression operates successfully then the fallback expression is ignored. This
 is commonly used for attribute lookups that may not be defined.
 
 ```comp
-config.volume | 100   // use the config volume field or fallback on 100
+config.volume | 100   ; use the config volume field or fallback on 100
 ```
 
 ## Other Operators
@@ -343,17 +343,17 @@ flow reaches this `...` symbol it will result in an immediate failure.
 Functions are defined using the `!func` keyword and require a shape:
 
 ```comp
-// Basic function definition
+; Basic function definition
 !func :function-name ~{incoming} = {
     incoming -> :some-operation -> {outgoing=value}
 }
 
-// Function with input/output shape constraints
+; Function with input/output shape constraints
 !func :calculate ~axis = {
     x * y + z
 }
 
-// Function with default parameters
+; Function with default parameters
 !func :exclamations ~{message count=1} = {
     count -> :repeat .{"${message}!}
 }
@@ -381,13 +381,13 @@ The language provides several pipeline operators that have different behaviors.
 * **Valve** `-?` with `-&` and `-|` conditional operators.
 
 ```comp
-// Basic pipeline with arrow operator
+; Basic pipeline with arrow operator
 data 
--> {users=people} // rename field and remove other data
--> :transform     // invoke a method
-=> :validate      // invoke a method on each entry
--> :save          // invoke method on collected data
-!> {:log:error -> {}}  // log error and provide fallback
+-> {users=people} ; rename field and remove other data
+-> :transform     ; invoke a method
+=> :validate      ; invoke a method on each entry
+-> :save          ; invoke method on collected data
+!> {.log:error}   ; log error 
 ```
 
 Functions are intended to be invoked on structures. Some functions are defined
@@ -426,7 +426,7 @@ value, or possibly an error result.
     a = {color=”red”}
     b = a
     a.color = “blue”
-    // b.color is still red; the original, immutable value
+    ; b.color is still red; the original, immutable value
 
     !ctx.server-port = 8000
     $temporary = 5
@@ -472,7 +472,7 @@ These strength alternatives are used for
 ```comp
 {color='white' type*='cat' name?='felix'
  color='brown' type='dog', name?='rex'}
-// results in {color=brown  type='cat' name='felix'}
+; results in {color=brown  type='cat' name='felix'}
 ```
 
 ## Private Data Attachment
@@ -504,8 +504,8 @@ exposed definitions for the module itself. Adding the `&` ampersand suffix
 allows them to be used privately.
 
 ```comp
-!alias :leftpad = :str:ljust    // global definition
-!alias #logsev& = #log#severity // private definition
+!alias :leftpad = .str:ljust    ; global definition
+!alias #logsev& = #log#severity ; private definition
 ```
 
 ### Private Data Attachment
@@ -520,15 +520,15 @@ Referencing and assigning private data can be done either individual fields or
 the entire private structure.
 
 ```comp
-// Create structure with private data inline
+; Create structure with private data inline
 $user = {login="pete" email="pete@example.com"}&{session="abc123" id=789}
 
-// Access private data (only in same module)
-$user.login          // "pete" - public field
-$user&.session       // "abc123" - private field (same module only)
-$user&.id           // 789 - private field (same module only)
+; Access private data (only in same module)
+$user.login          ; "pete" - public field
+$user&.session       ; "abc123" - private field (same module only)
+$user&.id           ; 789 - private field (same module only)
 
-// Manual private data assignment
+; Manual private data assignment
 $user& = {session="abc123", internal_id=789}
 ```
 
@@ -538,17 +538,17 @@ pipeline's chain of statement. This includes full spread operators.
 ```comp
 $user& = {session="abc", token="xyz"}
 
-// Automatic preservation in pipelines
+; Automatic preservation in pipelines
 $result = $user -> :transform -> :validate
-// $result& = {session="abc", token="xyz"}
+; $result& = {session="abc", token="xyz"}
 
-// Automatic preservation in full spread
+; Automatic preservation in full spread
 $copy = {...$user extra="field"}
-// $copy& = {session="abc", token="xyz"}
+; $copy& = {session="abc", token="xyz"}
 
-// Manual copying when needed
+; Manual copying when needed
 $selective = {name=$user.name}
-$selective& = $user&  // Manual private data transfer
+$selective& = $user&  ; Manual private data transfer
 ```
 
 When the result of a structure comes from the combination of mutliple existing
@@ -565,8 +565,8 @@ $source1& = {token="abc", shared="first"}
 $source2& = {cache="xyz", shared="second"}
 
 $merged = {field1=$source1.name, field2=$source2.email}
-// $merged& = {token="abc", shared="first", cache="xyz"}
-// First reference wins: $source1& merged before $source2&
+; $merged& = {token="abc", shared="first", cache="xyz"}
+; First reference wins: $source1& merged before $source2&
 ```
 
 ## Docstrings
@@ -619,9 +619,9 @@ More documentation guidelines:
 }
 
 !doc #status "Workflow status indicators."
-!doc #status.pending "Awaiting decision."
-!doc #status.pending.review "Under active review."
-!doc #status.pending.approved "Approved but not yet active."
+!doc #status#pending "Awaiting decision."
+!doc #status#pending#review "Under active review."
+!doc #status#pending#approved "Approved but not yet active."
 ```
 
 Documentation strings are regular string literals and can include formatting

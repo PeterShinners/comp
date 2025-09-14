@@ -42,17 +42,17 @@ Some functions require no input arguments. These use an explicit
 
 ```comp
 !func :loud-name ~data-with-name = {
-    name -> :str:upper
+    name -> .str:upper
 }
 
 !func :current-favorite = {
     70 * 7
 }
 
-!func :process ~{data settings=~web~request-settings} = {
-    // data uses the first positional argument in the structure
+!func :process ~{data settings=.web~request-settings} = {
+    ; data uses the first positional argument in the structure
     $clean = data -> :validate
-    {$clean settings} -> :web:request
+    {$clean settings} -> .web:request
 }
 ```
 
@@ -66,7 +66,7 @@ Only the current module can use these function definitions.
     ...
 }
 
-$value = :secret  // Only internal module can access
+$value = :secret  ; Only internal module can access
 ```
 
 ### Ordering
@@ -77,7 +77,7 @@ the module, regardless of ordering.
 
 ```comp
 !func :one ~nil = {
-    result = 15 * :two   // order independent reference
+    result = 15 * :two   ; order independent reference
 }
 
 !func :two ~nil = {
@@ -118,7 +118,7 @@ to downstream calls.
 
 !func :begin ~nil = {
     !ctx.server.port = 8000
-    !mod.static-data -> :server:run_forever
+    !mod.static-data -> .server:run_forever
 }
 ```
 
@@ -137,10 +137,10 @@ resources like file streams or networking.
 
 ```comp
 
-// Can be called at compile time where the language needs
+; Can be called at compile time where the language needs
 !pure :titlecase !{s~str} -> {
     {$start $end} = {s 1} -> str:break
-    {$start->:str:uppercase $end->:str:lowercase} -> "${}${}"
+    {$start->.str:uppercase $end->.str:lowercase} -> "${}${}"
 }
 ```
 
@@ -160,31 +160,31 @@ There is no requirement to use `!pure` to get this functionality.
 - Compile-time constant evaluation
 
 ```comp
-// Compile-time evaluation example
+; Compile-time evaluation example
 !pure :fibonacci ~{n ~num} -> ~num = {
     n <= 1 ? n | (:fibonacci {n=(n-1)} + :fibonacci {n=(n-2)})
 }
 
-// Can be evaluated at compile time for constant inputs
-$fib_10 = 10 -> :fibonacci    // Computed at compile time: 55
+; Can be evaluated at compile time for constant inputs
+$fib_10 = 10 -> :fibonacci    ; Computed at compile time: 55
 ```
 
 ### Pure vs Regular Functions
 
 ```comp
-// Regular function - can access resources
+; Regular function - can access resources
 !func :load_config ~{path ~str} = {
-    // Has caller's permissions and context
-    path -> :file:read -> :json:parse
+    ; Has caller's permissions and context
+    path -> .file:read -> .json:parse
 }
 
-// Pure function - isolated execution
+; Pure function - isolated execution
 !pure :parse_config ~{json_text ~str} = {
-    // No permissions, no file access possible
-    json_text -> :json:parse -> :validate_structure
+    ; No permissions, no file access possible
+    json_text -> .json:parse -> :validate_structure
 }
 
-// Combined usage
+; Combined usage
 config_path -> :load_config -> :parse_config -> :apply_defaults
 ```
 
@@ -225,8 +225,8 @@ clear information for developer tools.
 
 ```comp
 !require read network
-!func :send-csv ~{path~str where=~server~address} = {
-    path -> :read_csv -> {#0 address} -> :server:upload
+!func :send-csv ~{path~str where=~.server~address} = {
+    path -> :read_csv -> {#0 address} -> .server:upload
 }
 ```
 
@@ -251,8 +251,8 @@ data.
 ```comp
 
 def conflict ~num = {...}
-def conflict ~num = {...}  // Error because conflicting shapes
-def conflict ~num *= {...} // But ok because one is preferred
+def conflict ~num = {...}  ; Error because conflicting shapes
+def conflict ~num *= {...} ; But ok because one is preferred
 ```
 
 ### Function Dispatch Scoring
@@ -266,10 +266,10 @@ Functions with the same name use **lexicographic scoring** for dispatch based on
 !func :render ~{x, y} *= "priority 2D"
 !func :render ~{x, y, z} = "3D rendering"
 
-// Dispatch examples
-{x=5, y=10} -> :render           // "priority 2D" wins: {2,0,1,0} > {2,0,0,0}
-{x=5, y=10, z=15} -> :render     // "3D rendering" wins: {3,0,0,0} > others
-{x=5, y=10, extra="data"} -> :render  // "priority 2D": extra fields ignored
+; Dispatch examples
+{x=5, y=10} -> :render           ; "priority 2D" wins: {2,0,1,0} > {2,0,0,0}
+{x=5, y=10, z=15} -> :render     ; "3D rendering" wins: {3,0,0,0} > others
+{x=5, y=10, extra="data"} -> :render  ; "priority 2D": extra fields ignored
 ```
 
 #### Assignment Weight for Disambiguation
@@ -300,16 +300,16 @@ behavior.
     }
 }
 
-// Polymorphic function dispatch with tag values
+; Polymorphic function dispatch with tag values
 !func :feed ~{animal #animal} = "Feeding generic animal"
 !func :feed ~{animal #animal#mammal} = "Feeding mammal"
 !func :feed ~{animal #animal#bird} = "Feeding bird"
 !func :feed ~{animal #animal#mammal#cat} = "Feeding cat with special diet"
 
-// Most specific match wins based on tag hierarchy
-101 -> :feed    // "Feeding cat with special diet" (most specific)
-100 -> :feed    // "Feeding mammal" (parent level)
-{type=102} -> :feed  // "Feeding mammal" (dog is mammal)
+; Most specific match wins based on tag hierarchy
+101 -> :feed    ; "Feeding cat with special diet" (most specific)
+100 -> :feed    ; "Feeding mammal" (parent level)
+{type=102} -> :feed  ; "Feeding mammal" (dog is mammal)
 ```
 
 ### Tag-Based Parent Calls
@@ -319,10 +319,10 @@ The tag dispatch mechanism allows calling parent implementations using field-bas
 #### Core Parent Call Syntax
 
 ```comp
-// Normal dispatch - finds implementation based on tag's origin module
+; Normal dispatch - finds implementation based on tag's origin module
 data -> :fieldname#:function
 
-// Parent dispatch - explicitly calls parent tag's implementation  
+; Parent dispatch - explicitly calls parent tag's implementation  
 data -> :fieldname#parent_tag:function
 ```
 
@@ -336,23 +336,23 @@ When a tag value is created, it carries metadata about which module defined it. 
 #### Complete Tag Dispatch Example
 
 ```comp
-// base module
+; base module
 !tag #animal = {#mammal #reptile}
 !tag #mammal = {#dog #cat}
 !func :speak ~{#mammal ...} = "generic mammal sound"
 !func :speak ~{#dog ...} = {
-    $parent = @in -> :type#mammal:speak  // Explicit parent call
+    $parent = @in -> :type#mammal:speak  ; Explicit parent call
     "woof and ${parent}"
 }
 
-// extended module  
+; extended module  
 !tag #mammal += {#wolf}
 !func :speak ~{#wolf ...} = "howl"
 
-// Usage - works across module boundaries
+; Usage - works across module boundaries
 my_pet = {type=#wolf, name="Luna"}
-my_pet -> :type#:speak         // "howl" - finds extended:speak
-my_pet -> :type#mammal:speak   // "generic mammal sound" - forces parent
+my_pet -> :type#:speak         ; "howl" - finds extended:speak
+my_pet -> :type#mammal:speak   ; "generic mammal sound" - forces parent
 
 ### Dynamic Tag-Based Dispatch
 
@@ -361,10 +361,10 @@ The Comp language uses field-based tag dispatch for polymorphic behavior across 
 #### Core Syntax
 
 ```comp
-// Normal polymorphic dispatch - finds implementation based on tag's origin module
+; Normal polymorphic dispatch - finds implementation based on tag's origin module
 data -> :fieldname#:function
 
-// Parent dispatch - explicitly calls parent tag's implementation  
+; Parent dispatch - explicitly calls parent tag's implementation  
 data -> :fieldname#parent_tag:function
 ```
 
@@ -378,23 +378,23 @@ When a tag value is created (e.g., `#dog`), it carries metadata about which modu
 #### Tag Dispatch Example
 
 ```comp
-// base module
+; base module
 !tag #animal = {#mammal #reptile}
 !tag #mammal = {#dog #cat}
 !func :speak ~{#mammal ...} = "generic mammal sound"
 !func :speak ~{#dog ...} = {
-    $parent = .in -> :type#mammal:speak  // Explicit parent call
+    $parent = .in -> :type#mammal:speak  ; Explicit parent call
     "woof and ${parent}"
 }
 
-// extended module
+; extended module
 !tag #mammal += {#wolf}
 !func :speak ~{#wolf ...} = "howl"
 
-// Usage - works across module boundaries
+; Usage - works across module boundaries
 my_pet = {type=#wolf name="Luna"}
-my_pet -> :type#:speak         // "howl" - finds extended:speak
-my_pet -> :type#mammal:speak   // "generic mammal sound" - forces parent
+my_pet -> :type#:speak         ; "howl" - finds extended:speak
+my_pet -> :type#mammal:speak   ; "generic mammal sound" - forces parent
 ```
 
 #### Key Properties
@@ -426,14 +426,14 @@ Blocks are optionally defined by a field name, which supports using tags
 directly, or any expression when single quoted.
 
 ```comp
-$ordered = users -> :sort .key{name -> :str:lowercase}
+$ordered = users -> :sort .key{name -> .str:lowercase}
 $crowded = cities -> :maxmimum .key{population}
 
 $record.status -> :match
-    .#status.success{"Request completed"}
-    .#status.timeout{"Request timed out"}
+    .'#status#success'{"Request completed"}
+    .'#status#timeout'{"Request timed out"}
     .else{"Request had unknown status ${value}"}
--> :log:info
+-> .log:info
 ```
 
 ### Block Definition
@@ -451,18 +451,18 @@ inside the function the block was defined for. The block can be invoked as many
 times as desired.
 
 ```comp
-// Definition
+; Definition
 !func :handle-request ~{url~str} = {
     $req = url -> :prepare_request
 
     -?? req.method == #GET -&& $req -> .get
     -|? req.method == #POST -&& $req -> .post
-    -|| {#fail.value "Http method ${req.method} not supported"}
+    -|| {#fail#value "Http method ${req.method} not supported"}
 }
-.get~{request} {#fail.value "Http method GET not implemented"}
-.post~{request} {#fail.value "Http method POST not implemented"}
+.get~{request} {#fail#value "Http method GET not implemented"}
+.post~{request} {#fail#value "Http method POST not implemented"}
 
-// Usage
+; Usage
 url-arg -> :handle-request
     .get(request.path -> :translate-path -> :fetch_response)
     .post({request.path -> :translate-path request.body} -> :store_response)
@@ -492,7 +492,7 @@ user_input -> :match_values
 }
 .block ~{}
 
-$user = :load_user -> :nest .{"Hello, {$name}" -> :io:print}
+$user = :load_user -> :nest .{"Hello, {$name}" -> .io:print}
 ```
 
 ### Function Documentation

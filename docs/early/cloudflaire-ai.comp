@@ -1,9 +1,9 @@
-// Cloudflare Worker for vector embeddings and search
-// Original: https://developers.cloudflare.com/vectorize/get-started/embeddings/
+; Cloudflare Worker for vector embeddings and search
+; Original: https:;developers.cloudflare.com/vectorize/get-started/embeddings/
 
 .mod.model = "@cf/baai/bge-base-en-v1.5"
-.mod.vectorize = <hint: ~cloudflare~vec_handle>  // hypothetical syntax
-.mod.ai = <hint: ~cloudflare~ai_handle>          // hypothetical syntax
+.mod.vectorize = <hint: ~cloudflare~vec_handle>  ; hypothetical syntax
+.mod.ai = <hint: ~cloudflare~ai_handle>          ; hypothetical syntax
 
 .ctx.dependencies = {
     cloudflare: !gitmod "@cloudflare/workers-comp@2.7/complib"
@@ -27,36 +27,36 @@
     -> :cloudflare:response_json
 }
 
-// You only need to generate vector embeddings once (or as
-// data changes), not on every request
+; You only need to generate vector embeddings once (or as
+; data changes), not on every request
 !func :insert_vectors = {
-    // In a real-world application, you could read content from R2 or
-    // a SQL database (like D1) and pass it to Workers AI
+    ; In a real-world application, you could read content from R2 or
+    ; a SQL database (like D1) and pass it to Workers AI
     $stories = {
         "This is a story about an orange cloud"
         "This is a story about a llama" 
         "This is a story about a hugging emoji"
     }
 
-    {text=$stories}  // automatic .mod.model and .mod.ai
+    {text=$stories}  ; automatic .mod.model and .mod.ai
     -> :cloudflare:ai_run
     -> :iter:enumerate 
-        => {id="${index}" values=value} // automatic .mod.vectorize
+        => {id="${index}" values=value} ; automatic .mod.vectorize
     -> :cloudflare:vectorize_upsert
 }
 
 !func :query_vectors = {
-    // Your query: expect this to match vector ID. 1 in this example
+    ; Your query: expect this to match vector ID. 1 in this example
     $user_query = "orange cloud"
     
     matches = 
-    {text=$user_query}  // model is supplied from .mod.model
+    {text=$user_query}  ; model is supplied from .mod.model
     -> :cloudflare:ai_run
     ..> {topK=1}
     -> :cloudflare:vectorize_query
 
-    // Expect a vector ID. 1 to be your top match with a score of
-    // ~0.89693683
-    // This tutorial uses a cosine distance metric, where the closer to one,
-    // the more similar.
+    ; Expect a vector ID. 1 to be your top match with a score of
+    ; ~0.89693683
+    ; This tutorial uses a cosine distance metric, where the closer to one,
+    ; the more similar.
 }

@@ -11,11 +11,11 @@ Comp's approach to failures and flow control emphasizes explicit data flow throu
 ### Core Pipeline Operators
 
 ```comp
-->      // Invoke operator (function calls, structure construction)
-=>      // Iteration pipeline (collection processing)  
-..>     // Spread arrow (merge fields while maintaining flow)
-!>      // Failure handling pipeline  
-|       // Field fallback (not value-based conditionals)
+->      ; Invoke operator (function calls, structure construction)
+=>      ; Iteration pipeline (collection processing)  
+..>     ; Spread arrow (merge fields while maintaining flow)
+!>      ; Failure handling pipeline  
+|       ; Field fallback (not value-based conditionals)
 ```
 
 ### Invoke Pipeline (`->`)
@@ -23,16 +23,16 @@ Comp's approach to failures and flow control emphasizes explicit data flow throu
 Transforms structures through function calls or structure construction:
 
 ```comp
-// Function invocation
+; Function invocation
 data -> :validate -> :transform -> :save
 
-// Structure construction
+; Structure construction
 user -> {name=@.name, processed_at=:time:now}
 
-// Module function calls
+; Module function calls
 response -> http:parse -> json:extract -> db:save
 
-// Pipeline starting with function call
+; Pipeline starting with function call
 :config:load -> :validate -> :apply_settings
 ```
 
@@ -45,14 +45,14 @@ users => {name=@.name, active=@.status=="active"}
 numbers => @ * 2  
 files => :file:process
 
-// With control flow
+; With control flow
 items => {
     @ -> :validate -> (
-        @ ? @ | #skip    // Skip invalid items
+        @ ? @ | #skip    ; Skip invalid items
     )
 }
 
-// Nested iteration
+; Nested iteration
 groups => users => {user=@, group=@outer}
 ```
 
@@ -61,16 +61,16 @@ groups => users => {user=@, group=@outer}
 Merges additional fields while preserving pipeline flow:
 
 ```comp
-// Add parameters without nesting
+; Add parameters without nesting
 data ..> {timeout=30, retries=3} -> :network:request
 
-// Equivalent to:
+; Equivalent to:
 data -> {...@, timeout=30, retries=3} -> :network:request
 
-// Works with function results
+; Works with function results
 user ..> :load_preferences -> :render_profile
 
-// Works with namespaces
+; Works with namespaces
 request ..> @app.defaults -> :process_request
 ```
 
@@ -81,14 +81,14 @@ request ..> @app.defaults -> :process_request
 When any pipeline operation encounters a failure structure, all subsequent operations are automatically skipped:
 
 ```comp
-// If :step1 fails, :step2 and :step3 are skipped
+; If :step1 fails, :step2 and :step3 are skipped
 data -> :step1 -> :step2 -> :step3
 
-// Failure propagates through iteration
-users => :validate -> :save  // Invalid users skipped automatically
+; Failure propagates through iteration
+users => :validate -> :save  ; Invalid users skipped automatically
 
-// Spread operations also propagate failures
-data ..> :load_config -> :process  // Config loading failure stops pipeline
+; Spread operations also propagate failures
+data ..> :load_config -> :process  ; Config loading failure stops pipeline
 ```
 ### Failure Structures
 
@@ -99,7 +99,7 @@ Shape application failures return structured information:
     #failure
     #shape_application_failed
     message = "Type validation failed"
-    partial = {x="hello", y=20}         // Partial results
+    partial = {x="hello", y=20}         ; Partial results
     mapping = {field pairing details}
     errors = {specific error list}
 }
@@ -112,11 +112,11 @@ Failures are structured data with specific tags:
 ```comp
 {
     #failure
-    #error_type                    // Specific error classification
+    #error_type                    ; Specific error classification
     message = "Description of what went wrong"
-    context = {original_input}     // Context when error occurred
-    stack_trace = [...]           // Execution context
-    recoverable = !true           // Whether recovery is possible
+    context = {original_input}     ; Context when error occurred
+    stack_trace = [...]           ; Execution context
+    recoverable = !true           ; Whether recovery is possible
 }
 ```
 
@@ -186,16 +186,16 @@ input_value ->
 
 **Simple conditional with value transformation:**
 ```comp
-{score=85} -> -?? score > 90 -&& "A" -|| "B"  // Outputs: "B"
+{score=85} -> -?? score > 90 -&& "A" -|| "B"  ; Outputs: "B"
 ```
 The input struct flows in, the condition checks `score > 90` (false), so the else branch executes, outputting "B" to the pipeline.
 
 **Chained conditions with different outputs:**
 ```comp
 {age=25} ->
-    -?? age < 18 -&& :restrict_access    // Returns restricted view
-    -|? age < 21 -&& :limit_features     // Returns limited view  
-    -|| :full_access                     // Returns full view
+    -?? age < 18 -&& :restrict_access    ; Returns restricted view
+    -|? age < 21 -&& :limit_features     ; Returns limited view  
+    -|| :full_access                     ; Returns full view
 -> :render_page
 ```
 The age=25 input means both conditions fail, so `:full_access` executes. Whatever `:full_access` returns becomes the input to `:render_page`.
@@ -203,8 +203,8 @@ The age=25 input means both conditions fail, so `:full_access` executes. Whateve
 **Multiple independent valve groups:**
 ```comp
 data 
--> :validate -?? is_valid -&& :log_success -|| :log_error  // First group
--> :transform -?? needs_cache -&& :add_cache_headers       // Second group
+-> :validate -?? is_valid -&& :log_success -|| :log_error  ; First group
+-> :transform -?? needs_cache -&& :add_cache_headers       ; Second group
 -> :send_response
 ```
 Each valve group is independent. The first group's output (from either `:log_success` or `:log_error`) becomes the input to the second valve group. The second group tests this new input with its own condition.
@@ -213,16 +213,16 @@ Each valve group is independent. The first group's output (from either `:log_suc
 
 **Pass-through on no match**: If no conditions match and no `-||` is provided, the original input passes through unchanged:
 ```comp
-{value=10} -> -?? value > 100 -&& :process  // No match, no else
--> :next_step  // Receives {value=10} unchanged
+{value=10} -> -?? value > 100 -&& :process  ; No match, no else
+-> :next_step  ; Receives {value=10} unchanged
 ```
 
 **Early termination**: Once a condition matches, the valve group immediately executes that action and exits. Subsequent conditions are not evaluated:
 ```comp
 {status="pending"} ->
-    -?? status == "pending" -&& :queue_job     // This matches and executes
-    -|? status == "pending" -&& :different     // Never evaluated
-    -|| :default                               // Never evaluated
+    -?? status == "pending" -&& :queue_job     ; This matches and executes
+    -|? status == "pending" -&& :different     ; Never evaluated
+    -|| :default                               ; Never evaluated
 ```
 
 **Condition access to input**: All conditions in a valve group can reference the input value:
@@ -250,7 +250,7 @@ response ->
     -?? :status == 401 -&& :redirect_to_login
     -|? :status == 403 -&& :show_forbidden_page
     -|? :status >= 500 -&& {:log_server_error -> :show_error_page}
-    -|| :render_content  // Final else
+    -|| :render_content  ; Final else
 -> :send_to_client
 ```
 
@@ -260,7 +260,7 @@ order ->
     -?? customer.tier == "premium" -&& :apply_premium_discount
     -|? customer.tier == "gold" -&& :apply_gold_discount
     -|? order.total > 100 -&& :apply_bulk_discount
-    -|| order  // No discount applied
+    -|| order  ; No discount applied
 -> :calculate_total
 ```
 
@@ -269,17 +269,17 @@ order ->
 Provides fallback values for **undefined fields only** (not falsy values):
 
 ```comp
-// Field doesn't exist
-user.nickname | "Anonymous"         // Uses "Anonymous"
-config.timeout | 30                 // Uses 30
+; Field doesn't exist
+user.nickname | "Anonymous"         ; Uses "Anonymous"
+config.timeout | 30                 ; Uses 30
 
-// Field exists but is falsy - fallback NOT used
-user.enabled | !true               // If enabled=!false, returns !false
-user.score | 100                   // If score=0, returns 0
+; Field exists but is falsy - fallback NOT used
+user.enabled | !true               ; If enabled=!false, returns !false
+user.score | 100                   ; If score=0, returns 0
 
-// Common patterns
-settings.url | "http://localhost"   // Default URL
-user.preferences | {}               // Empty preferences object
+; Common patterns
+settings.url | "http:;localhost"   ; Default URL
+user.preferences | {}               ; Empty preferences object
 ```
 
 ### Failure Handling Pipeline (`!>`)
@@ -287,16 +287,16 @@ user.preferences | {}               // Empty preferences object
 Catches and handles failure conditions:
 
 ```comp
-// Basic error handling
+; Basic error handling
 data -> :risky_operation !> "Operation failed"
 
-// Preserve original data on failure
+; Preserve original data on failure
 input -> :validate !> {@, error="Validation failed"}
 
-// Chain error handlers
+; Chain error handlers
 data -> :step1 !> :fallback1 -> :step2 !> :fallback2
 
-// Error transformation
+; Error transformation
 user -> :load_profile !> {
     error = "Profile not found"
     user_id = @.id
@@ -307,13 +307,13 @@ user -> :load_profile !> {
 ### Hierarchical Error Handling
 
 ```comp
-// Handle specific error types
+; Handle specific error types
 data -> :process 
     !> {error.#validation -> :handle_validation_error}
     !> {error.#network -> :handle_network_error}
-    !> {error -> :handle_generic_error}  // Catch-all
+    !> {error -> :handle_generic_error}  ; Catch-all
 
-// Pattern matching in error handling
+; Pattern matching in error handling
 response -> :http:request !> {
     @.status_code -> match {
         404 -> {error="Not found", action="check_url"}
@@ -329,11 +329,11 @@ response -> :http:request !> {
 ### Pipeline Labels and Reuse
 
 ```comp
-// Function-scoped labels
+; Function-scoped labels
 path -> :fs:open -> !label $fd -> :process_file
-$fd -> :fs:close  // Reuse labeled value
+$fd -> :fs:close  ; Reuse labeled value
 
-// Statement-scoped labels  
+; Statement-scoped labels  
 data -> :expensive_transform -> !label ^processed
 ^processed -> :validate
 ^processed -> :cache  
@@ -343,19 +343,19 @@ data -> :expensive_transform -> !label ^processed
 ### Pipeline Composition
 
 ```comp
-// Compose reusable pipeline segments  
+; Compose reusable pipeline segments  
 $validation_pipeline = :check_format -> :check_constraints -> :check_business_rules
 $processing_pipeline = :normalize -> :enrich -> :transform
 $storage_pipeline = :serialize -> :compress -> :store
 
-// Use composed pipelines
+; Use composed pipelines
 user_data -> $validation_pipeline -> $processing_pipeline -> $storage_pipeline
 ```
 
 ### Dynamic Pipeline Construction
 
 ```comp
-// Build pipeline based on data characteristics
+; Build pipeline based on data characteristics
 !func :create_pipeline ~{data_type ~str} = {
     data_type -> :match {
         "csv" -> (:csv:parse -> :validate -> :normalize)
@@ -365,7 +365,7 @@ user_data -> $validation_pipeline -> $processing_pipeline -> $storage_pipeline
     }
 }
 
-// Apply dynamic pipeline
+; Apply dynamic pipeline
 input_file -> {
     type = extension -> :detect_file_type
     pipeline = type -> :create_pipeline
@@ -378,7 +378,7 @@ input_file -> {
 ### Match-Style Dispatch
 
 ```comp
-// Pattern matching with multiple conditions
+; Pattern matching with multiple conditions
 user_request -> match {
     {method="GET", path="/api/*"} -> :handle_api_get
     {method="POST", authenticated=!true} -> :handle_authenticated_post
@@ -392,19 +392,19 @@ user_request -> match {
 ### Loop-Style Iteration with Control
 
 ```comp
-// Collection processing with early termination
+; Collection processing with early termination
 items => {
     @ -> :process -> {
-        @.should_continue ? @ | #break    // Break on condition
+        @.should_continue ? @ | #break    ; Break on condition
     }
 }
 
-// Collection processing with skip
+; Collection processing with skip
 users => {
     @.active ? (@ -> :process_user) | #skip
 }
 
-// Nested iteration with control
+; Nested iteration with control
 groups => {
     group -> {
         items => {
@@ -419,7 +419,7 @@ groups => {
 ### State Machine Patterns
 
 ```comp
-// State transitions through pipeline
+; State transitions through pipeline
 !func :process_order ~{order, state=#order_state#pending} = {
     {order=order, state=state} -> match {
         {state=#order_state#pending} -> :validate_order -> {
@@ -443,12 +443,12 @@ groups => {
 ### Lazy Pipeline Construction
 
 ```comp
-// Pipeline steps computed lazily
+; Pipeline steps computed lazily
 processing_pipeline = [
     input_type -> :determine_parser -> :determine_validator -> :determine_processor
 ]
 
-// Only construct pipeline when needed
+; Only construct pipeline when needed
 data -> processing_pipeline -> :evaluate -> data
 ```
 

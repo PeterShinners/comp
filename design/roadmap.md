@@ -47,13 +47,13 @@ spread: "..." expression
 
 ### Test Cases
 ```comp
-// Must work by end of Phase 1
-{}                           // Empty struct
-{x=1 y=2}                   // Named fields
-{1 2 3}                     // Unnamed fields
-{...base new=1}             // Spread
-data -> operation           // Pipeline
-!var.x = 10                 // Variable binding
+; Must work by end of Phase 1
+{}                           ; Empty struct
+{x=1 y=2}                   ; Named fields
+{1 2 3}                     ; Unnamed fields
+{...base new=1}             ; Spread
+data -> operation           ; Pipeline
+!var.x = 10                 ; Variable binding
 ```
 
 ### Deliverables
@@ -97,10 +97,10 @@ data ?> condition -> action
 ### New Features
 ```comp
 !shape ~TypeName = { fields }
-data ~ Shape                // Apply shape
-data ~? Shape               // Check shape
-#tag_name                   // Tags
-~num(1..100)            // Constraints
+data ~ Shape                ; Apply shape
+data ~? Shape               ; Check shape
+#tag_name                   ; Tags
+~num(1..100)            ; Constraints
 ```
 
 ### Deliverables
@@ -121,11 +121,11 @@ data ~? Shape               // Check shape
 
 ### Library Modules
 ```comp
-:str:*     // String operations
-:num:*     // Math operations
-:list:*       // Collection operations
-:io:*         // Input/output
-:sys:*        // System operations
+:str:*     ; String operations
+:num:*     ; Math operations
+:list:*       ; Collection operations
+:io:*         ; Input/output
+:sys:*        ; System operations
 ```
 
 ### Deliverables

@@ -10,7 +10,7 @@
 }
 
 !func :add_item ~{cart ~Cart item ~Item} = {
-    // Find existing item or add new one
+    ; Find existing item or add new one
     $items = cart.items => name == item.name ? item | .in
     {..cart items=$items}
 }
@@ -27,5 +27,5 @@
         {name="Apple" price=1.00 quantity=1}
     } => {cart=$cart item=.in} -> :add_item
 
-    $cart -> :cart_total -> :io:print // Should be 2.50
+    $cart -> :cart_total -> :io:print ; Should be 2.50
 }
