@@ -32,6 +32,13 @@ username from common environment variables. From this small example you can see:
 * Other modules provide namespaced functions like `:os/getenv`
 * String interpolation, fallback values with `|`, and more
 
+**Testimonials**
+
+> This might be one of the most information-dense yet readable
+> "hello world" examples in any language!
+>
+> — Claude Sonnet 4 _(on an admittedly enthusiastic moment)_
+
 ## Highlights
 
 The best detail and overview is in the [design/] directory. Specifically,
@@ -87,8 +94,8 @@ comp/
 ├── design/             # Design documents (70%)
 ├── tasks/              # Implementation tasks (0%)
 ├── src/                # Implementation source code (0%)
-├── docs/               # Documentation and design notes
-│   ├── ancient/        # Super old notes extracted from notion (100%)
-│   └── early/          # Iterative design docs from claude (70%)
+└── docs/               # Documentation and design notes
+    ├── ancient/        # Super old notes extracted from notion (100%)
+    └── early/          # Iterative design docs from claude (70%)
 ```
 

@@ -5,63 +5,30 @@
     atomic = "@systems/atomic@1.0/atomic.comp"
 }
 
-!shape ~StackNode = {
-    data ~string
-    next ~StackNode | undefined
+!shape ~node = {
+    data~str
+    next~node|~nil
 }
 
-!shape ~LockFreeStack = {
-    head ~atomic~StackNode
+!shape ~stack = {
+    head~node|~nil = {}
+    ..~atomic/version
 }
 
-!func :create_stack = {
-    {head = undefined -> :atomic/new} ~LockFreeStack
-}
-
-!func :push ~{stack ~LockFreeStack, data ~string} = {
-    $new_node = {data=data next=undefined} ~StackNode
-    
-    :retry_until_success .{
-        ; Load current head
-        current_head = stack.head -> :atomic/load -> !label &current_head
-        
-        ; Set new node to point to current head
-        $new_node.next = &current_head
-        
-        ; Try to atomically update head to new node
-        stack.head -> :atomic/compare_exchange{
-            expected = &current_head
-            desired = $new_node
-        } -> success ? #loop.break | #loop.continue
-    }
-    
+!func :push ~{stack~stack data~str} = {
     stack
+    -> :atomic/retry-exchange 
+        .{!in ..> head={data=data next=head}}
 }
 
-!func :pop ~{stack ~LockFreeStack} = {
-    :retry_until_success .{
-        ; Load current head
-        current_head = stack.head -> :atomic/load -> !label &current_head
-        
-        ; Check if empty
-        &current_head = undefined ? {
-            success = false 
-            data = undefined
-        } -> #loop.break | {}
-        
-        ; Try to swing head to next node
-        stack.head -> :atomic/compare_exchange{
-            expected = &current_head
-            desired = &current_head.next
-        } -> .success ? {
-            success = true
-            data = &current_head.data
-        } -> #loop.break | #loop.continue
-    }
+!func :pop ~{stack~stack} = {
+    stack
+    -> :atomic/retry-exchange 
+        .{!in ..> head=head.next} // failure when head is {}
 }
 
 !func :test_stack = {
-    $stack = :create_stack
+    $stack = ~stack
     
     ; Push some items
     $stack 
@@ -71,8 +38,8 @@
     
     ; Pop them back
     :loop/count => {
-        result = $stack -> :pop -> "Popped: ${}" -> :io/print
-        |> #loop.break
+        $stack -> :pop -> head.data -> "Popped: ${}" -> :io/print
+        |> #break
     }
 }
 

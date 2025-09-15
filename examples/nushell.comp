@@ -1,7 +1,8 @@
-!mod.github = !import it/ @gh/github-comp@1.0/lib
+!import github/ = comp "@gh/github-comp@1.0/lib"
+!alias #{..} = #unit/time
 
 !main = {
-    $after = :datetime/now ..> -1@time@wk -> :datetime/offset
+    $after = :datetime/now ..> -1#week -> :datetime/offset
 
     {repo = "complang/comp" fields = {"createdAt" "reactionGroups" "title" "url"}}
     -> :github/issues -> :loop/filter .{createdAt > $after}
@@ -15,4 +16,3 @@
     -> :loop/sort .{thumbs {issue.createdAt #loop/ascend}}
     -> issue -> {:take 5}
 }
-    

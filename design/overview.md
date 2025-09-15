@@ -1,27 +1,51 @@
 # Comp Overview, Syntax, and Style
 
-*Overview of the Comp language and parsing rules*
+*Overview of the Comp language and general syntax rules*
 
 ## Overview
 
-Comp strives to create a limited vocabulary of terms and objects.
+Here's an expanded version for the language overview:
 
-The language is whitespace agnostic, aside from each statement is required to be
-separated by whitespace. This allows authors to place whitespaces wherever and
-however improves readably, or nearly omit it entirely when compact expressions
-are the priority. 
+## Introduction
 
-There are no commas between lists of fields, and no terminator or punctuation
-used at the end of sentences.
+Comp is a complete programming language with standard libraries that operates as
+a high-level interpreted language. Like JavaScript and Python, it excels at
+rapid development, scripting, and data manipulation—but approaches these tasks
+from a fundamentally different angle.
 
-All keywords and named functionality of prefixed with symbols. This is done
-consistently to allow any field name to be a valid token, and will never
-conflict with a keyword or operator in the language.
+The language embraces functional programming principles reminiscent of Lisp and
+Clojure, yet remaining firmly general-purpose. Every value is an immutable
+structure flowing through pipelines of transformations. This creates composable,
+readable code where `data -> validate -> transform -> save` replaces nested
+function calls and intermediate variables.
 
-The top level definitions in a module is a declarative set of statements that
-define the contents of the module. It is not executed like a script or runtime
-language that incrementally builds the contents. This allows static analysis and
-independent ordering of definitions.
+Comp treats all data sources as first-class citizens. Whether data arrives as
+code literals, JSON structures, SQL query results, or network responses, you
+work with it identically. There are no class hierarchies to navigate or
+conversions in and out of container types. Instead, functions declare their
+structural definition and can operate on any data that meets the requirements.
+
+This powerful schema definition for structures is built into the core of the
+language and makes powerful type definitions possible. Numbers can be attached
+to unit types and converted between lengths, weights, or whatever types your
+application needs. Strings can also be connected to units to prevent sloppy use
+of data, and enforce safe behavior like appropriate data escaping.
+
+The pipeline architecture integrates failure handling directly into execution
+flow. Failed operations automatically navigate the pipeline and can be handled
+at the appropriate locations without boilerplate or repetition. Errors become
+just another kind of data flowing through your transformations.
+
+Module contents and imports are declarative, which means data can be defined in
+any order and errors are immediate build problems. This also gives the powerful
+introspection of compiled languages to developer tools, without the cost of
+build build times and expensive flow analysis. A single comp file represents its
+own project and metadata, making it a truly standalone pacakge format.
+
+The language is focused on providing the best developer experience and
+most approachable source code to any problem. The current implementation
+is not making performance a priority. It will begin as an interpreted
+language, although the syntax lends itself well to static analysys.
 
 ## Example
 
@@ -40,21 +64,23 @@ independent ordering of definitions.
 The standard libraries and language code will follow the style guidelines.
 
 * Tabs for indentation. 
-* Limit line lengths to 100 characters.
+* Limit line lengths to 100 characters (with tabs counting as 1)
     * Relaxed when lines must contain exceptionally long tokens or literal
       values.
+* Tokens, definitions, and filenames should prefer `lisp-case`, lowercase with
+  dashes.
 * When pipelines are split across multiple lines, start each new line with the
   continuation operator like `->` or `|`.
 * Prefer line breaks between statements.
 * Simple expressions should use spaces to improve clarity of operator
   precedence.
-* When multiple statements share a line, consider compressing each statements
+* When multiple statements share a line, consider compressing each statement's
   whitespace to improve readability.
 * Prefer no whitespace between a value and its shape definition, like `name~str`
   or `value~record`.
 * When a structure or shape definition splits multiple lines, add a level of
-  indentation to the interior lines.
-    * Prefer the leading curly brace to end on initial line.
+  indentation to the interior block.
+    * Prefer the leading curly brace at the end of the previous line.
     * Prefer the closing curly brace to end on its own line and match the
       indentation of the line with the leading curly brace.
 * When complicated pipeline contains layers of nesting, consider a double curly
@@ -72,7 +98,7 @@ semicolon or terminating symbol to mark the end of statements or pipelines.
 
 Tokens are used for naming everything in Comp. There are several rules for valid
 token names.
-* Tokens must follow the UAX #31 specification for valid tokens.
+* Tokens must follow the UAX #31 specification for valid unicode tokens
   * This matches the behavior of Python and Rust.
 * The `ID_Continue` set is expanded to also include the ascii hyphen.
 
@@ -86,7 +112,7 @@ compacting token names into abnormal compound words.
 The style of using lowercase words with hyphen separates is referred to as
 **lisp-case**.
 
-Examples
+Allowed tokens (although not always preferred)
 * `html5`
 * `content-accept`
 * `_parity_bit`
@@ -96,28 +122,43 @@ Examples
 
 The language supports line comments using the style `;` of semicolon,
 similar to Clojure and Lisp. There is no support for block style comments.
-Everything until the end of the line will be ignored by the compiler.
 
-See the secion on Docstrings for related information.
+The language does not do any interpretation of the comment contents.
+Everything from the begin of the comment to the end of the line is strictly
+ignored.
+
+See the section on Docstrings for related information.
 
 ## Module contents
 
-A module defines a set of **functions**, **shapes**, and **tags**. Each type of
-definition uses a unique character to prefix the name when it is defined and
-every time it is referenced.
+A module defines a set of **functions**, **shapes**, and **tags**. Module 
+contents are always referenced into a specific namespace. References from 
+this namespace use a `/` slash separate between the namespace and referenced
+name.
 
-When referencing definitions from other modules, the language requies the
-character prefix on the module and object reference.
+Each type of definition uses a unique character to prefix the name when it is
+defined and every time it is referenced.
 
 * **Function** `:` prefixed with a colon, like `:process` or `:num/absolute`
 * **Shape** `~` prefixed with tilde, like `~Rect` and `~io~Stream`
 * **Tags** `#` prefixed with hash, like `#status` or `#log#severity`
 
-Because of these prefixed characters, there is no problem with using conflicting
-names for each type of definition.
+After importing, modules can use alias operators to provide shortcuts to
+commonly referenced definitions.
+
+Because of these prefixed characters, it can be encouraged to reuse names
+across functions, shapes, and modules when they are intended to work closely
+together.
+
+```comp
+; References from within the current module.
+{data ~myshape #mytag} -> :myfunction
+
+; References to an imported namespace
+{data ~module/myshape #module/mytag} -> :module/myfunction
+```
 
 ## Structures
-
 
 All data in Comp is represented as structures (ordered collections of fields).
 Scalars automatically promote to single-element structures when needed:
@@ -132,7 +173,7 @@ Structures are flexible containers that can mix named fields and unnamed fields.
 The values in the structure are ordered and can mix and match any type.
 
 The content of the structure defines a shape, and that structure can be passed
-to any function that defines a compatible shape (or schema).
+to any function that defines a compatible shape, like a schema.
 
 The structure is an immutable object. The language defines operators and
 function that allow creating new, derived structures in ways that feel like
@@ -146,12 +187,14 @@ a.color = "blue"
 ; b color is still "red"
 ```
 
-The language also supports the concept of lazy structures, which behave more
+The language supports the concept of lazy structures, which behave more
 like iterators, or generators from other languages. The fields in the lazy
 structure are not computed until requested. Lazy structures use the same
 definitions and rules as structures, but are surrounded with `[]` square
-brackets. A lazy structure is only evaluated once and preserves the values it
-creates, operating like a regular structure once iteration completes. When the
+brackets. 
+
+A lazy structure is only evaluated once and preserves the values it
+generated; operating like a regular structure once iteration completes. When 
 fields are requested from the lazy structure, it will execute as many fields are
 needed to respond to the requested field.
 
@@ -160,26 +203,29 @@ $expensive = [
   "server" -> :expensive-hash
   "client" -> :expensive-hash
 ] ; returns immediately, no expensive hashing completed
+
+$client-hash = $expensive.client  ; Computed both fields in order
+$second-hash = $expensive.client  ; Immediate, already computed this field
 ```
 
 ## Field References and Namespaces
 
-Any undecorated token represents a lookup into one of several predefined
+Any undecorated token in a statement represents a lookup into one of several predefined
 namespaces. These namespaces are structures that the language handles specially
 as it is processing. The namespaces are always referenced with a leading `.`
 dot.
 
 These namespaces represent a layered hierarchy of fields, where the first
-definition found overrides any of the later fields.
+definition found overrides any of the later namespaces.
 
 These namespaces are defined as
 
 * `!out` is the structure being defined by the current execution block
 * `!in` is the structure that was passed input to the current execution block
-* `!ctx` is a structure that can be modified by executing function blocks and is
-  inherited to all called functions.
-* `!mod` is a module-specific namespace that can only be accessed by functions
-  within that module.
+* `!ctx` is a structure that is inherited through function calls to provide data
+  through the flow of execution.
+* `!mod` is a module-specific namespace shared across functions within that
+  module.
 
 The undecorated token references are used to lookup fields from this stack of
 namespaces. An undecorated assignment to a field represent as assignment into
@@ -188,8 +234,10 @@ the `!out` namespace, which will win all future lookups.
 ```comp
 a = 123                 ; assigned to !out namespace
 b = 321 + a             ; assigns 444 to !out namespace
+
 !mod.server-port = 8080
 !ctx.server-port = 8200
+
 server-port -> :listen  ; References `8200` from the context namespace
 ```
 
