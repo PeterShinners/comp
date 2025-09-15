@@ -96,18 +96,18 @@ More sophisticated queries use library functions:
 
 ```comp
 ; Multiple selection with patterns
-{data /users.*.email/} -> :path:fetchall
+{data /users.*.email/} -> :path/fetchall
 
 ; Bulk updates
-{data /users.*.active/ false} -> :path:applyall
+{data /users.*.active/ false} -> :path/applyall
 
 ; Testing and queries
-{data /users.admin.role/} -> :path:exists?
-{data /**.error/} -> :path:hasany?
+{data /users.admin.role/} -> :path/exists?
+{data /**.error/} -> :path/hasany?
 
 ; Path manipulation
-{/api.v2/ /users/} -> :path:join
-/users.profile.theme/ -> :path:parent    ; Returns /users.profile/
+{/api.v2/ /users/} -> :path/join
+/users.profile.theme/ -> :path/parent    ; Returns /users.profile/
 ```
 
 ## Comments
@@ -133,7 +133,7 @@ data//items[price < 100 & instock]/
 ### Computed Fields (Planned)
 ```comp
 data//config.'theme_${env}'/
-data//crowd.'name -> :str:lowercase'/
+data//crowd.'name -> :str/lowercase'/
 ```
 
 ### Additional Selectors (Planned)
@@ -170,8 +170,8 @@ $endpoint = $api//users.current/
 response = fetch(service/$endpoint)
 
 ; Data exploration
-all_errors = {logs /**.error/} -> :path:fetchall
-error_count = {logs /**.error/} -> :path:countmatches
+all_errors = {logs /**.error/} -> :path/fetchall
+error_count = {logs /**.error/} -> :path/countmatches
 ```
 
 # Store System for Comp Language
@@ -184,7 +184,7 @@ The Store provides controlled mutable state in Comp's otherwise immutable enviro
 
 ```comp
 ; Create a store - the ONE mutable container
-$store = :store:new {
+$store = :store/new {
     users = {}
     config = {theme="light" lang="en"}
     cache = {}
@@ -264,8 +264,8 @@ name = $cursor.value.name                  ; Access data
 $cursor -> :set <- {name="Alice"}          ; Update at position
 
 ; Navigation
-$parent = $cursor -> :cursor:up            ; Go to /users/
-$child = {$cursor /profile/} -> :cursor:down  ; Go to /users.123.profile/
+$parent = $cursor -> :cursor/up            ; Go to /users/
+$child = {$cursor /profile/} -> :cursor/down  ; Go to /users.123.profile/
 ```
 
 Cursors are simple structs:
@@ -286,9 +286,9 @@ The Store leverages Comp's path system for powerful queries:
 $store -> :set /users.123.email/ <- "new@example.com"
 
 ; Complex queries with selectors (via functions)
-{$store /users.*.email/} -> :path:fetchall  ; All emails
-{$store /users[active]/} -> :path:query     ; Active users
-{$store /**.error/} -> :path:hasany?        ; Any errors?
+{$store /users.*.email/} -> :path/fetchall  ; All emails
+{$store /users[active]/} -> :path/query     ; Active users
+{$store /**.error/} -> :path/hasany?        ; Any errors?
 ```
 
 ## Benefits
@@ -320,7 +320,7 @@ $store -> :set /result/ <- data           ; ONLY place mutation occurs
 ### Testing
 ```comp
 ; Easy to test with isolated stores
-$test_store = :store:new {users={} config=default_config}
+$test_store = :store/new {users={} config=default_config}
 run_operation($test_store)
 assert($test_store -> :get /users.123/ == expected)
 ```

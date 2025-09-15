@@ -1,9 +1,9 @@
 ; Hello World example in Comp language
 
 !main = {
-  $names = {"USERNAME" "USER" "LOGNAME"} => :os:getenv 
-  $names -> {:struct:pickone | "World"} -> "Hello ${}" 
-    -> :io:print
+  $names = {"USERNAME" "USER" "LOGNAME"} => :os/getenv 
+  $names -> {:struct/pickone | "World"} -> "Hello ${}" 
+    -> :io/print
 }
 
 

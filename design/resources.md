@@ -32,11 +32,11 @@ Resources are opaque handles that provide controlled access to external system r
 ```comp
 !require read, write
 !func :open_file ~{path ~str, mode ~str} = {
-    $fd = {path=path, mode=mode} -> .syscall:open
+    $fd = {path=path, mode=mode} -> :syscall/open
     
     ; Create resource handle with lifecycle callbacks
     $handle = $fd -> !resource %file_reader {
-        release = [$fd -> .syscall:close]
+        release = [$fd -> :syscall/close]
         #inherit#none
         #thread#affinity#current
     }
@@ -58,18 +58,18 @@ Resources are opaque handles that provide controlled access to external system r
 
 ```comp
 !resource %database_cursor {#thread#affinity#current}
-    .release {cursor -> .db:close}
-    .transact_begin {cursor -> .db:begin_transaction}
-    .transact_commit {cursor -> .db:commit}
-    .transact_rollback {cursor -> .db:rollback}
+    .release {cursor -> :db/close}
+    .transact_begin {cursor -> :db/begin_transaction}
+    .transact_commit {cursor -> :db/commit}
+    .transact_rollback {cursor -> :db/rollback}
 
 !resource %file_handle {}
-    .release {handle -> .fs:close}
-    .flush {handle -> .fs:sync}
+    .release {handle -> :fs/close}
+    .flush {handle -> :fs/sync}
 
 !resource %network_connection {#inherit#explicit}
-    .release {conn -> .net:close}
-    .timeout {conn, seconds -> .net:set_timeout {conn=conn, timeout=seconds}}
+    .release {conn -> :net/close}
+    .timeout {conn, seconds -> :net/set_timeout {conn=conn, timeout=seconds}}
 ```
 
 **Key Points**:
@@ -88,7 +88,7 @@ Modules can attach private data to handles for internal state management:
 $file_handle& = {
     internal_fd = file_descriptor
     bytes_processed = 0
-    last_access = .time:now
+    last_access = :time/now
     buffer_size = 4096
 }
 
@@ -133,20 +133,20 @@ Comp uses capability-based security with predefined system tokens:
 ; Function-level requirements (checked at call time)
 !require read, write
 !func :process_file ~{path ~str} = {
-    path -> .file:read -> :transform -> .file:write
+    path -> :file/read -> :transform -> :file/write
 }
 
 ; Module-level requirements
 !require net, env
-!import config = stdlib config
+!import onfig/ = stdlib config
 
 ; Conditional permission requirements
 !func :conditional_network ~{use_api ~bool} = {
     use_api -> {
         !require net
-        data -> .http:post "https:;api.example.com"
+        data -> :http/post "https:;api.example.com"
     } | {
-        data -> .local:process  
+        data -> :local/process  
     }
 }
 ```
@@ -157,14 +157,14 @@ Security tokens stored in flowing `@ctx` namespace:
 
 ```comp
 ; Check permissions
-@ctx -> .security:has #read     ; !true or !false
+@ctx -> :security/has #read     ; !true or !false
 
 ; Drop permissions (irreversible in current context)
-@ctx -> .security:drop #write
-@ctx -> .security:drop {#net, #ffi}  ; Drop multiple tokens
+@ctx -> :security/drop #write
+@ctx -> :security/drop {#net, #ffi}  ; Drop multiple tokens
 
 ; Create restricted context for function calls
-@ctx -> .security:only {#read} -> {
+@ctx -> :security/only {#read} -> {
     ; This block can only read, no other permissions
     data -> :process_with_read_only
 }
@@ -183,8 +183,8 @@ Functions declared with `!pure` receive zero security tokens:
 ```comp
 !pure :validate_email ~{email ~str} = {
     ; @ctx = {} - no tokens available
-    email -> .str:match /^[^@]+@[^@]+$/  ; OK: pure computation
-    email -> .file:read "config"            ; ERROR: no read token
+    email -> :str/match /^[^@]+@[^@]+$/  ; OK: pure computation
+    email -> :file/read "config"            ; ERROR: no read token
 }
 ```
 
@@ -223,7 +223,7 @@ comp myapp.comp --no-network       # Network isolated
 !transact using $database, $cache, $search_index {
     ; Resources coordinated in creation order
     ; Cleanup happens in reverse order (LIFO)
-    user -> .db:update -> .cache:invalidate -> .search:reindex
+    user -> :db/update -> :cache/invalidate -> :search/reindex
 }
 ```
 
@@ -259,10 +259,10 @@ Resources with transaction hooks:
 ```comp
 ; Create transactional resource
 $db_handle -> !resource %database_cursor {
-    release = [$cursor -> .db:close]
-    transact_begin = [$cursor -> .db:begin_transaction]
-    transact_commit = [$cursor -> .db:commit]
-    transact_rollback = [$cursor -> .db:rollback]
+    release = [$cursor -> :db/close]
+    transact_begin = [$cursor -> :db/begin_transaction]
+    transact_commit = [$cursor -> :db/commit]
+    transact_rollback = [$cursor -> :db/rollback]
 }
 
 ; Usage in transaction
@@ -286,10 +286,10 @@ $db_handle -> !resource %database_cursor {
 **3D Graphics Transaction**:
 ```comp
 !transact using $maya_session {
-    "sphere" -> .maya:create_sphere 
-             ..> {scale={2.0, 2.0, 2.0}} -> .maya:transform
-    "light" -> .maya:create_directional_light
-            ..> {intensity=1.5} -> .maya:set_attr
+    "sphere" -> :maya/create_sphere 
+             ..> {scale={2.0, 2.0, 2.0}} -> :maya/transform
+    "light" -> :maya/create_directional_light
+            ..> {intensity=1.5} -> :maya/set_attr
 }
 ; If any step fails, entire scene creation rolls back
 ```
@@ -297,9 +297,9 @@ $db_handle -> !resource %database_cursor {
 **Multi-Service Update**:
 ```comp
 !transact using $user_db, $billing_db, $notification_service {
-    user -> .user_db:update_profile
-    user -> .billing_db:update_subscription  
-    user -> .notification_service:send_confirmation
+    user -> :user_db/update_profile
+    user -> :billing_db/update_subscription  
+    user -> :notification_service/send_confirmation
 }
 ; All services updated atomically or none
 ```
@@ -312,7 +312,7 @@ $db_handle -> !resource %database_cursor {
 ; Create restricted execution context  
 !func :run_sandboxed ~{code, allowed_permissions} = {
     ; Create new context with only specified permissions
-    @ctx -> :security:only allowed_permissions -> {
+    @ctx -> :security/only allowed_permissions -> {
         code -> :evaluate
     }
 }
@@ -327,8 +327,8 @@ user_script -> :run_sandboxed {allowed_permissions={#read}}
 ; Resources can check permissions at access time
 !func :secure_file_read ~{handle %file_reader} = {
     ; Check permission when accessing resource
-    @ctx -> :security:require #read
-    handle&.fd -> :syscall:read -> {
+    @ctx -> :security/require #read
+    handle&.fd -> :syscall/read -> {
         handle&.bytes_read += @.length
         @
     }
@@ -339,7 +339,7 @@ user_script -> :run_sandboxed {allowed_permissions={#read}}
 
 ```comp
 ; Each imported module gets isolated security context
-!import untrusted = comp ./third_party_module
+!import ntrusted/ = comp ./third_party_module
 ; untrusted module cannot access main module's permissions
 
 ; Explicit permission delegation (proposed feature)
@@ -353,17 +353,17 @@ untrusted -> :restricted_function {
 
 ```comp
 ; Monitor permission usage
-@ctx -> :security:on_permission_use {
-    permission, operation -> :audit:log {
+@ctx -> :security/on_permission_use {
+    permission, operation -> :audit/log {
         permission = permission
         operation = operation  
-        timestamp = :time:now
-        stack_trace = :debug:stack_trace
+        timestamp = :time/now
+        stack_trace = :debug/stack_trace
     }
 }
 
 ; Set up alerts for sensitive operations
-@ctx -> :security:alert_on {#write, #net} -> :security:notify_admin
+@ctx -> :security/alert_on {#write, #net} -> :security/notify_admin
 ```
 
 ## Implementation Examples
@@ -382,10 +382,10 @@ untrusted -> :restricted_function {
 
 !require read
 !func :open_processor ~{path ~str} = {
-    $fd = {path=path, mode="r"} -> :syscall:open
+    $fd = {path=path, mode="r"} -> :syscall/open
     
     $handle = $fd -> !resource %file_processor {
-        release = [$fd -> :syscall:close]
+        release = [$fd -> :syscall/close]
         #inherit#none
         #thread#affinity.current
     }
@@ -396,7 +396,7 @@ untrusted -> :restricted_function {
 
 !require read
 !func :read_line ~{handle %file_processor} = {
-    $result = handle&.fd -> :syscall:read_line !> {
+    $result = handle&.fd -> :syscall/read_line !> {
         handle&.last_error = @
         #failure
     }
@@ -408,7 +408,7 @@ untrusted -> :restricted_function {
 !require read, write  
 !func :process_file_transactionally ~{input ~str, output ~str} = {
     $input_handle = input -> :open_processor
-    $output_handle = {path=output, mode="w"} -> :file:open_for_write
+    $output_handle = {path=output, mode="w"} -> :file/open_for_write
     
     !transact using $input_handle, $output_handle {
         $input_handle 
@@ -427,17 +427,17 @@ untrusted -> :restricted_function {
 
 !resource %connection_pool {#thread#affinity.primary}
     .release {pool -> pool&.connections => :close_connection}
-    .get_connection {pool -> :pool:acquire_connection}
-    .return_connection {pool, conn -> :pool:release_connection {pool=pool, connection=conn}}
+    .get_connection {pool -> :pool/acquire_connection}
+    .return_connection {pool, conn -> :pool/release_connection {pool=pool, connection=conn}}
 
 !require read, write
 !func :create_pool ~{database_url ~str, max_connections ~num = 10} = {
     $connections = {1..max_connections} => {
-        database_url -> :db:connect -> !resource %db_connection {
-            release = [@ -> :db:disconnect]
-            transact_begin = [@ -> :db:begin]
-            transact_commit = [@ -> :db:commit]
-            transact_rollback = [@ -> :db:rollback]
+        database_url -> :db/connect -> !resource %db_connection {
+            release = [@ -> :db/disconnect]
+            transact_begin = [@ -> :db/begin]
+            transact_commit = [@ -> :db/commit]
+            transact_rollback = [@ -> :db/rollback]
         }
     }
     
@@ -453,12 +453,12 @@ untrusted -> :restricted_function {
 }
 
 !func :with_connection ~{pool %connection_pool, operation} = {
-    $conn = pool -> :pool:get_connection
+    $conn = pool -> :pool/get_connection
     operation -> :evaluate {connection=$conn} -> {
-        pool -> :pool:return_connection $conn
+        pool -> :pool/return_connection $conn
         @
     } !> {
-        pool -> :pool:return_connection $conn
+        pool -> :pool/return_connection $conn
         @  ; Re-raise error
     }
 }
@@ -480,13 +480,13 @@ untrusted -> :restricted_function {
     }
     
     ; Create restricted context  
-    @ctx -> :security:only permissions -> {
+    @ctx -> :security/only permissions -> {
         request -> match {
             {path="/users/*", method="GET"} -> :handle_user_get
             {path="/users/*", method="POST"} -> :handle_user_post
             {path="/admin/*"} -> {
                 ; Admin endpoints require additional permission
-                @ctx -> :security:require #admin -> {
+                @ctx -> :security/require #admin -> {
                     request -> :handle_admin_request
                 }
             }
@@ -502,7 +502,7 @@ untrusted -> :restricted_function {
 !handle %distributed_transaction
 
 !func :create_distributed_transaction ~{participants %resource[]} = {
-    $tx_id = :uuid:generate
+    $tx_id = :uuid/generate
     
     ; Prepare phase - all participants must agree
     $prepared = participants => {
@@ -531,7 +531,7 @@ untrusted -> :restricted_function {
 ; Connection pooling with automatic lifecycle
 !func :with_pooled_resource ~{pool, operation} = {
     $resource = pool -> :acquire !> {
-        :time:wait {milliseconds=100}  ; Brief wait
+        :time/wait {milliseconds=100}  ; Brief wait
         pool -> :acquire  ; Retry once
     }
     

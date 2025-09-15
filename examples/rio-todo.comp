@@ -1,8 +1,8 @@
 !doc module "TODO UI App, based on hypothetical migration from the Rio UI library for Python."
 
-!import .rio = comp @gh/rio-dev/rio-comp@0.1.5/lib
+!import rio/ = comp @gh/rio-dev/rio-comp@0.1.5/lib
 
-!alias #comp = .rio#comp
+!alias #comp = #rio/comp
 
 !shape ~todo = {
     title~string
@@ -22,49 +22,49 @@
 }
 
 !main = {
-    {title="Todo App" state=~state} -> .rio:app .{:todo-app}
+    {title="Todo App" state=~state} -> :rio/app .{:todo-app}
 }
 
 !func :todo-app ~{} = {
-    $s = .rio:fetch-state
+    $s = :rio/fetch-state
     
     {#comp#column spacing=1 padding=2
         ; Creation field
         {#comp#row
             {#comp#textinput text=$s.input placeholder="What needs doing?"
-                .rio:on-change.{..$s input=value}
-                .rio:on-submit.{..$s input="" todos={..$s.todos $s.input~todo}}
+                :rio/on-change.{..$s input=value}
+                :rio/on-submit.{..$s input="" todos={..$s.todos $s~input/todo}}
             }
         }
         ; Show filtered todos
         $s.todos 
-        -> :iter:filter .{{complete $s.filter~struct#1} -> :iter:contains}
+        -> :iter/filter .{{complete $s~filter/struct#1} -> :iter/contains}
         => :todo-item
         ; Filter buttons
         {#comp#row spacing=0.5
-            #filter -> :tag:iter-all => {
+            #filter -> :tag/iter-all => {
                 $variant = -?? $s.filter == tag -&& "primary" -|| "secondary"
                 #comp#button text=value#0 variant=$variant
-                    .rio:on-click.{..$s filter=tag}
+                    :rio/on-click.{..$s filter=tag}
             }
         }
     }
 }
 
 !func :todo-item ~todo = {
-    $s = .rio:fetch-state
+    $s = :rio/fetch-state
 
     {#comp#row spacing=1
         ; Completed check
         {#comp#checkbox checked=complete
-            .rio:on-change.{..$s todos={$s.todos $new} -> :iter:replace .key{title}}
+            :rio/on-change.{..$s todos={$s.todos $new} -> :iter/replace .key{title}}
         }
         ; Styled title
         $style = {-?? complete -&& "strikethrough" -|| "normal"}
         {#comp#text text=title style=$style}
         ; Delete button
         {#comp#iconbutton icon="material/delete"
-            .rio:on-click.{..$s todos={$s.todos} -> :iter:filter .key{$s.title == title}}
+            :rio/on-click.{..$s todos={$s.todos} -> :iter/filter .key{$s.title == title}}
         }
     }
 }

@@ -8,14 +8,14 @@
 
 !require read
 !func open_for_read ~{path ~string} = {
-    $fd = {path mode="r"} -> :syscall:open
+    $fd = {path mode="r"} -> :syscall/open
     $fd -> !resource %readfile {
-        release = [$fd -> :syscall:close]
+        release = [$fd -> :syscall/close]
     }
     & = {$fd path "r"} ~FileData
 }
 
 !require read
 !func read_line ~{handle %readfile} = {
-    handle&.fd -> :syscall:read_line
+    handle&.fd -> :syscall/read_line
 }

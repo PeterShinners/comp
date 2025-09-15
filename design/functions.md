@@ -42,17 +42,17 @@ Some functions require no input arguments. These use an explicit
 
 ```comp
 !func :loud-name ~data-with-name = {
-    name -> .str:upper
+    name -> :str/upper
 }
 
 !func :current-favorite = {
     70 * 7
 }
 
-!func :process ~{data settings=.web~request-settings} = {
+!func :process ~{data settings=~web/request-settings} = {
     ; data uses the first positional argument in the structure
     $clean = data -> :validate
-    {$clean settings} -> .web:request
+    {$clean settings} -> :web/request
 }
 ```
 
@@ -118,7 +118,7 @@ to downstream calls.
 
 !func :begin ~nil = {
     !ctx.server.port = 8000
-    !mod.static-data -> .server:run_forever
+    !mod.static-data -> :server/run_forever
 }
 ```
 
@@ -140,7 +140,7 @@ resources like file streams or networking.
 ; Can be called at compile time where the language needs
 !pure :titlecase !{s~str} -> {
     {$start $end} = {s 1} -> str:break
-    {$start->.str:uppercase $end->.str:lowercase} -> "${}${}"
+    {$start->:str/uppercase $end->:str/lowercase} -> "${}${}"
 }
 ```
 
@@ -175,13 +175,13 @@ $fib_10 = 10 -> :fibonacci    ; Computed at compile time: 55
 ; Regular function - can access resources
 !func :load_config ~{path ~str} = {
     ; Has caller's permissions and context
-    path -> .file:read -> .json:parse
+    path -> :file/read -> :json/parse
 }
 
 ; Pure function - isolated execution
 !pure :parse_config ~{json_text ~str} = {
     ; No permissions, no file access possible
-    json_text -> .json:parse -> :validate_structure
+    json_text -> :json/parse -> :validate_structure
 }
 
 ; Combined usage
@@ -225,8 +225,8 @@ clear information for developer tools.
 
 ```comp
 !require read network
-!func :send-csv ~{path~str where=~.server~address} = {
-    path -> :read_csv -> {#0 address} -> .server:upload
+!func :send-csv ~{path~str where=~~server/address} = {
+    path -> :read_csv -> {#0 address} -> :server/upload
 }
 ```
 
@@ -383,7 +383,7 @@ When a tag value is created (e.g., `#dog`), it carries metadata about which modu
 !tag #mammal = {#dog #cat}
 !func :speak ~{#mammal ...} = "generic mammal sound"
 !func :speak ~{#dog ...} = {
-    $parent = .in -> :type#mammal:speak  ; Explicit parent call
+    $parent = !in -> :type#mammal:speak  ; Explicit parent call
     "woof and ${parent}"
 }
 
@@ -426,14 +426,14 @@ Blocks are optionally defined by a field name, which supports using tags
 directly, or any expression when single quoted.
 
 ```comp
-$ordered = users -> :sort .key{name -> .str:lowercase}
+$ordered = users -> :sort .key{name -> :str/lowercase}
 $crowded = cities -> :maxmimum .key{population}
 
 $record.status -> :match
     .'#status#success'{"Request completed"}
     .'#status#timeout'{"Request timed out"}
     .else{"Request had unknown status ${value}"}
--> .log:info
+-> :log/info
 ```
 
 ### Block Definition
@@ -492,7 +492,7 @@ user_input -> :match_values
 }
 .block ~{}
 
-$user = :load_user -> :nest .{"Hello, {$name}" -> .io:print}
+$user = :load_user -> :nest .{"Hello, {$name}" -> :io/print}
 ```
 
 ### Function Documentation

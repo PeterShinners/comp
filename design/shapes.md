@@ -263,7 +263,7 @@ be evaluated at compile time.
 
 ```comp
 distance = 5@distance@km
-converted = distance -> :units:to @distance@m    ; 5000@distance@m
+converted = distance -> :units/to @distance@m    ; 5000@distance@m
 
 ; Automatic validation
 speed = 60@distance@km / 1@time@hour    ; Type-safe unit arithmetic
@@ -290,7 +290,7 @@ Unit formatters must be `!pure` functions for compile-time evaluation:
 
 ```comp
 !pure :format_currency ~{value @currency} = {
-    "$${value -> :num:format {decimals=2}}"
+    "$${value -> :num/format {decimals=2}}"
 }
 
 @currency = {formatter=:format_currency}
@@ -347,6 +347,6 @@ Morphing can combine with type promotion for data transformation:
 ```comp
 ; JSON to structured data
 json_input = '{"name": "Alice", "age": "30", "active": "true"}'
-user = json_input -> :json:parse -> :json:promote ~ User
+user = json_input -> :json/parse -> :json/promote ~ User
 ; Promotes "30" to number, "true" to !true, then applies User shape
 ```

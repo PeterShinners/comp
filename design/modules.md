@@ -30,9 +30,9 @@ tags. These references are prefixed with the module's namespace and a leading
 There is no way to refer to a module as a value, only its provided information.
 
 ```comp
-!import .json = std "json"
+!import json/ = std "json"
 
-$data -> .json:stringify -> .json:parse
+$data -> :json/stringify -> :json/parse
 
 ; Invalid - modules are not values
 $json_lib = .json              ; ERROR: Cannot assign module to variable
@@ -102,11 +102,11 @@ import specific definitions from a module, but they can be renamed
 and provieded with `!alias` operations, separate from the import.
 
 ```comp
-// !import .name = source "specifier"
+// !import name/ = source "specifier"
 
-!import .store = std "core/store"
-!import .friend = comp "libs/buddy"
-!import .rand = python "random"
+!import store/ = std "core/store"
+!import friend/ = comp "libs/buddy"
+!import rand/ = python "random"
 ```
 
 ### Import Sources
@@ -168,16 +168,16 @@ importing the module will result in an import failure immediately.
 
 ```comp
 
-!import .jpeg = comp "contrib/jpeg-turbo" | comp "contrib/jpeg-basic"
+!import jpeg/ = comp "contrib/jpeg-turbo" | comp "contrib/jpeg-basic"
 
 ; Multiple fallback sources using | operator
-!import json = main "json" | std "json" | comp "./minimal-json.comp"
+!import son/ = main "json" | std "json" | comp "./minimal-json.comp"
 
 ; Complex fallback with version preferences
-!import database = main "database" | pkg "postgres@2.1" | pkg "sqlite@3.8"
+!import atabase/ = main "database" | pkg "postgres@2.1" | pkg "sqlite@3.8"
 
 ; Platform-specific fallbacks
-!import graphics = main "graphics" | pkg "opengl@4.6" | pkg "software-renderer@1.0"
+!import raphics/ = main "graphics" | pkg "opengl@4.6" | pkg "software-renderer@1.0"
 
 ```
 
@@ -193,10 +193,10 @@ on using the regularly defined import.
 
 ```comp
 ; Library writes:
-!import .json = std "json"
+!import json/ = std "json"
 
 ; Automatically behaves as:
-!import .json = main "json" | std "json"  ; Try main first, fallback to std
+!import json/ = main "json" | std "json"  ; Try main first, fallback to std
 ```
 
 **Benefits**:
@@ -222,9 +222,9 @@ Inside any imported library the assignment rules are different.
 
 In a library, these look like
 ```comp
-!import .json = std "json"      ; Normal: main can override
-!import .json *= std "json"     ; Strong: always use this exact version
-!import .json = main "json"     ; Explicit: must be provided by main module
+!import json/ = std "json"      ; Normal: main can override
+!import json/ *= std "json"     ; Strong: always use this exact version
+!import json/ = main "json"     ; Explicit: must be provided by main module
 ```
 
 ## Security and Permission Integration
@@ -237,13 +237,13 @@ In a library, these look like
 
 ; Functions inherit module permissions
 !func :fetch_and_save ~{url ~str} = {
-    url -> .http:get -> .file:write "output.json"
+    url -> :http/get -> :file/write "output.json"
 }
 
 ; Permission restriction within module
 !func :safe_compute = {
-    @ctx -> .security:drop #net        ; Drop network access
-    @ctx -> .security:drop #write      ; Drop write access
+    @ctx -> :security/drop #net        ; Drop network access
+    @ctx -> :security/drop #write      ; Drop write access
     data -> :pure_calculation
 }
 ```
@@ -257,7 +257,7 @@ Each imported module gets isolated security context:
 !require read, write, net
 
 ; Import with permission restriction
-!import sandboxed = comp ./untrusted_module
+!import andboxed/ = comp ./untrusted_module
 ; sandboxed module cannot access main module's permissions
 
 ; Explicit permission delegation (if supported)
@@ -271,10 +271,10 @@ sandboxed -> :restricted_function {
 External schemas are naturally sandboxed by format limitations:
 
 ```comp
-!import api = openapi ./external-api.json
+!import pi/ = openapi ./external-api.json
 ; Can only create HTTP client functions - no arbitrary code execution
 
-!import data = protobuf ./schema.proto  
+!import ata/ = protobuf ./schema.proto  
 ; Can only create serialization functions - no system access
 ```
 
@@ -292,8 +292,8 @@ External schemas are naturally sandboxed by format limitations:
 
 !main = {
     ; Program execution entry point
-    $args = .cli:parse_args
-    $config = .config:load $args.config_file
+    $args = :cli/parse_args
+    $config = :config/load $args.config_file
     
     $args.command -> :match {
         "serve" -> :start_server $config
@@ -316,12 +316,12 @@ External schemas are naturally sandboxed by format limitations:
 ; Main module controls all versions
 !main = {
     ; Override specific versions for entire application
-    !import json *= pkg "json@2.5.1"        ; Force specific version
-    !import database *= pkg "postgres@3.2"   ; Application-wide database version
+    !import son/ *= pkg "json@2.5.1"        ; Force specific version
+    !import atabase/ *= pkg "postgres@3.2"   ; Application-wide database version
     
     ; Libraries automatically use these versions
-    .user_service:process_users
-    .data_processor:transform_data
+    :user_service/process_users
+    :data_processor/transform_data
 }
 ```
 
@@ -331,13 +331,13 @@ Libraries automatically inherit main module's dependency choices:
 
 ```comp
 ; user_service.comp - Library module
-!import json = std "json"           ; Default: standard library JSON
-!import database = std "database"   ; Default: standard library database
+!import son/ = std "json"           ; Default: standard library JSON
+!import atabase/ = std "database"   ; Default: standard library database
 
 ; main.comp - Application
-!import json *= pkg "fast-json@3.1"     ; Override with faster JSON library  
-!import database *= pkg "postgres@3.2"  ; Override with PostgreSQL driver
-!import user_service = comp "./user_service.comp"
+!import son/ *= pkg "fast-json@3.1"     ; Override with faster JSON library  
+!import atabase/ *= pkg "postgres@3.2"  ; Override with PostgreSQL driver
+!import ser_service/ = comp "./user_service.comp"
 
 ; user_service automatically uses fast-json@3.1 and postgres@3.2
 ```
@@ -352,9 +352,9 @@ Libraries automatically inherit main module's dependency choices:
 
 ```comp
 ; Explicit, analyzable versions
-!import json = pkg "json@2.5.1"           ; Exact version
-!import utils = git "github.com/org/utils@v1.4.2"  ; Git tag
-!import api = openapi "https:;api.example.com/v2/spec.json"  ; URL with version
+!import son/ = pkg "json@2.5.1"           ; Exact version
+!import tils/ = git "github.com/org/utils@v1.4.2"  ; Git tag
+!import pi/ = openapi "https:;api.example.com/v2/spec.json"  ; URL with version
 
 ; Tools can parse and update these automatically
 ```
@@ -371,10 +371,10 @@ The dynamic module system maintains static safety through a **construction-time 
 **1. Automatic Import Translation (90% of cases)**
 ```comp
 ; Transparent imports via specialized importers
-!import api = "openapi:;./swagger.json"
-!import db = "postgres:;localhost/mydb?schema=public"
-!import py_utils = "python:;./utils.py"
-!import proto = "protobuf:;./messages.proto"
+!import pi/ = "openapi:;./swagger.json"
+!import b/ = "postgres:;localhost/mydb?schema=public"
+!import y_utils/ = "python:;./utils.py"
+!import roto/ = "protobuf:;./messages.proto"
 
 ; Use normally with full type safety
 api.users.get({id=123})
@@ -430,7 +430,7 @@ that has compatible shape definitions.
 
 ```comp
 ; Github release based versioning
-!import .utils = comp @company/utils@~1.2.3
+!import utils/ = comp @company/utils@~1.2.3
 ```
 
 ### Standard Library branches
@@ -461,14 +461,14 @@ convenience with responsibility.
 
 ```comp
 ; Platform-specific imports
-!import graphics = disk deps/basic-graphics
-!import graphics.linux ?= path hardware-accelerated-linux
-!import graphics.windows ?= path directx-graphics
-!import graphics.macos ?= path metal-graphics
+!import raphics/ = disk deps/basic-graphics
+!import raphics/.linux ?= path hardware-accelerated-linux
+!import raphics/.windows ?= path directx-graphics
+!import raphics/.macos ?= path metal-graphics
 
 ; Environment-based imports
-!import database = stdlib database/sqlite       ; Development default
-!import database.production ?= stdlib database/postgresql
+!import atabase/ = stdlib database/sqlite       ; Development default
+!import atabase/.production ?= stdlib database/postgresql
 ```
 
 ## Runtime Module Management

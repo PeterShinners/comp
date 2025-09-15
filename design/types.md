@@ -183,13 +183,13 @@ shape. The math module defines tags for these constants and a shape that can be
 unioned with numbers for values that should allow these.
 
 The language defines several specialied tags to define these values
-* `.math#nan` The "not a number" value
-* `.math#inf` Infinity value
-* `.math#ninf` Negative infinity value
+* `#math/nan` The "not a number" value
+* `#math/inf` Infinity value
+* `#math/ninf` Negative infinity value
 
-The `.math~inf` shape includes all three of these tags. By combining this with
+The `~math/inf` shape includes all three of these tags. By combining this with
 numbers you can create a shape that combines these values together,
-`.num|.math~inf`
+`.num|~math/inf`
 
 ## Strings
 
@@ -231,9 +231,9 @@ Comp
 text1 + text2           ; ERROR: operators reserved for numbers
 
 ; Use explicit methods or templates
-{text1, text2} -> :str:concat
+{text1, text2} -> :str/concat
 {text1, text2} -> "${}${}"        ; Template concatenation
-{"=" 40} -> :str:repeat       ; Repetition via functions
+{"=" 40} -> :str/repeat       ; Repetition via functions
 ```
 
 ### Templates
@@ -301,11 +301,11 @@ namespace.
 
 ; Standard string operations
 text -> :length                    ; Get length
-text -> .str:trim                  ; Remove whitespace
-text -> .str:uppercase             ; Convert case
-{text ","} -> .str:split           ; Split on delimiter
-{text "old" "new"} -> .str:replace ; Replace substring
-{"ERROR: " message} -> .str:cat    ; Short Unix-style concatenation
+text -> :str/trim                  ; Remove whitespace
+text -> :str/uppercase             ; Convert case
+{text ","} -> :str/split           ; Split on delimiter
+{text "old" "new"} -> :str/replace ; Replace substring
+{"ERROR: " message} -> :str/cat    ; Short Unix-style concatenation
 ```
 
 ### String Units

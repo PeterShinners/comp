@@ -18,9 +18,9 @@ recognize the emphasis on data transformation and uniform syntax.
 ; Hello World example in Comp language
 
 !main = {
-  $names = {"USERNAME" "USER" "LOGNAME"} => .os:getenv 
+  $names = {"USERNAME" "USER" "LOGNAME"} => :os/getenv 
   $names -> {.iter:any | "World"} -> "Hello ${}" 
-    -> .io:print
+    -> :io/print
 }
 ```
 
@@ -29,7 +29,7 @@ username from common environment variables. From this small example you can see:
 
 * Whitespace is completely optional and flexible
 * Functions are invoked with -> (single) and => (collection) operators
-* Other modules provide namespaced functions like `.os:getenv`
+* Other modules provide namespaced functions like `:os/getenv`
 * String interpolation, fallback values with `|`, and more
 
 ## Highlights

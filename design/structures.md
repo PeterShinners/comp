@@ -84,7 +84,7 @@ using the `#` operator with an integer number. The index is 0 based.
 
 The indexing requires a zero or positive value. There is no support for indexing
 backward from the end using negative indices. For these types of failures
-see the library functions like `.iter:last` or `.iter:tail`
+see the library functions like `:iter/last` or `:iter/tail`
 
 Assinging to a field index larger than the structure will result in a failure.
 Using the `*=` strong assignment will force the structure to be expaded to the
@@ -263,7 +263,7 @@ user = {
     ...base
     ...permissions
     active=!true
-    created_at=:time:now
+    created_at=:time/now
 }
 ; Result: {name="Alice", age=30, read=!true, write=!false, active=!true, created_at=<timestamp>}
 ```
@@ -321,7 +321,7 @@ individual_fields = {
 }
 
 shaped_spread = {
-    ..source~source-without-password
+    .~source/source-without-password
 }
 
 public_data = {
@@ -351,8 +351,8 @@ $value = $lazy.b  ; Both :func-one and :func-two invoked
 
 ; Create structure where individual fields are resolve lazily
 lazy_config = {
-    database_url = ["DATABASE_URL" -> :env:get]
-    max_connections = ["MAX_CONN" -> :env:get -> :num:parse]
+    database_url = ["DATABASE_URL" -> :env/get]
+    max_connections = ["MAX_CONN" -> :env/get -> :num/parse]
 }
 ```
 
@@ -419,7 +419,7 @@ declartive shape definitions.
     name = name
     role = role
     permissions = role -> :get_default_permissions
-    created_at = :time:now
+    created_at = :time/now
     active = !true
     settings = {
         theme = "light"
@@ -440,16 +440,16 @@ user = "Bob" -> :user_template
 user = {name="Alice", age=30, #role#admin, active=!true}
 
 ; Get field information
-field_names = user -> :struct:field_names    ; ["name", "age", "#role", "active"]
-field_count = user -> :struct:length         ; 4
-has_role = user -> :struct:has_field "#role" ; !true
+field_names = user -> :struct/field_names    ; ["name", "age", "#role", "active"]
+field_count = user -> :struct/length         ; 4
+has_role = user -> :struct/has_field "#role" ; !true
 ```
 
 ### Structure Analysis
 
 ```comp
 ; Analyze structure composition
-user -> :struct:analyze -> {
+user -> :struct/analyze -> {
     named_fields = @.named_count      ; 3
     tagged_fields = @.tagged_count    ; 1
     positional_fields = @.positional_count  ; 0
@@ -465,12 +465,12 @@ user2 = {age=30, name="Alice"}  ; Different order
 user3 = {name="Alice", age=30, city="Boston"}
 
 ; Structural equality (ignores field order)
-user1 -> :struct:equals user2    ; !true
-user1 -> :struct:equals user3    ; !false
+user1 -> :struct/equals user2    ; !true
+user1 -> :struct/equals user3    ; !false
 
 ; Field subset checking
-user1 -> :struct:subset_of user3  ; !true (user1 fields ⊆ user3 fields)
-user3 -> :struct:subset_of user1  ; !false
+user1 -> :struct/subset_of user3  ; !true (user1 fields ⊆ user3 fields)
+user3 -> :struct/subset_of user1  ; !false
 ```
 
 

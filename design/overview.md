@@ -29,9 +29,9 @@ independent ordering of definitions.
 ; Hello World example in Comp language
 
 !main = {
-  $names = {"USERNAME" "USER" "LOGNAME"} => .os:getenv 
-  $names -> {.iter:pickone | "World"} -> "Hello ${}" 
-    -> .io:print
+  $names = {"USERNAME" "USER" "LOGNAME"} => :os/getenv 
+  $names -> {:iter/pickone | "World"} -> "Hello ${}" 
+    -> :io/print
 }
 ```
 
@@ -109,7 +109,7 @@ every time it is referenced.
 When referencing definitions from other modules, the language requies the
 character prefix on the module and object reference.
 
-* **Function** `:` prefixed with a colon, like `:process` or `:num:absolute`
+* **Function** `:` prefixed with a colon, like `:process` or `:num/absolute`
 * **Shape** `~` prefixed with tilde, like `~Rect` and `~io~Stream`
 * **Tags** `#` prefixed with hash, like `#status` or `#log#severity`
 
@@ -388,7 +388,7 @@ data
 -> :transform     ; invoke a method
 => :validate      ; invoke a method on each entry
 -> :save          ; invoke method on collected data
-!> {.log:error}   ; log error 
+!> {:log/error}   ; log error 
 ```
 
 Functions are intended to be invoked on structures. Some functions are defined
@@ -503,7 +503,7 @@ data -> :fetch -> :validate -> :process
 ; Function-scoped isolation
 !func :process_data = {
     $func.retries = 3        ; Function-local only
-    $func.start_time = .time:now
+    $func.start_time = :time/now
     
     data -> :transform -> :validate
 }  ; $func namespace cleared here
@@ -534,7 +534,7 @@ connection_limit = @ctx.max_connections    ; Finds @app.max_connections
 @ctx.processing_mode = "batch"
 
 ; Spawned thread gets copy
-.threading:spawn {
+:threading/spawn {
     ; This thread has independent copy of @app and @ctx
     ; Changes here don't affect parent or sibling threads
     @ctx.processing_mode = "streaming"    ; Local to this thread
@@ -573,7 +573,7 @@ exposed definitions for the module itself. Adding the `&` ampersand suffix
 allows them to be used privately.
 
 ```comp
-!alias :leftpad = .str:ljust    ; global definition
+!alias :leftpad = :str/ljust    ; global definition
 !alias #logsev& = #log#severity ; private definition
 ```
 

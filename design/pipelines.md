@@ -27,13 +27,13 @@ Transforms structures through function calls or structure construction:
 data -> :validate -> :transform -> :save
 
 ; Structure construction
-user -> {name=@.name, processed_at=:time:now}
+user -> {name=@.name, processed_at=:time/now}
 
 ; Module function calls
 response -> http:parse -> json:extract -> db:save
 
 ; Pipeline starting with function call
-:config:load -> :validate -> :apply_settings
+:config/load -> :validate -> :apply_settings
 ```
 
 ### Iteration Pipeline (`=>`)
@@ -43,7 +43,7 @@ Processes collections by applying expressions to each element:
 ```comp
 users => {name=@.name, active=@.status=="active"}
 numbers => @ * 2  
-files => :file:process
+files => :file/process
 
 ; With control flow
 items => {
@@ -62,10 +62,10 @@ Merges additional fields while preserving pipeline flow:
 
 ```comp
 ; Add parameters without nesting
-data ..> {timeout=30, retries=3} -> :network:request
+data ..> {timeout=30, retries=3} -> :network/request
 
 ; Equivalent to:
-data -> {...@, timeout=30, retries=3} -> :network:request
+data -> {...@, timeout=30, retries=3} -> :network/request
 
 ; Works with function results
 user ..> :load_preferences -> :render_profile
@@ -314,7 +314,7 @@ data -> :process
     !> {error -> :handle_generic_error}  ; Catch-all
 
 ; Pattern matching in error handling
-response -> :http:request !> {
+response -> :http/request !> {
     @.status_code -> match {
         404 -> {error="Not found", action="check_url"}
         500 -> {error="Server error", action="retry_later"}  
@@ -330,8 +330,8 @@ response -> :http:request !> {
 
 ```comp
 ; Function-scoped labels
-path -> :fs:open -> !label $fd -> :process_file
-$fd -> :fs:close  ; Reuse labeled value
+path -> :fs/open -> !label $fd -> :process_file
+$fd -> :fs/close  ; Reuse labeled value
 
 ; Statement-scoped labels  
 data -> :expensive_transform -> !label ^processed
@@ -358,10 +358,10 @@ user_data -> $validation_pipeline -> $processing_pipeline -> $storage_pipeline
 ; Build pipeline based on data characteristics
 !func :create_pipeline ~{data_type ~str} = {
     data_type -> :match {
-        "csv" -> (:csv:parse -> :validate -> :normalize)
-        "json" -> (:json:parse -> :validate -> :transform)
-        "xml" -> (:xml:parse -> :convert_to_json -> :validate)
-        else -> (:binary:decode -> :detect_format -> :process)
+        "csv" -> (:csv/parse -> :validate -> :normalize)
+        "json" -> (:json/parse -> :validate -> :transform)
+        "xml" -> (:xml/parse -> :convert_to_json -> :validate)
+        else -> (:binary/decode -> :detect_format -> :process)
     }
 }
 

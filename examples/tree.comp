@@ -34,7 +34,7 @@
 }
 
 !func :contains ~{tree~Tree value~number} = {
-    .lang:switch
+    :lang/switch
         .'tree.value < value' {{tree.left value} -> :contains}
         .'tree.value > value' {{tree.right value} -> :contains}
         .else {'#true'}

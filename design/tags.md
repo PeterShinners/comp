@@ -53,18 +53,18 @@ and values of related tags.
 
 ```comp
 ; Built-in auto-value functions
-!pure :tag:name = {ctx -> ctx.name}                ; Use tag name as string value
-!pure :tag:sequence = {ctx -> ctx.prev_value + 1}  ; Sequential numbers
-!pure :tag:bitwise = {ctx -> 1 << ctx.index}       ; Bit flags for permissions
+!pure :tag/name = {ctx -> ctx.name}                ; Use tag name as string value
+!pure :tag/sequence = {ctx -> ctx.prev_value + 1}  ; Sequential numbers
+!pure :tag/bitwise = {ctx -> 1 << ctx.index}       ; Bit flags for permissions
 
 ; Usage examples
-!tag #color {:tag:name} = {
+!tag #color {:tag/name} = {
     red         ; Automatically gets value "red"
     green       ; Automatically gets value "green"
     blue        ; Automatically gets value "blue"
 }
 
-!tag #permissions {:tag:bitwise} = {
+!tag #permissions {:tag/bitwise} = {
     read        ; 1 (1 << 0)
     write       ; 2 (1 << 1)
     execute     ; 4 (1 << 2)
@@ -185,11 +185,11 @@ expect an incremented id but keep getting loaded in different orders.)
 !tag #priority = {low, medium, high, critical}
 
 ; In module B  
-!import prioritymod = comp ./priority_module
+!import rioritymod/ = comp ./priority_module
 
 ; Usage - values are interchangeable
 local_priority = #priority#high
-imported_priority = .prioritymod#priority#high
+imported_priority = #prioritymod/priority#high
 same_value = local_priority == imported_priority    ; #true
 ```
 
@@ -198,13 +198,13 @@ same_value = local_priority == imported_priority    ; #true
 ```comp
 ; Import and extend
 !tag #my_priorities = {
-    ..external#priority        ; Import all values
-    urgent = .external#priority#critical    ; Alias existing
+    .#external/priority        ; Import all values
+    urgent = #external/priority#critical    ; Alias existing
     emergency = {escalate=#true}           ; Add new
 }
 
 ; Values remain interchangeable
-#my_priorities#urgent == .external#priority#critical    ; #true
+#my_priorities#urgent == #external/priority#critical    ; #true
 ```
 
 
