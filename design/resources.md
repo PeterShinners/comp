@@ -249,7 +249,7 @@ $config = {retry_limit=3}
 **Captured State**:
 - Function-local variables (`$var`)
 - Pipeline variables (`^var`)
-- Module state (`@mod`) 
+- Module state (`!mod`) 
 - Context state (`@ctx`) - excluding security tokens
 
 ### Resource Transaction Integration
@@ -554,9 +554,9 @@ lazy_database = [
 ]
 
 !func :get_database = {
-    @mod.database | {
-        @mod.database = lazy_database -> :evaluate
-        @mod.database
+    !mod.database | {
+        !mod.database = lazy_database -> :evaluate
+        !mod.database
     }
 }
 ```

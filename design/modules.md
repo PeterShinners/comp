@@ -73,6 +73,7 @@ on the type of object they contain
 * `~nil` shape of an empty structure
 * `~num` shape for a scalar numeric value
 * `~str` shape for a scalar string value
+* `:length` number of items in a structure
 
 ## Package Information
 
@@ -284,8 +285,8 @@ External schemas are naturally sandboxed by format limitations:
 ```comp
 !entry = {
     ; Module initialization - runs when imported
-    @mod.initialized = !true
-    @mod.version = "1.2.3" 
+    !mod.initialized = !true
+    !mod.version = "1.2.3" 
     :setup_module_state
 }
 
@@ -475,17 +476,7 @@ convenience with responsibility.
 ### Module Introspection
 
 The typical `!describe` operator generates a structure with information
-about a module.
-
-```comp
-; Query module information (contents not yet certain)
-!describe .io -> {
-    name = @.name           ; "io"
-    version = @.version     ; "1.0.0"
-    functions = @.functions ; List of available function descriptions
-    source = @.source       ; Import source information
-}
-```
+about a module. With modules this appears as `!describe .io`.
 
 ## Comp Module
 

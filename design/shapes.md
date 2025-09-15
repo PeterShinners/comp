@@ -70,7 +70,7 @@ The modules will fail to build when a shape name is defined multiple times.
 ; Function parameter spreading
 !func :analyze ~{...~RawData, complexity ~num = 0} = {
     ; Has all RawData fields plus complexity parameter
-    @in -> :process_with_complexity
+    !in -> :process_with_complexity
 }
 ```
 
@@ -144,7 +144,7 @@ Functions automatically apply `?~@` (weak morph with namespace) to incoming argu
 ```comp
 !func :create_user ~{name ~str, age ~num, active ~bool = !true} = {
     ; Automatically morphs input using ?~@
-    @in -> :validate -> :save
+    !in -> :validate -> :save
 }
 
 ; All of these work:
@@ -185,7 +185,7 @@ response ~ HttpResponse -> match {
 
 !func :create_user ~ValidUser = {
     ; Input guaranteed to match validation rules
-    @in -> :save_to_database
+    !in -> :save_to_database
 }
 ```
 
@@ -219,7 +219,7 @@ similar_data ~ ValidatedUser  ; Uses cached compiled shape
 }
 
 !func :create_user_endpoint ~UserCreateRequest -> ~HttpResponse = {
-    @in -> :validate_unique_email -> :create_user -> :send_welcome_email -> {
+    !in -> :validate_unique_email -> :create_user -> :send_welcome_email -> {
         status = 201
         body = {message="User created successfully", user=@}
         headers = {"Content-Type": "application/json"}
@@ -229,7 +229,20 @@ similar_data ~ ValidatedUser  ; Uses cached compiled shape
 
 ## Unit System
 
+Units are a special categorization for shapes. A unit can be attached to any
+value using the `@` operator. This can also be used in shape definitions to
+ensure compatible units.
+
 ### Unit Definition Syntax
+
+Defining a unit involves picking a type the unit can attach to and a 
+pure function to perform conversions. The function must be pure so it can
+be evaluated at compile time.
+
+
+```comp
+!unit @
+
 
 ```comp
 !unit @distance ~num = {

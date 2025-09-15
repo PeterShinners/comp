@@ -118,6 +118,7 @@ names for each type of definition.
 
 ## Structures
 
+
 All data in Comp is represented as structures (ordered collections of fields).
 Scalars automatically promote to single-element structures when needed:
 
@@ -481,11 +482,11 @@ These strength alternatives are used for
 
 ```comp
 @app.config         ; Application-level configuration
-@mod.state          ; Module-level state
+!mod.state          ; Module-level state
 @env.production     ; Environment settings  
 @ctx.security       ; Context-specific data
-@in.data           ; Input context
-@out.result        ; Output context
+!in.data           ; Input context
+!out.result        ; Output context
 $func.temporary    ; Function-scoped (auto-cleared)
 ```
 
@@ -510,13 +511,13 @@ data -> :fetch -> :validate -> :process
 
 ### Context Stack Hierarchy
 
-**Resolution Order**: `$func` → `@mod` → `@app` → `@env`
+**Resolution Order**: `$func` → `!mod` → `@app` → `@env`
 
 ```comp
 ; Setting values at different levels
 @env.database_url = "postgres:;prod"      ; Environment
 @app.max_connections = 100                 ; Application  
-@mod.table_prefix = "user_"               ; Module
+!mod.table_prefix = "user_"               ; Module
 $func.batch_size = 50                     ; Function
 
 ; Access uses first match in hierarchy
@@ -543,7 +544,7 @@ connection_limit = @ctx.max_connections    ; Finds @app.max_connections
 @ctx.processing_mode    ; Still "batch"
 ```
 
-## Private Data Attachment
+## Private
 
 Private and unexported data uses the `&` in different ways to prevent other
 modules from accessing values and definitions. Remember this by tilting your

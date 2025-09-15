@@ -148,7 +148,7 @@ Any code can invoke any function with some or partial permissions revoked.
 There is no requirement to use `!pure` to get this functionality. 
 
 **Security Isolation**:
-- Receive empty `@ctx` regardless of caller permissions
+- Receive empty `!ctx` regardless of caller permissions
 - Cannot access files, network, or other resources
 - Enable compile-time evaluation and caching
 - Safe for parallel execution without locks
@@ -341,7 +341,7 @@ When a tag value is created, it carries metadata about which module defined it. 
 !tag #mammal = {#dog #cat}
 !func :speak ~{#mammal ...} = "generic mammal sound"
 !func :speak ~{#dog ...} = {
-    $parent = @in -> :type#mammal:speak  ; Explicit parent call
+    $parent = !in -> :type#mammal:speak  ; Explicit parent call
     "woof and ${parent}"
 }
 

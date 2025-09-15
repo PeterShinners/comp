@@ -5,54 +5,35 @@
 ## Overview
 
 This document details the core data types provided by the Comp language and
-their implementation behavior. It covers the unified number system, string
-templates and formatting, boolean operations, the unit system for
-domain-specific constraints.
-
-Comp also defines tags, which work as both basic values and shapes.
-
-## Builtin Data Types
-
-There are a handful of types defined by the language. The most common will be
-`num` for numberic values, and `str` for strings of text.
-
-Each of the types comes with a defined shape to represent it. Most of these also
-provide an importable module from the standard library with additional functions
-and definitions to manipulate these values.
+their implementation behavior. Each of the types comes with a defined shape to
+represent it. Most types also provide an importable module from the standard
+library with additional functions and definitions to manipulate these values.
 
 * **String** - `~str` Array of utf8 characters
 * **Number** - `~num` Number with infinite precision, not restricted to hardware
   accuracy or limitations
 * **Boolean** - `~bool` Primitive true or false value
 
-There are a handful of more specialized types, which contain separate documents
-to describe their usage and implementation.
+There are other more specialized types not covered in this document.
 
-* **Buffer** - `~buffer` Container for binary, mutable data 
+* **Tag** - a hierarchical enumeration that is both a value and a shape
+* **Buffer** - `~buffer` Container for binary, mutable data, mostly for interchange 
 * **Handle** - `~handle` handle for interacting with resources
+* **Path** - Language syntax exists for paths, but they are stored as simple structures
 
 The builtin types are not considered structures. They do not contain fields or
 iterable values. They cannot be directly converted from one type into another
 without using functions. These builtin types are quite featureful, and can
 be used to combine into more complex data types through structures.
 
-
-### Definitions
-
-A Comp module can create several other types of definitions that are used by the
-language, but not representable as values or data. The syntax understands where
-these types of lookups are needed and will use specially formatted references to
-their names, or allowing them to be referenced from other modules.
-
-* **Shape** a schema definition that looks like a structure
-* **Module** used to access definitions from external sources
-* **Block** an unexecuted stricture functions can invoke dynamically
-
 ### Structure Basics
 
-Any plain, standalone value can be automatically converted into a structure
-with that single value as an untyped field. This is what happens when invoking
+Any plain, standalone value will be automatically converted into a structure
+with that single value as an unnamed field. This typically happens when invoking 
 a function on a simple value.
+
+A structure is also defined as a literal in `{}` curly braces with either
+named or unnamed fields.
 
 ```comp
 42             ; Scalar number
@@ -65,11 +46,11 @@ the structure can have an optionally assigned field name. The values are
 ordered, and can be iterated or referenced by position in the structure.
 
 The language allows the definition of shapes, which act like a schema for a
-structure. This can define fields that belong to a structure, along with
+structure. The schema defines fields that belong to a structure, along with
 optional default values, typing information, and documentation.
 
-Any structure that has the required fields and positional values can be
-considered compatible with a defined shape. Every function defines a required
+Any structure that contains the required fields and positional values is
+considered compatible with a matching shape. Every function defines a required
 shape, which allows any compatible structure to be used to call that function.
 
 ## Booleans
@@ -102,8 +83,7 @@ processing additional statements.
 
 ## Numbers
 
-The number type is a unified implementation that combines the behavior of the
-various numerical values defined in other languages
+A number value represents any possible numeric value accurately and correctly.
 
 * Unlimited size. There is no maximum value for a number, positive or negative.
   Once integer values exceed the capacity of hardware computation there will be
@@ -112,27 +92,26 @@ various numerical values defined in other languages
   reliable and accurate precision without the unintentional errors and rounding
   of hardware fractional values. Repeating fractional values do not lose
   accuracy.
-* Extendable restrictions. The language allows extending a number's type with
+* Extendable definitions. The language allows extending a number's type with
   Units to define restrictions that ensure they can safely be used with hardware
   numberic values.
 
 Numbers have a shape, `~num` which can be used in shape definitions. There is
-also a `num` module in the standard library with more mathematic operators and
+also a `.num` module in the standard library with more mathematic operators and
 converters.
 
 Number shapes can also be combined with units, which helps define limits and
 interactions between multiple number values.
 
 **Key Properties**:
-* No integer division truncation: `10 / 3` always returns `3.333...`
+* No integer division truncation: `10 / 3` is a proper repeating fraction `3.333...`
 * No integer overflow: large numbers remain exact
-* Arbitrary precision decimal support
 * Consistent mathematical behavior across all operations
 * Does not support special "infinity" and "nan" values by default
 
 ### Number Literals
 
-Number values can be defined as literal values in the code. They use a
+Number values are commonly defined as literal values in the code. They use a
 traditional syntax seen in other languages and data formats.
 * An optional zero and letter prefix can define different bases for the number.
     The default is base 10, but `0x` hex, `0o` octal, and `0b` binary are all
@@ -147,7 +126,7 @@ traditional syntax seen in other languages and data formats.
 
 ```comp
 12.3
-15+e3
+15e-3
 0b0110_1000
 0o644
 -.7
@@ -171,13 +150,29 @@ a ** b      ; Exponentiation
 - a         ; Negative
 ```
 
-**No Operator Overloading**: Other types use explicit method calls:
+There is no operator overloading. The language defines traditional 
+mathematical operators for numbers only. Other types have a handful of
+minimal operators, like using `&&` logical-end on boolean values.
+
+### Number Units
+
+Comp allows a special definition named "units" to attach to any value. There is
+a rich library of builting measurements and conversion units in the builtin
+`.unit` module.
+
+Number values use the `@` attach operator for units.
+
+When attached to number these allow the number to logically interact with other
+unit numbers. As a general rule, when operators combine multiple compatibly
+units, the resulting unit will match the type of the first value.
+
 ```comp
-; Strings use methods, not operators
-text1 -> :str:concat text2
-path1 -> :path:join path2
-list1 -> :list:append list2
+
+12@foot + 12@inch     // Becomes `13@foot`
+10@gram + 15@seconds  // Fails because illegal conversion
+
 ```
+
 
 ### Illegal Numbers
 
@@ -188,39 +183,38 @@ shape. The math module defines tags for these constants and a shape that can be
 unioned with numbers for values that should allow these.
 
 The language defines several specialied tags to define these values
-* `#math#nan` The "not a number" value
-* `#math#inf` Infinity value
-* `#math#ninf` Negative infinity value
+* `.math#nan` The "not a number" value
+* `.math#inf` Infinity value
+* `.math#ninf` Negative infinity value
 
-The `~math~inf` shape includes all three of these tags. By combining this with
+The `.math~inf` shape includes all three of these tags. By combining this with
 numbers you can create a shape that combines these values together,
-`~num|~math~inf`
+`.num|.math~inf`
 
 ## Strings
 
 A string is an immutable sequence of UTF-8 encoded characters. There are no
 operators like `+` or `*` to modify or create new string values. There is a
-robust standard `str` module that defines many common and advanced string
+robust standard `.str` module that defines many common and advanced string
 editing and evaluation.
 
 Strings can only represent valid and allowable UTF-8 encoded characters. For
-managing binary data, the `buffer` must be used.
+managing binary data use `~buffer` values.
 
 All string values can be used as a template for formatting. The string is parsed
-for special `${}` tokens with values inside the braces. Invoking a string will
+for special `${}`-style tokens with values inside the braces. Invoking a string will
 apply the formatting. 
 
 ### String Literals
 
-Strings literals must be defined with the `"` double quotation marks. The single
-quotation marks have a different meaning in Comp.
+Strings literals must be defined with the `"` double quotation marks. Single
+quotation marks have a different meaning in Comp, for defining field names.
 
 Triple quotations can also be used to create multiline string literals. This
-also becomes a convenient way to create literals that also have quotations marks
+also becomes a convenient way to create literals that contain quotations marks
 in the text. Whitespace inside the multiline string literals is preserved as it
-appears. But remember the whitespace outside the quotes is optional and use as
-desired. This should allow positioning the opening quotes wherever is most
-convenient.
+appears. Whitespace outside quotes is arbitrary in Comp, which helps positioning
+the opening quotes wherever is most convenient.
 
 **Design Philosophy**: No operators for strings - use explicit functions and
 templates instead:
@@ -244,14 +238,19 @@ text1 + text2           ; ERROR: operators reserved for numbers
 
 ### Templates
 
-The string templates will convert values to strings using generic formatting
-rules. There is no way to invoke functions or apply shapes to the values inside
-the template syntax. Those changes should be pipelined to the structure the
-template is invoked on. For example, no `"Hello, ${name->:str:uppercase}"`
+Any string can contain a template formatting syntax that uses `${}` curly braces
+preceded by a dollar sign. These strings can be invoked like a function to
+substutite field and positioned values into the string.
 
-The `${}` tokens in the string template can use several values to resovle values
-from the incoming structure. These rules follow the principals of Python's
-string formatting lookups.
+The string templates do not support expressions or additional formatting
+controls. They are simply to substitute the referenced values, converted into
+strings.
+
+The `${}` tokens in the string template can use several syntaxes to resovle
+values from the incoming structure. These rules follow the principals of
+Python's string formatting lookups.
+
+If that value being referenced is not found, the operation reults in a failure.
 
 **1. Positional Interpolation**:
 ```comp
@@ -293,65 +292,51 @@ user -> "Hello ${name}, your role is ${role}"
 {name="Alice", "A", "B"} -> "${name} sees ${#0} and ${#1}"
 ```
 
-### String Formatters
-
-Comp allows attaching functions to any value as an invokable attachment. All
-strings default to using a basic formatting function that can be defined in the
-current context. Each string can be attached to a different function to apply
-templates in different ways. This is commonly used to provide language specific
-escaping or quoting rules to the string template.
-
-The `^` caret operator attach a function to a any type of value. The language
-defines rules to determine how the attachment survives various data
-transformations. (Tags cannot have an attached invoke)
-
-```comp
-html_template = "<h1>${title}</h1><p>${content}</p>"^:html:safe
-sql_template = "SELECT * FROM users WHERE id = ${id}"^:sql:escape
-```
-
-When used with string literals this provides a hint to developer tools about how
-to highlight or annotate the string contents.
-
-These formatters are regular functions and they can be invoked directly without
-attaching them to strings.
-
 ### String Operations
 
-The core library privides a rich set of string operations in the `:str`
+The core library privides a rich set of string operations in the `.str`
 namespace.
 
 ```comp
 
 ; Standard string operations
 text -> :length                    ; Get length
-text -> :str:trim                  ; Remove whitespace
-text -> :str:uppercase             ; Convert case
-{text ","} -> :str:split           ; Split on delimiter
-{text "old" "new"} -> :str:replace ; Replace substring
-{"ERROR: " message} -> :str:cat    ; Short Unix-style concatenation
+text -> .str:trim                  ; Remove whitespace
+text -> .str:uppercase             ; Convert case
+{text ","} -> .str:split           ; Split on delimiter
+{text "old" "new"} -> .str:replace ; Replace substring
+{"ERROR: " message} -> .str:cat    ; Short Unix-style concatenation
 ```
 
-**String Processing Patterns**:
+### String Units
+
+This basic string templating is attached to all string types by default.
+
+Comp defines a type enhancement called "units". When attached to strings,
+units can define how string formatting is applied when the string is invoked.
+
+The language and libraries can provide alternative string formatters that may
+to more advanced formatting and apply critical escaping rules to data.
+
+Comp allows attaching units to any value as an invokable attachment. Each
+string can be attached to a specific function used when invoked. 
+
+The `@` attach operator selects a unit for a string.
+
 ```comp
-; Preprocessing pattern for complex formatting
-!func :format_financial ~{amount, date} = {
-    amount = amount -> {:num:commify "USD"} -> :num:currency
-    date = {date "MMM DD"} -> :date:format
-}
-
-transactions
-  => :format_financial
-  =? {"Transaction: ${amount} on ${date}"}
-  ..> "\n" -> :str:join
+$html = "<h1>${title}</h1><p>${content}</p>" @ .html@template
+$sql = "SELECT * FROM users WHERE id = ${id}" @ .db@sql
 ```
+
+These attached functions can also provide a strong hint to developer tools
+that want to highlight or complete text within the string literal. 
 
 ## Additional Plans
 
 ### Future Constraint System
 
 Reserved syntax for compile-time constraints. These rules would come from pure
-functions, and probably need access to some level of AST or parsed data to allow
+functions, and probably want access to some level of AST or parsed data to allow
 the variety of syntaxes used in various languages and examples.
 
 ```comp
@@ -360,7 +345,6 @@ the variety of syntaxes used in various languages and examples.
 ~str|len>5|matches="^[A-Z]"          ; String constraints  
 ~User|age>=18|verified=#true            ; Complex constraints
 ```
-
 
 ### Context-Controlled Behavior
 
