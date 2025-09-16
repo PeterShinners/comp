@@ -1,6 +1,6 @@
-# Pipelines, Flow Control and Failures
+# Pipelines and Flow Control
 
-*Design for Comp's error handling, control flow operators, pipeline composition, and failure propagation*
+*Design for Comp's error handling, control flow operators, pipeline composition*
 
 ## Overview
 
@@ -72,82 +72,6 @@ user ..> :load_preferences -> :render_profile
 
 ; Works with namespaces
 request ..> @app.defaults -> :process_request
-```
-
-## Failure Propagation System
-
-### Automatic Failure Propagation
-
-When any pipeline operation encounters a failure structure, all subsequent operations are automatically skipped:
-
-```comp
-; If :step1 fails, :step2 and :step3 are skipped
-data -> :step1 -> :step2 -> :step3
-
-; Failure propagates through iteration
-users => :validate -> :save  ; Invalid users skipped automatically
-
-; Spread operations also propagate failures
-data ..> :load_config -> :process  ; Config loading failure stops pipeline
-```
-### Failure Structures
-
-Shape application failures return structured information:
-
-```comp
-{
-    #failure
-    #shape_application_failed
-    message = "Type validation failed"
-    partial = {x="hello", y=20}         ; Partial results
-    mapping = {field pairing details}
-    errors = {specific error list}
-}
-```
-
-### Failure Structure Format
-
-Failures are structured data with specific tags:
-
-```comp
-{
-    #failure
-    #error_type                    ; Specific error classification
-    message = "Description of what went wrong"
-    context = {original_input}     ; Context when error occurred
-    stack_trace = [...]           ; Execution context
-    recoverable = !true           ; Whether recovery is possible
-}
-```
-
-### Failure Types Hierarchy
-
-```comp
-!tag #failure = {
-    validation = {
-        type_mismatch = !nil
-        missing_field = !nil
-        constraint_violation = !nil
-        shape_application_failed = !nil
-    }
-    runtime = {
-        resource_unavailable = !nil
-        permission_denied = !nil
-        timeout = !nil
-        network_error = {retryable=!true}
-        io_error = !nil
-    }
-    system = {
-        memory_exhausted = !nil
-        stack_overflow = !nil
-        internal_error = !nil
-    }
-    user = {
-        invalid_input = !nil
-        unauthorized = !nil
-        not_found = !nil
-    }
-}
 ```
 
 ## Flow Control Operators
@@ -304,25 +228,6 @@ user -> :load_profile !> {
 }
 ```
 
-### Hierarchical Error Handling
-
-```comp
-; Handle specific error types
-data -> :process 
-    !> {error.#validation -> :handle_validation_error}
-    !> {error.#network -> :handle_network_error}
-    !> {error -> :handle_generic_error}  ; Catch-all
-
-; Pattern matching in error handling
-response -> :http/request !> {
-    @.status_code -> match {
-        404 -> {error="Not found", action="check_url"}
-        500 -> {error="Server error", action="retry_later"}  
-        timeout -> {error="Timeout", action="retry_immediately"}
-        else -> {error="Unknown error", code=@.status_code}
-    }
-}
-```
 
 ## Advanced Pipeline Patterns
 

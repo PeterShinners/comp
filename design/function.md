@@ -495,36 +495,3 @@ user_input -> :match_values
 $user = :load_user -> :nest .{"Hello, {$name}" -> :io/print}
 ```
 
-### Function Documentation
-
-Documentation can be attached to functions using the `!doc` operator with string literals that support template operations:
-
-The `!describe` operator accepts a function reference. On functions
-this gives information about the function's original name, shape,
-block definition, documentation, and more.
-```
-```comp
-!doc = "Processes HTTP requests and returns formatted responses"
-
-!func :api_endpoint ~{request ~HttpRequest} -> ~HttpResponse = {
-    request -> :validate -> :process -> :format_response
-}
-
-!doc :api_endpoint = """
-Additional documentation will be appended in definition order. Using triple
-quotes allows multiline information and requires less escaping for quotation
-characters.
-"""
-
-!describe :api_endpoint
-```
-
-The describe structure provides these fields for comprehensive function introspection and tooling support.
-* name
-* input_shape
-* output_shape
-* documentation
-* module
-* permissions
-
-

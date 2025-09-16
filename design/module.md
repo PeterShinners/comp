@@ -45,35 +45,6 @@ data -> $json_lib:stringify   ; ERROR: Module not a value
 - Enables static analysis and tooling
 - Consistent with namespace-oriented design
 
-## Core modules
-
-Several important modules are defined as the core of the Comp language. These
-are imported automatically into every module. These are mainly related to
-managing the builtin datatypes and higher level flow control. 
-
-* `.iter` working with iteration and sequences
-* `.num` working with number values and mathematics
-* `.path` working with path structure values
-* `.store` working with mutable data storage
-* `.str` working with string values
-* `.struct` high level modifications and queries for structures
-* `.tag` working with tag definitions, values, and hierarchies
-
-From these libraries there are also several specially aliased
-values that can be referenced in every module, without providing the
-full namespace. This is a feature any module can configure for themselves
-using ~alias operarators. You can see these references are typed, based
-on the type of object they contain
-
-* `#break` iteration flow control to immediately stop processing iteratins
-* `#false` false boolean tag value
-* `#skip` iteration flow control to ignore a value (similar to a `continue` on other languages)
-* `#true` true boolean tag value
-* `~bool` shape for a boolean value
-* `~nil` shape of an empty structure
-* `~num` shape for a scalar numeric value
-* `~str` shape for a scalar string value
-* `:length` number of items in a structure
 
 ## Package Information
 
@@ -461,10 +432,10 @@ convenience with responsibility.
 
 ```comp
 ; Platform-specific imports
-!import raphics/ = disk deps/basic-graphics
-!import raphics/.linux ?= path hardware-accelerated-linux
-!import raphics/.windows ?= path directx-graphics
-!import raphics/.macos ?= path metal-graphics
+!import graphics/ = disk deps/basic-graphics
+!import graphics/.linux ?= path hardware-accelerated-linux
+!import graphics/.windows ?= path directx-graphics
+!import graphics/.macos ?= path metal-graphics
 
 ; Environment-based imports
 !import atabase/ = stdlib database/sqlite       ; Development default
@@ -515,7 +486,6 @@ a directory.
 
 * `render.comp` - fallback module for all other systems
 * `render.windows.comp` - overridden implementation for platform
-
 
 ## Advanced Overrides
 
