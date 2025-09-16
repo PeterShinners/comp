@@ -157,15 +157,6 @@ user ->
     ?| :deny
 ```
 
-#### Key Benefits
-
-1. **No ambiguity**: Each valve group is self-contained with clear boundaries
-2. **No terminators needed**: The operators themselves define the structure  
-3. **Consistent visual language**: Double-character operators form a clear family
-4. **Readable flow**: `??` asks a question, `?>` provides the answer, `?&` asks another, `?|` catches the rest
-5. **Pipeline friendly**: Multiple valve groups can exist in sequence without interference
-6. **Predictable data flow**: Input flows in, one action executes, output flows out
-
 #### Complex Valve Examples
 
 **Route request based on status code:**
