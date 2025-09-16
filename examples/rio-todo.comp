@@ -43,7 +43,7 @@
         ; Filter buttons
         {#comp#row spacing=0.5
             #filter -> :tag/iter-all => {
-                $variant = -?? $s.filter == tag -&& "primary" -|| "secondary"
+                $variant = ?? $s.filter == tag ?> "primary" ?| "secondary"
                 #comp#button text=value#0 variant=$variant
                     :rio/on-click.{..$s filter=tag}
             }
@@ -60,7 +60,7 @@
             :rio/on-change.{..$s todos={$s.todos $new} -> :iter/replace .key{title}}
         }
         ; Styled title
-        $style = {-?? complete -&& "strikethrough" -|| "normal"}
+        $style = {?? complete ?> "strikethrough" ?| "normal"}
         {#comp#text text=title style=$style}
         ; Delete button
         {#comp#iconbutton icon="material/delete"

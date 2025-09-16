@@ -23,9 +23,9 @@
 }
 
 !func :insert ~{tree~Tree value~number} = {
-    -?? value < tree.value 
-    -&& {..tree left={{tree.left value} -> :insert}}
-    -|| {..tree right={{tree.right value} -> :insert}}
+    ?? value < tree.value 
+    ?> {..tree left={{tree.left value} -> :insert}}
+    ?| {..tree right={{tree.right value} -> :insert}}
 }
 
 ; finds

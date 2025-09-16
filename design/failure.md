@@ -98,7 +98,7 @@ Any pipeline operator that is invoked will be skipped when the `!in`
 structure contains a failure shape. This propogation will continue 
 all the way through the `!main` entry point for the process.
 
-This includes all pipeline operations like `->` `=>` `..>` and the `-??` valve
+This includes all pipeline operations like `->` `=>` `..>` and the `??` valve
 conditional operators.
 
 
@@ -190,7 +190,7 @@ Information about the function and statement that failed will already be
 reported, so does not need to be duplicated.
 
 ```comp
--?? index < 0 -&& {
+?? index < 0 ?> {
     #fail#field#value 
     "Index {index} must be a positive integer."
     see = "More details in :pool"}

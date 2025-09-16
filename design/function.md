@@ -455,9 +455,9 @@ times as desired.
 !func :handle-request ~{url~str} = {
     $req = url -> :prepare_request
 
-    -?? req.method == #GET -&& $req -> .get
-    -|? req.method == #POST -&& $req -> .post
-    -|| {#fail#value "Http method ${req.method} not supported"}
+    ?? req.method == #GET ?> $req -> .get
+    ?& req.method == #POST ?> $req -> .post
+    ?| {#fail#value "Http method ${req.method} not supported"}
 }
 .get~{request} {#fail#value "Http method GET not implemented"}
 .post~{request} {#fail#value "Http method POST not implemented"}

@@ -402,7 +402,7 @@ user_profile = {
 ; Conditional composition
 admin_profile = {
     ...user_profile
-    -?? user.role == "admin" -&& admin_permissions
+    ?? user.role == "admin" ?> admin_permissions
     audit_log = [user.id -> :load_audit_history]
 }
 ```
