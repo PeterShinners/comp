@@ -52,7 +52,7 @@ but provides a recipe how to modify a new copy of that structure.
 }
 
 !func :third ~{ip} = {
-  $cfg = {ip port}  ' {"localhost" 9888}
+  $cfg = {ip port}  ; {"localhost" 9888}
   $cfg -> :server/listen
 }
 ```
@@ -105,7 +105,7 @@ exposed definitions for the module itself. Adding the `&` ampersand suffix
 allows them to be used privately.
 
 ```comp
-!alias :leftpad = :str/ljust    ; global definition
+!alias :leftpad = :str/ljust    ; shared definition
 !alias #logsev& = #log#severity ; private definition
 ```
 
@@ -127,7 +127,7 @@ $user = {login="pete" email="pete@example.com"}&{session="abc123" id=789}
 ; Access private data (only in same module)
 $user.login          ; "pete" - public field
 $user&.session       ; "abc123" - private field (same module only)
-$user&.id           ; 789 - private field (same module only)
+$user&.id            ; 789 - private field (same module only)
 
 ; Manual private data assignment
 $user& = {session="abc123", internal_id=789}

@@ -91,6 +91,7 @@ words as the value.
 !tag #fail < #fail = {
     #yofo = "You only fail once"
 }
+```
 
 ## Failure Propogation
 
@@ -100,7 +101,6 @@ all the way through the `!main` entry point for the process.
 
 This includes all pipeline operations like `->` `=>` `..>` and the `??` valve
 conditional operators.
-
 
 ## Failure Fallback
 
@@ -196,6 +196,26 @@ reported, so does not need to be duplicated.
     see = "More details in :pool"}
 ```
 
+## Runtime Failures
+
+While evaluating statements and pipelines, the langauge will generate failures
+for the following operations. 
+
+* Undefined field
+* Undefined index 
+* Undefined local temporary
+* Cannot morph structure
+* No matching implementation found
+* Invalid math operator
+* Invalid operator type
+* Permission denied
+
+These are different than compile errors which are only generated when importing
+modules.
+
+These are also different than resource or system errors, which only
+come from functions or operators for managing these *handle* data types
+
 ## Future Implementation
 
 * The language should keep the chain of failures that were active when
@@ -206,5 +226,3 @@ another. The aliased tags would be treated like they have two parents,
 which are still ordered to control which parents are most specific for
 dispatch (shape matching priority). This way an applications `#fail#myapp#timeout`
 could be an alias (or symlink?) to `#fail#io#timeout` and used interchangeably.
-
-

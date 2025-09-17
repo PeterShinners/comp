@@ -29,16 +29,6 @@ tags. These references are prefixed with the module's namespace and a leading
 
 There is no way to refer to a module as a value, only its provided information.
 
-```comp
-!import json/ = std "json"
-
-$data -> :json/stringify -> :json/parse
-
-; Invalid - modules are not values
-$json_lib = .json              ; ERROR: Cannot assign module to variable
-data -> $json_lib:stringify   ; ERROR: Module not a value
-```
-
 **Benefits**:
 - Clear distinction between modules and data
 - Prevents confusion about module lifecycle

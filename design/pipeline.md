@@ -4,97 +4,159 @@
 
 ## Overview
 
-Comp's approach to failures and flow control emphasizes explicit data flow through pipelines, automatic failure propagation, and composable error handling patterns. The system treats failures as structured data that flows through pipelines with special handling semantics.
+Functions are always invoked with an `->` invoke operator. There are other
+types of statements that can be applied to these invoke operators, and
+these can be connected into a chain of operations called a pipeline.
 
-## Pipeline Architecture
+Each statement in the pipeline works with the concept of accepting one
+incoming structure and generating one new structure.
 
-### Core Pipeline Operators
+Specially shaped structures can be generated that are considered 
+failures, and flow along this pipeline with a different set of rules.
+
+## Pipeline Operators
+
+There is a collection of different operators that can join statements
+in a pipeline.
+
+* `->` The traditional pipeline invoke operator
+* `=>` Iterate a statement over each field in a structure
+* `..>` Spread assignment invoke operator, a shorthand for modifying the input structure
+
+For dealing with failures there are 
+
+* `!>` Failure invoke operator, only happens when the incoming structure is a failure
+* `|` Is not directly a pipeline operator, but can be used to resolve immediate failures
+
+There is also a family of valve operators used for conditional logic inside 
+a pipeline. These are always used in a group of neighboring pipeline operations.
+
+* `??` Begin a valve with a boolean condition
+* `?>` Perform statement when condition matches
+* `?&` Define additional exclusive condition (else if)
+* `?|` End with optional statement when no conditions match
+
+## Pipeline Statements
+
+Each statement in the pipeline can be one of several operations.
+
+* **Function** reference preceded with `:` colon.
+* **Structure** define new structure value based on incoming structure wrapped in `{}` braces. This can also
+use a pipeline of statements internally to create a sub-pipeline.
+* **Lazy Structure** operates the same as the structure but is wrapped in `[]` square brackets,
+and it's fields are not computed until needed.
+* **Condition** the condition operators require a boolean value.
+
+## Pipeline Actions
+
+Each pipeline defined in a structure has one of three possible behaviors.
+These behaviors are controlled by what statement is at the very start of
+the pipeline. A pipeline is any number of statements, even just a single
+structure definition.
+
+* **Temporary Assignment** statements start with a `$` prefixed token and contain an
+initial `=` assignment. This assigns
+the pipeline to a local value, or a nested field to update inside the existing
+value of for that temporary. This is the only action that does not contribute
+to the outgoing structure being generated.
+* **Named Assignement** statements start with a field name and `=` assignment.
+This assigns a new field to the outgoing structure. Conflicting field name
+definitions will reassign the field value, but that behavior can be modified
+with the weak and strong assignment operators.
+* **Unnamed Assignment** a pipeline with no `=` assignment at the beginning
+defines a new unnamed field in the outgoing structure.
+
+### Invoke Operator `->`
+
+This is used to pass an input structure into a statement to generate a
+single output structure.
+
+If the first statement is a function reference then a pipeline can begin
+immediately without needing to define an input structure and the `->`
+statement.
 
 ```comp
-->      ; Invoke operator (function calls, structure construction)
-=>      ; Iteration pipeline (collection processing)  
-..>     ; Spread arrow (merge fields while maintaining flow)
-!>      ; Failure handling pipeline  
-|       ; Field fallback (not value-based conditionals)
-```
-
-### Invoke Pipeline (`->`)
-
-Transforms structures through function calls or structure construction:
-
-```comp
-; Function invocation
 data -> :validate -> :transform -> :save
-
-; Structure construction
-user -> {name=@.name, processed_at=:time/now}
-
-; Module function calls
-response -> http:parse -> json:extract -> db:save
-
-; Pipeline starting with function call
-:config/load -> :validate -> :apply_settings
+user -> {username=name, timestamp=:time/now} -> :event
+:random/bool -> :record-statistics
 ```
 
 ### Iteration Pipeline (`=>`)
 
-Processes collections by applying expressions to each element:
+This will invoke the statement on each field in the structure. The
+statement will be invoked with a simple shape containing
+`{value name index}`. The name field may be numbered field will be TODO for unnamed fields.
+
+Each result of the iteration is collected into a structure of unnamed fields.
+
+There are several builtin tags that can be used to control the iteration's
+flow control.
+
+* ``#skip`` will continue iteration, but not include this values result in the
+outgoing structure. This can be considered like a `continue` statement in other
+langauges, which Comp does not have.
+* ``#break`` will immediately stop iteration. The generated structure will
+still contain all the values that had been iterated before the break.
+* **failure** If a failure structure is created the iteration stops immediately
+and the iteration result is that failure structure.
 
 ```comp
-users => {name=@.name, active=@.status=="active"}
-numbers => @ * 2  
-files => :file/process
+; Double numbers in an array
+numbers => {value * 2}  ; double numbers in an array
 
-; With control flow
-items => {
-    @ -> :validate -> (
-        @ ? @ | #skip    ; Skip invalid items
-    )
-}
-
-; Nested iteration
-groups => users => {user=@, group=@outer}
+; Generate pairs of name and boolean for each user structure in array
+users => {name=value.name, recent=value.login > $lastweek}
 ```
 
 ### Spread Arrow Pipeline (`..>`)
 
-Merges additional fields while preserving pipeline flow:
+This is simply a shorthand for modifying fields from the incoming structure.
+
+This same functionality can be written with the `->` operator but the behavior
+is common enough that this provides readable simplicitly over the traditional
+syntax.
 
 ```comp
-; Add parameters without nesting
-data ..> {timeout=30, retries=3} -> :network/request
 
-; Equivalent to:
-data -> {...@, timeout=30, retries=3} -> :network/request
+; Native syntax for merging changes into the incoming structure
+path -> :load -> {..!in timestamp=$now handler.retries=2}
 
-; Works with function results
-user ..> :load_preferences -> :render_profile
-
-; Works with namespaces
-request ..> @app.defaults -> :process_request
+; Spread arrow shorthand
+path -> :load ..> {timestamp=$now handler.retries=2}
 ```
 
-## Flow Control Operators
+## Valve Flow Control Operators
 
-
-### Valve Operators
-
-The valve operator family uses **double characters** for visual consistency and clear control flow:
+A valve group is a sequence of conditional checks that work together as a single
+unit in the pipeline. The group receives an input value, evaluates conditions
+against it, and outputs the result of whichever branch executes.
 
 - **`??`** Begin conditional (if)
 - **`?>`** Then action separator (and then) 
 - **`?&`** Else-if continuation (or if)
 - **`?|`** Else fallback (or else)
 
-#### How Valve Groups Work
+The group is implicitly attached to one another based on their adjacancy. Each
+valve group must begin with the `??` opening conditional. The optional else
+fallback must be the final statement if included. Only a single `?>` or `?|`
+statement will be evaluate
 
-A valve group is a sequence of conditional checks that work together as a single unit in the pipeline. The group receives an input value, evaluates conditions against it, and outputs the result of whichever branch executes.
+With no `?|` else statement it is possible that none of the statements 
+are invoked. When that happens the original input structure is passed through
+unchanged.
 
-**Input Flow**: The value entering the valve group (from the left side of `??`) is available to all conditions within that group. Each condition can access and test this input value.
+**Input Flow**: The value entering the valve group (from the left side of `??`)
+is available to all conditions within that group. Each condition can access and
+test this input value.
 
-**Condition Evaluation**: Conditions are evaluated in order, top to bottom. The first condition that evaluates to true has its corresponding action executed. Once a condition matches, no further conditions in that valve group are checked.
+**Condition Evaluation**: Conditions are evaluated in order, left to rigth. The
+first condition that evaluates to true has its corresponding action executed.
+Once a condition matches, no further conditions in that valve group are checked.
 
-**Output Flow**: The valve group outputs whatever value its executed action produces. This output then flows to the next operation in the pipeline. If no condition matches and there's no `?|` else clause, the valve group passes through the original input value unchanged.
+**Output Flow**: The valve group outputs whatever value its executed action
+produces. This output then flows to the next operation in the pipeline. If no
+condition matches and there's no `?|` else clause, the valve group passes
+through the original input value unchanged.
 
 #### Syntax Pattern
 
@@ -106,245 +168,37 @@ input_value ->
 -> receives_action_output
 ```
 
-#### Data Flow Examples
+# Failure Operators `!>` and `|`
 
-**Simple conditional with value transformation:**
-```comp
-{score=85} -> ?? score > 90 ?> "A" ?| "B"  ; Outputs: "B"
-```
-The input struct flows in, the condition checks `score > 90` (false), so the else branch executes, outputting "B" to the pipeline.
+These statements are only invoked when the incoming structure has a failure
+shape.
 
-**Chained conditions with different outputs:**
-```comp
-{age=25} ->
-    ?? age < 18 ?> :restrict_access    ; Returns restricted view
-    ?& age < 21 ?> :limit_features     ; Returns limited view  
-    ?| :full_access                     ; Returns full view
--> :render_page
-```
-The age=25 input means both conditions fail, so `:full_access` executes. Whatever `:full_access` returns becomes the input to `:render_page`.
+The `|` operator isn't quite a pipeline operator. It runs at a lower
+precedence than the regular pipeline operators, so can only operate on an
+immediate statement.
 
-**Multiple independent valve groups:**
-```comp
-data 
--> :validate ?? is_valid ?> :log_success ?| :log_error  ; First group
--> :transform ?? needs_cache ?> :add_cache_headers       ; Second group
--> :send_response
-```
-Each valve group is independent. The first group's output (from either `:log_success` or `:log_error`) becomes the input to the second valve group. The second group tests this new input with its own condition.
-
-#### Important Behaviors
-
-**Pass-through on no match**: If no conditions match and no `?|` is provided, the original input passes through unchanged:
-```comp
-{value=10} -> ?? value > 100 ?> :process  ; No match, no else
--> :next_step  ; Receives {value=10} unchanged
-```
-
-**Early termination**: Once a condition matches, the valve group immediately executes that action and exits. Subsequent conditions are not evaluated:
-```comp
-{status="pending"} ->
-    ?? status == "pending" ?> :queue_job     ; This matches and executes
-    ?& status == "pending" ?> :different     ; Never evaluated
-    ?| :default                               ; Never evaluated
-```
-
-**Condition access to input**: All conditions in a valve group can reference the input value:
-```comp
-user ->
-    ?? user.age >= 18 and user.verified ?> :full_access
-    ?& user.parent_consent ?> :limited_access
-    ?| :deny
-```
-
-#### Complex Valve Examples
-
-**Route request based on status code:**
-```comp
-response ->
-    ?? :status == 401 ?> :redirect_to_login
-    ?& :status == 403 ?> :show_forbidden_page
-    ?& :status >= 500 ?> {:log_server_error -> :show_error_page}
-    ?| :render_content  ; Final else
--> :send_to_client
-```
-
-**Apply discount based on customer tier:**
-```comp
-order ->
-    ?? customer.tier == "premium" ?> :apply_premium_discount
-    ?& customer.tier == "gold" ?> :apply_gold_discount
-    ?& order.total > 100 ?> :apply_bulk_discount
-    ?| order  ; No discount applied
--> :calculate_total
-```
-
-### Field Fallback (`|`)
-
-Provides fallback values for **undefined fields only** (not falsy values):
+The `|` block also receives the original incoming structure and discards
+the failure statement entirely.
 
 ```comp
-; Field doesn't exist
 user.nickname | "Anonymous"         ; Uses "Anonymous"
 config.timeout | 30                 ; Uses 30
-
-; Field exists but is falsy - fallback NOT used
-user.enabled | !true               ; If enabled=!false, returns !false
-user.score | 100                   ; If score=0, returns 0
-
-; Common patterns
-settings.url | "http:;localhost"   ; Default URL
-user.preferences | {}               ; Empty preferences object
 ```
-
-### Failure Handling Pipeline (`!>`)
-
-Catches and handles failure conditions:
-
-```comp
-; Basic error handling
-data -> :risky_operation !> "Operation failed"
-
-; Preserve original data on failure
-input -> :validate !> {@, error="Validation failed"}
-
-; Chain error handlers
-data -> :step1 !> :fallback1 -> :step2 !> :fallback2
-
-; Error transformation
-user -> :load_profile !> {
-    error = "Profile not found"
-    user_id = @.id
-    suggested_action = "create_profile"
-}
-```
-
 
 ## Advanced Pipeline Patterns
 
 ### Pipeline Labels and Reuse
 
+A special `!label` operator can appear as an operator as a pipeline
+statement. This allows assigning the current input structure to either a
+`$` local temporary value, a field in the outgoing structure, or an 
+assignment to the `!mod` or `!ctx` namespaces.
+
+The same incoming data structure is used as the generated value for this operator.
+
 ```comp
 ; Function-scoped labels
 path -> :fs/open -> !label $fd -> :process_file
 $fd -> :fs/close  ; Reuse labeled value
-
-; Statement-scoped labels  
-data -> :expensive_transform -> !label ^processed
-^processed -> :validate
-^processed -> :cache  
-^processed -> :log
-```
-
-### Pipeline Composition
-
-```comp
-; Compose reusable pipeline segments  
-$validation_pipeline = :check_format -> :check_constraints -> :check_business_rules
-$processing_pipeline = :normalize -> :enrich -> :transform
-$storage_pipeline = :serialize -> :compress -> :store
-
-; Use composed pipelines
-user_data -> $validation_pipeline -> $processing_pipeline -> $storage_pipeline
-```
-
-### Dynamic Pipeline Construction
-
-```comp
-; Build pipeline based on data characteristics
-!func :create_pipeline ~{data_type ~str} = {
-    data_type -> :match {
-        "csv" -> (:csv/parse -> :validate -> :normalize)
-        "json" -> (:json/parse -> :validate -> :transform)
-        "xml" -> (:xml/parse -> :convert_to_json -> :validate)
-        else -> (:binary/decode -> :detect_format -> :process)
-    }
-}
-
-; Apply dynamic pipeline
-input_file -> {
-    type = extension -> :detect_file_type
-    pipeline = type -> :create_pipeline
-    data = !in -> pipeline
-}
-```
-
-## Complex Flow Control Patterns
-
-### Match-Style Dispatch
-
-```comp
-; Pattern matching with multiple conditions
-user_request -> match {
-    {method="GET", path="/api/*"} -> :handle_api_get
-    {method="POST", authenticated=!true} -> :handle_authenticated_post
-    {method="POST", authenticated=!false} -> :require_authentication
-    {method="PUT", role="admin"} -> :handle_admin_put
-    {status=#error} -> :handle_error_request
-    else -> :handle_default
-}
-```
-
-### Loop-Style Iteration with Control
-
-```comp
-; Collection processing with early termination
-items => {
-    @ -> :process -> {
-        @.should_continue ? @ | #break    ; Break on condition
-    }
-}
-
-; Collection processing with skip
-users => {
-    @.active ? (@ -> :process_user) | #skip
-}
-
-; Nested iteration with control
-groups => {
-    group -> {
-        items => {
-            item -> :validate -> {
-                @ ? (@ -> :process_item) | #skip
-            }
-        }
-    }
-}
-```
-
-### State Machine Patterns
-
-```comp
-; State transitions through pipeline
-!func :process_order ~{order, state=#order_state#pending} = {
-    {order=order, state=state} -> match {
-        {state=#order_state#pending} -> :validate_order -> {
-            @ ? {@.order, state=#order_state#validated} | #failure
-        }
-        {state=#order_state#validated} -> :process_payment -> {
-            @ ? {@.order, state=#order_state#paid} | #failure  
-        }
-        {state=#order_state#paid} -> :fulfill_order -> {
-            @ ? {@.order, state=#order_state#shipped} | #failure
-        }
-        {state=#order_state#shipped} -> :track_delivery -> {
-            @ ? {@.order, state=#order_state#delivered} | #failure
-        }
-        else -> #failure
-    }
-}
-```
-
-
-### Lazy Pipeline Construction
-
-```comp
-; Pipeline steps computed lazily
-processing_pipeline = [
-    input_type -> :determine_parser -> :determine_validator -> :determine_processor
-]
-
-; Only construct pipeline when needed
-data -> processing_pipeline -> :evaluate -> data
 ```
 

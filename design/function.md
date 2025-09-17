@@ -195,7 +195,7 @@ The same is true for function definitions.
 
 ```comp
 
-def :procession ~name~str = [
+!func :procession ~{name~str} = [
     name -> :preamble
     name -> :ensemble
     $court = name -> :with-friends
