@@ -1,239 +1,224 @@
-# Pipelines and Flow Control
+# Pipelines, Flow Control, and Failure Handling
 
-*Design for Comp's error handling, control flow operators, pipeline composition*
+*Design for Comp's pipeline operations, control flow patterns, and error management*
 
 ## Overview
 
-Functions are always invoked with an `->` invoke operator. There are other
-types of statements that can be applied to these invoke operators, and
-these can be connected into a chain of operations called a pipeline.
+Comp uses a single pipeline operator `->` to connect operations into data transformation chains. Control flow and error handling are achieved through functions that accept block arguments, providing a consistent and composable approach to program flow.
 
-Each statement in the pipeline works with the concept of accepting one
-incoming structure and generating one new structure.
+Every statement in Comp benefits from "statement seeding" - an implicit `.. ->` prefix that provides the context's input data. This eliminates verbose data threading while maintaining explicit control when needed.
 
-Specially shaped structures can be generated that are considered 
-failures, and flow along this pipeline with a different set of rules.
+## Pipeline Fundamentals and Statement Seeding
 
-## Pipeline Operators
+The `->` operator is Comp's fundamental composition mechanism, passing data from one operation to the next in readable left-to-right flows. Each pipeline statement can be a function reference, structure literal, string template, or lazy structure. The pipeline naturally composes these different statement types into complex transformations.
 
-There is one -> pipeline operator that is used to connect multiple
-statements into a single processing pipeline. Each statement takes
-the structure from before it and generates a single structure as
-its result.
-
-* `->` The traditional pipeline invoke operator
-
-**Branch Operators**
-
-Groups of statements within a pipeline can be grouped with branch operators.
-These have different behaviors over execution. These use a symbol and parenthesis
-to wrap one or multiple statements.
-
-* `.()` **Plain Branch** uses parenthesis to customize operator precedence. It is
-not regularly needed, but can help clarify or organize intention.
-* `@()` **Iterate Branch** is invoked for each field of the incoming structure.
-* `&()` **Side Branch** pipeline that ignores its generated structure, this passes through
-whatever structure was originally given to it. This pairs with the "privacy" decorator.
-* `^()` **Isolated Branch** has no access to `!ctx` or `!mod` namespaces
-
-**Fallback Operators**
-
-Fallbacks are for dealing with failures. Failures have specialized flow control
-within the pipeline only these operators interact with them.
-
-* `|()` **Fallback Branch** is only invoked when the incoming value has a failure shape.
-* `|` **Fallback Statement** Provides an immediate fallback to any statement.
-
-**Valve Operators**
-
-There is also a family of operators used for conditional logic inside 
-a pipeline. These are always used in a group of neighboring operations.
-
-* `??` Begin a valve with a boolean condition
-* `?>` Perform statement when condition matches
-* `?&` Define additional exclusive condition (else if)
-* `?|` End with optional statement when no conditions match
-
-## Pipeline Statements
-
-Each statement in the pipeline can be one of several operations.
-
-* **Function** reference preceded with `:` colon.
-* **Structure** define new structure literal based on incoming structure wrapped in `{}` braces.
-use a pipeline of statements internally to create a sub-pipeline.
-* **Lazy Structure** operates the same as the structure but is wrapped in `[]` square brackets.
-It's fields are not computed until needed.
-* **Condition** the condition operators require a boolean value.
-
-## Pipeline Actions
-
-Each pipeline is a group of statements that has one of three possible behaviors.
-These behaviors are controlled by what statement is at the very start of
-the pipeline. Even a single statement is still considered a pipeline.
-
-* **Temporary Assignment** statements start with a `$` prefixed token and contain an
-initial `=` assignment. This assigns
-the pipeline to a local value, or a nested field to update inside the existing
-value of for that temporary. This is the only action that does not contribute
-to the outgoing structure being generated.
-* **Named Assignement** statements start with a field name and `=` assignment.
-This assigns a new field to the outgoing structure. Conflicting field name
-definitions will reassign the field value, but that behavior can be modified
-with the weak and strong assignment operators.
-* **Unnamed Assignment** a pipeline with no `=` assignment at the beginning
-defines a new unnamed field in the outgoing structure.
-
-### Invoke Operator `->`
-
-This is used to pass an input structure into a statement to generate a
-single output structure.
-
-If the first statement is a function reference then a pipeline can begin
-immediately without needing to define an input structure and the `->`
-statement.
+Statement seeding revolutionizes how data flows through functions. Every statement in a function or block automatically begins with the input data through an implicit `.. ->` prefix. This seed value flows into the statement unless explicitly overridden. The seed resets at each statement boundary, so each line starts fresh with the context input rather than the previous statement's result. Within a pipeline, `..` refers to the previous operation's output, creating a clear distinction between the statement seed and pipeline flow.
 
 ```comp
-data -> :validate -> :transform -> :save
-user -> {username=name, timestamp=:time/now} -> :event
-:random/bool -> :record-statistics
+!func :process ~{data} = {
+    validated = :validate       ; Implicit: .. -> :validate
+    transformed = :transform    ; Implicit: .. -> :transform
+    combined = {validated transformed}
+    
+    ; Explicit pipeline overrides the seed
+    other_data -> :different_process -> :save
+}
 ```
 
-### Iterate Branch `@()`
+This design enables natural parallel processing patterns where multiple operations work on the same input data independently, then combine their results. The implicit seeding eliminates the verbose threading common in functional languages while maintaining explicitness when needed.
 
-This will invoke the branch on each field in the structure. The statement will
-be invoked with a simple shape containing `{value name index~num named?}`. For
-fields without a name the `name` will be `{}` and the `named?` boolean will be
-`#false`
+## Pipeline Actions and Temporaries
 
-Each result of the iteration is collected into a structure of unnamed fields.
+Each pipeline in Comp performs one of three actions based on how it begins. These actions determine how the pipeline's result is used and whether it contributes to the output structure being built.
 
-There are several builtin tags that can be used to control the iteration's flow
-control.
+**Temporary Assignment** starts with a `$` prefixed token followed by `=`. This creates a function-local temporary that can be referenced later in the function but doesn't contribute to the output structure. These temporaries exist only within the function's scope and are immutable once assigned. Nested field assignment creates a new temporary structure with the specified modification.
 
-* ``#skip`` will continue iteration, but not include this values result in the
-outgoing structure. This can be considered like a `continue` statement in other
-langauges, which Comp does not have.
-* ``#break`` will immediately stop iteration. The generated structure will
-still contain all the values that had been iterated before the break.
-* **failure** If a failure structure is created the iteration stops immediately
-and the iteration result is that failure structure.
+**Named Assignment** starts with a field name and `=`, assigning the pipeline result to a named field in the output structure. Conflicting field names override previous values, though this behavior can be modified with weak (`?=`) or strong (`*=`) assignment operators.
+
+**Unnamed Assignment** has no assignment operator, adding the pipeline result as an unnamed field to the output structure. These unnamed fields maintain their order and can be accessed by position.
 
 ```comp
-; Double numbers in an array
-numbers -> @(value * 2)  ; double numbers in an array
-
-; Generate pairs of name and boolean for each user structure in array
-users -> @({name=value.name, recent=value.login > $lastweek})
+!func :analyze ~{data} = {
+    ; Temporary - available in function, not in output
+    $threshold = data.average * 1.5
+    
+    ; Named field - part of output structure
+    high_values = data -> :filter .{value > $threshold}
+    
+    ; Unnamed field - added to output positionally
+    data -> :calculate_median
+    
+    ; Nested temporary assignment
+    $config = {timeout=30 retries=3}
+    $config.timeout = 60  ; Creates new structure, doesn't modify original
+}
 ```
 
-### Side Branch `&()`
+Function-local temporaries prefixed with `$` provide a crucial namespace separate from the field lookups. They must always be explicitly referenced with their prefix and can only be used after definition. This separation prevents naming conflicts and makes data flow explicit.
 
-The side branch is a conveience for evaluating pipeline but not contributing
-back to the outer flow control. 
+## Control Flow Through Functions
 
-This branch will pass through whatever value it was provided.
+Control flow in Comp abandons special operators in favor of functions with block arguments. This unification means all control flow follows the same patterns as data transformation - it's just functions all the way down.
 
-Failures generated inside the side branch will still be propogated out of the
-branch.
-
-This uses the `&` symbol which is also used mark definitions as private. This
-can be considered the "privacy branch". What happens in side branch stays in
-side branch, but side branch is not above the law.
+The core conditional functions - `:if`, `:when`, and `:match` - cover the spectrum from simple branches to complex pattern matching. The `:if` function provides classic if-then-else semantics with two branches. The `:when` function handles single conditions without an else clause, perfect for optional actions. The `:match` function enables pattern matching with multiple conditions tested in order. All three accept blocks that capture the current scope and execute conditionally based on their test conditions.
 
 ```comp
-record -> :validate-record -> &({timestamp=when} -> :update-stamp) -> :process-record
+!func :process_request ~{request} = {
+    ; Multiple conditional patterns in action
+    response_type = :if .{request.priority == "urgent"} 
+        .{"immediate"} 
+        .{"queued"}
+    
+    :when .{response_type == "immediate"} .{
+        "Urgent: ${request.summary}" -> :alert_team
+    }
+    
+    request.status -> :match
+        .{.. == 200} .{:handle_success}
+        .{.. >= 500} .{:handle_server_error -> :alert_ops}
+        .{.. >= 400} .{:handle_client_error}
+        .{#true} .{:log_unknown -> :investigate}
+}
 ```
 
-### Isolate Branch `^()`
-
-The isolate branch executes its statements with no access to the `!ctx` or
-`!mod` namespaces. This can be important when needing to ensure structual
-data contains specific fields with no contribution from the namespaces.
-
-This is useful for both morphing operators and invoking functions.
-
-This uses the caret, or "hat" operator to describe it operates in the shadows,
-hidden from the namespaces.
+Iteration follows the same function-with-blocks pattern. The `:map` function transforms each element and collects results, while `:each` performs side effects without collection. The `:filter` function selects matching elements, and `:fold` reduces collections to single values using an accumulator. These functions recognize special control tags - `#skip` continues to the next element without including the current result, `#break` stops iteration immediately, and any failure stops iteration and propagates the error.
 
 ```comp
-user ~systemuser    ; Needed fields can be contributed from namespaces
-^(user ~systemuser) ; Record forced to provide all fields for itself
+!func :analyze_records ~{records} = {
+    ; Complete iteration pipeline
+    processed = records 
+        -> :filter .{status != "archived"}
+        -> :map .{
+            :if .{priority < 0} .{#skip} .{
+                :validate -> :enhance -> {.. processed=:time/now}
+            }
+        }
+        -> :fold {total=0 count=0} .{
+            {total=(total + amount) count=(count + 1)}
+        }
+    
+    {records=processed.count average=processed.total/processed.count}
+}
 ```
 
-### Valve Flow Control Operators
+## Failure Management System
 
-A valve group is a sequence of conditional checks that work together as a single
-unit in the pipeline. The group receives an input value, evaluates conditions
-against it, and outputs the result of whichever branch executes.
+Failures in Comp are structures containing a `#fail` tag, providing a unified error model that integrates naturally with the pipeline system. Rather than exceptions that break control flow or error codes that require manual checking, failures flow through pipelines with predictable propagation rules.
 
-- **`??`** Begin conditional (if)
-- **`?>`** Then action separator (and then) 
-- **`?&`** Else-if continuation (or if)
-- **`?|`** Else fallback (or else)
+The language defines a hierarchical `#fail` tag system that categorizes errors by type and origin. This hierarchy enables both specific and general error handling - you can handle `#fail#io#timeout` specifically or work with all `#fail#io` errors together. Functions generate failures for runtime errors like missing fields, failed type conversions, or permission violations. User code creates failures by simply including the appropriate `#fail` tag in a structure, often with additional context fields.
 
-The group is implicitly attached to one another based on their adjacancy. Each
-valve group must begin with the `??` opening conditional. The optional else
-fallback must be the final statement if included. Only a single `?>` or `?|`
-statement will be evaluate
-
-With no `?|` else statement it is possible that none of the statements 
-are invoked. When that happens the original input structure is passed through
-unchanged.
-
-**Input Flow**: The value entering the valve group (from the left side of `??`)
-is available to all conditions within that group. Each condition can access and
-test this input value.
-
-**Condition Evaluation**: Conditions are evaluated in order, left to rigth. The
-first condition that evaluates to true has its corresponding action executed.
-Once a condition matches, no further conditions in that valve group are checked.
-
-**Output Flow**: The valve group outputs whatever value its executed action
-produces. This output then flows to the next operation in the pipeline. If no
-condition matches and there's no `?|` else clause, the valve group passes
-through the original input value unchanged.
-
-#### Syntax Pattern
+Modules can extend the failure hierarchy to define domain-specific error categories. These extensions work like any tag extension - they create new leaf nodes in the hierarchy while maintaining compatibility with parent handlers. The extended tags should include descriptive values and follow consistent naming patterns.
 
 ```comp
-input_value -> 
-    ?? condition ?> :action_if_true
-    ?& another_condition ?> :action_if_this_true  
-    ?| :action_if_all_false
--> receives_action_output
+; Core hierarchy
+#fail
+  #io
+    #missing
+    #permission  
+    #timeout
+  #value
+    #shape
+    #constraint
+
+; Module extension
+!tag #fail += {
+    #database = "Database operation failed" {
+        #connection = "Unable to connect"
+        #constraint = "Constraint violation"
+        #deadlock = "Transaction deadlock detected"
+    }
+    #auth = "Authentication failed" {
+        #expired = "Credentials expired"
+        #invalid = "Invalid credentials"
+    }
+}
+
+; Usage
+{#fail#database#connection message="Connection pool exhausted" pool_id=5}
 ```
 
-# Failure Operators `|>` and `|`
+Failure messages should follow consistent formatting guidelines to provide clear, actionable information. The initial string field should contain a one-sentence description of what failed. Messages should identify specific values causing problems rather than generic statements. Use "Index ${index} must be positive" instead of "Invalid index". Additional fields should suggest remediation when possible, using descriptive field names that display clearly in error reports.
 
-These statements are only invoked when the incoming structure has a failure
-shape.
+## Failure Recovery Patterns
 
-The `|` operator isn't quite a pipeline operator. It runs at a lower
-precedence than the regular pipeline operators, so can only operate on an
-immediate statement.
+Comp provides multiple mechanisms for handling failures, from simple fallbacks to complex recovery procedures. The choice of mechanism depends on the complexity of the recovery needed and whether you want to replace the failure or just perform cleanup.
 
-The `|` block also receives the original incoming structure and discards
-the failure statement entirely.
+The `|` fallback operator provides immediate recovery for single statements. It receives the original input (not the failure) and provides an alternative value. Multiple fallbacks can be chained, creating a cascade of alternatives tried in order. This operator shines for providing defaults when optional fields are missing or operations might fail.
 
 ```comp
-user.nickname | "Anonymous"         ; Uses "Anonymous"
-config.timeout | 30                 ; Uses 30
+; Cascading fallbacks for configuration
+port = config.port | env.PORT | 8080
+display_name = user.nickname | user.username | user.email | "Anonymous"
+
+; Fallback with computation
+timeout = settings.timeout | (settings.retry_count * 1000) | 5000
 ```
 
-## Advanced Pipeline Patterns
-
-### Pipeline Labels and Reuse
-
-A special `!label` operator can appear as an operator as a pipeline
-statement. This allows assigning the current input structure to either a
-`$` local temporary value, a field in the outgoing structure, or an 
-assignment to the `!mod` or `!ctx` namespaces.
-
-This operator passes through whatever the current structure is.
+The `!>` operator handles failures with more complex recovery logic. Since it only accepts a single statement, multi-step recovery requires a block. The operator can be configured with tag filters to handle specific failure types, with multiple `!>` operators creating a chain of handlers tested in order.
 
 ```comp
-; Function-scoped labels
-path -> :fs/open -> !label $fd -> :process_file
-$fd -> :fs/close  ; Reuse labeled value
+!func :process_transaction ~{data} = {
+    data -> :validate
+         -> :execute_steps
+         !> (#fail#io) {:retry_with_backoff}
+         !> (#fail#database#deadlock) {:wait_and_retry}
+         !> {
+             ; General failure - need block for multiple statements
+             :log_error
+             -> :cleanup_resources
+             -> {status="failed" original=..}
+         }
+}
+
+; Complex recovery in a single block
+risky_operation !> {
+    $error = ..
+    "Operation failed: ${error.message}" -> :log
+    $error.code -> :match
+        .{.. >= 500} .{:wait_and_retry}
+        .{.. == 429} .{:backoff_exponentially}
+        .{#true} .{:use_fallback_service}
+}
 ```
 
+When using tag filters, parentheses group multiple tags with `|` for alternatives. The filter matches any failure in the specified hierarchies. Without a filter, the handler matches any failure based on the current module's `#fail` definition.
+
+## Pipeline Composition and Labels
+
+Complex pipelines often need to reference intermediate values or compose multiple transformation chains. The `!label` operator captures values at any point in a pipeline, making them available for later reference. This eliminates the need for breaking pipelines into separate statements just to capture intermediate results.
+
+Statement seeding enables elegant parallel processing patterns where multiple independent operations process the same input, then combine their results. Each statement gets the same seed, processes independently, and contributes to the final structure. This pattern is particularly powerful for analysis or validation operations that need multiple perspectives on the same data.
+
+```comp
+!func :comprehensive_analysis ~{data} = {
+    ; Capture original for comparison
+    data -> :normalize 
+         -> !label $normalized
+         -> :validate
+         -> !label $validated
+         -> :enhance
+         -> {
+             original = $normalized
+             validated = $validated  
+             enhanced = ..
+             delta = :calculate_changes $normalized ..
+         }
+}
+
+!func :parallel_validation ~{input} = {
+    ; Three independent validations on same input
+    structure_valid = :validate_structure
+    business_valid = :validate_business_rules  
+    security_valid = :validate_security
+    
+    :if .{structure_valid && business_valid && security_valid}
+        .{input -> :process}
+        .{{#fail#validation issues={structure_valid business_valid security_valid}}}
+}
+```
+
+## Design Principles
+
+The pipeline and failure system embodies several core principles that guide its design and usage. The single pipeline operator creates consistency - there's no special syntax to learn for different scenarios. Automatic failure propagation eliminates defensive programming while ensuring errors can't be silently ignored. Explicit recovery makes error handling visible in the code structure. Statement seeding provides implicit data flow while maintaining explicit control. The uniform function-and-block pattern means control flow follows the same rules as data transformation.
+
+These principles combine to create a system where complex data transformations, control flow, and error handling integrate naturally. The result is code that reads linearly while handling the full complexity of real-world data processing. Failures propagate predictably without hidden control flow, temporaries provide clear scoping without namespace pollution, and all operations compose through the same fundamental pipeline mechanism.
