@@ -16,20 +16,38 @@ failures, and flow along this pipeline with a different set of rules.
 
 ## Pipeline Operators
 
-There is a collection of different operators that can join statements
-in a pipeline.
+There is one -> pipeline operator that is used to connect multiple
+statements into a single processing pipeline. Each statement takes
+the structure from before it and generates a single structure as
+its result.
 
 * `->` The traditional pipeline invoke operator
-* `=>` Iterate a statement over each field in a structure
-* `..>` Spread assignment invoke operator, a shorthand for modifying the input structure
 
-For dealing with failures there are 
+**Branch Operators**
 
-* `!>` Failure invoke operator, only happens when the incoming structure is a failure
-* `|` Is not directly a pipeline operator, but can be used to resolve immediate failures
+Groups of statements within a pipeline can be grouped with branch operators.
+These have different behaviors over execution. These use a symbol and parenthesis
+to wrap one or multiple statements.
 
-There is also a family of valve operators used for conditional logic inside 
-a pipeline. These are always used in a group of neighboring pipeline operations.
+* `.()` **Plain Branch** uses parenthesis to customize operator precedence. It is
+not regularly needed, but can help clarify or organize intention.
+* `@()` **Iterate Branch** is invoked for each field of the incoming structure.
+* `&()` **Side Branch** pipeline that ignores its generated structure, this passes through
+whatever structure was originally given to it. This pairs with the "privacy" decorator.
+* `^()` **Isolated Branch** has no access to `!ctx` or `!mod` namespaces
+
+**Fallback Operators**
+
+Fallbacks are for dealing with failures. Failures have specialized flow control
+within the pipeline only these operators interact with them.
+
+* `|()` **Fallback Branch** is only invoked when the incoming value has a failure shape.
+* `|` **Fallback Statement** Provides an immediate fallback to any statement.
+
+**Valve Operators**
+
+There is also a family of operators used for conditional logic inside 
+a pipeline. These are always used in a group of neighboring operations.
 
 * `??` Begin a valve with a boolean condition
 * `?>` Perform statement when condition matches
@@ -41,18 +59,17 @@ a pipeline. These are always used in a group of neighboring pipeline operations.
 Each statement in the pipeline can be one of several operations.
 
 * **Function** reference preceded with `:` colon.
-* **Structure** define new structure value based on incoming structure wrapped in `{}` braces. This can also
+* **Structure** define new structure literal based on incoming structure wrapped in `{}` braces.
 use a pipeline of statements internally to create a sub-pipeline.
-* **Lazy Structure** operates the same as the structure but is wrapped in `[]` square brackets,
-and it's fields are not computed until needed.
+* **Lazy Structure** operates the same as the structure but is wrapped in `[]` square brackets.
+It's fields are not computed until needed.
 * **Condition** the condition operators require a boolean value.
 
 ## Pipeline Actions
 
-Each pipeline defined in a structure has one of three possible behaviors.
+Each pipeline is a group of statements that has one of three possible behaviors.
 These behaviors are controlled by what statement is at the very start of
-the pipeline. A pipeline is any number of statements, even just a single
-structure definition.
+the pipeline. Even a single statement is still considered a pipeline.
 
 * **Temporary Assignment** statements start with a `$` prefixed token and contain an
 initial `=` assignment. This assigns
@@ -81,16 +98,17 @@ user -> {username=name, timestamp=:time/now} -> :event
 :random/bool -> :record-statistics
 ```
 
-### Iteration Pipeline (`=>`)
+### Iterate Branch `@()`
 
-This will invoke the statement on each field in the structure. The
-statement will be invoked with a simple shape containing
-`{value name index}`. The name field may be numbered field will be TODO for unnamed fields.
+This will invoke the branch on each field in the structure. The statement will
+be invoked with a simple shape containing `{value name index~num named?}`. For
+fields without a name the `name` will be `{}` and the `named?` boolean will be
+`#false`
 
 Each result of the iteration is collected into a structure of unnamed fields.
 
-There are several builtin tags that can be used to control the iteration's
-flow control.
+There are several builtin tags that can be used to control the iteration's flow
+control.
 
 * ``#skip`` will continue iteration, but not include this values result in the
 outgoing structure. This can be considered like a `continue` statement in other
@@ -102,30 +120,47 @@ and the iteration result is that failure structure.
 
 ```comp
 ; Double numbers in an array
-numbers => {value * 2}  ; double numbers in an array
+numbers -> @(value * 2)  ; double numbers in an array
 
 ; Generate pairs of name and boolean for each user structure in array
-users => {name=value.name, recent=value.login > $lastweek}
+users -> @({name=value.name, recent=value.login > $lastweek})
 ```
 
-### Spread Arrow Pipeline (`..>`)
+### Side Branch `&()`
 
-This is simply a shorthand for modifying fields from the incoming structure.
+The side branch is a conveience for evaluating pipeline but not contributing
+back to the outer flow control. 
 
-This same functionality can be written with the `->` operator but the behavior
-is common enough that this provides readable simplicitly over the traditional
-syntax.
+This branch will pass through whatever value it was provided.
+
+Failures generated inside the side branch will still be propogated out of the
+branch.
+
+This uses the `&` symbol which is also used mark definitions as private. This
+can be considered the "privacy branch". What happens in side branch stays in
+side branch, but side branch is not above the law.
 
 ```comp
-
-; Native syntax for merging changes into the incoming structure
-path -> :load -> {..!in timestamp=$now handler.retries=2}
-
-; Spread arrow shorthand
-path -> :load ..> {timestamp=$now handler.retries=2}
+record -> :validate-record -> &({timestamp=when} -> :update-stamp) -> :process-record
 ```
 
-## Valve Flow Control Operators
+### Isolate Branch `^()`
+
+The isolate branch executes its statements with no access to the `!ctx` or
+`!mod` namespaces. This can be important when needing to ensure structual
+data contains specific fields with no contribution from the namespaces.
+
+This is useful for both morphing operators and invoking functions.
+
+This uses the caret, or "hat" operator to describe it operates in the shadows,
+hidden from the namespaces.
+
+```comp
+user ~systemuser    ; Needed fields can be contributed from namespaces
+^(user ~systemuser) ; Record forced to provide all fields for itself
+```
+
+### Valve Flow Control Operators
 
 A valve group is a sequence of conditional checks that work together as a single
 unit in the pipeline. The group receives an input value, evaluates conditions
@@ -168,7 +203,7 @@ input_value ->
 -> receives_action_output
 ```
 
-# Failure Operators `!>` and `|`
+# Failure Operators `|>` and `|`
 
 These statements are only invoked when the incoming structure has a failure
 shape.
@@ -194,7 +229,7 @@ statement. This allows assigning the current input structure to either a
 `$` local temporary value, a field in the outgoing structure, or an 
 assignment to the `!mod` or `!ctx` namespaces.
 
-The same incoming data structure is used as the generated value for this operator.
+This operator passes through whatever the current structure is.
 
 ```comp
 ; Function-scoped labels

@@ -61,21 +61,6 @@ These namespaces are readonly structures. When new threads are launched
 they share a copy of the immutable data. When they modify new structures
 they keep their own private copies.
 
-### Namespace Ignoring
-
-A special `^()` operator allows evaluating any statements without
-the inherited `!ctx` and `!mod` namespaces. Within these parenthesis
-the field namespace will only use `!in` and `!out`.
-
-This is important when doing shape morphing and requiring the input
-argument to contain the entirety of information needed.
-
-```comp
-!func :secret = {
-  :load_values -> ^(:compile ~account) -> :login
-}
-```
-
 ## Privacy
 
 Private and unexported data uses the `&` in different ways to prevent other

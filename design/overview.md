@@ -453,20 +453,17 @@ Each statement in the pipeline can be one of several types of values
 
 The language provides several pipeline operators that have different behaviors.
 * **Invoke** `->` Pass a structure to the next in one operation.
-* **Iterate** `=>` Invoke a function for each field in the structure and combine
-  results.
-* **Spread** `..>` Spread a new structure to merge onto the previous output.
-* **Failed** `!>` Invoke a discovered upstream failure.
-* **Valve** `-?` with `-&` and `-|` conditional operators.
+* **Failed** `|>` Invoke a discovered upstream failure.
+* **Valve** `??` with `-&` and `-|` conditional operators.
 
 ```comp
 ; Basic pipeline with arrow operator
 data 
 -> {users=people} ; rename field and remove other data
 -> :transform     ; invoke a method
-=> :validate      ; invoke a method on each entry
+-> @(:validate)   ; invoke a method on each entry
 -> :save          ; invoke method on collected data
-!> {:log/error}   ; log error 
+|> :log/error     ; log failure
 ```
 
 Functions are intended to be invoked on structures. Some functions are defined

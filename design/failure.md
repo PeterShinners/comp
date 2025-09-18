@@ -118,9 +118,9 @@ multiple fallbacks.
 row.name | row.login | "Unknown
 ```
 
-## Failure Pipeline Operator
+## Fallback Pipeline Operator
 
-Only the `!>` failure operator will be invoked when `!in` contains a failure
+Only the `|>` failure operator will be invoked when `!in` contains a failure
 shape. Otherwise this fail operator is normally skipped. Whatever value
 is generated from this operator will become the new state of the pipeline,
 which will continue execution following this operator.
@@ -158,8 +158,8 @@ data ..> :load_config -> :process  ; Config loading failure stops pipeline
 ; Some failures produce a fallback value, others use an alternate failure
 ; Any other failure types will be propogated as-is
 :risky-op
-!> (#fail#io) {length=0 results={}}  ; Fallback value
-!> (#fail#runtime#permission|#fail#resource)  {#fail#value "System says no"}
+|> (#fail#io) {length=0 results={}}  ; Fallback value
+|> (#fail#runtime#permission|#fail#resource)  {#fail#value "System says no"}
 ```
 
 ## Failure Details
