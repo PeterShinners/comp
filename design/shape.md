@@ -1,42 +1,16 @@
-# Shapes, Blocks, and Higher-Order Functions
+# Shapes, Units, and Type System
 
-*Design for Comp's shape and unit systems*
+*Design for Comp's structural typing, unit system, and shape morphing*
 
 ## Overview
 
-A shape looks like a structure, but isn't a value or data itself.
-The shape defines a schema that can be used to match and morph structure
-data.
+Shapes define structural schemas that describe and validate data. They specify field names, types, defaults, and constraints, creating a powerful system for type checking and data transformation. Unlike nominal type systems, Comp's shapes use structural compatibility - any structure with the required fields can satisfy a shape.
 
-For each field the shape can define an optional name, an optional shape,
-an optional default value, and an optional documentaion string.
+The shape system integrates with units to provide semantic typing for primitive values. Units attach to numbers and strings, enabling automatic conversions, type-safe operations, and domain-specific validation. Together, shapes and units create a flexible yet rigorous type system.
 
-When shapes are used to define function, these characteristics make them
-work similar to positional and keyword arguments in languages like Python.
+## Shape Definition and Inheritance
 
-Values also have an extensible units system. Units attach to values and
-control how they are converted with other values. The most typical use
-of this system is to assign units, like weights and measurements, to
-regular number values.
-
-### Builtin shapes
-
-Comp defined a handful of builtin shapes that are available in any namespace.
-* `~nil` an alias for an empty structure, or `~{}`
-
-Be aware that the empty structure is a shorthand of matching any possible
-structure, and the default shape morphing preserves fields that are undefined
-in the shape.
-
-## Shape System
-
-### Shape Definition Syntax
-
-Shapes use the `!shape` operator to define new ones. Shapes live declaratively
-in the module's namespace. Shapes can be defined and used in any position
-inside the module.
-
-The modules will fail to build when a shape name is defined multiple times.
+Shapes are defined with the `!shape` operator and live declaratively in the module namespace. They can be referenced anywhere within the module regardless of definition order. Shape definitions specify fields with optional types, defaults, and documentation. The spread operator enables shape composition through inheritance.
 
 ```comp
 !shape ~Point2d = {
@@ -44,309 +18,309 @@ The modules will fail to build when a shape name is defined multiple times.
     y ~num = 0
 }
 
+!shape ~Point3d = {
+    ...~Point2d              ; Inherit x, y fields
+    z ~num = 0               ; Add z coordinate
+}
+
 !shape ~User = {
     name ~str
-    age ~num
     email ~str
-    active ~bool = !true
-    preferences? ; Optional field
-    tags #user_tag[]  ; Array of user tags
+    age ~num = 0
+    active ~bool = #true
+    preferences?             ; Optional field (any type)
+    tags #user_tag[]        ; Array of specific tags
+}
+
+; Shape composition with multiple inheritance
+!shape ~AuthenticatedUser = {
+    ...~User
+    token ~str
+    permissions #permission[]
+    last_login ~str = :time/now
 }
 ```
 
-### Shape Inheritance with Spreading
-
-```comp
-!shape ~Point3d = {
-    ...~Point2d    ; Inherit x, y fields
-    z ~num = 0  ; Add z coordinate
-}
-
-!shape ~ColoredPoint = {
-    ...~Point2d
-    color ~str = "black"
-}
-
-; Function parameter spreading
-!func :analyze ~{...~RawData, complexity ~num = 0} = {
-    ; Has all RawData fields plus complexity parameter
-    !in -> :process_with_complexity
-}
-```
-
-### Union Shapes
-
-The shape for a value can be a combination of multiple shapes, combined
-These are grouped with the `|` pipe operator.
-
-Combine a shape with `~nil` definition to allow setting to an empty
-structure, which represents having no value.
-
-Any shape can be defined from an existing shape definition. 
-This allows creating shortcuts or definitions to commonly used types.
-
-```comp
-!shape maybe-num = ~num|~nil
-!shape recipient = ~user|~group
-
-
-### Array Shapes
-
-A shape can define a container of a type by appending `[]` square brackets
-to the shape. This has several forms to define ranges of sizes.
-
-* `[]` any number of the items allowed, including none
-* `[4-8]` require at least four but no more than eight
-* `[-3]` require three at the most, including zero
-* `[1-]` require at least one item
-
-Note that there are no negative sizes allowed, so `[-3]` unambiguously defines
-a range like `[0-3]`.
-
-### Shape Application Operators
-
-```comp
-data ~ Shape           ; Normal morph with defaults
-data *~ Shape          ; Strong morph (strict, no extras allowed)
-data ?~ Shape          ; Weak morph (lenient, missing fields OK)
-data ~@ Shape          ; Include namespace lookups for defaults
-```
-
-### Shape Morphing Algorithm
-
-**Three-Phase Field Matching Process**:
-
-1. **Named Matches** - Exact field name matches
-2. **Tag Matches** - Fields with matching tag types
-3. **Positional Matches** - Remaining fields matched by position
-4. **Default Application** - Unmatched optional fields get defaults
+Fields in shapes can specify ranges for collections, enabling precise cardinality constraints. The syntax `[min-max]` defines acceptable element counts, with shortcuts for common patterns.
 
 ```comp
 !shape ~Config = {
+    servers ~Server[1-]      ; At least one server
+    backups ~Backup[0-3]     ; Up to three backups
+    nodes ~Node[5-10]        ; Between 5 and 10 nodes
+    options ~str[]           ; Any number of strings
+}
+```
+
+## Shape Morphing Algorithm
+
+Shape morphing transforms structures to match shape specifications through a multi-phase matching process. The algorithm considers field names, types, positions, and defaults to create the best possible match. During morphing, missing fields can be sourced from the namespace stack (`!ctx` and `!mod`) unless execution is within an isolated branch `^()`.
+
+The morphing process follows these phases:
+1. **Named field matching** - Exact field name matches are assigned first
+2. **Tag field matching** - Fields with matching tag types are assigned
+3. **Positional matching** - Remaining fields match by position
+4. **Default application** - Unmatched shape fields receive defaults from shape definition
+5. **Namespace lookup** - Missing fields check `!ctx` and `!mod` (unless isolated)
+
+```comp
+!shape ~Connection = {
     host ~str = "localhost"
     port ~num = 8080
-    debug ~bool = !false
+    secure ~bool = #false
 }
 
-; Morphing example
-{"192.168.1.1", debug=!true, extra="ignored"} ~ Config
-; Phase 1: debug=!true matches by name
-; Phase 2: (no tag matches)
-; Phase 3: "192.168.1.1" -> host by position
-; Phase 4: port=8080 from default
-; Result: {host="192.168.1.1", port=8080, debug=!true}
+; Basic morphing
+{"example.com", 443, #true} ~ Connection
+; Result: {host="example.com", port=443, secure=#true}
+
+; Namespace fields are automatically available
+!ctx.port = 3000
+{host="prod.example.com"} ~ Connection
+; Result: {host="prod.example.com", port=3000, secure=#false}
+; port comes from !ctx, secure from shape default
+
+; Isolated execution prevents namespace access
+{host="isolated.com"} -> ^(
+    .. ~ Connection  ; Only uses input and shape defaults
+)
+; Result: {host="isolated.com", port=8080, secure=#false}
+; port uses shape default since !ctx is inaccessible in ^()
+
+; Function parameters automatically morph with namespace access
+!func :connect ~Connection = {
+    "Connecting to ${host}:${port}" -> :log
+}
 ```
 
-### Shape Application in Function Calls
+## Shape Application Operators
 
-Functions automatically apply `?~@` (weak morph with namespace) to incoming arguments:
+Different morphing operators control strictness and error handling. The standard morph (`~`) applies defaults and allows extra fields. Strong morph (`*~`) rejects structures with undefined fields. Weak morph (`?~`) makes all shape fields optional. Each variant has a corresponding check operator that tests compatibility without morphing.
 
 ```comp
-!func :create_user ~{name ~str, age ~num, active ~bool = !true} = {
-    ; Automatically morphs input using ?~@
-    !in -> :validate -> :save
-}
+data ~ Shape             ; Normal morph with defaults
+data *~ Shape            ; Strong - no extra fields allowed
+data ?~ Shape            ; Weak - missing fields acceptable
 
-; All of these work:
-{name="Alice", age=30} -> :create_user                    ; Uses default active=!true
-{name="Bob", age=25, active=!false} -> :create_user       ; Explicit active
-{name="Carol", age=40, extra="data"} -> :create_user      ; Extra fields ignored (weak morph)
-```
+; Check operators return #true or #false
+data ~? Shape            ; Can morph normally?
+data *~? Shape           ; Can morph strictly?
+data ?~? Shape           ; Can morph weakly?
 
-## Shape Pattern Matching
-
-### Shape-Based Pattern Matching
-
-Shapes can be used for pattern matching and conditional processing:
-
-```comp
-!shape ~HttpResponse = {
-    status #http_status
-    data
-    headers = {}
-}
-
-; Pattern matching on shapes
-response ~ HttpResponse -> match {
-    {status=#http_status#success} -> data -> :process_success
-    {status=#http_status#error, data} -> data -> :handle_error  
-    {status=#http_status#redirect, headers} -> headers.location -> :redirect
+; Usage in validation
+:if .{input ~? ExpectedShape} .{
+    processed = input ~ ExpectedShape
+    processed -> :handle
+} .{
+    {#fail#shape message="Invalid input structure"}
 }
 ```
 
-### Guard Conditions in Shapes
+## Shape Constraints
+
+Shapes can define constraints that validate field values beyond basic type checking. These constraints are checked during morphing and can cause morphing to fail if violated. Constraints use pure functions that return boolean values or failure structures.
 
 ```comp
 !shape ~ValidUser = {
-    name ~str|len>0      ; Non-empty string
-    age ~num|min=0|max=150  ; Reasonable age range
-    email ~str|matches=/^[^@]+@[^@]+$/  ; Email pattern
+    name ~str {min_length=3 max_length=50}
+    email ~str {pattern="^[^@]+@[^@]+$"}
+    age ~num {min=13 max=120}
+    score ~num {validate=.{.. >= 0 && .. <= 100}}
 }
 
-!func :create_user ~ValidUser = {
-    ; Input guaranteed to match validation rules
-    !in -> :save_to_database
-}
-```
-
-## Performance and Optimization
-
-### Shape Compilation and Caching
-
-```comp
-; Shapes can be compiled for faster repeated application
-!shape ~ValidatedUser = {
-    name ~str|len>0
-    email ~str|matches=/^[^@]+@[^@]+$/
-    age ~num|min=0|max=150
+; Constraint functions for complex validation
+!pure :valid_username = {
+    :str/length >= 3 && 
+    :str/match "^[a-z][a-z0-9_]*$" &&
+    !! :reserved_words/contains
 }
 
-; First application compiles shape rules
-user_data ~ ValidatedUser  ; Compiles validation rules
-similar_data ~ ValidatedUser  ; Uses cached compiled shape
-```
-
-## Integration Examples
-
-### API Handler with Shape Validation
-
-```comp
-!shape ~UserCreateRequest = {
-    name ~str|len>0
-    email ~str|matches=/^[^@]+@[^@]+$/
-    age ~num|min=13|max=120
-    notifications ~bool = !true
-}
-
-!func :create_user_endpoint ~UserCreateRequest -> ~HttpResponse = {
-    !in -> :validate_unique_email -> :create_user -> :send_welcome_email -> {
-        status = 201
-        body = {message="User created successfully", user=@}
-        headers = {"Content-Type": "application/json"}
-    }
+!shape ~Account = {
+    username ~str {validate=:valid_username}
+    balance ~num {min=0}
+    status #account_status
 }
 ```
 
-## Unit System
+Constraints are evaluated during morphing, with failures generating descriptive error structures. This enables precise validation at type boundaries while maintaining composability.
 
-Units are a special categorization for shapes. A unit can be attached to any
-value using the `@` operator. This can also be used in shape definitions to
-ensure compatible units.
+## Unit System Fundamentals
 
-### Unit Definition Syntax
+Units provide semantic typing for primitive values, enabling type-safe operations and automatic conversions. A unit defines a family of related measurements or formats with conversion rules between them. Units can be "origin-based" (like distances) where conversions use multiplication, or "offset-based" (like temperatures) where conversions require both multiplication and offset.
 
-Defining a unit involves picking a type the unit can attach to and a 
-pure function to perform conversions. The function must be pure so it can
-be evaluated at compile time.
-
+The standard library provides comprehensive unit definitions through the `unit/` module. Common units are aliased into the core namespace for convenience, but the full collection includes extensive scientific, engineering, and domain-specific units.
 
 ```comp
-!unit @
+!import unit/ = std "core/unit"
 
+; Common units available without prefix
+distance = 5#length#kilometer        ; Core alias
+temp = 20#temperature#celsius        ; Core alias
+
+; Extended units from unit/ module
+pressure = 101.325#unit/pressure#kPa
+energy = 50#unit/energy#joule
+frequency = 440#unit/frequency#hz
+
+; Alias units for convenience in your module
+!alias #meter = #unit/length#meter
+!alias #kg = #unit/mass#kilogram
+!alias #sec = #unit/time#second
+
+; Now use directly
+speed = 100#meter / 1#sec
+```
+
+Units attach to values using the `#` prefix followed by the unit category and specific unit. This creates a typed value that maintains its semantic meaning through operations. The unit system prevents nonsensical operations like adding meters to seconds while enabling automatic conversion within unit families.
 
 ```comp
-!unit @distance ~num = {
-    m = !nil                    ; Base unit
-    km = {mult=0.001}          ; Conversion factor
-    inch = {mult=39.3701}      ; Inches per meter
-    lightyear = {mult=1.057e-16}
+; Origin-based units (simple multiplication)
+!unit #length = {
+    #meter = 1.0                ; Base unit
+    #kilometer = 0.001          ; Conversion factor from base
+    #foot = 3.28084
+    #mile = 0.000621371
 }
 
-!unit @temperature ~num = {
-    celsius = !nil
-    fahrenheit = {offset=32, mult=1.8}    ; Custom conversion
-    kelvin = {offset=-273.15}
+; Offset-based units (require offset and scale)
+!unit #temperature = {
+    #celsius = {scale=1.0 offset=0}      ; Base unit
+    #fahrenheit = {scale=1.8 offset=32}  ; F = C * 1.8 + 32
+    #kelvin = {scale=1.0 offset=-273.15} ; K = C - 273.15
+}
+
+; Usage
+distance = 5#length#kilometer
+in_meters = distance ~ num#length#meter    ; 5000
+in_miles = distance ~ num#length#mile      ; ~3.1
+
+temp = 0#temperature#celsius
+in_f = temp ~ num#temperature#fahrenheit   ; 32
+in_k = temp ~ num#temperature#kelvin       ; 273.15
+```
+
+## Unit Operations and Conversions
+
+Units follow algebraic rules for operations. Addition and subtraction require compatible units, with the result taking the first operand's unit. Multiplication and division can combine different units to create compound units. The unit system tracks these relationships to ensure dimensional correctness.
+
+```comp
+; Same family operations
+5#length#meter + 10#length#foot    ; Result: ~8.048#length#meter
+10#length#km - 1#length#mile       ; Result: ~8.39#length#km
+
+; Unit precedence - first operand wins
+total = base_length + extra_length ; Result uses base_length's unit
+
+; Compound units from operations
+speed = 100#length#km / 1#time#hour     ; 100#speed#kmph
+area = 10#length#meter * 5#length#meter ; 50#area#sqmeter
+
+; Type errors for incompatible operations
+5#length#meter + 3#time#second     ; ERROR: Incompatible units
+10#mass#kg - 2#length#meter        ; ERROR: Cannot subtract length from mass
+```
+
+The standard library provides comprehensive unit definitions and conversion functions. Custom units can be defined for domain-specific measurements, following the same patterns as built-in units.
+
+## String Units and Domain Validation
+
+String units provide semantic typing and validation for string values. They can enforce formats, apply transformations, and control escaping in templates. String units are particularly valuable for security, ensuring proper escaping based on context.
+
+```comp
+!unit #email ~str = {
+    validate = :str/match "^[^@]+@[^@]+$"
+    normalize = :str/lowercase
+}
+
+!unit #sql ~str = {
+    escape = :sql/escape_literal
+    validate = :sql/check_syntax
+}
+
+!unit #html ~str = {
+    escape = :html/escape_entities
+    sanitize = :html/remove_scripts
+}
+
+; Usage with automatic validation
+address = "User@Example.COM"#email
+normalized = address ~ str#email    ; "user@example.com"
+
+; Template safety through units
+query = "SELECT * FROM users WHERE id = ${id}"#sql
+html = "<h1>${title}</h1>"#html
+; Units ensure proper escaping in templates
+```
+
+## Union and Conditional Shapes
+
+Shapes can be combined with `|` to create union types that accept multiple structures. This enables flexible APIs that handle different input formats while maintaining type safety. Union shapes are particularly useful for result types and variant handling.
+
+```comp
+!shape ~Result = ~Success | ~Error
+!shape ~Success = {value ~any}
+!shape ~Error = {#fail message ~str}
+
+!shape ~ConfigSource = ~FileConfig | ~EnvConfig | ~DefaultConfig
+!shape ~FileConfig = {path ~str}
+!shape ~EnvConfig = {prefix ~str}
+!shape ~DefaultConfig = {}
+
+; Conditional shape selection
+!func :process ~{input ~Result} = {
+    input -> :match
+        .{.. ~? Success} .{value -> :handle_success}
+        .{.. ~? Error} .{message -> :log_error}
 }
 ```
 
-### Unit Usage and Conversion
+## Shape-Based Pattern Matching
+
+Shapes integrate with pattern matching to enable type-directed control flow. The `~?` operator tests shape compatibility, while morphing operations transform data for processing. This creates elegant APIs where function behavior adapts to input structure.
 
 ```comp
-distance = 5@distance@km
-converted = distance -> :units/to @distance@m    ; 5000@distance@m
+!shape ~GetRequest = {method="GET" path ~str}
+!shape ~PostRequest = {method="POST" path ~str body ~any}
+!shape ~DeleteRequest = {method="DELETE" path ~str}
 
-; Automatic validation
-speed = 60@distance@km / 1@time@hour    ; Type-safe unit arithmetic
-```
-
-### Unit-Aware Security
-
-Units can apply domain-specific escaping for security:
-
-```comp
-$query = "SELECT * FROM users WHERE id=${user_id}"@sql
-; @sql unit automatically applies SQL escaping
-
-$html = "<div>${content}</div>"@html
-; @html unit applies HTML escaping
-
-$shell = "ls ${directory}"@shell  
-; @shell unit applies shell escaping
-```
-
-### Custom Unit Formatters
-
-Unit formatters must be `!pure` functions for compile-time evaluation:
-
-```comp
-!pure :format_currency ~{value @currency} = {
-    "$${value -> :num/format {decimals=2}}"
-}
-
-@currency = {formatter=:format_currency}
-```
-
-
-### Unit morphing
-
-Coercion when using operators (left wins, right gets converted) (sometimes?)
-
-
-## Structure Transformation and Morphing
-
-### Shape Morphing
-
-Structure shape transformation allows converting between compatible structure formats:
-
-```comp
-; Positional to named fields
-{10, 20} ~ Point2d             ; Converts to named fields based on shape
-{x=10, y=20}                   ; Result if Point2d has x,y fields
-
-; Mixed structure morphing  
-{name="Alice", 30, #role#admin} ~ User
-; Converts to User shape with appropriate field mapping
-
-; Complex morphing with validation
-raw_data ~ {
-    ValidatedUser           ; Apply shape validation
-    -> :assign_defaults     ; Fill in default values  
-    -> :compute_derived     ; Add computed fields
+!func :handle_request ~{request} = {
+    request -> :match
+        .{.. ~? GetRequest} .{
+            request ~ GetRequest -> :fetch_resource
+        }
+        .{.. ~? PostRequest} .{
+            request ~ PostRequest -> :create_resource
+        }
+        .{.. ~? DeleteRequest} .{
+            request ~ DeleteRequest -> :delete_resource
+        }
+        .{#true} .{
+            {#fail#http status=405 message="Method not allowed"}
+        }
 }
 ```
 
-### Structure Template Application
+## Performance Optimization
+
+Shape operations can be optimized through caching and compilation. Repeated morphing operations with the same shape benefit from cached validation rules. The runtime can compile shape definitions into efficient validators, particularly for shapes with complex constraints.
 
 ```comp
-!shape ~Point2d = {x ~num, y ~num}
-!shape ~Point3d = {x ~num, y ~num, z ~num}
+; Shapes used in hot paths should be pre-compiled
+!shape ~HotPath = {
+    data ~str {validate=:complex_validation}
+    timestamp ~num {min=0}
+    flags #flag[]
+}
 
-; Convert 2D to 3D with default z
-point_2d = {x=10, y=20}
-point_3d = {...point_2d, z=0} ~ Point3d
+; First use compiles validation rules
+first_result = input ~ HotPath      ; Compiles and caches
 
-; Template-based conversion
-points_2d = [{x=1, y=2}, {x=3, y=4}]
-points_3d = points_2d => {@ ~ Point3d | {z=0}}
+; Subsequent uses reuse compiled rules
+loop_results = items -> :map .{.. ~ HotPath}  ; Fast validation
 ```
 
-### Morphing with Type Promotion
+## Design Principles
 
-Morphing can combine with type promotion for data transformation:
+The shape and unit system embodies several core principles. Structural compatibility means types are defined by structure, not names, enabling flexible composition. Semantic typing through units provides meaning beyond primitive types. Gradual validation allows choosing strictness levels appropriate to each context. Namespace integration enables shapes to work with Comp's layered data model. Compile-time optimization ensures type checking doesn't sacrifice performance.
 
-```comp
-; JSON to structured data
-json_input = '{"name": "Alice", "age": "30", "active": "true"}'
-user = json_input -> :json/parse -> :json/promote ~ User
-; Promotes "30" to number, "true" to !true, then applies User shape
-```
+These principles create a type system that balances flexibility with safety. Whether validating API inputs, ensuring dimensional correctness in calculations, or transforming between data formats, shapes and units provide powerful tools for managing complexity in real-world applications.

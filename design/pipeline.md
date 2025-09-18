@@ -10,9 +10,9 @@ Every statement in Comp benefits from "statement seeding" - an implicit `.. ->` 
 
 ## Pipeline Fundamentals and Statement Seeding
 
-The `->` operator is Comp's fundamental composition mechanism, passing data from one operation to the next in readable left-to-right flows. Each pipeline statement can be a function reference, structure literal, string template, or lazy structure. The pipeline naturally composes these different statement types into complex transformations.
+The `->` operator is Comp's fundamental composition mechanism, passing data from one operation to the next in readable left-to-right flows. A pipeline consists of one or more operations connected by `->`. Each operation can be a function reference, structure constructor, literal value, string template, or special operator like `!label`. The pipeline naturally composes these different operation types into complex transformations.
 
-Statement seeding revolutionizes how data flows through functions. Every statement in a function or block automatically begins with the input data through an implicit `.. ->` prefix. This seed value flows into the statement unless explicitly overridden. The seed resets at each statement boundary, so each line starts fresh with the context input rather than the previous statement's result. Within a pipeline, `..` refers to the previous operation's output, creating a clear distinction between the statement seed and pipeline flow.
+Statement seeding revolutionizes how data flows through functions. Every statement in a function or block automatically begins with the input data through an implicit `.. ->` prefix. This seed value flows into the statement's pipeline unless explicitly overridden. The seed resets at each statement boundary, so each statement starts fresh with the context input rather than the previous statement's result. Within a pipeline, `..` refers to the previous operation's output, creating a clear distinction between the statement seed and pipeline flow.
 
 ```comp
 !func :process ~{data} = {
@@ -25,17 +25,17 @@ Statement seeding revolutionizes how data flows through functions. Every stateme
 }
 ```
 
-This design enables natural parallel processing patterns where multiple operations work on the same input data independently, then combine their results. The implicit seeding eliminates the verbose threading common in functional languages while maintaining explicitness when needed.
+This design enables natural parallel processing patterns where multiple statements work on the same input data independently, then combine their results. The implicit seeding eliminates the verbose threading common in functional languages while maintaining explicitness when needed.
 
-## Pipeline Actions and Temporaries
+## Statements and Temporaries
 
-Each pipeline in Comp performs one of three actions based on how it begins. These actions determine how the pipeline's result is used and whether it contributes to the output structure being built.
+Each statement in Comp performs one of three actions based on its target. These actions determine how the pipeline's result is used and whether it contributes to the output structure being built.
 
 **Temporary Assignment** starts with a `$` prefixed token followed by `=`. This creates a function-local temporary that can be referenced later in the function but doesn't contribute to the output structure. These temporaries exist only within the function's scope and are immutable once assigned. Nested field assignment creates a new temporary structure with the specified modification.
 
 **Named Assignment** starts with a field name and `=`, assigning the pipeline result to a named field in the output structure. Conflicting field names override previous values, though this behavior can be modified with weak (`?=`) or strong (`*=`) assignment operators.
 
-**Unnamed Assignment** has no assignment operator, adding the pipeline result as an unnamed field to the output structure. These unnamed fields maintain their order and can be accessed by position.
+**Unnamed Assignment** has no assignment target, adding the pipeline result as an unnamed field to the output structure. These unnamed fields maintain their order and can be accessed by position.
 
 ```comp
 !func :analyze ~{data} = {
@@ -124,7 +124,7 @@ Modules can extend the failure hierarchy to define domain-specific error categor
 !tag #fail += {
     #database = "Database operation failed" {
         #connection = "Unable to connect"
-        #constraint = "Constraint violation"
+        #constraint = "Constraint violation"  
         #deadlock = "Transaction deadlock detected"
     }
     #auth = "Authentication failed" {
@@ -143,7 +143,7 @@ Failure messages should follow consistent formatting guidelines to provide clear
 
 Comp provides multiple mechanisms for handling failures, from simple fallbacks to complex recovery procedures. The choice of mechanism depends on the complexity of the recovery needed and whether you want to replace the failure or just perform cleanup.
 
-The `|` fallback operator provides immediate recovery for single statements. It receives the original input (not the failure) and provides an alternative value. Multiple fallbacks can be chained, creating a cascade of alternatives tried in order. This operator shines for providing defaults when optional fields are missing or operations might fail.
+The `|` fallback operator provides immediate recovery for single operations. It receives the original input (not the failure) and provides an alternative value. Multiple fallbacks can be chained, creating a cascade of alternatives tried in order. This operator shines for providing defaults when optional fields are missing or operations might fail.
 
 ```comp
 ; Cascading fallbacks for configuration
@@ -154,7 +154,7 @@ display_name = user.nickname | user.username | user.email | "Anonymous"
 timeout = settings.timeout | (settings.retry_count * 1000) | 5000
 ```
 
-The `!>` operator handles failures with more complex recovery logic. Since it only accepts a single statement, multi-step recovery requires a block. The operator can be configured with tag filters to handle specific failure types, with multiple `!>` operators creating a chain of handlers tested in order.
+The `!>` operator handles failures with more complex recovery logic. Since it only accepts a single operation, multi-step recovery requires a block. The operator can be configured with tag filters to handle specific failure types, with multiple `!>` operators creating a chain of handlers tested in order.
 
 ```comp
 !func :process_transaction ~{data} = {
@@ -163,7 +163,7 @@ The `!>` operator handles failures with more complex recovery logic. Since it on
          !> (#fail#io) {:retry_with_backoff}
          !> (#fail#database#deadlock) {:wait_and_retry}
          !> {
-             ; General failure - need block for multiple statements
+             ; General failure - need block for multiple operations
              :log_error
              -> :cleanup_resources
              -> {status="failed" original=..}
@@ -173,7 +173,7 @@ The `!>` operator handles failures with more complex recovery logic. Since it on
 ; Complex recovery in a single block
 risky_operation !> {
     $error = ..
-    "Operation failed: ${error.message}" -> :log
+    "Operation failed: ${error.message}" % .. -> :log
     $error.code -> :match
         .{.. >= 500} .{:wait_and_retry}
         .{.. == 429} .{:backoff_exponentially}

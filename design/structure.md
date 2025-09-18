@@ -1,476 +1,252 @@
 # Structures, Spreads, and Lazy Evaluation
 
-*Design for Comp's structure generation, manipulation, and management.*
+*Design for Comp's structure generation, manipulation, and management*
 
 ## Overview
 
-Structures are the backbone of the Comp language. Every function is invoked
-with a structure of data and generates a new structure. Even simple values
-like booleans and numbers are automatically promoted into simple structures
-with just one value.
+Structures are the backbone of the Comp language. Every function receives a structure as input and generates a new structure as output. Even simple values like booleans and numbers are automatically promoted into single-element structures when used in pipeline contexts.
 
-Structures are immutable. Once created their contents are constant and fixed
-until they are no longer needed.
+Structures are immutable collections that can contain any mix of named and unnamed fields. Field names can be simple tokens, complex strings, or even tag values. Fields are ordered and can be accessed by name or position. This unified approach means structures work equally well as records, arrays, or hybrid collections.
 
-Structures can contain any mix of named and unnamed fields. Field names can
-be simple token values, or complex strings with advanced formatting. Field
-names can also be tag values or as any type represented as an expression.
-Structure fields can never be other structures. Unnamed fields are assigned
-an incrementing numeric id as a field.
+## Structure Definition and Field Access
 
-Structure fields are sorted. They can be iterated in the order of definition
-and all fields can be referenced by overall position in the structure. This
-allows structures to be used like arrays from other languages.
+Structures are created with `{}` braces containing field definitions. Fields can have explicit names or be positional (unnamed). Named fields use `=` for assignment, while unnamed fields are simply listed. The same field name can appear multiple times, with later definitions overriding earlier ones based on assignment strength.
 
-Fields can be matched and morphed by working with shape definitions, which
-act a bit as schemas for structures.
-
-The functionality and features of working with structures also applied
-directly to Comp functions. Comp functions are just structure definitions
-that aren't processed immediately.
-
-## Structure Definition
-
-### Literal Structures
-
-The simplest structures are created from a sequence of fields wrapped
-in `{}` braces. Structure can contain other structure values.
-
-Fields that have already been assigned can by later fields.
+Field names in structures are incredibly flexible. Tokens need no quoting, tags can be used directly, arbitrary strings use double quotes, and expressions use single quotes. This same syntax applies when referencing fields with dot notation.
 
 ```comp
-; Structure examples
-user = {name="Alice", age=30}                   ; Named fields
-coordinates = {10.5, 20.3}                      ; Unnamed fields
-mixed = {name="Bob", 25, #role#admin, active=#true}  ; Multiple types
-
-counts = {start=12 next=count+1 finish=next+1}  ; Named 12 13 14 fields
-
-deep = {name="Carl" address={"123 Road" "City, ST" 12321}}  ; Nested
-```
-
-## Field References
-
-Fields are referenced from structures with a dotted notation. Field names
-can be any type of data, aside from other structures.
-
-* **Tokens** need no special quoting, `name` `age`
-* **Tags** tags can be field names (and field values), these no special quoting,
-  `#status#ok` `#log#warning`
-* **Strings** fields can be defined from arbitrary text, these fields are required
-  to use double quotes, `"Ready?"` `"Press Start"`
-* **Numbers** Numbers (and booleans) can be described with any expression wrapped in single quotes,
-  `'0'` `'counter > 2'`
-
-This same formatting syntax is used for assigning and referencing fields.
-
-```comp
-
-data = {token=1 '#status#bad'=2 "North Dakota"=3 '12/2'=4}
-
-one = data.token
-two = data.'#status#bad'
-three = data."North Dakota"
-four = data.'3+3'
-
-user.'suffix->computed'   ; Formatted field names
-user.'$variable'          ; Computed access with variables
-```
-
-## Indexed References
-
-Each field in the structure has a unique positional index. This can be referenced
-using the `#` operator with an integer number. The index is 0 based.
-
-The indexing requires a zero or positive value. There is no support for indexing
-backward from the end using negative indices. For these types of failures
-see the library functions like `:iter/last` or `:iter/tail`
-
-Assinging to a field index larger than the structure will result in a failure.
-Using the `*=` strong assignment will force the structure to be expaded to the
-size needed to contain that many fields.
-
-```comp
-color = {r=80 g=160 b=240}
-
-color#1  ; 160
-color#2 = 0    ; new structure with {r=80 g=160 b=0}
-color#5 *= 255  ; new structure with six fields
-```
-
-### Field Overrides
-
-If the same field name is defined multiple times, the last definition will
-win. 
-
-This behavior can be influenced by using the alternative assignment operators
-* `*=` **strong assignment** field cannot be overridden be other non-stron assignments
-* `?=` **weak assignment** field will not be changed if it has been previously assigned
-
-When overriding fields, the value is changed, but it's position in the
-structure maintains the index that field was initially assigned to.
-
-Fields can also be overridden by referencing 
-
-```comp
-conflicts = {
-    *high=1 mid=2 low=3
-    high=4  mid=5 low?=6
-}
-; Results in {high=1 mid=5 low=3}
-```
-
-### Spread Structures
-
-Comp's spread operators allow filling the contents from one structure into
-another. Multiple structures can be spread into the new structure being
-created.
-
-There are also variations for **strong spread** and **weak spread**. These follow
-the same logic as if every individual field had been assigned using strong,
-weak, or regular assignment.
-
-* `...` **Spread** Apply each individual field to the structure
-* `..*` **Strong Spread** Override each individual field to the structure
-* `..?` **Weak Spread** Apply unset fields to the structure
-
-When spreading structures, it does not matter if fields from the original
-structures were assigned with weak or strong assignments. Once the structure
-is created, the fields have no memory of their assignment strength.
-
-The fields from the spread are assigned in the order they belong to their
-original structures.
-
-Unnamed fields in the structure are applied in the order of each structure
-they come from. There is no overriding for unnamed fields.
-
-```comp
-redgreen = {red=1 green*=2 'alpha'}  ; strong assignment has no influence on spreading
-greenblue = {blue=3 green=4 'beta'}
-
-{...redgreen ...greenblue}
-; {red=1 green=4 blue=3 'alpha' 'beta'}
-
-{green=99 ...?redgreen ...?greenblue}  
-; {green=99 red=1 blue=3 'alpha' 'beta'}
-
-{green=99 ...*redgreen ...*greenblue}
-; {red=1 green=4 blue=3 'alpha' 'beta'}
-
-{green=99 ...?redgreen ...*greenblue}
-; {green=4 red=1 blue=3 'alpha' 'beta'}
-
-{green*=99 ...?redgreen ...*greenblue}
-; {green=4 red=1 blue=3 'alpha' 'beta'}
-```
-
-### Field Ordering and Immutability
-
-Structures maintain field insertion order and are completely immutable:
-
-```comp
-original = {a=1, b=2, c=3}
-modified = {...original, b=20, d=4}    ; Creates new structure
-; Result: {a=1, b=20, c=3, d=4}
-; original remains unchanged: {a=1, b=2, c=3}
-```
-
-### Assignment Operators
-
-Context-aware assignment operators adapt behavior based on usage:
-
-```comp
-=     ; Normal assignment
-*=    ; Strong assignment (force/persist, extends structure)
-?=    ; Weak assignment (only if field doesn't exist)
-..=   ; Spread assignment (merge operator)
-```
-
-### Assignment Behavior Examples
-
-```comp
-user = {name="Alice", age=30}
-
-; Normal assignment - overwrites existing
-user.location = "Boston"     ; {name="Alice", age=30, location="Boston"}
-user.name = "Alicia"        ; Overwrites existing name
-
-; Conditional assignment - only if undefined
-user.nickname ?= "Al"        ; Adds nickname only if it doesn't exist
-user.name ?= "Bob"          ; Skips - name already exists
-
-; Strong assignment - forces assignment, extends if needed
-user.verified *= !true       ; Forces assignment, extends structure if needed
-```
-
-### Deep Field Assignment
-
-Creates new immutable structures at each level:
-
-```comp
+; Various field name types
 user = {
-    profile = {
-        settings = {theme="light"}
-    }
+    name = "Alice"              ; Token field name
+    age = 30                    ; Regular assignment
+    #status#active = true       ; Tag as field name
+    "Full Name" = "Alice Smith" ; String field name
+    'score * 2' = 60           ; Expression field name
 }
 
-; Deep assignment creates new structures at each level
-user.profile.settings.theme = "dark"
+; Accessing fields
+user.name                       ; Token access
+user.#status#active            ; Tag field access
+user."Full Name"               ; String field access
+user.'score * 2'               ; Expression field access
 
-; Equivalent to:
-user = {
-    ...user
-    profile = {
-        ...user.profile
-        settings = {
-            ...user.profile.settings
-            theme = "dark"
-        }
-    }
-}
-
-; More complex deep assignment
-tree.left.right.value = 42
-
-; Equivalent to:
-tree = {...tree 
-    left = {...tree.left 
-        right = {...tree.left.right 
-            value = 42
-        }
-    }
-}
+; Positional fields
+coords = {10, 20, 30}          ; Three unnamed fields
+mixed = {x=5, 10, y=15}        ; Mix of named and unnamed
 ```
 
-## Spread Operations
+Each field also has a positional index accessible with `#`. Indexing is zero-based and works regardless of whether fields are named or unnamed. Assignment to an index beyond the structure's size normally fails, but strong assignment (`*=`) extends the structure to accommodate the index.
 
-### Basic Spread Syntax
+## Spread Operations and Structure Assembly
+
+Spread operators allow composing new structures from existing ones. The spread incorporates all fields from a source structure, with variants controlling conflict resolution. The basic spread (`...`) applies all fields, strong spread (`..*`) creates sticky fields that resist overwriting, and weak spread (`..?`) only adds missing fields.
+
+When spreading multiple structures, fields are applied in source order. Named field conflicts are resolved by assignment strength - strong beats normal beats weak. Unnamed fields never conflict; they accumulate in order from each spread source. The spread operation preserves field ordering within each source structure.
 
 ```comp
-...source           ; Normal spread
-..*source          ; Strong spread (protected)
-..?source          ; Weak spread (conditional)
+base = {x=1, y=2, mode="default"}
+overlay = {y=3, z=4, mode*="fixed"}
+
+; Basic spreading with conflicts
+merged = {...base, ...overlay}
+; Result: {x=1, y=3, z=4, mode="fixed"}
+
+; Strong spread dominates
+locked = {..*base, y=99}
+; Result: {x=1, y=2, mode="default"} - strong spread resists override
+
+; Weak spread for defaults
+config = {
+    port = 8080
+    ..?{port=3000, host="localhost", timeout=30}
+}
+; Result: {port=8080, host="localhost", timeout=30}
+
+; Unnamed fields accumulate
+arrays = {...{1, 2}, ...{3, 4}}
+; Result: {1, 2, 3, 4}
 ```
 
-### Spread in Structure Creation
+The spread operators work identically in all contexts - structure literals, function parameters, and shape definitions. This consistency makes them predictable tools for structure composition.
+
+## Assignment Operators and Field Manipulation
+
+Assignment in Comp creates new structures rather than modifying existing ones. The assignment operators control how conflicts are resolved when the same field is set multiple times. Normal assignment (`=`) overwrites, strong assignment (`*=`) creates persistent values, and weak assignment (`?=`) only sets undefined fields.
+
+Deep field assignment creates new nested structures at each level, preserving immutability throughout the hierarchy. The assignment target determines where the value goes - local temporaries with `$`, output structure fields, or namespace structures like `!ctx`.
 
 ```comp
-base = {name="Alice", age=30}
-permissions = {read=!true, write=!false}
-
-; Combine structures with spread
-user = {
-    ...base
-    ...permissions
-    active=!true
-    created_at=:time/now
+; Field override behavior
+config = {
+    port *= 8080        ; Strong - resists override
+    host = "localhost"  ; Normal - can be overwritten
+    timeout ?= 30       ; Weak - only if undefined
+    
+    port = 3000        ; Ignored due to strong assignment
+    host = "0.0.0.0"   ; Overwrites normal assignment
 }
-; Result: {name="Alice", age=30, read=!true, write=!false, active=!true, created_at=<timestamp>}
+
+; Deep assignment preserves immutability
+tree = {left={value=1}, right={value=2}}
+tree.left.value = 10
+; Creates new structures: {...tree, left={...tree.left, value=10}}
+
+; Assignment targets
+!func :example = {
+    $temp = 5                    ; Local temporary
+    result = :compute            ; Output field
+    !ctx.setting = "value"       ; Context namespace
+    $data.field = 10            ; New structure in temporary
+}
 ```
 
-### Spread Assignment
+## Destructured Assignment
 
-Spread assignment may not be necessary, as it can be performed by the
-spread pipeline operator. That does not provide weak or strong spreading.
-When that level of control is needed, use more explicit spread statements.
+Destructured assignment extracts multiple fields from a structure in a single statement. Named fields are extracted by name while unnamed fields are extracted positionally. This provides a concise way to unpack structures into individual variables or fields.
 
 ```comp
-struct ..= changes           ; Additive merge (default)
-struct ..?= changes         ; Weak merge (won't overwrite existing)
-struct ..*= changes         ; Strong merge (replace entirely)
+; Extract named fields
+{name, age, city} = user
+; Equivalent to: name=user.name, age=user.age, city=user.city
+
+; Extract with renaming
+{name=username, age=years} = user
+; Creates: username=user.name, years=user.age
+
+; Mix named and positional
+{x, y, label=name} = point
+; Gets first two unnamed fields as x,y and 'label' field as name
+
+; Nested destructuring
+{user={name, email}, status} = response
+; Extracts nested fields directly
+
+; With defaults using fallback
+{port=config.port | 8080, host=config.host | "localhost"} = {}
 ```
 
-**Spread Assignment Examples**:
-```comp
-user = {name="Alice", age=30, active=!true}
-updates = {age=31, city="Boston"}
+Destructured assignment is particularly useful when working with function returns that provide multiple values, or when extracting configuration from nested structures.
 
-; Normal spread assignment (additive merge)
-user ..= updates
-; Result: {name="Alice", age=31, active=!true, city="Boston"}
+## Field Deletion
 
-; Weak spread assignment (won't overwrite existing)
-user ..?= {age=25, nickname="Al"}
-; Result: {name="Alice", age=31, active=!true, city="Boston", nickname="Al"}
-; age not updated because it already exists
-
-; Strong spread assignment (replace entirely)  
-user ..*= {name="Alice", verified=!true}
-; Result: {name="Alice", verified=!true}
-; All other fields removed
-```
-
-### Spread with Field Filtering
-
-To avoid specific fields while spreading into a structure, the ideal solution
-is to morph the data into the desired shape before spreading.
-
-It's also possible to do a destructured assignment instead of a spread to
-request individual fields.
-
-If the data isn't expected to match a known shape, a strong assignment
-can be made to that field before the regular spread.
-
-(There was talk of a special #delete value, is that a thing?)
+Removing fields from structures requires creating new structures without those fields. Since structures are immutable, there's no direct deletion - only construction of new structures missing certain fields. Shape morphing provides the cleanest approach for controlled field removal.
 
 ```comp
-source = {name="Bob", age=25, password="secret", admin=!true}
+; Remove fields via shape morphing
+!shape ~PublicUser = {name ~str, email ~str}  ; No password field
+user = {name="Alice", email="a@example.com", password="secret"}
+public = user ~ PublicUser  ; Result: {name="Alice", email="a@example.com"}
 
-individual_fields = {
-    {name age admin} = source
-}
+; Explicit construction for simple cases
+original = {x=1, y=2, z=3, temp="remove"}
+cleaned = {x=original.x, y=original.y, z=original.z}
 
-shaped_spread = {
-    .~source/source-without-password
-}
-
-public_data = {
-    password *= {}
-    ...source
+; Conditional field inclusion
+result = {
+    id = data.id
+    ..?(data.is_public ?? {name=data.name email=data.email} | {})
 }
 ```
+
+The pattern of using shapes to define "public" versions of structures is idiomatic in Comp, providing type safety along with field filtering.
 
 ## Lazy Evaluation
 
-### Lazy Structure Syntax
+Lazy structures delay computation until fields are accessed. Created with `[]` brackets instead of `{}`, they behave like generators that compute values on demand. Once a field is computed, its value is cached for future access. After full evaluation, a lazy structure behaves identically to a regular structure.
 
-Creating a structure with square brackets crete a lazy structure. This
-structure will work like a generator, only executing the statements needed
-to unambiguously provide the request field or index.
-
-The lazy structure can be reused as often as needed. Once a field has been
-computed. After fully iterating the lazy structure it will behae the same
-as a regular structure.
+Lazy structures capture their creation context - local variables, namespace values, and function parameters are frozen at creation time. This allows lazy computations to reference values that may change or go out of scope after creation.
 
 ```comp
+; Lazy structure delays expensive operations
+expensive = [
+    summary = :compute_summary
+    analysis = :deep_analysis
+    report = :generate_report
+]
+; No computation happens yet
 
-; Lazy structure does not invoke functions until fields needed.
-$lazy = [a=:func-one b=:func-two c=:func-three]
-$value = $lazy.b  ; Both :func-one and :func-two invoked
+value = expensive.summary  ; Only computes summary field
 
-
-; Create structure where individual fields are resolve lazily
-lazy_config = {
-    database_url = ["DATABASE_URL" -> :env/get]
-    max_connections = ["MAX_CONN" -> :env/get -> :num/parse]
-}
-```
-
-### Lazy Evaluation Context Capture
-
-When lazy blocks are created, they capture the state of their static
-contexts and values when created. These independent copies are no
-longer influenced by the runtime.
-
-```comp
-!func :create_lazy_processor = {
-    $multiplier = 10
-    !ctx.base_value = 100
-    
-    ; Context captured here
-    lazy_processor = [
-        input -> input * $multiplier + @func.base_value
+; Context capture
+!func :create_processor ~{multiplier} = {
+    ; Context captured when [] is created
+    processor = [
+        doubled = .. * multiplier * 2
+        tripled = .. * multiplier * 3
     ]
-    
-    $multiplier = 20           ; Change doesn't affect lazy block
-    lazy_processor            ; Returns block with original context
+    processor  ; Returns lazy structure with captured multiplier
 }
 
-$processor = :create_lazy_processor
-$result = $processor -> :evaluate {input=5}  ; Uses multiplier=10, base_value=100
+; Lazy evaluation with shapes
+data = [
+    field1 = :expensive1
+    field2 = :expensive2
+    field3 = :expensive3
+    extra = :not_needed
+] ~ {field1, field2}  ; Only computes field1 and field2
 ```
 
-### Lazy Morphing
+When a lazy structure is morphed to a shape that requires only specific fields, computation stops once those fields are resolved. This enables efficient partial evaluation of complex structures.
 
-When a lazy structure is strictly morphed to a shape (meaning, undefined
-fields fields are ignored) the lazy structure will only be executed until
-all the needed fields for the shape have been resolved.
+## Structure Comparison and Iteration
+
+Structures can be compared for equality and ordering. Equality (`==`) checks structural equivalence - named fields must match by name and value (regardless of order), while unnamed fields must match by position. Ordering (`<`, `>`) uses lexicographic comparison, first comparing matched named fields alphabetically, then positional fields left-to-right.
+
+The standard library provides comprehensive structure operations through the `struct/` module. These functions enable field inspection, filtering, transformation, and analysis without breaking immutability.
+
+```comp
+; Equality ignores named field order
+{x=1, y=2} == {y=2, x=1}                ; true
+{1, 2, 3} == {1, 2, 3}                  ; true
+{x=1, 2} == {2, x=1}                    ; false - positional order matters
+
+; Ordering is deterministic
+{a=1, z=3} < {a=2, b=1}                 ; true - 'a' field compared first
+{x=1} < {x=1, y=2}                      ; true - subset is less
+
+; Structure operations via standard library
+!import struct/ = std "core/struct"
+
+data -> :struct/field_names             ; ["name", "age", "status"]
+data -> :struct/has_field "email"       ; true or false
+data -> :struct/filter .{value > 0}     ; Keep positive fields
+data -> :struct/map_fields .{:str/upper} ; Transform all fields
+```
 
 ## Advanced Structure Patterns
 
-```comp
-## Advanced Structure Patterns
-
-### Structure Composition
-user_profile = {
-    ...user_basic_info
-    ...user_preferences
-    ...user.id -> :load_user_permissions
-    computed_field = user.name -> :format_display_name
-}
-
-; Conditional composition
-admin_profile = {
-    ...user_profile
-    ?? user.role == "admin" ?> admin_permissions
-    audit_log = [user.id -> :load_audit_history]
-}
-```
-
-### Structure Templates
-
-More complicated structures can use functions to help populate
-their contents, which allows actual logic, instead of the 
-declartive shape definitions.
+Complex structures often combine multiple composition techniques. Template functions generate structures with computed fields. Conditional spreading includes fields based on runtime conditions. Nested structures maintain immutability through all levels.
 
 ```comp
-; Template function for structure creation
-!func :user_template ~{name ~str, role ~str = "user"} = {
-    name = name
-    role = role
-    permissions = role -> :get_default_permissions
-    created_at = :time/now
-    active = !true
-    settings = {
-        theme = "light"
-        notifications = !true
+; Template function for consistent structure creation
+!func :create_response ~{status, data} = {
+    status = status
+    data = data
+    timestamp = :time/now
+    metadata = {
+        version = "1.0"
+        ..?(status >= 400 ?? {error=true} | {})
     }
 }
 
-; Usage
-admin = "Alice" -> :user_template {role="admin"}
-user = "Bob" -> :user_template
-```
-
-## Structure Introspection
-
-### Field Enumeration
-
-```comp
-user = {name="Alice", age=30, #role#admin, active=!true}
-
-; Get field information
-field_names = user -> :struct/field_names    ; ["name", "age", "#role", "active"]
-field_count = user -> :struct/length         ; 4
-has_role = user -> :struct/has_field "#role" ; !true
-```
-
-### Structure Analysis
-
-```comp
-; Analyze structure composition
-user -> :struct/analyze -> {
-    named_fields = @.named_count      ; 3
-    tagged_fields = @.tagged_count    ; 1
-    positional_fields = @.positional_count  ; 0
-    field_types = @.type_summary     ; {string: 1, number: 1, tag: 1, bool: 1}
+; Conditional field inclusion
+user_view = {
+    id = user.id
+    name = user.name
+    ..?(is_admin ?? {email=user.email, role=user.role} | {})
+    ..?(is_self ?? {preferences=user.preferences} | {})
 }
+
+; Structure transformation pipeline
+raw_data 
+  -> :validate
+  -> {.. validated=true timestamp=:time/now}
+  -> :enhance_with_metadata
+  -> {.. checksum=:calculate_checksum}
 ```
 
-### Structure Comparison
+## Design Principles
 
-```comp
-user1 = {name="Alice", age=30}
-user2 = {age=30, name="Alice"}  ; Different order
-user3 = {name="Alice", age=30, city="Boston"}
+The structure system embodies core Comp principles that guide its design. Immutability ensures predictable behavior and enables safe parallelism. Unified representation means arrays, records, and hybrid collections use the same structure type. Flexible field naming accommodates any data source naturally. Order preservation maintains structure and enables positional access. Compositional operations through spreading and morphing build complex structures from simple pieces.
 
-; Structural equality (ignores field order)
-user1 -> :struct/equals user2    ; !true
-user1 -> :struct/equals user3    ; !false
-
-; Field subset checking
-user1 -> :struct/subset_of user3  ; !true (user1 fields ⊆ user3 fields)
-user3 -> :struct/subset_of user1  ; !false
-```
-
-
+These principles create a structure system that handles real-world data elegantly. Whether working with JSON APIs, database records, or internal computations, structures provide a consistent, powerful abstraction for data manipulation.

@@ -1,552 +1,327 @@
-# Comp Overview, Syntax, and Style
+# Language Overview
 
-*Overview of the Comp language and general syntax rules*
-
-## Overview
-
-Here's an expanded version for the language overview:
+*Essential concepts and syntax for programming in Comp*
 
 ## Introduction
 
-Comp is a complete programming language with standard libraries that operates as
-a high-level interpreted language. Like JavaScript and Python, it excels at
-rapid development, scripting, and data manipulation—but approaches these tasks
-from a fundamentally different angle.
+Comp is a functional language where every value is an immutable structure and every operation transforms data through pipelines. The language combines the accessibility of dynamic scripting with the safety of structural typing, making it ideal for data processing, API integration, and system glue code.
 
-The language embraces functional programming principles reminiscent of Lisp and
-Clojure, yet remaining firmly general-purpose. Every value is an immutable
-structure flowing through pipelines of transformations. This creates composable,
-readable code where `data -> validate -> transform -> save` replaces nested
-function calls and intermediate variables.
+This overview introduces the essential concepts needed to understand Comp programs. For detailed specifications of any feature, see the corresponding design document in the `design/` directory.
 
-Comp treats all data sources as first-class citizens. Whether data arrives as
-code literals, JSON structures, SQL query results, or network responses, you
-work with it identically. There are no class hierarchies to navigate or
-conversions in and out of container types. Instead, functions declare their
-structural definition and can operate on any data that meets the requirements.
+## Getting Started
 
-This powerful schema definition for structures is built into the core of the
-language and makes powerful type definitions possible. Numbers can be attached
-to unit types and converted between lengths, weights, or whatever types your
-application needs. Strings can also be connected to units to prevent sloppy use
-of data, and enforce safe behavior like appropriate data escaping.
+**Note: Comp is currently in design phase with no implementation. These examples show intended syntax and behavior.**
 
-The pipeline architecture integrates failure handling directly into execution
-flow. Failed operations automatically navigate the pipeline and can be handled
-at the appropriate locations without boilerplate or repetition. Errors become
-just another kind of data flowing through your transformations.
-
-Module contents and imports are declarative, which means data can be defined in
-any order and errors are immediate build problems. This also gives the powerful
-introspection of compiled languages to developer tools, without the cost of
-build build times and expensive flow analysis. A single comp file represents its
-own project and metadata, making it a truly standalone pacakge format.
-
-The language is focused on providing the best developer experience and
-most approachable source code to any problem. The current implementation
-is not making performance a priority. It will begin as an interpreted
-language, although the syntax lends itself well to static analysys.
-
-## Example
+A minimal Comp file is a complete program. Every `.comp` file can serve three roles simultaneously: an executable program when it contains `!main`, an importable module through its exported definitions, and a complete package with embedded metadata.
 
 ```comp
-; Hello World example in Comp language
-
 !main = {
-  $names = {"USERNAME" "USER" "LOGNAME"} => :os/getenv 
-  $names -> {:iter/pickone | "World"} -> "Hello ${}" 
-    -> :io/print
+    "Hello, World!" -> :print
 }
 ```
 
-## Style Guidelines
+Save this as `hello.comp` and (once implemented) run with `comp hello.comp`. The `!main` function serves as the entry point, receiving command-line arguments as its input structure and returning an exit code.
 
-The standard libraries and language code will follow the style guidelines.
+## Core Concepts
 
-* Tabs for indentation. 
-* Limit line lengths to 100 characters (with tabs counting as 1)
-    * Relaxed when lines must contain exceptionally long tokens or literal
-      values.
-* Tokens, definitions, and filenames should prefer `lisp-case`, lowercase with
-  dashes.
-* When pipelines are split across multiple lines, start each new line with the
-  continuation operator like `->` or `|`.
-* Prefer line breaks between statements.
-* Simple expressions should use spaces to improve clarity of operator
-  precedence.
-* When multiple statements share a line, consider compressing each statement's
-  whitespace to improve readability.
-* Prefer no whitespace between a value and its shape definition, like `name~str`
-  or `value~record`.
-* When a structure or shape definition splits multiple lines, add a level of
-  indentation to the interior block.
-    * Prefer the leading curly brace at the end of the previous line.
-    * Prefer the closing curly brace to end on its own line and match the
-      indentation of the line with the leading curly brace.
-* When complicated pipeline contains layers of nesting, consider a double curly
-  brace to easily identify the entry and exit of subsections in the pipeline.
+### Everything is a Structure
 
-## Whitespace and Separators
-
-The language allows any optional whitespace in between any tokens. The only
-requirement is that whitespace is required between statements.
-
-There are no commas or separators used between field definitions. There is no
-semicolon or terminating symbol to mark the end of statements or pipelines.
-
-## Tokens
-
-Tokens are used for naming everything in Comp. There are several rules for valid
-token names.
-* Tokens must follow the UAX #31 specification for valid unicode tokens
-  * This matches the behavior of Python and Rust.
-* The `ID_Continue` set is expanded to also include the ascii hyphen.
-
-The language convention is to use all lowercase characters where writing purely
-Comp specific identifiers. When interfacing with other languages or data
-specifications, use capitalizations and underscores where preferred.
-
-The style preference is to use the hyphens as word separators instead of
-compacting token names into abnormal compound words.
-
-The style of using lowercase words with hyphen separates is referred to as
-**lisp-case**.
-
-Allowed tokens (although not always preferred)
-* `html5`
-* `content-accept`
-* `_parity_bit`
-* `用户名`
-
-## Comments
-
-The language supports line comments using the style `;` of semicolon,
-similar to Clojure and Lisp. There is no support for block style comments.
-
-The language does not do any interpretation of the comment contents.
-Everything from the begin of the comment to the end of the line is strictly
-ignored.
-
-See the section on Docstrings for related information.
-
-## Core modules
-
-Several important modules are defined as the core of the Comp language. These
-are imported automatically into every module. These are mainly related to
-managing the builtin datatypes and higher level flow control. 
-
-* `.iter` working with iteration and sequences
-* `.num` working with number values and mathematics
-* `.path` working with path structure values
-* `.store` working with mutable data storage
-* `.str` working with string values
-* `.struct` high level modifications and queries for structures
-* `.tag` working with tag definitions, values, and hierarchies
-
-From these libraries there are also several specially aliased
-values that can be referenced in every module, without providing the
-full namespace. This is a feature any module can configure for themselves
-using ~alias operarators. You can see these references are typed, based
-on the type of object they contain
-
-* `#break` iteration flow control to immediately stop processing iteratins
-* `#false` false boolean tag value
-* `#skip` iteration flow control to ignore a value (similar to a `continue` on other languages)
-* `#true` true boolean tag value
-* `~bool` shape for a boolean value
-* `~nil` shape of an empty structure
-* `~num` shape for a scalar numeric value
-* `~str` shape for a scalar string value
-* `:length` number of items in a structure
-
-## Module contents
-
-A module defines a set of **functions**, **shapes**, and **tags**. Module 
-contents are always referenced into a specific namespace. References from 
-this namespace use a `/` slash separate between the namespace and referenced
-name.
-
-Each type of definition uses a unique character to prefix the name when it is
-defined and every time it is referenced.
-
-* **Function** `:` prefixed with a colon, like `:process` or `:num/absolute`
-* **Shape** `~` prefixed with tilde, like `~Rect` and `~io~Stream`
-* **Tags** `#` prefixed with hash, like `#status` or `#log#severity`
-
-After importing, modules can use alias operators to provide shortcuts to
-commonly referenced definitions.
-
-Because of these prefixed characters, it can be encouraged to reuse names
-across functions, shapes, and modules when they are intended to work closely
-together.
+Comp unifies all data representation into structures - ordered collections that can contain both named and unnamed fields. This uniformity means the same operations work whether you're handling JSON from an API, rows from a database, or values computed in your program.
 
 ```comp
-; References from within the current module.
-{data ~myshape #mytag} -> :myfunction
-
-; References to an imported namespace
-{data ~module/myshape #module/mytag} -> :module/myfunction
+42                      
+{x=10 y=20}            
+{1 2 3}                
+{name="Alice" 30 active=#true}
 ```
 
-## Structures
+When a scalar value like `42` enters a pipeline, it automatically promotes to a single-element structure `{42}`. This auto-wrapping means functions always receive structures, simplifying the programming model. Named fields can appear in any order and are accessed by name, while unnamed fields maintain their position and are accessed by index.
 
-All data in Comp is represented as structures (ordered collections of fields).
-Scalars automatically promote to single-element structures when needed:
+Structures are immutable - operations create new structures rather than modifying existing ones. This immutability ensures predictable behavior, enables safe parallelism, and eliminates entire classes of bugs related to shared mutable state.
+
+### Pipeline Operations
+
+Data transformation happens through pipelines that connect operations with the `->` operator. Each operation in a pipeline receives the output of the previous operation as its input, creating a clear left-to-right flow of data transformation.
 
 ```comp
-42                    ; Scalar number
-{x=1.0, y=2.0}        ; Named field structure
-{10, 20, 30}          ; Unnamed field structure (array-like)
+data -> :validate -> :transform -> :save
+
+items => :process_each => :collect_results
+
+risky -> :operation !> :handle_error
 ```
 
-Structures are flexible containers that can mix named fields and unnamed fields.
-The values in the structure are ordered and can mix and match any type.
+The pipeline model extends beyond simple function chaining. The `=>` operator maps operations over collections, applying transformations to each element. The `!>` operator intercepts failures, allowing graceful error recovery without breaking the pipeline flow. These operators work together to create expressive data transformation chains that handle both success and failure paths elegantly.
 
-The content of the structure defines a shape, and that structure can be passed
-to any function that defines a compatible shape, like a schema.
+### Functions Transform Structures
 
-The structure is an immutable object. The language defines operators and
-function that allow creating new, derived structures in ways that feel like
-making changes. Be aware that these operations are creating new immutable pieces
-of data.
+Functions in Comp are pure transformations from one structure to another. Every function declares its expected input shape - a structural pattern that describes what fields and types it requires. This shape-based approach means any data source can invoke any function as long as it provides the required fields.
 
 ```comp
-a = {color="red"}
-b = a
-a.color = "blue"
-; b color is still "red"
-```
-
-The language supports the concept of lazy structures, which behave more
-like iterators, or generators from other languages. The fields in the lazy
-structure are not computed until requested. Lazy structures use the same
-definitions and rules as structures, but are surrounded with `[]` square
-brackets. 
-
-A lazy structure is only evaluated once and preserves the values it
-generated; operating like a regular structure once iteration completes. When 
-fields are requested from the lazy structure, it will execute as many fields are
-needed to respond to the requested field.
-
-```comp
-$expensive = [
-  "server" -> :expensive-hash
-  "client" -> :expensive-hash
-] ; returns immediately, no expensive hashing completed
-
-$client-hash = $expensive.client  ; Computed both fields in order
-$second-hash = $expensive.client  ; Immediate, already computed this field
-```
-
-## Field References and Namespaces
-
-Any undecorated token in a statement represents a lookup into one of several predefined
-namespaces. These namespaces are structures that the language handles specially
-as it is processing. The namespaces are always referenced with a leading `.`
-dot.
-
-These namespaces represent a layered hierarchy of fields, where the first
-definition found overrides any of the later namespaces.
-
-These namespaces are defined as
-
-* `!out` is the structure being defined by the current execution block
-* `!in` is the structure that was passed input to the current execution block
-* `!ctx` is a structure that is inherited through function calls to provide data
-  through the flow of execution.
-* `!mod` is a module-specific namespace shared across functions within that
-  module.
-
-The undecorated token references are used to lookup fields from this stack of
-namespaces. An undecorated assignment to a field represent as assignment into
-the `!out` namespace, which will win all future lookups.
-
-```comp
-a = 123                 ; assigned to !out namespace
-b = 321 + a             ; assigns 444 to !out namespace
-
-!mod.server-port = 8080
-!ctx.server-port = 8200
-
-server-port -> :listen  ; References `8200` from the context namespace
-```
-
-## Shapes
-
-Shapes are like schema definitions for structures. They define fields, types,
-default values, and more. They are defined and referenced with a leading `~`
-tilde. Shapes are often applied to structures to morph their shape to match the
-given definition. There are complete rules on how this morphing is applied to
-arbitrary structures.
-
-```comp
-!shape ~circle = {x~num y~num radius~num}
-{12 5.5 3.13}~circle
-```
-
-## Tags
-
-Tags are enumerated values that can be used similarly to both shapes and values.
-The tags can be defined hierarchically to create a hierarchy, and each tag can
-optionally have values. Each defined tag must be a valid token.
-
-Tags in a structure heavily influence its shape, and can be used to create
-polymorphic behaviors and overrides.
-
-```comp
-!tag #terrain = {mountain grain grass dirt}
-
-{location = #terrain#grass}
-```
-
-## Functions
-
-Functions in Comp are transformations of structures. They take an incoming
-structure and generate a new structure result. Since structure definitions can
-contain arbitrary code these are a natural fit for functions.
-
-There are sevaral variations on functions types and optional features like
-defining additional blocks of unevaluated structures.
-
-```comp
-
-!func :area ~circle = {
-  radius * radius * #math#pi
-}
-
-$area = {12 5.5 3.13} -> :area
-```
-
-## Local Temporaries
-
-Function local variables can be assigned and referenced by tokens prefixed with
-the `$` character. These values can only be referenced within the same function,
-after they have been defined. 
-
-There is also an even more temporary namespace for use within a single
-statement. This uses the `^` caret symbol to prefix the token names. These
-pipeline tokens will be lost after the pipeline they are defined in completes.
-They will usually be defined with the `!label` operator to capture their values
-in mid-pipeline.
-
-Both types of local temporaries cannot be referenced before they have been
-defined.
-
-## Booleans
-
-Booleans are represented by the special built-in tags `#true` and `#false`. No
-value types can be automatically converted to a boolean. Many conditional
-operations require booleans, and will interpret `#false` and `{}` (empty
-structures) as false, all other values as true. 
-
-## Comparison Operators
-
-All values can be compared with the comparison operators. The comparison is
-based on a generic implementation by the language. It is not extensible or
-customizeable by operator overload.
-
-Comparisons never fail, they always produce a resulting boolean. The results are
-always determinisitc.
-
-There are two families of comparisons that are implemnted differently.
-
-* **Equality** is handled by the `==` and `!=` operators
-* **Ordered** comparisons use `<` and `>` and can be used for sorting values
-* **Hybrid** comparisons `<=` and `>=` check equality first and fallback on
-  ordered.
-
-### Equality Comparison (`==`, `!=`)
-Tests for strict structural equality:
-- Scalars auto-wrap to single-element structs: `5 == {5}` is true
-- Named fields must match by name and value (order independent)
-- Unnamed fields must match by position and value (order dependent)
-- No type coercion or shape morphing occurs
-- The results of `==` are always the opposite of `!=`
-
-```comp
-{x=1 y=2} == {y=2 x=1}    ; true (named field order doesn't matter)
-{1 2} == {1 2}            ; true (position matches)
-5 == {5}                  ; true (scalar auto-wrapping)
-{x=1} == {x=1 y={}}       ; false (different structure)
-```
-
-### Order Comparison (`<`, `>`)
-Compare for ordering
-- Empty struct `{}` is less than all other values
-- Scalars auto-wrap to single-element structs for comparison
-- Structures compare matched named fields first (alphabetically by name)
-- Unmatched fields become positional and compare left-to-right
-- Different types compare by priority: `boolean < tag < number < string`
-- The results of `<` are always the opposite of `>`
-
-```comp
-{} < 5 < "hello"           ; true (empty < number < string)
-{x=1 y=2} < {x=1 y=3}      ; true (x equal, y compared)
-{a=1} < {b=2}              ; true (both become {1} < {2})
-{42 "hi" {} true} -> :sort ; [{} true 42 "hi"]
-```
-
-## Math Operators
-
-The language provides a familiar set of operators like `+` for addition and `*`
-for multiply. These operators only work with ~num values. 
-
-The math operators are based on a generic implementation by the language. They
-are not extensible or customizeable by operator overload.
-
-String types will rely heavily on the templating syntax and a library of
-functions in the language libraries. There are no operators for string types.
-
-## Fallback Operator
-
-The language also provides a simple `|` operator to provide a fallback
-value for any immediate expression that may have failed. This prevents the
-normal failure value from propogating to the remaining pipeline. If the
-expression operates successfully then the fallback expression is ignored. This
-is commonly used for attribute lookups that may not be defined.
-
-```comp
-config.volume | 100   ; use the config volume field or fallback on 100
-```
-
-## Other Operators
-
-The language provides a placeholder symbol `...` of triple dots.
-This is a valid token in nearly all contexts. This will allow a module
-to compile and be usable without being fully implemented. When program
-flow reaches this `...` symbol it will result in an immediate failure.
-
-
-## Basic Function Definition Syntax
-
-Functions are defined using the `!func` keyword and require a shape:
-
-```comp
-; Basic function definition
-!func :function-name ~{incoming} = {
-    incoming -> :some-operation -> {outgoing=value}
-}
-
-; Function with input/output shape constraints
-!func :calculate ~axis = {
-    x * y + z
-}
-
-; Function with default parameters
-!func :exclamations ~{message count=1} = {
-    count -> :repeat .{"${message}!}
+!func :area ~{width ~num height ~num} = {
+    width * height
 }
 ```
 
-## Pipelines
+This area function can be invoked by any structure containing numeric width and height fields. Position-based structures like `{10 20}` work through positional matching, while named structures like `{width=5 height=8}` match by field names. The function doesn't care about the source of the data - it could come from JSON, a database, or internal computation.
 
-Functions are invoked through pipeline operations. This encourages chaining
-method calls in order with the `->` operator and is intended to read left to
-right.
-
-Each statement in the pipeline can be one of several types of values
-* **Function** which is passed the incoming structure and passes its return.
-* **Structure** defining a structure replaces (or often edits) the next
-  structure used in the pipeline
-* **Value** Any value can have an invoke function attached when it is used as a
-  pipeline statement, this is done by default for strings to invoke formatting.
-
-The language provides several pipeline operators that have different behaviors.
-* **Invoke** `->` Pass a structure to the next in one operation.
-* **Failed** `|>` Invoke a discovered upstream failure.
-* **Valve** `??` with `-&` and `-|` conditional operators.
+Statement seeding eliminates repetitive data threading. Each statement in a function body implicitly receives the function's input structure, as if prefixed with `.. ->`. This means common patterns like validation and transformation can be written concisely:
 
 ```comp
-; Basic pipeline with arrow operator
-data 
--> {users=people} ; rename field and remove other data
--> :transform     ; invoke a method
--> @(:validate)   ; invoke a method on each entry
--> :save          ; invoke method on collected data
-|> :log/error     ; log failure
-```
-
-Functions are intended to be invoked on structures. Some functions are defined
-as having no structure (they use the `~nil` shape). Normally these would need to
-be invoked with `{} -> :simple-func`. As a shortcut these can be invoked
-starting the expression with the function reference, `:simple-func`.
-
-## Assignment Operators
-
-Assignment uses the `=` operator in several contexts. The left side of the equal
-sign is the target. Based on the type of target the assignment has different
-behaviors.
-
-* Local temporaries can be created or reassigned (`$` or `^` tokens)
-* Outgoing fields are defined or overridden when the target is a plain token
-* Namespaces can be modified by assigning to nested fields when the target has
-  one of the namespace names that start with a leading dot (`!ctx`)
-
-Remember that structures and all values are immutable read only data. The
-assignment operator is only used to create new values. The assignment 
-provides several high level ways to derive a new structure based on the
-contents of the original.
-
-The assignment operator is also used syntactically in all the keyword operators
-that define new values. These have special meanings based on the definition of
-the operator that is using them.
-
-A variable or field assignment must always be the first part of a statement,
-immediately following the target. When the assignment value is a pipeline or
-_flow_ control statement the assignment will be made with the final resulting
-value, or possibly an error result.
-
-```comp
-!function :example ~example-shape = {
-
-    a = {color=”red”}
-    b = a
-    a.color = “blue”
-    ; b.color is still red; the original, immutable value
-
-    !ctx.server-port = 8000
-    $temporary = 5
-    outgoing = :listen
+!func :analyze ~{data} = {
+    cleaned = :clean_data
+    validated = :validate  
+    {cleaned validated}
 }
 ```
 
-## Keyword Operators
+Here, both `cleaned` and `validated` independently process the input data without explicit threading, then combine their results into the output structure.
 
-The language uses a vocabulary of keywords for different purposes. These are
-always prefixed with the `!` exclamation character. Operators often provide
-custom syntax parsing that doesn't follow the standard language rules. They can
-require additional tokens and values that aren't always valid syntax.
+### Shapes Define Structure
 
-* **Definitions** like `!tag` or `!func` are used to define a new entry to the
-  current module's namespace.
-* **Module Management** Module namespace and dependencies are defined with
-  `!import` and `!alias`.
-* **Startup and Entry** Definition of entry points define special predefined
-  function bodies like `!entry` and `!main`.
-* **Internal Details** Access to internal information is done with `!discover`,
-  even for objects not normally referenceable, like functions or modules.
-* **Advanced Flow Control** Advanced interaction and creation of resources is
-  handled with operators like `!transact`, `!release` and `!handle`.
-
-## Weak and Strong Variants
-
-In many contexts there are "weak" and "strong" variants of operators that modify
-how conflicts are resolved.
-
-* **Strong** make operation sticky or priority over regular operations.
-* **Weak** make operation optional if conflicting values already exist.
-
-These strength alternatives are used for
-* **Assignment** using `*=` and `?=` for any kind of variable or field
-  assignment.
-* **Definition** using the weak and strong assignment in the defition operators
-  like `!func` allows multiple definitions to override or be ignored.
-* **Spread** Structures can be created using spread operators from existing
-    structs. These `..*` and `..?` spread variants act as if the strong or weak
-    assignment was used on each field.
+Shapes act as schemas that describe the expected structure of data. They specify field names, types, default values, and constraints. Unlike rigid class definitions, shapes use structural matching - any data that contains the required fields satisfies the shape.
 
 ```comp
-{color='white' type*='cat' name?='felix'
- color='brown' type='dog', name?='rex'}
-; results in {color=brown  type='cat' name='felix'}
+!shape ~User = {
+    name ~str
+    age ~num = 0
+    email ~str
+}
 ```
+
+The `~` operator morphs structures to match shapes, performing validation and transformation in a single operation. When morphing, the system attempts to match fields by name first, then by position, applying defaults for missing optional fields. If required fields cannot be matched or constraints are violated, the morphing fails with a descriptive error.
+
+Shapes compose through spreading and union types, enabling complex schemas built from simpler pieces. They integrate with the module system for reusable type definitions and with the function system for parameter validation.
+
+### Tags for Enumeration
+
+Tags provide hierarchical enumeration with optional values. They serve triple duty as enumerated constants, type markers, and polymorphic dispatch keys. Every tag is prefixed with `#` and can exist in hierarchies where child tags inherit meaning from their parents.
+
+```comp
+!tag #status = {
+    #active = 1
+    #inactive = 0  
+    #pending
+}
+```
+
+Tags with values support bidirectional conversion - a numeric `1` can morph to `#status#active`, and the tag can convert back to its numeric value. This makes tags ideal for working with external systems that use numeric codes or string identifiers while maintaining type safety within Comp.
+
+The hierarchical nature enables sophisticated pattern matching and polymorphic dispatch. Functions can handle specific tags while providing fallback behavior for parent categories, creating extensible systems without modification of existing code.
+
+## Module System
+
+Modules organize related functionality into namespaces. Each module contains definitions of functions, shapes, and tags that work together. The import system brings modules into scope with namespace prefixes, preventing naming conflicts while keeping references clear.
+
+```comp
+!import str/ = std "core/str"
+!import math/ = std "core/math"
+```
+
+After importing, definitions are referenced through their namespace with type-specific prefixes. Functions use `:` (colon), shapes use `~` (tilde), and tags use `#` (hash). This visual distinction makes the type of each reference immediately apparent:
+
+```comp
+:math/sqrt              
+~str/pattern           
+#io/mode#read          
+```
+
+Modules can be single files or directories, imported from the standard library, local paths, git repositories, or package registries. Every module is self-contained with no forward declarations or header files required. Dependencies are explicit through imports, and circular dependencies are prevented by design.
+
+## Control Flow
+
+Control flow in Comp uses functions with block arguments rather than special syntax. Blocks are deferred structure definitions passed to functions, evaluated when the function calls them. This uniform approach means control flow follows the same patterns as data transformation.
+
+Conditional execution uses three primary functions. The `:if` function provides traditional if-then-else branching with two blocks. The `:when` function executes a block only when a condition is true, with no else clause. The `:match` function enables pattern matching against multiple conditions:
+
+```comp
+:if .{x > 5} .{"large"} .{"small"}
+
+:when .{error} .{
+    error -> :log
+}
+
+value -> :match
+    .{0} .{"zero"}
+    .{1} .{"one"}
+    .{..} .{"other"}
+```
+
+Iteration uses a similar pattern with functions that accept blocks for processing each element. The `:map` function transforms elements and collects results. The `:filter` function selects matching elements. The `:each` function performs side effects without collecting results. The `:fold` function reduces collections to single values using an accumulator pattern.
+
+## Namespaces
+
+Field references in Comp resolve through a stack of namespaces, each providing a different scope of data. When you write an undecorated token like `port` in your code, the language searches through these namespaces in order until finding a match.
+
+The namespace stack consists of four layers. The `!out` namespace contains the structure currently being built by the function. The `..` namespace (accessed through double dots) contains the input structure to the current context. The `!ctx` namespace carries context that flows through function calls. The `!mod` namespace provides module-level shared data.
+
+```comp
+!func :example ~{port} = {
+    !ctx.debug = #true       
+    !mod.default = 8080      
+    
+    server_port = port       
+    fallback = default       
+}
+```
+
+This layered approach eliminates verbose parameter passing while keeping data flow explicit. Context naturally flows through call chains, module constants are available everywhere, and the separation between input and output prevents accidental mutations.
+
+## Basic Types
+
+### Numbers
+
+Comp numbers provide unlimited precision without the overflow or rounding errors that plague fixed-size numeric types. Whether working with huge integers, precise decimals, or exact fractions, numbers maintain their precision through all operations.
+
+```comp
+huge = 999999999999999999999
+precise = 1/3              
+5#meter + 10#foot          
+```
+
+Division produces exact rational results - `1/3` remains a precise fraction rather than a truncated decimal. Units attach semantic meaning to numbers, enabling automatic conversion within unit families while preventing nonsensical operations like adding meters to seconds.
+
+### Strings  
+
+Strings are immutable UTF-8 text that cannot be modified after creation. Instead of concatenation operators, Comp uses template formatting through the `%` operator, providing a unified approach to string building.
+
+```comp
+"Hello, ${name}!" % {name="World"}
+"${} + ${} = ${}" % {2 3 5}
+```
+
+Templates support positional placeholders that match unnamed fields, named placeholders that reference specific fields, and indexed placeholders for explicit positioning. String units can attach to provide semantic meaning and control template escaping behavior.
+
+### Booleans
+
+Booleans are represented by two tags: `#true` and `#false`. There's no automatic conversion from other types to booleans - comparisons must be explicit. This prevents ambiguity about truthiness and makes boolean logic clear.
+
+```comp
+valid = x > 0              
+ready = #true
+enabled = name == "Alice"
+```
+
+Boolean operators `&&`, `||`, and `!!` work exclusively with boolean values and short-circuit their evaluation. Control flow functions interpret `#false` and empty structures `{}` as false, all other values as true.
+
+## Operators Summary
+
+Pipeline operators control data flow: `->` transforms data through single operations, `=>` maps operations over collections, and `!>` handles failures in pipelines.
+
+Assignment operators have three variants: `=` for normal assignment, `*=` for strong assignment that resists overwriting, and `?=` for weak assignment that only sets undefined fields.
+
+Comparison operators work across all types with deterministic results: `==` and `!=` test equality, while `<`, `>`, `<=`, and `>=` provide total ordering even across different types.
+
+Mathematical operators apply only to numbers: `+` addition, `-` subtraction, `*` multiplication, `/` division, `%` modulo, and `**` exponentiation.
+
+Boolean operators apply only to booleans: `&&` logical AND, `||` logical OR, and `!!` logical NOT, all with short-circuit evaluation.
+
+Utility operators handle special cases: `|` provides fallback values for failed operations, `%` applies template formatting to strings, and `...` acts as a placeholder for unimplemented code.
+
+## Language Syntax
+
+### Tokens and Naming
+
+Valid identifiers in Comp follow Unicode UAX-31 with ASCII hyphens allowed. The preferred style uses lowercase words separated by hyphens (lisp-case), though other styles are permitted when interfacing with external systems.
+
+```comp
+valid-name
+html5
+_internal
+用户名
+```
+
+### Comments
+
+Line comments use `;` semicolon and continue to the end of the line. There are no block comments. The semicolon style distinguishes comments from other operators and follows Lisp traditions.
+
+```comp
+; Main entry point
+!main = {
+    data -> :process  ; Transform input
+}
+```
+
+### Whitespace
+
+Whitespace is completely flexible except between statements, where it's required. The language uses no commas, semicolons, or other separators between field definitions or list elements.
+
+```comp
+{x=1 y=2 z=3}
+{x=1
+ y=2
+ z=3}
+```
+
+Both structures are identical. Indentation uses tabs by convention, but any consistent indentation works.
+
+### Statement Structure
+
+Every statement consists of an optional assignment target followed by a pipeline. Statements are separated by whitespace and execute independently with fresh seeding from the input.
+
+```comp
+target = pipeline
+pipeline_only
+$temp = value -> :transform
+```
+
+## Key Features
+
+### Automatic Resource Management
+
+Resources like files and network connections are tracked automatically and released when they go out of scope. Explicit early release is also supported for fine-grained control.
+
+```comp
+$file = "/data.txt" -> :file/open
+content = $file -> :read
+```
+
+The file automatically closes when `$file` leaves scope, eliminating resource leaks without manual bookkeeping.
+
+### Transactions
+
+Transactions coordinate multiple operations that should succeed or fail atomically. Whether updating databases, modifying files, or managing distributed state, transactions ensure consistency.
+
+```comp
+!transact $database {
+    user -> :insert
+    profile -> :update
+}
+```
+
+If any operation fails, all changes rollback automatically.
+
+### Trail Navigation
+
+Trails provide dynamic path-based navigation through structures. The `/path/` syntax creates trail values that can be stored, passed, and applied to navigate or modify nested data.
+
+```comp
+data//users.0.email/              
+config//database.host/ = "localhost"
+```
+
+Trails are just structures with special syntax support, not a distinct type.
+
+### Store for Mutability
+
+When controlled mutability is needed, Stores provide a safe container for mutable state. All mutations go through explicit operations, maintaining clear boundaries between functional and stateful code.
+
+```comp
+$store = :store/new {count=0}
+$store -> :update /count/ <- {.. + 1}
+current = $store -> :get /count/
+```
+
+Data retrieved from stores is immutable, preserving functional programming benefits.
+
+## Next Steps
+
+With these concepts, you're ready to explore Comp's design in depth. Each major feature has a dedicated design document in the `design/` directory:
+
+- `structure.md` - Deep dive into structures and operations
+- `function.md` - Function definition and dispatch
+- `shape.md` - Shape system and morphing
+- `pipeline.md` - Pipeline operations and failure handling
+- `module.md` - Module system and imports
+
+Remember that Comp is currently in design phase. These documents describe intended behavior that will guide implementation.
