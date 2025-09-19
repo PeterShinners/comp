@@ -13,21 +13,21 @@ Every interaction with a Store returns immutable data. Mutations only occur thro
 A Store is a mutable container that holds structured data. Unlike regular structures which are immutable, Stores can be modified in place through a defined set of operations. However, all data retrieved from a Store is immutable, maintaining Comp's functional programming guarantees.
 
 ```comp
-; Create a store with initial data
-$store = :store/new {
+# Create a store with initial data
+$var.store = (| new/store {
     users = {}
-    config = {theme="dark" lang="en"}
+    config = {theme=dark lang=en}
     cache = {}
-}
+})
 
-; Read immutable data from store
-$user = $store -> :get /users.123/
-$theme = $store -> :get /config.theme/
+# Read immutable data from store
+$var.user = $var.store | get /users.123/
+$var.theme = $var.store | get /config.theme/
 
-; Explicit mutations through store operations
-$store -> :set /users.123/ <- new_user
-$store -> :update /config.theme/ <- "light"
-$store -> :delete /cache.temp/
+# Explicit mutations through store operations
+$var.store | set /users.123/ new_user
+$var.store | update /config.theme/ light
+$var.store | delete /cache.temp/
 ```
 
 The separation between reading and writing is intentional and explicit. You cannot accidentally mutate data - all mutations require calling a Store operation. This makes it easy to track where state changes occur in your program.
@@ -37,19 +37,19 @@ The separation between reading and writing is intentional and explicit. You cann
 Stores provide a focused set of operations for state management. Read operations return immutable snapshots, write operations modify the Store in place, and query operations provide information about the Store's contents.
 
 ```comp
-; Basic operations
-$store -> :get /path/              ; Read value at path
-$store -> :set /path/ <- value     ; Write value at path
-$store -> :delete /path/           ; Remove path and value
-$store -> :exists? /path/          ; Check if path exists
-$store -> :clear                   ; Remove all data
+# Basic operations
+$var.store | get /path/              # Read value at path
+$var.store | set /path/ value        # Write value at path
+$var.store | delete /path/           # Remove path and value
+$var.store | exists? /path/          # Check if path exists
+$var.store | clear                   # Remove all data
 
-; Update operations with functions
-$store -> :update /counter/ <- {.. + 1}
-$store -> :modify /users/ <- :filter .{active}
+# Update operations with functions
+$var.store | update /counter/ {$in + 1}
+$var.store | modify /users/ |filter {.active}
 
-; Bulk operations
-$store -> :set_many {
+# Bulk operations
+$var.store | set_many {
     /users.new/ = new_user
     /cache.user/ = new_user.id
     /stats.count/ = count + 1
@@ -63,22 +63,22 @@ Updates receive the current value and return the new value, enabling complex tra
 Stores support transactions for coordinating multiple mutations that should succeed or fail as a unit. Transactions provide atomicity - either all operations succeed or none do, leaving the Store in a consistent state.
 
 ```comp
-; Transaction with multiple operations
-$store -> :transaction {
-    :set /users.123/ <- user_data
-    :update /stats.user_count/ <- {.. + 1}
-    :delete /cache.temp/
+# Transaction with multiple operations
+$var.store | transaction {
+    $in | set /users.123/ user_data
+    $in | update /stats.user_count/ {$in + 1}
+    $in | delete /cache.temp/
 }
-; All operations succeed or all rollback
+# All operations succeed or all rollback
 
-; Conditional transactions
-$store -> :transaction {
-    $current = :get /balance/
-    :if .{$current >= amount} .{
-        :update /balance/ <- {.. - amount}
-        :set /transactions.${id}/ <- {amount from="balance"}
-    } .{
-        {#fail#insufficient_funds}
+# Conditional transactions
+$var.store | transaction {
+    $var.current = $in | get /balance/
+    $in | if {$var.current >= amount} {
+        $in | update /balance/ {$in - amount}
+        $in | set /transactions.${id}/ {amount from=balance}
+    } {
+        {#insufficient_funds.fail}
     }
 }
 ```
@@ -90,19 +90,19 @@ Transactions can be nested, with inner transactions becoming part of the outer t
 Stores provide efficient change detection through versioning. Each Store maintains an internal version that updates with every mutation. This enables efficient checking for modifications without expensive comparisons.
 
 ```comp
-; Get current version (opaque value)
-$version = $store -> :version
+# Get current version (opaque value)
+$var.version = $var.store | version
 
-; Check if store changed since version
-$store -> :changed? $version        ; Returns #true or #false
+# Check if store changed since version
+$var.store | changed? $var.version        # Returns #true or #false
 
-; Get changes since version
-$changes = $store -> :changes_since $version
-; Returns: {paths=[/users.123/ /config/] new_version=...}
+# Get changes since version
+$var.changes = $var.store | changes_since $var.version
+# Returns: {paths=[/users.123/ /config/] new_version=...}
 
-; Conditional updates based on version
-$store -> :set_if_unchanged /path/ <- value since=$version
-; Succeeds only if store hasn't changed since $version
+# Conditional updates based on version
+$var.store | set_if_unchanged /path/ value since=$var.version
+# Succeeds only if store hasn't changed since $var.version
 ```
 
 Versions are opaque values that only the Store understands. They might be timestamps, counters, or hashes - the implementation is hidden. This allows different Store implementations to optimize version tracking for their specific use cases.
@@ -112,38 +112,38 @@ Versions are opaque values that only the Store understands. They might be timest
 Common patterns emerge when working with Stores. These patterns provide structure for managing application state while maintaining clarity about where mutations occur.
 
 ```comp
-; Centralized application state
-!mod.app_store = :store/new {
+# Centralized application state
+$mod.app_store = (| new/store {
     session = {}
-    ui = {theme="dark" sidebar_open=#true}
+    ui = {theme=dark sidebar_open=#true}
     data = {}
-}
+})
 
-; Functional core, imperative shell
-!func :process_order ~{order} = {
-    ; Pure functional processing
-    validated = order -> :validate
-    total = validated -> :calculate_total
+# Functional core, imperative shell
+func process_order pipeline{order} args{} = {
+    # Pure functional processing
+    validated = $in | validate
+    total = validated | calculate_total
     
-    ; Imperative shell with store
-    !mod.app_store -> :transaction {
-        :set /orders.${order.id}/ <- validated
-        :update /revenue.daily/ <- {.. + total}
+    # Imperative shell with store
+    $mod.app_store | transaction {
+        $in | set /orders.${$in.id}/ validated
+        $in | update /revenue.daily/ {$in + total}
     }
     
-    {success=#true order_id=order.id total=total}
+    {success=#true order_id=$in.id total=total}
 }
 
-; Local state for UI components
-!func :counter_component = {
-    $local = :store/new {count=0}
+# Local state for UI components
+func counter_component pipeline{} args{} = {
+    $var.local = (| new/store {count=0})
     
-    ; Event handlers modify store
-    on_increment = {$local -> :update /count/ <- {.. + 1}}
-    on_reset = {$local -> :set /count/ <- 0}
+    # Event handlers modify store
+    on_increment = {$var.local | update /count/ {$in + 1}}
+    on_reset = {$var.local | set /count/ 0}
     
-    ; Render from immutable snapshot
-    current = $local -> :get /count/
+    # Render from immutable snapshot
+    current = $var.local | get /count/
     {value=current on_increment on_reset}
 }
 ```
@@ -153,17 +153,17 @@ Common patterns emerge when working with Stores. These patterns provide structur
 Stores naturally integrate with the trail system for flexible path-based access. All Store operations that use paths accept trails, enabling dynamic state management.
 
 ```comp
-; Use trails for dynamic access
-$user_trail = /users.${user_id}/
-$store -> :get $user_trail
+# Use trails for dynamic access
+$var.user_trail = /users.${user_id}/
+$var.store | get $var.user_trail
 
-; Bulk operations with trail patterns
-$store -> :select /users.*.active/       ; Get all active flags
-$store -> :update_all /prices.*/ <- {.. * 1.1}  ; Increase all prices
+# Bulk operations with trail patterns
+$var.store | select /users.*.active/       # Get all active flags
+$var.store | update_all /prices.*/ {$in * 1.1}  # Increase all prices
 
-; Complex queries
-active_users = $store -> :query /users.[active]/
-$store -> :delete_matching /cache.expired.*/
+# Complex queries
+active_users = $var.store | query /users.[active]/
+$var.store | delete_matching /cache.expired.*/
 ```
 
 ## Design Principles

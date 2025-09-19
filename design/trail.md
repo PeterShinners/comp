@@ -13,18 +13,18 @@ There is no special "trail" type in Comp - trails are simply structures with a c
 A trail literal using `/path/` syntax creates a structure containing an array of navigation segments. Each segment is either a field name (as a string) or a navigation operator (as a tag). This structure can be stored in variables, passed to functions, or manipulated like any other data.
 
 ```comp
-; Trail literal creates a structure
-$path = /users.profile.theme/
-; Equivalent to approximately:
-; {segments=["users", "profile", "theme"]}
+# Trail literal creates a structure
+$var.path = /users.profile.theme/
+# Equivalent to approximately:
+# {segments=[users profile theme]}
 
-; The double-slash operator applies a trail structure to data
-config//database.host/           ; Apply trail to navigate
-data/$path                       ; Apply stored trail variable
+# Apply trail structure to data
+config | get /database.host/           # Apply trail to navigate
+$in | get $var.path                   # Apply stored trail variable
 
-; Setting values through trails
-data//user.name/ = "Alice"      ; Navigate and set value
-config/$path = new_value         ; Set using trail variable
+# Setting values through trails
+data | set /user.name/ Alice          # Navigate and set value
+config | set $var.path new_value      # Set using trail variable
 ```
 
 The trail syntax provides convenient shorthand for creating these navigation structures. The actual structure format is an implementation detail, but conceptually it's just an array of strings and operator tags that describe how to navigate through data.
@@ -34,68 +34,64 @@ The trail syntax provides convenient shorthand for creating these navigation str
 When you write a trail literal, the language parses it into a structure. The dot separators become array boundaries, and special syntax elements become operator tags that trail operations recognize.
 
 ```comp
-; Simple trail - array of field names
+# Simple trail - array of field names
 /users.0.email/
-; Creates: {segments=["users", "0", "email"]}
+# Creates: {segments=[users 0 email]}
 
-; Wildcard operator becomes a tag
+# Wildcard operator becomes a tag
 /users.*.email/
-; Creates: {segments=["users", #trail_any, "email"]}
+# Creates: {segments=[users #trail_any email]}
 
-; Recursive descent operator
+# Recursive descent operator
 /**.error/
-; Creates: {segments=[#trail_recursive, "error"]}
+# Creates: {segments=[#trail_recursive error]}
 
-; Complex navigation with operators
+# Complex navigation with operators
 /items.[price < 100].name/
-; Creates structure with predicate information
+# Creates structure with predicate information
 ```
 
 Since trails are just structures, they can be created programmatically without using the literal syntax:
 
 ```comp
-; Programmatic trail construction
-$dynamic_trail = {segments=["users", user_id, "settings"]}
-data/$dynamic_trail = new_settings
+# Programmatic trail construction
+$var.dynamic_trail = {segments=[users user_id settings]}
+data | set $var.dynamic_trail new_settings
 
-; Trail manipulation as regular structures
-$base_trail = /api.v2/
-$extended = {...$base_trail, segments=[...$base_trail.segments, "users"]}
+# Trail manipulation as regular structures
+$var.base_trail = /api.v2/
+$var.extended = {..$var.base_trail segments=[..$var.base_trail.segments users]}
 ```
 
 ## Trail Operations
 
-Trail operations are functions that know how to interpret trail structures and apply them to data. The double-slash operator (`//`) is the primary way to apply trails, but it's really just syntactic sugar for calling trail operation functions.
+Trail operations are functions that know how to interpret trail structures and apply them to data. The primary operations are `get` and `set`, but the standard library provides many trail-aware functions.
 
 ```comp
-; These are equivalent
-data//users.profile/
-data -> :trail/get /users.profile/
+# Basic trail operations
+data | get /users.profile/
+data | set /users.profile/ value
 
-; Setting is also a function call internally
-data//users.profile/ = value
-data -> :trail/set /users.profile/ <- value
-
-; The trail structure can be manipulated
-$path = /users/
-$extended = $path -> :trail/extend "profile.theme"
-; Results in trail structure for /users.profile.theme/
+# The trail structure can be manipulated
+$var.path = /users/
+$var.extended = $var.path | extend/trail profile.theme
+# Results in trail structure for /users.profile.theme/
 ```
 
 The standard library provides trail operations that interpret these structures:
 
 ```comp
-!import trail/ = std "core/trail"
+import trail = std "core/trail"
 
-; Navigation operations interpret trail structures
-{data /users.*/} -> :trail/select      ; Get all matches
-{data /path/} -> :trail/exists?        ; Check existence
-{data /old/ /new/} -> :trail/move      ; Move data between paths
+# Navigation operations interpret trail structures
+{data /users.*/} | select/trail      # Get all matches
+{data /path/} | exists?/trail        # Check existence
+{data /old/ /new/} | move/trail      # Move data between paths
 
-; Trail structures can be analyzed and modified
-/users.profile.theme/ -> :trail/segments    ; ["users", "profile", "theme"]
-/users.profile/ -> :trail/parent            ; /users/
-{/base/ /extend/} -> :trail/join           ; Combine trail structures
+# Trail structures can be analyzed and modified
+/users.profile.theme/ | segments/trail    # [users profile theme]
+/users.profile/ | parent/trail            # /users/
+{/base/ /extend/} | join/trail           # Combine trail structures
 ```
 
 ## Trail Composition
@@ -103,22 +99,22 @@ The standard library provides trail operations that interpret these structures:
 Since trails are just structures, they compose using normal structure operations. The language provides syntax sugar to make common compositions convenient, but underneath it's standard structure manipulation.
 
 ```comp
-; Trail concatenation syntax
-$api = /api/
-$version = /v2/
-$endpoint = /users/
-$full = $api/$version/$endpoint     ; Creates combined trail structure
+# Trail concatenation syntax
+$var.api = /api/
+$var.version = /v2/
+$var.endpoint = /users/
+$var.full = $var.api/$var.version/$var.endpoint     # Creates combined trail structure
 
-; This is just structure manipulation
-; The `/` operator between trails combines their segment arrays
+# This is just structure manipulation
+# The `/` operator between trails combines their segment arrays
 
-; Direct structure manipulation works too
-$custom_trail = {
-    segments = [...$api.segments, ...$version.segments, ...$endpoint.segments]
+# Direct structure manipulation works too
+$var.custom_trail = {
+    segments = [..$var.api.segments ..$var.version.segments ..$var.endpoint.segments]
 }
 
-; Both create equivalent trail structures
-data/$full == data/$custom_trail    ; Same navigation result
+# Both create equivalent trail structures
+data | get $var.full == data | get $var.custom_trail    # Same navigation result
 ```
 
 ## Navigation Patterns
@@ -126,18 +122,18 @@ data/$full == data/$custom_trail    ; Same navigation result
 Trail operations interpret certain tags and patterns in trail structures to enable sophisticated navigation:
 
 ```comp
-; Numeric indices for array access
-data//items.0/                  ; First item
-data//items.-1/                 ; Last item
+# Numeric indices for array access
+data | get /items.0/                  # First item
+data | get /items.-1/                 # Last item
 
-; Wildcard selection (through functions)
-data -> :trail/select /users.*.email/     ; All user emails
+# Wildcard selection (through functions)
+data | select/trail /users.*.email/     # All user emails
 
-; Recursive search
-data -> :trail/find /**.error/            ; Find at any depth
+# Recursive search
+data | find/trail /**.error/            # Find at any depth
 
-; Predicate filtering (future enhancement)
-data -> :trail/where /users.[active].name/  ; Conditional selection
+# Predicate filtering (future enhancement)
+data | where/trail /users.[active].name/  # Conditional selection
 ```
 
 These patterns work because trail operations recognize special tags and structures within the trail and interpret them accordingly. The trail itself remains just data.
@@ -147,22 +143,22 @@ These patterns work because trail operations recognize special tags and structur
 While trails are runtime values (just structures), they can still integrate with Comp's type system. Functions can specify they expect trail-shaped structures, and operations can validate trails before applying them.
 
 ```comp
-; Shape for trail structures (simplified)
-!shape ~Trail = {
+# Shape for trail structures (simplified)
+shape Trail = {
     segments ~array
 }
 
-; Functions can require trail-shaped inputs
-!func :navigate ~{data ~any, path ~Trail} = {
-    data -> :trail/apply path
+# Functions can require trail-shaped inputs
+func navigate pipeline{} args{data ~any path ~Trail} = {
+    $arg.data | apply/trail $arg.path
 }
 
-; Validation of trail structures
-!func :safe_navigate ~{data, path} = {
-    :if .{path -> :trail/valid?} .{
-        data -> :trail/get path
-    } .{
-        {#fail#trail message="Invalid trail structure"}
+# Validation of trail structures
+func safe_navigate pipeline{data} args{path} = {
+    $in | if {$arg.path | valid?/trail} {
+        $in | get/trail $arg.path
+    } {
+        {#trail.fail message=Invalid trail structure}
     }
 }
 ```

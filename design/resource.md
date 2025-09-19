@@ -13,46 +13,46 @@ The design philosophy favors multiplexed, synchronous operations over traditiona
 A resource is an opaque handle to something outside the language's control. Resources cannot be serialized, copied, or directly inspected - they exist solely as capabilities for interaction with external systems. The language automatically releases resources when they go out of scope, but programs can also explicitly release them early.
 
 ```comp
-; Resources are created by system functions
-$file = "/path/to/file" -> :file/open
-$conn = "postgresql://localhost/mydb" -> :db/connect
-$socket = {host="api.example.com" port=443} -> :net/connect
+# Resources are created by system functions
+$var.file = (path/to/file | open/file)
+$var.conn = (postgresql://localhost/mydb | connect/db)
+$var.socket = {host=api.example.com port=443} | connect/net
 
-; Automatic cleanup when leaving scope
-!func :process_file ~{path} = {
-    $file = path -> :file/open
-    $file -> :file/read -> :process
-    ; $file automatically closed when function returns
+# Automatic cleanup when leaving scope
+func process_file pipeline{} args{path} = {
+    $var.file = $arg.path | open/file
+    $var.file | read/file | process
+    # $var.file automatically closed when function returns
 }
 
-; Explicit early release
-$temp = "/tmp/data" -> :file/open
-$temp -> :file/write data
-$temp -> !release              ; Close immediately
+# Explicit early release
+$var.temp = (/tmp/data | open/file)
+$var.temp | write/file data
+$var.temp | release              # Close immediately
 ```
 
 Resources flow through pipelines like any other value but maintain their special cleanup semantics. They can be stored in structures, passed to functions, and returned from operations while the runtime tracks their lifecycle.
 
 ## Transaction System
 
-Transactions coordinate multiple operations that should succeed or fail as a unit. The `!transact` construct wraps a block of operations, automatically handling commit on success or rollback on failure. Resources that support transactions participate automatically through their defined transaction hooks.
+Transactions coordinate multiple operations that should succeed or fail as a unit. The `transact` construct wraps a block of operations, automatically handling commit on success or rollback on failure. Resources that support transactions participate automatically through their defined transaction hooks.
 
 ```comp
-; Basic transaction with single resource
-!transact $database {
-    users -> :db/insert_user
-    profile -> :db/insert_profile
-    settings -> :db/insert_settings
+# Basic transaction with single resource
+transact $database {
+    (users | insert_user/db)
+    (profile | insert_profile/db)
+    (settings | insert_settings/db)
 }
-; All inserts commit together or all rollback
+# All inserts commit together or all rollback
 
-; Multiple coordinated resources
-!transact $database $cache $search {
-    $user_id = user -> :db/insert -> :get_id
-    user -> :cache/set "user:${$user_id}"
-    user -> :search/index "users"
+# Multiple coordinated resources
+transact $database $cache $search {
+    $var.user_id = (user | insert/db | get_id)
+    (user | set/cache user:${$var.user_id})
+    (user | index/search users)
 }
-; All three systems update atomically
+# All three systems update atomically
 ```
 
 Transactions can be nested, with inner transactions becoming part of the outer transaction's scope. This creates natural composition for complex operations built from simpler transactional pieces.
@@ -62,27 +62,25 @@ Transactions can be nested, with inner transactions becoming part of the outer t
 Rather than async/await, Comp favors multiplexed operations that handle multiple resources efficiently. The standard library provides patterns for pooling, batching, and coordinating resources without explicit concurrency management.
 
 ```comp
-; Connection pooling with automatic management
-$pool = :db/create_pool {url database_url max=10}
+# Connection pooling with automatic management
+$var.pool = (| create_pool/db url=database_url max=10)
 
-; Pool automatically multiplexes connections
-requests -> :map .{
-    $pool -> :with .{conn ->
-        conn -> :query "SELECT * FROM users WHERE id = ${id}"
+# Pool automatically multiplexes connections
+(requests | map {
+    $var.pool | with {$in |
+        (| query SELECT * FROM users WHERE id = ${id})
     }
-}
+})
 
-; Declarative retry logic instead of promise chains
-operation -> :with_retry {
-    attempts = 3
-    backoff = :exponential
-    on_error = :log/warn
-}
+# Declarative retry logic instead of promise chains
+(operation | with_retry 
+    attempts=3
+    backoff=|exponential
+    on_error=|warn/log)
 
-; Coordinated fanout without async
-endpoints -> :map .{
-    endpoint -> :http/get timeout=5000
-} -> :gather   ; Waits for all, handles partial failures
+# Coordinated fanout without async
+(endpoints | map {$in | get/http timeout=5000}
+           | gather)   # Waits for all, handles partial failures
 ```
 
 The language runtime can optimize these patterns, potentially using parallel execution or async I/O internally while presenting a synchronous interface to the programmer.
@@ -92,19 +90,19 @@ The language runtime can optimize these patterns, potentially using parallel exe
 Transactions maintain consistency through several mechanisms that work together. State capture preserves the execution context at transaction boundaries. Resource coordination ensures all participants move through transaction phases together. Error propagation guarantees that any failure triggers a complete rollback.
 
 ```comp
-; State preservation across transaction boundaries
-$counter = 0
-!transact $resource {
-    $counter = $counter + 1     ; Local change
-    :risky_operation            ; Might fail
+# State preservation across transaction boundaries
+$var.counter = 0
+transact $resource {
+    $var.counter = $var.counter + 1     # Local change
+    (| risky_operation)                  # Might fail
 }
-; If operation fails, $counter remains 0
+# If operation fails, $var.counter remains 0
 
-; Transaction hooks for custom resources
-!resource %custom_handler {
-    on_begin = :prepare_transaction
-    on_commit = :finalize_changes  
-    on_rollback = :restore_state
+# Transaction hooks for custom resources
+resource %custom_handler {
+    on_begin = |prepare_transaction
+    on_commit = |finalize_changes  
+    on_rollback = |restore_state
 }
 ```
 

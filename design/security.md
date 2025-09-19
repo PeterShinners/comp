@@ -10,7 +10,7 @@ The security model draws from proven designs like Deno's permission system while
 
 ## Permission Token System
 
-The runtime defines a fixed set of permission tokens that control access to system resources. These tokens live in the protected portion of the `!ctx` namespace and flow through function calls. Programs start with a set of permissions determined by runtime flags, and these can only be reduced, never expanded, during execution.
+The runtime defines a fixed set of permission tokens that control access to system resources. These tokens live in the protected portion of the `$ctx` namespace and flow through function calls. Programs start with a set of permissions determined by runtime flags, and these can only be reduced, never expanded, during execution.
 
 Core system tokens based on proven models:
 - `read` - File system read access
@@ -28,129 +28,98 @@ Comp-specific tokens for language features:
 - `random` - Hardware entropy access
 
 ```comp
-; Check current permissions
-!ctx -> :security/has #read           ; Returns #true or #false
-!ctx -> :security/list                ; Returns list of current tokens
+# Check current permissions
+($ctx | has/security #read)           # Returns #true or #false
+($ctx | list/security)                # Returns list of current tokens
 
-; Drop permissions for downstream code
-!ctx -> :security/drop #write         ; Remove write permission
-!ctx -> :security/drop {#net #ffi}    ; Drop multiple tokens
+# Drop permissions for downstream code
+($ctx | drop/security #write)         # Remove write permission
+($ctx | drop/security {#net #ffi})    # Drop multiple tokens
 
-; Create restricted execution context
-!ctx -> :security/only {#read} -> {
-    ; This block can only read files
-    data -> :process_untrusted
-}
+# Create restricted execution context
+($ctx | only/security {#read} | {
+    # This block can only read files
+    (data | process_untrusted)
+})
 ```
 
 ## Function Permission Requirements
 
-Functions declare required permissions using the `!require` decorator. This serves as documentation, enables compile-time verification where possible, and provides clear error messages when permissions are missing. The decorator appears before the function definition and lists required tokens.
+Functions declare required permissions using the `require` decorator. This serves as documentation, enables compile-time verification where possible, and provides clear error messages when permissions are missing. The decorator appears before the function definition and lists required tokens.
 
 ```comp
-!require read, write
-!func :backup_file ~{source ~str dest ~str} = {
-    source -> :file/read        ; Needs read token
-    -> :compress
-    -> :file/write dest         ; Needs write token
+require read, write
+func backup_file pipeline{} args{source dest} = {
+    ($arg.source | read/file)      # Needs read permission
+    | compress
+    | write/file $arg.dest         # Needs write permission
 }
 
-!require net, env
-!func :fetch_with_config ~{endpoint ~str} = {
-    api_key = "API_KEY" -> :env/get      ; Needs env token
-    headers = {"Authorization" = "Bearer ${api_key}"}
-    endpoint -> :http/get headers        ; Needs net token
+require net, env
+func fetch_with_config pipeline{} args{endpoint} = {
+    $var.api_key = (API_KEY | get/env)      # Needs env token
+    headers = {Authorization = Bearer ${$var.api_key}}
+    ($arg.endpoint | get/http headers)      # Needs net token
 }
 
-; Permissions flow through call chains
-!func :admin_operation = {
-    :backup_file           ; Inherits caller's permissions
-    :fetch_with_config     ; Also inherits permissions
+# Permissions flow through call chains
+func admin_operation pipeline{} args{} = {
+    (| backup_file)           # Inherits caller's permissions
+    (| fetch_with_config)     # Also inherits permissions
 }
-```
 
 When a function requiring permissions is called without them, it fails immediately with a clear error identifying the missing permission and the operation that required it. This fail-fast approach prevents security violations and makes permission requirements explicit.
 
 ## Pure Functions and Guaranteed Isolation
 
-Pure functions provide deterministic computation without side effects. The `!pure` decorator on a function definition creates guaranteed isolation - these functions receive an empty `!ctx` with no permission tokens, preventing any resource access.
+Pure functions provide deterministic computation without side effects. The `pure` decorator on a function definition creates guaranteed isolation - these functions receive an empty `$ctx` with no permission tokens, preventing any resource access.
 
 ```comp
-!pure
-!func :calculate ~{x ~num y ~num} = {
-    result = x * y + 42
+pure calculate pipeline{} args{x y} = {
+    result = $arg.x * $arg.y + 42
     normalized = result % 100
+    {result normalized}
 }
 
-!pure
-!func :validate_structure ~{data} = {
-    ; Can perform computation
-    valid = data ~? ExpectedShape
-    score = :calculate_score
+pure validate_structure pipeline{data} args{} = {
+    # Can perform computation
+    valid = $in ~? ExpectedShape
+    score = (| calculate_score)
     
-    ; Cannot access resources
-    ; data -> :file/write "log"     ; ERROR: no write permission
-    ; :random/secure                ; ERROR: no random permission
+    # Cannot access resources
+    # (data | write/file log)     # ERROR: no write permission
+    # (| secure/random)            # ERROR: no random permission
+    {valid score}
 }
 
-; Pure functions enable optimizations
-!shape ~Config = {
-    cache_key = :generate_key    ; Evaluated at compile time
-    validator = :validate_structure
-}
-```
-
-The `!pure` decorator syntax emphasizes that purity is an additional constraint on a function, not a different kind of entity. Pure functions can call other functions, but those calls execute in the same restricted context, failing if they attempt any resource access.
-
-## Isolated Execution Contexts
-
-The `^()` branch creates isolated execution contexts for untrusted code. Code within this branch receives an empty context, similar to pure functions, but applied dynamically at runtime. This enables safe execution of user-provided code or untrusted modules.
-
-```comp
-!func :run_user_code ~{code} = {
-    ; Full permissions available here
-    config = :load_config
-    
-    ; Isolated execution - no permissions
-    result = code -> ^(
-        :evaluate    ; Cannot access files, network, etc.
-    )
-    
-    ; Permissions restored after branch
-    result -> :save_result
-}
-
-; Gradual permission reduction
-!func :process_stages = {
-    sensitive_data -> :encrypt           ; Full permissions
-    
-    -> :security/drop #write -> {
-        :analyze                          ; Can read but not write
-    }
-    
-    -> ^(:pure_compute)                  ; No permissions at all
+# Pure functions enable optimizations
+shape Config = {
+    cache_key = (| generate_key)    # Evaluated at compile time
+    validator = |validate_structure
 }
 ```
+
+The `pure` decorator syntax emphasizes that purity is an additional constraint on a function, not a different kind of entity. Pure functions can call other functions, but those calls execute in the same restricted context, failing if they attempt any resource access.
 
 ## Module Permission Boundaries
 
 Each module import creates a permission boundary. Imported modules cannot access the importing module's permissions unless explicitly delegated. This prevents supply chain attacks where compromised dependencies could abuse the main application's permissions.
 
 ```comp
-; Main application has full permissions
-!require read, write, net
+# Main application has full permissions
+require read, write, net
 
-; Import untrusted module - gets no permissions by default
-!import processor/ = comp "./untrusted"
+# Import untrusted module - gets no permissions by default
+import processor = comp "./untrusted"
 
-!func :process_with_untrusted ~{data} = {
-    ; Untrusted module operates without permissions
-    processed = data -> processor:transform
+func process_with_untrusted pipeline{data} args{} = {
+    # Untrusted module operates without permissions
+    processed = $in | transform/processor
     
-    ; Delegate specific permission for one operation
-    !ctx -> :security/only {#read} -> {
-        processor:load_config
-    }
+    # Delegate specific permission for one operation
+    ($ctx | only/security {#read} | {
+        (| load_config/processor)
+    })
 }
 ```
 
@@ -181,30 +150,30 @@ The runtime can also implement permission prompting, where users are asked to gr
 Permissions follow a strict inheritance model through the call stack. Each function receives its caller's permissions by default. Functions can drop permissions for downstream calls, but cannot add permissions they didn't receive. This creates a monotonic security model where permissions only decrease along call paths.
 
 ```comp
-!require read, write, net
-!func :main_application = {
-    ; Has all three permissions
-    :full_operation
+require read, write, net
+func main_application pipeline{} args{} = {
+    # Has all three permissions
+    (| full_operation)
     
-    ; Drop network for file operations
-    !ctx -> :security/drop #net
-    :file_only_operation      ; Has read, write
+    # Drop network for file operations
+    ($ctx | drop/security #net)
+    (| file_only_operation)      # Has read, write
     
-    ; Further restriction
-    !ctx -> :security/drop #write  
-    :read_only_operation      ; Has only read
+    # Further restriction
+    ($ctx | drop/security #write)  
+    (| read_only_operation)      # Has only read
     
-    ; Permissions restored when returning
+    # Permissions restored when returning
 }
 
-!func :mixed_permissions = {
-    ; Selective dropping in branches
-    sensitive -> :if .{is_production} .{
-        !ctx -> :security/drop #write
-        :production_mode
-    } .{
-        :development_mode     ; Keeps all permissions
-    }
+func mixed_permissions pipeline{} args{} = {
+    # Selective dropping in branches
+    ($in | if .is_production {
+        ($ctx | drop/security #write)
+        (| production_mode)
+    } {
+        (| development_mode)     # Keeps all permissions
+    })
 }
 ```
 
@@ -213,32 +182,32 @@ Permissions follow a strict inheritance model through the call stack. Each funct
 The permission system enables several security patterns that promote safe code. The principle of least privilege guides permission usage - functions should require only the minimum permissions needed. Permissions should be dropped as soon as they're no longer needed, reducing the attack surface for downstream code.
 
 ```comp
-!func :secure_pipeline ~{user_input} = {
-    ; Validate with no permissions
-    validated = user_input -> ^(:validate_pure)
+func secure_pipeline pipeline{user_input} args{} = {
+    # Validate with no permissions (pure function)
+    validated = $in | validate_pure
     
-    ; Read configuration with minimal permissions
-    config = !ctx -> :security/only {#read} -> {
-        :load_config
-    }
+    # Read configuration with minimal permissions
+    config = ($ctx | only/security {#read} | {
+        (| load_config)
+    })
     
-    ; Process with required permissions only
-    result = !ctx -> :security/only {#read #net} -> {
-        validated -> :process_with_config config
-    }
+    # Process with required permissions only
+    result = ($ctx | only/security {#read #net} | {
+        (validated | process_with_config config)
+    })
     
-    ; Drop all permissions for logging
-    ^(:log_result result)
+    # No permissions for logging
+    (result | log_result)  # Pure function
 }
 
-; Audit permission usage
-!func :audited_operation = {
-    !ctx -> :security/on_drop .{permission}{
-        "Permission dropped: ${permission}" -> :audit/log
-    }
+# Audit permission usage
+func audited_operation pipeline{} args{} = {
+    ($ctx | on_drop/security {$in |
+        (Permission dropped: ${$in} | log/audit)
+    })
     
-    ; Normal operations with audit trail
-    :perform_operations
+    # Normal operations with audit trail
+    (| perform_operations)
 }
 ```
 
