@@ -1,18 +1,21 @@
-!import github/ = comp "@gh/github-comp@1.0/lib"
-!alias #{..} = #unit/time
+!doc module """Get top weekly thumbed issues from github
+https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
+"""
+
+!import .gh = comp "github-api"
+!import .time = std "core/time"
 
 !main = {
-    $after = :datetime/now ..> -1#week -> :datetime/offset
-
-    {repo = "complang/comp" fields = {"createdAt" "reactionGroups" "title" "url"}}
-    -> :github/issues -> :loop/filter .{createdAt > $after}
-    => {
-        issue=!in
-        thumbs = reactionGroups 
-        -> :struct/makefields .{content} 
-        -> #github/content#thumbs_up .{totalCount | 0}
-    }
-    -> :loop/filter .{thumbs > 0}
-    -> :loop/sort .{thumbs {issue.createdAt #loop/ascend}}
-    -> issue -> {:take 5}
+  $after = (|now) - 1#week
+	$fields = ("title url created-at reactions"|tokenize)
+    
+	{$fields repo="nushell/nushell"
+	|list-issues.gh  ; applies $repo from ctx
+	|filter .{created-at >= $after}
+	|map {
+		$thumbs-up = (reactions |count-if .{content == #thumbs-up})
+		{thumbs-up=$thumbs-up title=title url=url}
+	}
+	|sort #reverse .{thumbs-up}
+	|first 5
 }

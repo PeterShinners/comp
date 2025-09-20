@@ -1,9 +1,7 @@
 ; Lock-free stack using linked nodes and atomic head pointer
 ; Simpler approach focusing on the core lock-free algorithm
 
-!mod.dependencies = {
-    atomic = "@systems/atomic@1.0/atomic.comp"
-}
+!import .atomic = comp "@systems/atomic@1.0.1/lib"
 
 !shape ~node = {
     data~str
@@ -12,34 +10,32 @@
 
 !shape ~stack = {
     head~node|~nil = {}
-    ..~atomic/version
+    ..~version.atomic
 }
 
 !func :push ~{stack~stack data~str} = {
-    stack
-    -> :atomic/retry-exchange 
-        .{!in ..> head={data=data next=head}}
+    stack |retry-exchange 
+        .{..$in head={data=data next=head}}
 }
 
 !func :pop ~{stack~stack} = {
-    stack
-    -> :atomic/retry-exchange 
-        .{!in ..> head=head.next} // failure when head is {}
+    stack |retry-exchange 
+        .{..!in head=head.next} // fails when head is {}
 }
 
 !func :test_stack = {
-    $stack = ~stack
+    $stack = {..~stack}
     
     ; Push some items
-    $stack 
-    -> :push{data="first"}
-    -> :push{data="second"} 
-    -> :push{data="third"}
+    $stack = $stack 
+    |push{data="first"}
+    |push{data="second"} 
+    |push{data="third"}
     
     ; Pop them back
-    :loop/count => {
-        $stack -> :pop -> head.data -> "Popped: ${}" -> :io/print
-        |> #break
-    }
+    (|while .{
+        $stack = $stack |pop |tap .{head.data % "Popped: ${}" |print}
+        |> #break  ; Stop gracefully when empty
+    })
 }
 

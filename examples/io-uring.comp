@@ -1,13 +1,13 @@
 ; io_uring file reader using hypothetical Comp uring library
 ; Compare with: https:;unixism.net/loti/liburing_examples.html
 
-!import ring/ = system "uring@1.2/uring"
-!import s/ = stdlib "fs"
-!import o/ = stdlib "io"
-!import lib/ = stdlib "clib"
+!import .ring = comp "system:/uring@1.2/uring"
+!import .s = stdlib "fs"
+!import .o = stdlib "io"
+!import .lib = stdlib "clib"
 
-!ctx.QUEUE_DEPTH = 1
-!ctx.BLOCK_SIZE = 1024
+$mod.QUEUE_DEPTH = 1
+$mod.BLOCK_SIZE = 1024
 
 
 ; Library-provided shapes for io_uring operations

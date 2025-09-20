@@ -4,7 +4,7 @@
 
 ## Overview
 
-Comp uses pipelines to connect operations into data transformation chains. The `|` operator marks function application, creating readable left-to-right data flow. Control flow and error handling are achieved through functions that accept block arguments, providing a consistent and composable approach to program flow.
+Comp uses pipelines to connect operations into data transformation chains. The `|` operator marks function application, creating readable left-to-right data flow. Control flow and error handling are achieved through functions that accept block arguments (prefixed with `.{}`), providing a consistent and composable approach to program flow.
 
 Every statement in Comp benefits from fresh pipeline input - `$in` resets to the function's original input at each statement boundary. This enables parallel processing patterns where multiple statements independently transform the same input data.
 
@@ -15,8 +15,7 @@ The `|` operator is Comp's fundamental composition mechanism, marking function a
 A pipeline consists of one or more functions connected by `|`. The first element can be either a value or a function. When starting with a value, it becomes the input to the first function. When starting with a function (marked by leading `|`), the function receives no initial input or uses ambient data depending on its definition.
 
 ```comp
-!pipe {data}
-!func |process = {
+!func |process ~{data} = {
     ; Pipelines with value input
     validated = $in |validate
     transformed = $in |transform
@@ -32,7 +31,7 @@ A pipeline consists of one or more functions connected by `|`. The first element
 }
 ```
 
-The `$in` reference provides access to pipeline data and resets at each statement boundary. This enables natural parallel processing patterns where multiple statements work on the same input data independently. The `$pipe` namespace cascades from output being built to `$in`, allowing access to intermediate results.
+The `$in` reference provides access to pipeline data and resets at each statement boundary. This enables natural parallel processing patterns where multiple statements work on the same input data independently. Field references use undecorated tokens that cascade through output being built to input.
 
 ## Statements and Temporaries
 

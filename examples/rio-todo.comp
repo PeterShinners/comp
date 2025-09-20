@@ -1,8 +1,6 @@
 !doc module "TODO UI App, based on hypothetical migration from the Rio UI library for Python."
 
-!import rio/ = comp @gh/rio-dev/rio-comp@0.1.5/lib
-
-!alias #comp = #rio/comp
+!import .rio = comp @gh/rio-dev/rio-comp@0.1.5/lib
 
 !shape ~todo = {
     title~string
@@ -12,59 +10,60 @@
 !shape ~state = {
     todos~todo[] = {}
     input~string = ""
-    filter#filter = #filter#all
+    filter#filter = #all.filter
 }
 
 !tag #filter = {
-    all = {"All" {#true #false}}
-    active = {"Active" {#false}}
-    complete = {"Complete" {#true}}
+    #all = {"All" {#true #false}}
+    #active = {"Active" {#false}}
+    #complete = {"Complete" {#true}}
 }
 
 !main = {
-    {title="Todo App" state=~state} -> :rio/app .{:todo-app}
+    {title="Todo App" state={..~state}} |app.rio .{:todo-app}
 }
 
 !func :todo-app ~{} = {
-    $s = :rio/fetch-state
+    $s = (|fetch-state.rio)
     
-    {#comp#column spacing=1 padding=2
+    {#column spacing=1 padding=2
         ; Creation field
-        {#comp#row
-            {#comp#textinput text=$s.input placeholder="What needs doing?"
-                :rio/on-change.{..$s input=value}
-                :rio/on-submit.{..$s input="" todos={..$s.todos $s~input/todo}}
+        {#row
+            {#textinput text=$s.input placeholder="What needs doing?"
+                on-change.{..$s input=value}
+                on-submit.{..$s input="" todos={..$s.todos $s~input/todo}}
             }
         }
         ; Show filtered todos
         $s.todos 
-        -> :iter/filter .{{complete $s~filter/struct#1} -> :iter/contains}
-        => :todo-item
+        |filter .{{complete $s.filter~struct#1} |contains}
+        |map .{todo-item}
         ; Filter buttons
-        {#comp#row spacing=0.5
-            #filter -> :tag/iter-all => {
-                $variant = ?? $s.filter == tag ?> "primary" ?| "secondary"
-                #comp#button text=value#0 variant=$variant
-                    :rio/on-click.{..$s filter=tag}
+        {#row spacing=0.5
+            #filter |tagchildren.tag .{
+                $variant = (|if $s.filter == tag "primary" "secondary")
+                #button text=value#0 variant=$variant
+                    on-click.{..$s filter=tag}
             }
         }
     }
 }
 
 !func :todo-item ~todo = {
-    $s = :rio/fetch-state
+    $s = (|fetch-state.rio)
 
-    {#comp#row spacing=1
+    {#row spacing=1
         ; Completed check
-        {#comp#checkbox checked=complete
-            :rio/on-change.{..$s todos={$s.todos $new} -> :iter/replace .key{title}}
+        {#checkbox checked=complete
+            $new = {title !!complete}
+            on-change.{..$s todos={$s.todos $new} |replace .{title}}
         }
         ; Styled title
-        $style = {?? complete ?> "strikethrough" ?| "normal"}
-        {#comp#text text=title style=$style}
+        $style = (|if complete "strikethrough" "normal")
+        {#text text=title style=$style}
         ; Delete button
-        {#comp#iconbutton icon="material/delete"
-            :rio/on-click.{..$s todos={$s.todos} -> :iter/filter .key{$s.title == title}}
+        {#iconbutton icon="material/delete"
+            on-click.{..$s todos={$s.todos} |filter .{$s.title == title}}
         }
     }
 }

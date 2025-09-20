@@ -16,11 +16,11 @@ A minimal Comp file is a complete program. Every `.comp` file can serve three ro
 
 ```comp
 !main = {
-    (hello world |print)
+    (|print hello world)
 }
 ```
 
-Save this as `hello.comp` and (once implemented) run with `comp hello.comp`. The `!main` function serves as the entry point, receiving command-line arguments as its input structure and returning an exit code.
+Save this as `hello.comp` and (once implemented) run with `comp hello.comp`. The `!main` function serves as the entry point, getting its data from system functions rather than pipeline input.
 
 ## Core Concepts
 
@@ -32,7 +32,7 @@ Comp unifies all data representation into structures - ordered collections that 
 42                      
 {x=10 y=20}            
 {1 2 3}                
-{name=Alice 30 active=#true}
+{name=Alice 30 active?=#true}
 ```
 
 When a scalar value like `42` enters a pipeline, it automatically promotes to a single-element structure `{42}`. This auto-wrapping means functions always receive structures, simplifying the programming model. Named fields can appear in any order and are accessed by name, while unnamed fields maintain their position and are accessed by index.
@@ -46,32 +46,28 @@ Data transformation happens through pipelines that connect operations with the `
 ```comp
 (data |validate |transform |save)
 
-(items |map |process-each |collect-results)
+(items |map .{|process-each} |collect-results)
 
-(risky |operation |? |handle-error)
+(risky |operation |? .{|handle-error})
 ```
 
-Pipelines are enclosed in parentheses to clearly mark their boundaries. The `|` operator marks function application, with functions written as `|function-name`. The `|?` operator intercepts failures, allowing graceful error recovery without breaking the pipeline flow.
+Pipelines are enclosed in parentheses to clearly mark their boundaries. The `|` operator marks function application, with functions written as `|function-name`. Blocks are prefixed with `.{}` to distinguish them from structures. The `|?` operator intercepts failures, allowing graceful error recovery without breaking the pipeline flow.
 
 ### Functions Transform Structures
 
-Functions in Comp are pure transformations from one structure to another. Every function declares its expected pipeline input shape and argument structure. This dual-shape approach separates data flow from configuration.
+Functions in Comp are pure transformations from one structure to another. Every function declares its expected pipeline input shape and argument structure using inline notation with `~` and `^` symbols. This dual-shape approach separates data flow from configuration.
 
 ```comp
-!pipe {shape}
-!args {}
-!func |area = {
-    $pipe.width * $pipe.height
+!func |area ~{width ~num height ~num} = {
+    width * height
 }
 
-!pipe {items}
-!args {threshold ~num}
-!func |filter-above = {
-    $in |filter {$pipe.value > $arg.threshold}
+!func |filter-above ~{items[]} ^{threshold ~num} = {
+    $in |filter .{$in > ^threshold}
 }
 ```
 
-Functions can be invoked by any structure containing the required fields. The separation between pipeline data (`$in`) and arguments (`$arg`) makes the distinction between data transformation and parameterization clear.
+Functions can be invoked by any structure containing the required fields. The separation between pipeline data and arguments makes the distinction between data transformation and parameterization clear. Complex shapes should be defined separately and referenced by name.
 
 ### Shapes Define Structure
 
@@ -124,42 +120,40 @@ Modules organize related functionality into namespaces. Each module contains def
 
 ## Control Flow
 
-Control flow uses regular functions with block arguments. Blocks are evaluated within the function, receiving pipeline data as needed.
+Control flow uses regular functions with block arguments. Blocks are prefixed with `.{}` to distinguish them from structures, and are evaluated within the function, receiving pipeline data as needed.
 
 ```comp
-(value |if {$pipe.value > 5} large small)
+(value |if .{value > 5} .{large} .{small})
 
-($in |when {$pipe.error?} {
-    ($pipe.error |log)
+($in |when .{error?} .{
+    (error |log)
 })
 
 (value |match 
-    {0} zero
-    {1} one
-    default other)
+    .{0} .{zero}
+    .{1} .{one}
+    .{#true} .{other})
 ```
 
 ## Variables and Namespaces
 
 Comp provides multiple namespaces for organizing data:
 
+- `$name` - Function-local variables (shortened from `$var.name`)
+- `^name` - Function arguments (cascades to `$ctx`, `$mod`)
 - `$in` - Pipeline input data
-- `$pipe` - Output structure being built (cascades to `$in`)
-- `$var.name` - Function-local variables
-- `$arg.name` - Function arguments (cascades to `$ctx`, `$mod`)
-- `$ctx.name` - Execution context
-- `$mod.name` - Module-level data
+- `fieldname` - Undecorated tokens access pipeline fields (cascades output→input)
+- `$ctx.name` - Execution context (explicit)
+- `$mod.name` - Module-level data (explicit)
 
 ```comp
-!pipe {data}
-!args {port ~num}
-!func |example = {
-    $var.sum = $in |sum
+!func |example ~{data} ^{port ~num} = {
+    $sum = $in |sum
     
-    server-port = $arg.port    ; Cascades through context/module
-    total = $var.sum
-    user = $pipe.user          ; Cascades through output/input
-    config = $mod.config       ; Explicit module reference
+    server-port = ^port       ; Cascades through arg→ctx→mod
+    total = $sum
+    user = user               ; Undecorated field lookup
+    config = $mod.config      ; Explicit module reference
 }
 ```
 
@@ -177,12 +171,12 @@ precise = 1/3              ; Exact fraction
 
 ### Strings  
 
-Strings are immutable UTF-8 text. Tokens without special prefixes are treated as string literals:
+Strings are immutable UTF-8 text. Quoted strings are used when needed:
 
 ```comp
-greeting = hello           ; String "hello"
-name = Alice              ; String "Alice"
-{name=Bob age=30}         ; name is field, Bob is string
+greeting = "hello"         ; String literal
+name = "Alice"            ; String literal
+{name="Bob" age=30}       ; name is field, "Bob" is string
 ```
 
 ### Booleans
@@ -190,9 +184,9 @@ name = Alice              ; String "Alice"
 Booleans are represented by two tags: `#true` and `#false`. Comparisons produce boolean values:
 
 ```comp
-valid = $pipe.x > 0              
-ready = #true
-enabled = $pipe.name == Alice    ; Alice is string literal
+valid? = x > 0              
+ready? = #true
+enabled? = name == "Alice"
 ```
 
 ## Operators Summary
@@ -201,6 +195,7 @@ enabled = $pipe.name == Alice    ; Alice is string literal
 - `()` - Pipeline boundaries
 - `|` - Function application
 - `|?` - Failure handling
+- `.{}` - Block delimiter
 
 **Fallback operator:**
 - `??` - Provide alternative value
@@ -216,7 +211,167 @@ enabled = $pipe.name == Alice    ; Alice is string literal
 - `?..` - Weak spread
 
 **Reference prefixes:**
-- `$` - Variable/namespace access
+- `# Language Overview
+
+*Essential concepts and syntax for programming in Comp*
+
+## Introduction
+
+Comp is a functional language where every value is an immutable structure and every operation transforms data through pipelines. The language combines the accessibility of dynamic scripting with the safety of structural typing, making it ideal for data processing, API integration, and system glue code.
+
+This overview introduces the essential concepts needed to understand Comp programs. For detailed specifications of any feature, see the corresponding design document in the `design/` directory.
+
+## Getting Started
+
+**Note: Comp is currently in design phase with no implementation. These examples show intended syntax and behavior.**
+
+A minimal Comp file is a complete program. Every `.comp` file can serve three roles simultaneously: an executable program when it contains `!main`, an importable module through its exported definitions, and a complete package with embedded metadata.
+
+```comp
+!main = {
+    (|print hello world)
+}
+```
+
+Save this as `hello.comp` and (once implemented) run with `comp hello.comp`. The `!main` function serves as the entry point, getting its data from system functions rather than pipeline input.
+
+## Core Concepts
+
+### Everything is a Structure
+
+Comp unifies all data representation into structures - ordered collections that can contain both named and unnamed fields. This uniformity means the same operations work whether you're handling JSON from an API, rows from a database, or values computed in your program.
+
+```comp
+42                      
+{x=10 y=20}            
+{1 2 3}                
+{name=Alice 30 active?=#true}
+```
+
+When a scalar value like `42` enters a pipeline, it automatically promotes to a single-element structure `{42}`. This auto-wrapping means functions always receive structures, simplifying the programming model. Named fields can appear in any order and are accessed by name, while unnamed fields maintain their position and are accessed by index.
+
+Structures are immutable - operations create new structures rather than modifying existing ones. This immutability ensures predictable behavior, enables safe parallelism, and eliminates entire classes of bugs related to shared mutable state.
+
+### Pipeline Operations
+
+Data transformation happens through pipelines that connect operations with the `|` operator. Each operation in a pipeline receives the output of the previous operation as its input, creating a clear left-to-right flow of data transformation.
+
+```comp
+(data |validate |transform |save)
+
+(items |map .{|process-each} |collect-results)
+
+(risky |operation |? .{|handle-error})
+```
+
+Pipelines are enclosed in parentheses to clearly mark their boundaries. The `|` operator marks function application, with functions written as `|function-name`. Blocks are prefixed with `.{}` to distinguish them from structures. The `|?` operator intercepts failures, allowing graceful error recovery without breaking the pipeline flow.
+
+### Functions Transform Structures
+
+Functions in Comp are pure transformations from one structure to another. Every function declares its expected pipeline input shape and argument structure using inline notation with `~` and `^` symbols. This dual-shape approach separates data flow from configuration.
+
+```comp
+!func |area ~{width ~num height ~num} = {
+    width * height
+}
+
+!func |filter-above ~{items[]} ^{threshold ~num} = {
+    $in |filter .{$in > ^threshold}
+}
+```
+
+Functions can be invoked by any structure containing the required fields. The separation between pipeline data and arguments makes the distinction between data transformation and parameterization clear. Complex shapes should be defined separately and referenced by name.
+
+### Shapes Define Structure
+
+Shapes act as schemas that describe the expected structure of data. They specify field names, types, default values, and constraints. Unlike rigid class definitions, shapes use structural matching - any data that contains the required fields satisfies the shape.
+
+```comp
+!shape user = {
+    name ~str
+    age ~num = 0
+    email ~str
+}
+```
+
+The `~` operator morphs structures to match shapes, performing validation and transformation in a single operation. When morphing, the system attempts to match fields by name first, then by position, applying defaults for missing optional fields.
+
+### Tags for Enumeration
+
+Tags provide hierarchical enumeration with optional values. They serve triple duty as enumerated constants, type markers, and polymorphic dispatch keys. Every tag is prefixed with `#` and uses reversed hierarchy notation.
+
+```comp
+!tag status = {
+    #active = 1
+    #inactive = 0  
+    #pending
+}
+
+; Usage with shortened form when unique
+state = #active
+state = #pending
+```
+
+Tags can be referenced by their most specific part when unique, with additional parent components added only when disambiguation is needed.
+
+## Module System
+
+Modules organize related functionality into namespaces. Each module contains definitions of functions, shapes, and tags that work together. The import system brings modules into scope with namespace prefixes.
+
+```comp
+!import str = std "core/str"
+!import math = std "core/math"
+
+; Functions use reversed namespace notation
+(text |upper/str)
+(value |sqrt/math)
+
+; Or create aliases for frequently used functions
+!alias |sqrt = |sqrt/math
+(value |sqrt)
+```
+
+## Control Flow
+
+Control flow uses regular functions with block arguments. Blocks are prefixed with `.{}` to distinguish them from structures, and are evaluated within the function, receiving pipeline data as needed.
+
+```comp
+(value |if .{value > 5} .{large} .{small})
+
+($in |when .{error?} .{
+    (error |log)
+})
+
+(value |match 
+    .{0} .{zero}
+    .{1} .{one}
+    .{#true} .{other})
+```
+
+## Variables and Namespaces
+
+Comp provides multiple namespaces for organizing data:
+
+- `$name` - Function-local variables (shortened from `$var.name`)
+- `^name` - Function arguments (cascades to `$ctx`, `$mod`)
+- `$in` - Pipeline input data
+- `fieldname` - Undecorated tokens access pipeline fields (cascades output→input)
+- `$ctx.name` - Execution context (explicit)
+- `$mod.name` - Module-level data (explicit)
+
+```comp
+!func |example ~{data} ^{port ~num} = {
+    $sum = $in |sum
+    
+    server-port = ^port       ; Cascades through arg→ctx→mod
+    total = $sum
+    user = user               ; Undecorated field lookup
+    config = $mod.config      ; Explicit module reference
+}
+```
+
+ - Variables
+- `^` - Arguments (with cascade)
 - `|` - Function reference
 - `#` - Tag reference  
 - `~` - Shape reference
@@ -271,15 +426,15 @@ Here's a practical example showing the syntax in action:
 !alias |now = |now/time
 
 !main = {
-    $var.after = (|now) - 1#week
+    $after = (|now) - 1#week
     
-    (|list-issues/gh repo=complang/comp) 
-     |filter {$pipe.created-at >= $var.after}
-     |map {
-         thumbs-up = ($pipe.reactions |count-if {$pipe.content == #thumbs-up})
-         {thumbs-up title=$pipe.title url=$pipe.url}
+    (|list-issues/gh repo="complang/comp") 
+     |filter .{created-at >= $after}
+     |map .{
+         thumbs-up = (reactions |count-if .{$in == #thumbs-up})
+         {thumbs-up title url}
      }
-     |sort-by reverse {$pipe.thumbs-up}
+     |sort-by reverse .{thumbs-up}
      |first 5)
 }
 ```
@@ -293,6 +448,7 @@ The standard style uses:
 - Operators at the start of continuation lines
 - Lines under 100 characters when reasonable
 - Function references always attached: `|function` not `| function`
+- Undecorated tokens for field access in pipelines
 
 ## Next Steps
 

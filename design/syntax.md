@@ -1,262 +1,133 @@
-# General Syntax and Language Features
+# Comp Language Syntax Reference
 
-*Core syntax rules, terminology, and general-purpose features of the Comp language*
+## Namespaces
 
-## Overview
+### Variable and Pipeline Namespaces
+- `$name` - Function-local variables
+- `^name` - Function arguments (cascades to `$ctx`, `$mod`)
+- `$in` - Pipeline input data
+- `fieldname` - Undecorated tokens access pipeline fields (cascade output→input)
 
-Comp has many general-purpose features beyond its major systems like modules, functions, shapes, and tags. This document defines the fundamental terminology, syntax rules, and shared functionality that underlies all Comp programs.
+### Explicit Namespaces
+- `$ctx.name` - Execution context
+- `$mod.name` - Module-level data
 
-## Language Terminology
+## Function Definitions
 
-Understanding Comp requires precise terminology for its syntactic elements. These definitions establish the vocabulary used throughout the documentation.
-
-**Statement** - The top-level unit of execution in a function body. A statement consists of an optional target (for assignment) followed by a pipeline. Statements are separated by whitespace and execute independently with fresh input from `$in`.
-
-**Pipeline** - A sequence of operations connected by the `|` operator, enclosed in parentheses. The data flows left-to-right through the pipeline.
-
-**Operation** - A single transformative element within a pipeline. Operations include function references (`|sqrt/math`), structure constructors (`{x=10}`), literal values (`42`), and string templates.
-
-**Expression** - Any code that evaluates to a value. This includes literals, field references (`$pipe.user.name`), arithmetic (`x + y`), comparisons (`$pipe.age > 18`), and structure construction. Expressions appear within operations and blocks.
-
-**Reference** - A named entity prefixed with a type marker. Functions (`|process`), shapes (`~user`), and tags (`#status`) are references. They cannot be directly assigned to variables but can be aliased or invoked.
-
-## Namespaces and Field Resolution
-
-Field names in Comp are resolved through a layered stack of namespaces. Different prefixes access different namespace layers, providing precise control over data access.
-
-The namespace system consists of:
-- `$pipe` - Cascades from output being built to input (`$out` → `$in`)
-- `$in` - The structure passed as input to the current execution context  
-- `$arg` - Function arguments (cascades to `$ctx` → `$mod`)
-- `$var` - Function-local variables
-- `$ctx` - Context inherited through function calls
-- `$mod` - Module-specific shared data
-
-Field assignments without prefix target the output structure being built. The cascading namespaces provide intelligent defaults:
-- `$pipe.field` searches output then input
-- `$arg.field` searches arguments then context then module
-
+### Basic Syntax
 ```comp
-!pipe {data}
-!args {port ~num}
-!func |process = {
-    $mod.default-port = 8000
-    $ctx.override-port = 8080
-    
-    server-port = $arg.port          ; Cascades through arg→ctx→mod
-    fallback = $mod.default-port     ; From module namespace
-    final = $ctx.override-port       ; From context
-    computed = $pipe.port            ; Cascades through output→input
+!func |name ~{pipeline-shape} ^{arguments} = { body }
+```
+
+### Multi-line Format
+```comp
+!doc "Description"
+!pure
+!require permissions
+!func |function-name 
+    ~{complex-shape} 
+    ^{complex-args} = {
+    ; Implementation
 }
 ```
 
-Variables are accessed through their namespace prefix. The `$var` namespace holds function-local temporaries that don't contribute to the output structure.
-
-## Privacy and Access Control
-
-Comp uses the `&` symbol to control access to data and definitions. Privacy operates at module boundaries - each module can have private definitions invisible to importers and private data attached to structures that only it can access.
-
-Private definitions use `&` as a suffix on the name. These definitions - whether functions, shapes, or tags - are only accessible within the defining module. The suffix is not part of the name when referencing; it only marks the definition as private during declaration.
-
+### Internal Shape Definitions
 ```comp
-!func |public-api = {
-    $in |validate |internal-process&
-}
-
-!func |internal-process& = {
-    ; Only accessible within this module
-    $in |transform |store
-}
-
-!shape internal-state& = {
-    cache ~store&
-    pending-operations ~num
+!func |complex = {
+    !shape {data ~record}
+    !args {options ~config}
+    ; Implementation
 }
 ```
 
-Modules can attach private data to any structure. This data exists separately from the structure's fields, preserving the structure's shape while carrying module-specific information. Private data is accessed with the `&` operator and automatically flows through pipeline operations.
+### Key Principles
+- Function names require `|` prefix
+- Complex shapes defined separately for reuse
+- Last expression is implicit return
+- Pipeline shape uses `~` prefix
+- Arguments use `^` prefix
 
+## Blocks
+
+### Block Syntax
+- `.{}` - Block (deferred code)
+- `{}` - Structure literal
+
+### Named Blocks
 ```comp
-; Attach private data during creation
-$var.user = {name=Alice role=admin} & {session-id=123 token=xyz}
-
-; Access private fields (only in same module)
-$var.user.name           ; Alice - public field
-$var.user&.session-id    ; 123 - private field
-
-; Private data flows through pipelines
-$var.result = $var.user |transform |validate
-; $var.result& still contains {session-id=123 token=xyz}
+transform.{$in * 2}
+validate.{$in > 0}
+on-error.{|log-error}
 ```
 
-## Documentation with Docstrings
-
-Docstrings provide runtime-accessible documentation for definitions. Unlike comments, docstrings are recognized by the language and available for introspection. They use the `!doc` keyword with either inline or detached forms.
-
-Inline documentation immediately precedes the definition it documents. Detached documentation references the target explicitly, allowing documentation to be organized separately or added to existing definitions. Multiple docstrings for the same target are concatenated with blank lines between them.
-
+### Control Flow
 ```comp
-!doc "Calculate the area of geometric shapes"
-!pipe {shape}
-!func |area = {
-    $in |match
-        {radius} {$pipe.radius * $pipe.radius * 3.14159}
-        {width height} {$pipe.width * $pipe.height}
-        {base height} {$pipe.base * $pipe.height / 2}
+|if .{condition} .{then-branch} .{else-branch}
+|map .{$in * 2}
+|filter .{score > threshold}
+```
+
+## Field Access
+
+### Standard Access
+- `fieldname` - Field lookup in pipeline
+- `data.field` - Named field on structure
+- `data#0` - Positional index (numeric literals only)
+- `#0` - Index from `$in`
+
+### Computed Access
+- `data."string literal"` - String as field name
+- `data.'expression'` - Evaluated expression as field name
+
+## Type Literals
+
+### Basic Types
+- `"string"` - String literal
+- `42` - Number literal  
+- `#true`, `#false` - Boolean tags
+- `#enum-value` - Tag values
+
+### No Unquoted Strings
+Undecorated tokens are field lookups, not string literals.
+
+## Presence-Check Morphing
+
+### Flag Arguments
+```comp
+!func |process ^{
+    verbose ~bool = #false ?? #true
+    debug ~bool = #false ?? #true
+} = {
+    ; verbose=#true if "verbose" appears as unnamed argument
 }
 
-!doc |area = """
-Additional notes: 
-- Circles use radius field
-- Rectangles use width and height
-- Triangles use base and height
-"""
-
-!shape config = {
-    !doc "Server port number (1-65535)"
-    port ~num = 8080
-    
-    !doc "Maximum concurrent connections"  
-    max-connections ~num = 100
-}
+; Usage
+(data |process verbose debug)
 ```
 
-## Runtime Introspection
+The `??` operator defines: default value (left) and presence value (right).
 
-The `describe` operator generates structural descriptions of values and references at runtime. This enables debugging, tooling, and metaprogramming by exposing internal information about any Comp entity.
+## Pipeline vs Arguments
 
-Common fields across all descriptions include the source file and line number (when available), namespace origin, associated documentation, and type information. The specific details vary by entity type but follow consistent patterns.
+- **Pipeline (~)**: Data to transform
+- **Arguments (^)**: Configuration for transformation
+- **Blocks**: Deferred transformations as arguments
 
+## Main Function
+
+The `!main` function has no pipeline input or arguments:
 ```comp
-; Describing a function
-(|my-func |describe)
-; Returns structure with: name, shape, blocks, permissions, source location
-
-; Describing a value  
-({x=10 y=20} |describe)
-; Returns structure with: type, fields, shape (if explicit), creation context
-
-; Describing a module
-(mod/utils |describe)
-; Returns structure with: functions, shapes, tags, imports, package info
-```
-
-## Comparison and Equality
-
-Comp provides two families of comparison operators with distinct semantics. Equality operators (`==`, `!=`) test for structural equivalence, while ordering operators (`<`, `>`, `<=`, `>=`) determine sort order. All comparisons are deterministic and never fail - they always produce a boolean result.
-
-Equality comparison uses strict structural matching. Scalars auto-wrap to single-element structures for comparison, so `5 == {5}` is true. Named fields must match by name and value regardless of order. Unnamed fields must match by position and value. No type coercion or shape morphing occurs during equality testing.
-
-Ordering comparison establishes a total order over all values. The empty struct `{}` is less than all other values. Different types compare by priority: booleans < tags < numbers < strings < structures. Structures compare lexicographically - first by matching named fields alphabetically, then by positional fields left-to-right.
-
-```comp
-; Equality ignores named field order
-{x=1 y=2} == {y=2 x=1}        ; true
-
-; Ordering is deterministic across types  
-{} < #false < 0 < a < {x=1}  ; true
-
-; Complex structure ordering
-{a=1 z=3} < {a=2 b=1}         ; true (a field compared first)
-{name=Alice} < {name=Bob}     ; true (string comparison)
-```
-
-## Mathematical and Logical Operators
-
-Comp reserves arithmetic operators exclusively for numeric types. There is no operator overloading - each operator has one fixed meaning. Numbers support the standard mathematical operations: `+` (addition), `-` (subtraction), `*` (multiplication), `/` (division), `%` (modulo), and `**` (exponentiation). Division always produces exact rational results without truncation.
-
-Boolean values use separate logical operators that short-circuit during evaluation. The `&&` operator returns true when both operands are true. The `||` operator returns true when either operand is true. The `!!` operator negates a boolean value. These operators stop evaluating as soon as the result is determined.
-
-String manipulation uses explicit functions rather than operators. There is no string concatenation operator - use templates or functions like `concat/str` instead. This design choice keeps operators unambiguous and prevents confusion about types.
-
-## Fallback Operator
-
-The `??` operator provides immediate fallback values for operations that might fail. It operates at lower precedence than pipeline operators and provides its alternative value only when the primary expression fails or references an undefined field. Multiple fallbacks can chain to create cascading defaults.
-
-```comp
-; Field access with defaults
-config.port ?? env.PORT ?? 8080
-
-; Computed fallbacks
-$pipe.user.timeout ?? ($pipe.user.retry-count * 1000) ?? 5000
-
-; Nested fallback chains
-(cache |get key) ?? (database |fetch key) ?? (|generate-default key)
-```
-
-## Weak and Strong Assignment Variants
-
-Assignment operators have three variants that control how conflicts are resolved. Normal assignment (`=`) overwrites existing values. Strong assignment (`*=`) creates sticky values that resist overwriting. Weak assignment (`?=`) only assigns if the field doesn't already exist.
-
-These variants apply consistently across different contexts - field assignments, spread operations, function definitions, and shape morphing. When the same field is assigned multiple times with different strengths, strong assignments win over normal, which win over weak.
-
-```comp
-; Field assignment variants
-config = {
-    port *= 8080      ; Strong - resists override
-    host = localhost  ; Normal
-    timeout ?= 30     ; Weak - only if not set
-    
-    port = 3000       ; Ignored - strong assignment wins
-    host = 0.0.0.0    ; Overwrites normal assignment
-    timeout = 60      ; Would override if timeout wasn't already 30
-}
-
-; Spread operator variants
-result = {
-    ..defaults        ; Normal spread
-    !..required       ; Strong spread - these fields stick
-    ?..optional       ; Weak spread - only missing fields
+!main = {
+    args = |args/cmdline
+    env = |env/process
+    ; Implementation
 }
 ```
 
-## Field Access Patterns
+## Style Conventions
 
-Comp provides multiple ways to access structure fields, each with specific semantics:
-
-**Named field access** uses dot notation for simple field names or quoted strings for complex names:
-```comp
-data.field-name              ; Token field name
-data."hello world"           ; String literal field name
-data.'expression'            ; Computed field name
-data.'$var.idx'             ; Variable value as field name
-data.'#tag-name'            ; Tag name as field
-```
-
-**Positional index access** uses `#` with numeric literals only:
-```comp
-data#0                      ; First unnamed field
-data#42                     ; 43rd field (if it exists)
-#0                         ; From $in in shared lookup
-```
-
-The distinction between named and positional access is important - `data.'0'` accesses a field named "0" while `data#0` accesses the first unnamed field.
-
-## Comments and Style
-
-Line comments use `;` and continue to the end of the line. There are no block comments. The semicolon style comes from Lisp traditions and distinguishes comments from path operators.
-
-```comp
-; Main configuration handler
-!pipe {}
-!args {options}
-!func |configure = {
-    port = $arg.options.port ?? 8080  ; Use default if not specified
-    
-    ; Validate port range
-    $in |when {port < 1 || port > 65535} {
-        {#config.fail message=Invalid port: ${port}}
-    }
-}
-```
-
-The standard style uses:
+- lisp-case naming
+- `?` suffix for boolean fields and functions
+- Attached function references: `|function`
 - Tabs for indentation
-- lisp-case for names (lowercase with hyphens)
-- `?` suffix for boolean functions and fields
-- Operators at the start of continuation lines
-- Lines under 100 characters when reasonable
-- Structure definitions indent their contents one level
-- Opening braces on the preceding line
-- Closing braces at the original indentation level
-- Function references always attached: `|function` not `| function`
+- Operators at start of continuation lines

@@ -12,24 +12,24 @@ Structures are immutable collections that can contain any mix of named and unnam
 
 Structures are created with `{}` braces containing field definitions. Fields can have explicit names or be positional (unnamed). Named fields use `=` for assignment, while unnamed fields are simply listed. The same field name can appear multiple times, with later definitions overriding earlier ones based on assignment strength.
 
-Field names in structures are incredibly flexible. Tokens need no quoting and are treated as string literals when used as values. Field names themselves (left of `=`) are identifiers. Arbitrary strings use double quotes for field names, and expressions use single quotes.
+Field names in structures are incredibly flexible. Arbitrary strings use double quotes for field names, and expressions use single quotes for computed field access.
 
 ```comp
 ; Various field types
 user = {
-    name = Alice              ; Token as string literal
-    age = 30                  ; Number literal
-    #active.status = #true    ; Tag as field name
-    "Full Name" = Alice Smith ; String field name
-    'score * 2' = 60         ; Expression field name
+    name = "Alice"              ; String literal value
+    age = 30                    ; Number literal
+    #active.status = #true      ; Tag as field name
+    "Full Name" = "Alice Smith" ; String field name
+    'score * 2' = 60           ; Expression field name
 }
 
-; Accessing fields
+; Accessing fields - undecorated tokens for common case
 user.name                    ; Token access
 user.#active.status         ; Tag field access
 user."Full Name"            ; String field access
 user.'score * 2'            ; Expression field access
-user.'$var.idx'             ; Variable value as field name
+user.'$idx'                 ; Variable value as field name
 
 ; Positional fields
 coords = {10 20 30}          ; Three unnamed fields
@@ -39,6 +39,7 @@ mixed = {x=5 10 y=15}        ; Mix of named and unnamed
 coords#0                     ; 10 - first unnamed field
 coords#1                     ; 20 - second unnamed field
 mixed#0                      ; 10 - first unnamed field
+#0                          ; From $in in pipeline
 ```
 
 Field access distinguishes between:

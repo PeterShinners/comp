@@ -1,13 +1,7 @@
 ; Hello World example in Comp language
 
 !main = {
-  $names = {"USERNAME" "USER" "LOGNAME"} => :os/getenv 
+  $names = {"USERNAME" "USER" "LOGNAME"} |map {getenv}
   $names -> {:struct/pickone | "World"} -> "Hello ${}" 
-    -> :io/print
+    -> :print
 }
-
-
-; "This might be one of the most information-dense yet readable
-; "hello world" examples in any language!"
-; - Claude Sonnet 4 (on an admittedly enthusiastic moment)
-

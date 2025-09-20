@@ -1,12 +1,14 @@
 ; Comp version
 !main = {
-    $frequencies = :io/stdin -> :io/read_lines 
-        => :str/split ", " -> :flatten 
-        -> :iter/tally 
-
-    $largest = $frequencies -> :max .{value} -> key
-
-    "The most frequent word is '${largest}'" -> :io/print
+    (|stdin -> 
+    |read_lines.io
+    |map .{|split} 
+    |flatten
+    |tally  ; generate struct with word fields mapped to their counts
+    |max-field .{value}  ; generate {key value} struct from highest value
+    |key
+    % "The most frequent word is '${largest}'" 
+    |print
 }
 
 

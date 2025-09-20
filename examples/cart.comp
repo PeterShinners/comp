@@ -1,33 +1,40 @@
 !shape ~item = {
-    name ~string
-    price ~number
-    quantity ~number
+	name ~str
+	price ~num
+	quantity ~num
 }
 
 !shape ~cart = {
-    items ~item[] = {}
-    discount ~number = 0
+	items ~item[] = {}
+	discount ~num = 0
 }
 
-!func :add-item ~{cart ~cart item ~item} = {
-    ; Find existing item or add new one
-    $items = cart.items => name == item.name ? item | !in
-    {..cart items=$items}
+!doc "Replace item by name, or append new"
+
+!func |add-item ~{cart ~cart item ~item} = {
+	$add? = #true
+	$items = {cart.items |substitute {name == item.name} {item $add? = #false}}
+	(|if {$add?} {..$items item} {$items})
 }
 
-!func :cart-total ~cart = {
-    items => (price * quantity) -> :num/sum -> (!in * (1 - discount))
+
+!doc "Calculate price of all items with cart discounts"
+
+!func |cart-total ~cart = {
+	(items |sum {price * quantity}) * (1 - discount)
 }
 
 !main = {
-    $values = {
-        {name="Apple" price=1.00 quantity=2}
-        {name="Banana" price=0.50 quantity=3}
-        {name="Apple" price=1.00 quantity=1}
-    }
-
-    $cart = {$values accum=~cart} 
-    -> :reduce .{{accum value} -> :add-item}}
-
-    $cart -> :cart-total -> :io/print ; Should be 2.50
+	$values = {
+		{name="Apple" price=1.00 quantity=2}
+		{name="Banana" price=0.50 quantity=3}
+		{name="Apple" price=1.00 quantity=1}
+	}
+	
+	$cart = {|cart $values}
+	-> |reduce .{{accum value} -> |add-item}
+	
+	$cart.discount = 0.8
+	$cart -> |cart-total -> |io/print ; Displays "2.00"
 }
+

@@ -10,25 +10,21 @@ Functions are references, not values. They cannot be assigned to variables or pa
 
 ## Function Definition Fundamentals
 
-Functions are defined with the `!func` keyword and specify two shapes: one for pipeline input and one for arguments. The function body transforms the input structure, with fields computed through expressions and pipelines. Control flow operates through function calls with blocks.
+Functions are defined with the `!func` keyword followed by the function name (prefixed with `|`), pipeline shape (prefixed with `~`), and optional arguments (prefixed with `^`). The function body transforms the input structure, with fields computed through expressions and pipelines. Control flow operates through function calls with blocks.
 
 The pipeline shape uses Comp's structural typing - any structure with compatible fields can invoke the function. Functions with no input requirements use an empty shape `{}`. Arguments are specified separately, maintaining clear distinction between data and configuration.
 
 ```comp
-!pipe {shape}
-!args {}
-!func |calculate-area = {
-    area = $pipe.width * $pipe.height
-    perimeter = ($pipe.width + $pipe.height) * 2
-    diagonal = ($pipe.width ** 2 + $pipe.height ** 2) ** 0.5
+!func |calculate-area ~{width ~num height ~num} = {
+    area = width * height
+    perimeter = (width + height) * 2
+    diagonal = (width ** 2 + height ** 2) ** 0.5
     {area perimeter diagonal}
 }
 
-!pipe {}
-!args {format ~str}
-!func |get-timestamp = {
+!func |get-timestamp ^{format ~str} = {
     current = (|now/time)
-    formatted = (current |format/time $arg.format)
+    formatted = (current |format/time ^format)
     {current formatted}
 }
 
@@ -37,46 +33,59 @@ The pipeline shape uses Comp's structural typing - any structure with compatible
 ({height=15 width=25} |calculate-area)  ; Named matching
 ```
 
-Each statement in the function body begins with fresh pipeline input through `$in`. This eliminates verbose field extraction while maintaining explicit data flow when needed. The `$pipe` namespace provides cascading access to the output being built, falling back to `$in`.
+Each statement in the function body begins with fresh pipeline input through `$in`. Field references use undecorated tokens that cascade through output being built to input. The implicit return value is the last expression in the function body.
 
-## Function Definition Stanza
+## Function Definition Syntax
 
-Functions use a stanza-style definition where each aspect gets its own line. This approach reduces line density, makes shapes optional, creates space for documentation, and allows flexible ordering (except `!func` must be last).
+Functions can be defined with inline shapes and arguments for simple cases, or with separate shape definitions for complex cases. The inline syntax uses `~` for pipeline shape and `^` for arguments.
 
 ```comp
-!doc "Calculate area with optional precision"
-!pipe {width ~num height ~num}
-!args {precision ~num = 2}
-!pure
-!require read, write
-!func |calculate-area = {
-    raw = $pipe.width * $pipe.height
-    rounded = (raw |round $arg.precision)
-    {raw rounded}
+; Simple inline definition
+!func |double ~{~num} = { $in * 2 }
+
+!func |add ~{~num} ^{n ~num} = { $in + ^n }
+
+; Multi-line for clarity
+!func |filter-items 
+    ~{items[]} 
+    ^{threshold ~num = 0} = {
+    items |filter .{$in > ^threshold}
 }
 
-; Minimal function (no shapes needed)
-!func |get-timestamp = {
-    (|now/time)
+; Complex shapes defined separately
+!shape order-data = {
+    order ~order
+    items ~item[]
+    customer ~customer
 }
 
-; Pipeline-only shape
-!pipe {data}
-!func |validate = {
-    $in |check-required |check-format
+!shape process-config = {
+    validate? ~bool = #true
+    priority ~tag = #normal
 }
 
-; Pure function with full decoration
-!doc "Convert temperature units"
-!pipe {value ~num unit ~tag}
-!args {target ~tag}
-!pure
-!func |convert-temp = {
-    ; conversion logic
+!func |process-order ~order-data ^process-config = {
+    ; Implementation focuses on logic, not type declarations
+    validated = ^validate? |if .{#true} 
+        .{order |validate}
+        .{order}
+    
+    processed = validated |apply-priority ^priority
+    processed
 }
 ```
 
-Function names always include the pipe prefix: `!func |name` mirrors how they're referenced (`|name`).
+For complex functions that need internal shape definitions, they can be placed inside the function body:
+
+```comp
+!func |complex-processor = {
+    !shape {data ~record options ~config}
+    !args {retries ~num = 3}
+    
+    ; Function implementation
+    data |process-with-retries ^retries
+}
+```
 
 ## Pure Functions and Isolation
 
@@ -86,18 +95,16 @@ The distinction between `!pure` and regular functions is about capability, not s
 
 ```comp
 !pure
-!pipe {n ~num}
-!func |fibonacci = {
-    ($in |if {$in <= 1} {$in} {
-        $var.a = ($in - 1 |fibonacci)
-        $var.b = ($in - 2 |fibonacci)
-        $var.a + $var.b
+!func |fibonacci ~{n ~num} = {
+    ($in |if .{$in <= 1} .{$in} .{
+        $a = ($in - 1 |fibonacci)
+        $b = ($in - 2 |fibonacci)
+        $a + $b
     })
 }
 
 !pure
-!pipe {email ~str}
-!func |validate-email = {
+!func |validate-email ~{email ~str} = {
     $in |match/str "^[^@]+@[^@]+$"
 }
 
@@ -108,10 +115,9 @@ The distinction between `!pure` and regular functions is about capability, not s
 }
 
 ; Regular function with effects
-!pipe {user}
-!func |save-user = {
+!func |save-user ~{user} = {
     validated = ($in |validate-email)    ; Can call pure function
-    (Saving ${$pipe.email} |log)         ; Side effect - needs permissions
+    (|log "Saving ${email}")             ; Side effect - needs permissions
     ($in |insert/database)
 }
 ```
@@ -185,54 +191,240 @@ Even single-implementation functions follow this pattern internally, maintaining
 
 ## Blocks and Higher-Order Patterns
 
-Blocks are deferred structure definitions passed as arguments to functions, enabling higher-order programming patterns. Functions specify block arguments in their args shape, with optional type specifications and default implementations. Functions invoke their blocks as needed, controlling evaluation context and frequency.
+Blocks are deferred structure definitions passed as arguments to functions, enabling higher-order programming patterns. Blocks are prefixed with `.{}` to distinguish them from structure literals. Functions specify block arguments in their args shape, with optional type specifications and default implementations. Functions invoke their blocks as needed, controlling evaluation context and frequency.
 
-Block arguments are determined by the function's arg shape definition. When the parser encounters `{}` in argument position, it checks the function definition to determine whether to interpret it as a structure literal or a deferred block. Blocks capture their definition context, allowing them to reference local variables and namespace values.
+Block arguments are determined by the function's arg shape definition. When the parser encounters `.{}` in argument position, it creates a deferred block. Blocks capture their definition context, allowing them to reference local variables and namespace values through the `# Functions and Higher-Order Programming
+
+*Design for Comp's function system, dispatch algorithms, and execution model*
+
+## Overview
+
+Functions in Comp transform structures through pipelines of operations. Every function receives a structure as pipeline input and generates a new structure as output. Functions also accept arguments that configure their behavior, maintaining a clear separation between data flow and parameterization.
+
+Functions are references, not values. They cannot be assigned to variables or passed as data, but they can be invoked through pipelines and accept block arguments for higher-order programming patterns. This design choice creates clear boundaries between code and data while enabling powerful composition through blocks.
+
+## Function Definition Fundamentals
+
+Functions are defined with the `!func` keyword followed by the function name (prefixed with `|`), pipeline shape (prefixed with `~`), and optional arguments (prefixed with `^`). The function body transforms the input structure, with fields computed through expressions and pipelines. Control flow operates through function calls with blocks.
+
+The pipeline shape uses Comp's structural typing - any structure with compatible fields can invoke the function. Functions with no input requirements use an empty shape `{}`. Arguments are specified separately, maintaining clear distinction between data and configuration.
 
 ```comp
-!pipe {operation}
-!args {on-error ~block}
-!func |with-retry = {
-    $var.attempts = 0
-    ($in |while {$var.attempts < 3} {
-        $var.result = ($in |operation |? {
-            $var.attempts = $var.attempts + 1
-            ($in |if {$var.attempts >= 3} {$in} {#skip})
+!func |calculate-area ~{width ~num height ~num} = {
+    area = width * height
+    perimeter = (width + height) * 2
+    diagonal = (width ** 2 + height ** 2) ** 0.5
+    {area perimeter diagonal}
+}
+
+!func |get-timestamp ^{format ~str} = {
+    current = (|now/time)
+    formatted = (current |format/time ^format)
+    {current formatted}
+}
+
+; Functions automatically morph inputs
+({10 20} |calculate-area)        ; Positional matching
+({height=15 width=25} |calculate-area)  ; Named matching
+```
+
+Each statement in the function body begins with fresh pipeline input through `$in`. Field references use undecorated tokens that cascade through output being built to input. The implicit return value is the last expression in the function body.
+
+## Function Definition Syntax
+
+Functions can be defined with inline shapes and arguments for simple cases, or with separate shape definitions for complex cases. The inline syntax uses `~` for pipeline shape and `^` for arguments.
+
+```comp
+; Simple inline definition
+!func |double ~{~num} = { $in * 2 }
+
+!func |add ~{~num} ^{n ~num} = { $in + ^n }
+
+; Multi-line for clarity
+!func |filter-items 
+    ~{items[]} 
+    ^{threshold ~num = 0} = {
+    items |filter .{$in > ^threshold}
+}
+
+; Complex shapes defined separately
+!shape order-data = {
+    order ~order
+    items ~item[]
+    customer ~customer
+}
+
+!shape process-config = {
+    validate? ~bool = #true
+    priority ~tag = #normal
+}
+
+!func |process-order ~order-data ^process-config = {
+    ; Implementation focuses on logic, not type declarations
+    validated = ^validate? |if .{#true} 
+        .{order |validate}
+        .{order}
+    
+    processed = validated |apply-priority ^priority
+    processed
+}
+```
+
+For complex functions that need internal shape definitions, they can be placed inside the function body:
+
+```comp
+!func |complex-processor = {
+    !shape {data ~record options ~config}
+    !args {retries ~num = 3}
+    
+    ; Function implementation
+    data |process-with-retries ^retries
+}
+```
+
+## Pure Functions and Isolation
+
+Pure functions guarantee deterministic computation without side effects. Defined with `!pure`, they receive an empty context and cannot access external resources. This isolation enables compile-time evaluation, safe parallelization, and use in shape constraints or unit definitions.
+
+The distinction between `!pure` and regular functions is about capability, not syntax. Pure functions can call other functions, but those functions fail immediately if they attempt resource access. This creates a clear boundary between computation and effects.
+
+```comp
+!pure
+!func |fibonacci ~{n ~num} = {
+    ($in |if .{$in <= 1} .{$in} .{
+        $a = ($in - 1 |fibonacci)
+        $b = ($in - 2 |fibonacci)
+        $a + $b
+    })
+}
+
+!pure
+!func |validate-email ~{email ~str} = {
+    $in |match/str "^[^@]+@[^@]+$"
+}
+
+; Pure functions work at compile time
+!shape user = {
+    email ~str {validate=|validate-email}
+    cache-key = (|generate-key)    ; Computed at compile time if pure
+}
+
+; Regular function with effects
+!func |save-user ~{user} = {
+    validated = ($in |validate-email)    ; Can call pure function
+    (|log "Saving ${email}")             ; Side effect - needs permissions
+    ($in |insert/database)
+}
+```
+
+## Shape-Based Dispatch
+
+Functions use structural shapes to match incoming data, enabling multiple implementations with the same name. When multiple functions match, the most specific one is selected using lexicographic scoring that considers named field matches, tag specificity, assignment strength, and positional matches.
+
+The dispatch scoring creates a total order over function implementations. Named field matches score highest, followed by tag depth in hierarchies. Assignment operators (`=`, `*=`, `?=`) break ties when shapes are otherwise identical. This deterministic selection enables predictable polymorphic behavior.
+
+```comp
+!pipe {point}
+!func |render = {2D point}
+
+!pipe {point}
+!func |render *= {default 2D}  ; Strong assignment
+
+!pipe {x ~num y ~num z ~num}
+!func |render = {3D point}
+
+({x=5 y=10} |render)           ; "default 2D" - strong assignment wins
+({x=5 y=10 z=15} |render)      ; "3D point" - more specific shape
+({5 10} |render)               ; "default 2D" - positional matching
+
+; Tag-based dispatch with hierarchical scoring
+!pipe {status}
+!func |process = {generic status}
+
+!pipe {status #error}
+!func |process = {error handler}
+
+!pipe {status #network.error}
+!func |process = {network specialist}
+
+({status=#timeout.error} |process)  ; "error handler"
+({status=#network.error} |process)  ; "network specialist"
+```
+
+## Function Overloading and Documentation
+
+When function names are overloaded, the language treats the group of definitions as a single set. They share documentation and appear as a single object during introspection, with multiple implementations differentiated by their shapes. Dispatch is driven solely by pipeline shape - argument shapes don't affect selection.
+
+```comp
+!doc "Process different types of data appropriately"
+
+!pipe {data ~user-data}
+!doc impl "Saves to primary database"
+!func |process = {
+    $pipe.data |validate-user |save-user
+}
+
+!pipe {data ~system-data}
+!doc impl "Archives to time-series store"
+!func |process = {
+    $pipe.data |validate-system |archive
+}
+
+; Single describe shows all implementations
+!describe |process
+; Returns: {
+;   doc: "Process different types of data appropriately"
+;   module: current-module
+;   implementations: [
+;     {pipe: ~user-data, args: {}, impl-doc: "Saves to primary database"},
+;     {pipe: ~system-data, args: {}, impl-doc: "Archives to time-series store"}
+;   ]
+; }
+```
+
+Even single-implementation functions follow this pattern internally, maintaining consistency for introspection and future extension.
+
+ (variables) and `^` (arguments) prefixes.
+
+```comp
+!func |with-retry ~{operation} ^{on-error ~block} = {
+    $attempts = 0
+    ($in |while .{$attempts < 3} .{
+        $result = ($in |operation |? .{
+            $attempts = $attempts + 1
+            ($in |if .{$attempts >= 3} .{$in} .{#skip})
         })
     })
-    $var.result
+    $result
 }
 
 ; Usage with blocks as arguments
-(data |with-retry on-error={|log-error})
+(data |with-retry on-error.{|log-error})
 
-!pipe {items}
-!args {transform ~block validate ~block on-success ~block}
-!func |process-batch = {
-    $in |map transform
-        |filter validate
-        |each {$in |on-success}
+!func |process-batch ~{items} ^{transform ~block validate ~block on-success ~block} = {
+    $in |map ^transform
+        |filter ^validate
+        |each .{$in |^on-success}
 }
 
 ; Complex control flow with blocks
 (items |process-batch 
-    transform={$in |enhance |normalize}
-    validate={$pipe.score > $pipe.threshold}
-    on-success={$in |save-to-database})
+    transform.{$in |enhance |normalize}
+    validate.{score > threshold}
+    on-success.{$in |save-to-database})
 ```
 
 For functions with multiple unnamed blocks (like control flow), blocks are accessed positionally:
 
 ```comp
-!args {condition ~block ~block ~block}
-!func |if = {
-    $in |$arg.condition |if-true
-        {$in |$arg#1}   ; Then block
-        {$in |$arg#2}   ; Else block
+!func |if ~{} ^{condition ~block ~block ~block} = {
+    $in |^condition |if-true
+        .{$in |^#1}   ; Then block
+        .{$in |^#2}   ; Else block
 }
 
 ; Clean calling syntax
-$in |if {$pipe.value > 5} {$pipe.value * 2} {$pipe.value / 2}
+$in |if .{value > 5} .{value * 2} .{value / 2}
 ```
 
 ## Argument Spreading and Presence-Check
@@ -240,16 +432,15 @@ $in |if {$pipe.value > 5} {$pipe.value * 2} {$pipe.value / 2}
 Functions support spread operators for arguments, allowing predefined argument sets to be reused and overridden. The presence-check morphing pattern enables flag-style arguments where unnamed values matching field names set those fields to their "found" value.
 
 ```comp
-!args {
+!func |process ^{
     verbose ~bool = #false ?? #true
     debug ~bool = #false ?? #true
     ..rest   ; Collect remaining fields
-}
-!func |process = {
-    ($arg.verbose |when {#true} {
-        ("Verbose mode enabled" |log)
+} = {
+    (^verbose |when .{#true} .{
+        (|log "Verbose mode enabled")
     })
-    ; $arg.rest contains unmatched fields
+    ; ^rest contains unmatched fields
 }
 
 ; Natural calling syntax
@@ -257,8 +448,8 @@ Functions support spread operators for arguments, allowing predefined argument s
 ; Results in: {verbose=#true debug=#false extra=1 more=2}
 
 ; With argument spreading
-$var.defaults = {debug}
-(data |process ..$var.defaults verbose)
+$defaults = {debug}
+(data |process ..$defaults verbose)
 ; Results in: {verbose=#true debug=#true}
 ```
 

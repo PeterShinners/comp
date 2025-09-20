@@ -1,34 +1,28 @@
 ; Cloudflare Worker for vector embeddings and search
 ; Original: https:;developers.cloudflare.com/vectorize/get-started/embeddings/
 
-!mod.model = "@cf/baai/bge-base-en-v1.5"
-!mod.vectorize = <hint: ~cloudflare~vec_handle>  ; hypothetical syntax
-!mod.ai = <hint: ~cloudflare~ai_handle>          ; hypothetical syntax
-
-!ctx.dependencies = {
-    cloudflare: !gitmod "@cloudflare/workers-comp@2.7/complib"
-}
+!import .cloudflare = comp "github://cloudflare/workers-comp@2.7/complib"
 
 !entry = {
-    !mod.vectorize = :cloudflare/binding("VECTORIZE")
-    !mod.ai = :cloudflare/binding("AI")
+    $mod.vectorize = "VECTORIZE" |binding.cloudflare
+    $mod.ai = "AI" |binding.cloudflare
 }
-
 
 !func :fetch ~cloudflare~Request = {
-    url -> :url/parse -> :url/dispatch
-        ."/favicon*" {:cloudflare/response_not_found}
-        ."/insert" {:insert_vectors}
-        .else {:query_vectors}
+    !pipe ~request.cloudflare
+
+    url |parse.url |dispatch.url
+        "/favicon*"={#not-found.response.cloudflare}
+        "/insert"={|insert_vectors}
+        else={|query_vectors}
     !> {
-        error = "Request processing failed: ${error.message}"
-        status = status | 500
+        body = "Request processing failed: ${fail.message}"
+        status = status ?? #server-error.response
     }
-    -> :cloudflare/response_json
+    |response_json.cloudflare
 }
 
-; You only need to generate vector embeddings once (or as
-; data changes), not on every request
+; Only need to generate vector embeddings once (or as data changes)
 !func :insert_vectors = {
     ; In a real-world application, you could read content from R2 or
     ; a SQL database (like D1) and pass it to Workers AI
