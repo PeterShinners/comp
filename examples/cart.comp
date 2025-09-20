@@ -10,16 +10,14 @@
 }
 
 !doc "Replace item by name, or append new"
-
 !func |add-item ~{cart ~cart item ~item} = {
 	$add? = #true
-	$items = {cart.items |substitute {name == item.name} {item $add? = #false}}
-	(|if {$add?} {..$items item} {$items})
+	$items = {cart.items |substitute {name == item.name} {item $add?=#false}}
+	(|if .{$add?} .{..$items item} .{$items})
 }
 
 
 !doc "Calculate price of all items with cart discounts"
-
 !func |cart-total ~cart = {
 	(items |sum {price * quantity}) * (1 - discount)
 }
@@ -31,10 +29,9 @@
 		{name="Apple" price=1.00 quantity=1}
 	}
 	
-	$cart = {|cart $values}
-	-> |reduce .{{accum value} -> |add-item}
+	$cart = {..~cart}
+	$cart = $values |reduce-into $cart .{{accum value} -> |add-item}
 	
 	$cart.discount = 0.8
-	$cart -> |cart-total -> |io/print ; Displays "2.00"
+	$cart |cart-total |print  ; Displays "2.00"
 }
-

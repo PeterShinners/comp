@@ -6,7 +6,7 @@
 
 Tags are compile-time tokens that serve as values, types, and dispatch mechanisms. They form hierarchical taxonomies that enable polymorphic behavior, provide enumerated constants, and create extensible categorization systems. Tags are always prefixed with `#` when referenced and use reversed hierarchy notation where the most specific part comes first.
 
-The tag system bridges multiple roles - they work as simple enumerations, as type markers that influence shape matching, and as dispatch keys for polymorphic functions. Tags are declarative entities that are fully resolved and validated at module build time, ensuring type safety and enabling compile-time optimizations. This versatility makes them fundamental to Comp's approach to categorization and polymorphism.
+The tag system bridges multiple roles - they work as simple enumerations, as type markers that influence shape matching, and as dispatch keys for polymorphic functions. Tags are declarative entities that are fully resolved and validated at module build time, ensuring type safety and enabling compile-time optimizations. This versatility makes them fundamental to Comp's approach to categorization and polymorphism. For information about how tags integrate with shape validation, see [Shapes, Units, and Type System](shape.md).
 
 ## Tag Definition and Hierarchy
 
@@ -38,9 +38,9 @@ Tag values can be any compile-time constant - numbers, strings, or even other ta
 Tags are referenced using reversed hierarchy notation with `.` as the separator. The most specific part comes first, with parent components added only when disambiguation is needed.
 
 ```comp
-$var.status = #timeout.error.status
-$var.parent = #error.status         ; Parent of timeout
-$var.root = #status                 ; Root with value "unknown"
+$status = #timeout.error.status
+$parent = #error.status         ; Parent of timeout
+$root = #status                 ; Root with value "unknown"
 
 ; Short forms when unique
 state = #active                    ; If only one 'active' tag exists
@@ -72,9 +72,8 @@ The context passed to generation functions includes the tag's name, its position
 
 ; Custom generator function
 !pure
-!pipe {ctx}
-!func |enum-from-100 = {
-    $pipe.parent-value + ($pipe.index + 1) * 100
+!func |enum-from-100 ~{ctx} = {
+    parent-value + (index + 1) * 100
 }
 
 !tag error = 0 {|enum-from-100} = {
@@ -104,7 +103,7 @@ The morphing operators (`~`, `*~`, `?~`) handle conversions between primitive ty
 #critical ~str          ; Returns "99" (with type conversion)
 
 ; Automatic morphing in shapes
-!shape response = {
+!shape ~response = {
     status #status
     priority #priority
 }
@@ -138,17 +137,12 @@ This ordering enables natural sorting of tagged data and supports range-based op
 
 Tags are the primary mechanism for polymorphic function dispatch in Comp. Shape definitions that include tag fields gain specificity scores based on the tag hierarchy, allowing functions to specialize behavior for specific tags while providing fallbacks for parent categories.
 
-During dispatch, more specific tags (deeper in the hierarchy) score higher than general ones. This enables elegant patterns where general handlers can be progressively specialized without modifying existing code.
+During dispatch, more specific tags (deeper in the hierarchy) score higher than general ones. This enables elegant patterns where general handlers can be progressively specialized without modifying existing code. For comprehensive information about function dispatch and polymorphic patterns, see [Functions and Blocks](function.md).
 
 ```comp
-!pipe {event}
-!func |handle = {Generic status handler}
-
-!pipe {event #error}
-!func |handle = {Error status handler}
-
-!pipe {event #network.error}
-!func |handle = {Network error specialist}
+!func |handle ~{event} = {Generic status handler}
+!func |handle ~{event #error} = {Error status handler}
+!func |handle ~{event #network.error} = {Network error specialist}
 
 ; Dispatch examples
 ({event=#active} |handle)        ; "Generic status handler"
@@ -179,11 +173,11 @@ When extending tags from another module, the new tags become part of your module
 }
 
 ; Usage - extended tags work everywhere
-$var.icon = #svg.image.media
-($var.icon |process-media/base)      ; Base functions handle extended tags
+$icon = #svg.image.media
+($icon |process-media/base)      ; Base functions handle extended tags
 ```
 
-Extended tags maintain full compatibility with parent modules. Functions expecting parent tags can receive extended ones, enabling specialization without breaking compatibility.
+Extended tags maintain full compatibility with parent modules. Functions expecting parent tags can receive extended ones, enabling specialization without breaking compatibility. For detailed information about module organization and cross-module coordination, see [Modules, Imports, and Namespaces](module.md).
 
 ## Standard Library Tag Functions
 
@@ -196,7 +190,7 @@ The `tag/` module provides comprehensive utilities for working with tag hierarch
 (#status |children/tag)         ; Returns {#active #inactive #pending #error}
 (#status |descendants/tag)      ; Returns all tags in hierarchy
 (#status |walk/tag {          ; Visit each tag with callback
-    (Tag: ${$pipe.name}, Value: ${$pipe.value ?? none} |log)
+    (Tag: ${name}, Value: ${value ?? none} |log)
 })
 
 ; Introspection
@@ -228,7 +222,7 @@ Tags can be aliased for convenience and composed into union types for flexible c
 !tag problem = #error.status | #critical.priority
 
 ; Usage in shapes
-!shape task-status = {
+!shape ~task-status = {
     state #result         ; Must be active, inactive, or pending
     issues #problem[]     ; Array of errors or critical priorities
 }
@@ -261,4 +255,4 @@ speed = 100#kilometer / 1#hour     ; Compound unit
 
 The tag system embodies several key design principles that guide its use throughout Comp. Tags provide hierarchical organization without class inheritance complexity. They enable polymorphic dispatch through structural matching rather than virtual methods. The reversed hierarchy notation puts the most important information first. Automatic value generation reduces boilerplate while maintaining flexibility. Cross-module extension allows domain specialization without fragmenting the ecosystem.
 
-Tags bridge the gap between simple enumerations and complex type hierarchies. They provide just enough structure for real-world categorization needs while remaining simple enough to reason about. The consistent `#` prefix makes them visually distinct in code, and their multiple roles as values, types, and dispatch keys create a unified approach to categorization throughout the language.
+Tags bridge the gap between simple enumerations and complex type hierarchies. They provide just enough structure for real-world categorization needs while remaining simple enough to reason about. The consistent `#` prefix makes them visually distinct in code, and their multiple roles as values, types, and dispatch keys create a unified approach to categorization throughout the language. For details about the primitive types that tags can represent, see [Core Types](type.md).

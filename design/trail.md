@@ -6,7 +6,7 @@
 
 Trails provide a way to represent navigation paths through data as regular structures. The `/path/` syntax is syntactic sugar that creates structures containing arrays of field names and navigation operators. These structures can be stored, passed, and manipulated like any other data, then applied to navigate or modify data using trail-aware operations.
 
-There is no special "trail" type in Comp - trails are simply structures with a conventional shape that trail operations know how to interpret. This design keeps the language core simple while enabling powerful navigation patterns through library functions.
+There is no special "trail" type in Comp - trails are simply structures with a conventional shape that trail operations know how to interpret. This design keeps the language core simple while enabling powerful navigation patterns through library functions. For information about the underlying structure operations that trails build upon, see [Structures, Spreads, and Lazy Evaluation](structure.md).
 
 ## Trail Fundamentals
 
@@ -14,17 +14,17 @@ A trail literal using `/path/` syntax creates a structure containing an array of
 
 ```comp
 ; Trail literal creates a structure
-$var.path = /users.profile.theme/
+$path = /users.profile.theme/
 ; Equivalent to approximately:
 ; {segments=[users profile theme]}
 
 ; Apply trail structure to data
 config |get /database.host/           ; Apply trail to navigate
-$in |get $var.path                   ; Apply stored trail variable
+$in |get $path                   ; Apply stored trail variable
 
 ; Setting values through trails
 data |set /user.name/ Alice          ; Navigate and set value
-config |set $var.path new-value      ; Set using trail variable
+config |set $path new-value      ; Set using trail variable
 ```
 
 The trail syntax provides convenient shorthand for creating these navigation structures. The actual structure format is an implementation detail, but conceptually it's just an array of strings and operator tags that describe how to navigate through data.
@@ -55,12 +55,12 @@ Since trails are just structures, they can be created programmatically without u
 
 ```comp
 ; Programmatic trail construction
-$var.dynamic-trail = {segments=[users user-id settings]}
-data |set $var.dynamic-trail new-settings
+$dynamic-trail = {segments=[users user-id settings]}
+data |set $dynamic-trail new-settings
 
 ; Trail manipulation as regular structures
-$var.base-trail = /api.v2/
-$var.extended = {..$var.base-trail segments=[..$var.base-trail.segments users]}
+$base-trail = /api.v2/
+$extended = {..$base-trail segments=[..$base-trail.segments users]}
 ```
 
 ## Trail Operations
@@ -73,12 +73,12 @@ data |get /users.profile/
 data |set /users.profile/ value
 
 ; The trail structure can be manipulated
-$var.path = /users/
-$var.extended = $var.path |extend/trail profile.theme
+$path = /users/
+$extended = $path |extend/trail profile.theme
 ; Results in trail structure for /users.profile.theme/
 ```
 
-The standard library provides trail operations that interpret these structures:
+The standard library provides trail operations that interpret these structures. For information about the module system and standard library organization, see [Modules, Imports, and Namespaces](module.md).
 
 ```comp
 !import trail = std "core/trail"
@@ -100,21 +100,21 @@ Since trails are just structures, they compose using normal structure operations
 
 ```comp
 ; Trail concatenation syntax
-$var.api = /api/
-$var.version = /v2/
-$var.endpoint = /users/
-$var.full = $var.api/$var.version/$var.endpoint     ; Creates combined trail structure
+$api = /api/
+$version = /v2/
+$endpoint = /users/
+$full = $api/$version/$endpoint     ; Creates combined trail structure
 
 ; This is just structure manipulation
 ; The `/` operator between trails combines their segment arrays
 
 ; Direct structure manipulation works too
-$var.custom-trail = {
-    segments = [..$var.api.segments ..$var.version.segments ..$var.endpoint.segments]
+$custom-trail = {
+    segments = [..$api.segments ..$version.segments ..$endpoint.segments]
 }
 
 ; Both create equivalent trail structures
-data |get $var.full == data |get $var.custom-trail    ; Same navigation result
+data |get $full == data |get $custom-trail    ; Same navigation result
 ```
 
 ## Navigation Patterns
@@ -140,27 +140,23 @@ These patterns work because trail operations recognize special tags and structur
 
 ## Type Safety and Validation
 
-While trails are runtime values (just structures), they can still integrate with Comp's type system. Functions can specify they expect trail-shaped structures, and operations can validate trails before applying them.
+While trails are runtime values (just structures), they can still integrate with Comp's type system. Functions can specify they expect trail-shaped structures, and operations can validate trails before applying them. For comprehensive information about the shape system and validation patterns, see [Shapes, Units, and Type System](shape.md).
 
 ```comp
 ; Shape for trail structures (simplified)
-!shape trail = {
+!shape ~trail = {
     segments ~array
 }
 
 ; Functions can require trail-shaped inputs
-!pipe {}
-!args {data ~any path ~trail}
-!func |navigate = {
-    $arg.data |apply/trail $arg.path
+!func |navigate ^{data ~any path ~trail} = {
+    ^data |apply/trail ^path
 }
 
 ; Validation of trail structures
-!pipe {data}
-!args {path}
-!func |safe-navigate = {
-    $in |if {$arg.path |valid?/trail} {
-        $in |get/trail $arg.path
+!func |safe-navigate ~{data} ^{path} = {
+    $in |if {^path |valid?/trail} {
+        $in |get/trail ^path
     } {
         {#trail.fail message=Invalid trail structure}
     }

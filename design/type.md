@@ -6,7 +6,7 @@
 
 Comp provides three fundamental scalar types that serve as building blocks for all data. Numbers offer unlimited precision for exact computation. Strings handle text with integrated templating. Booleans represent logical values through the tag system. These scalar types automatically promote to single-element structures when used in pipelines, maintaining Comp's uniform data model.
 
-Each type has a corresponding shape for type specifications (`~num`, `~str`, `~bool`) and standard library module for advanced operations. The type system is closed - no user-defined scalar types exist, ensuring consistent behavior throughout the language.
+Each type has a corresponding shape for type specifications (`~num`, `~str`, `~bool`) and standard library module for advanced operations. The type system is closed - no user-defined scalar types exist, ensuring consistent behavior throughout the language. For information about how these types integrate with structure operations, see [Structures, Spreads, and Lazy Evaluation](structure.md).
 
 ## Boolean Type
 
@@ -18,8 +18,8 @@ valid = #true
 enabled = #false
 
 ; Comparison operators return booleans
-result = $pipe.x > 5              ; Returns #true or #false
-equal = $pipe.name == Alice        ; Explicit comparison
+result = x > 5              ; Returns #true or #false
+equal = name == Alice        ; Explicit comparison
 
 ; No automatic conversions
 value = 1
@@ -58,8 +58,8 @@ Control flow functions interpret values for conditional logic. While only `#fals
 ($in |if {empty} true-branch false-branch)       ; True branch (non-empty)
 
 ; Preferred explicit style
-($in |if {$pipe.count > 0} has-items no-items)
-($in |when {$pipe.user.active? == #true} process)
+($in |if {count > 0} has-items no-items)
+($in |when {user.active? == #true} process)
 ```
 
 ## Number Type
@@ -144,8 +144,8 @@ negative-inf = -1 / 0          ; Produces #ninf.num
 value = #inf.num               ; Can be stored and passed
 
 ; Shapes for handling special values
-!shape maybe-infinite = ~num | #inf.num | #ninf.num
-!shape numeric-result = ~num | #nan.num | #inf.num | #ninf.num
+!shape ~maybe-infinite = ~num | #inf.num | #ninf.num
+!shape ~numeric-result = ~num | #nan.num | #inf.num | #ninf.num
 
 ; Testing for special values
 ($in |if {$in == #nan.num} {
@@ -234,7 +234,7 @@ String manipulation uses library functions rather than operators:
 
 ### String Units
 
-String units attach to strings using tag notation, providing semantic meaning and controlling template behavior. Units can validate formats, apply transformations, and ensure proper escaping in templates.
+String units attach to strings using tag notation, providing semantic meaning and controlling template behavior. Units can validate formats, apply transformations, and ensure proper escaping in templates. For comprehensive information about the tag system underlying units, see [Tag System](tag.md).
 
 ```comp
 ; String with unit tag
@@ -368,4 +368,4 @@ The type system embodies several core principles:
 - **Semantic units**: Units provide meaning and safety for primitive values
 - **Closed type system**: Only built-in scalar types, ensuring consistency
 
-These principles create a type system that is both simple and powerful. The three scalar types provide everything needed for real-world programming while avoiding the complexity and pitfalls of elaborate type hierarchies or automatic conversions.
+These principles create a type system that is both simple and powerful. The three scalar types provide everything needed for real-world programming while avoiding the complexity and pitfalls of elaborate type hierarchies or automatic conversions. For information about how these types work with shape validation and morphing, see [Shapes, Units, and Type System](shape.md).

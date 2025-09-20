@@ -6,9 +6,9 @@ https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
 !import .time = std "core/time"
 
 !main = {
-  $after = (|now) - 1#week
+	$after = (|now) - 1#week
 	$fields = ("title url created-at reactions"|tokenize)
-    
+		
 	{$fields repo="nushell/nushell"
 	|list-issues.gh  ; applies $repo from ctx
 	|filter .{created-at >= $after}

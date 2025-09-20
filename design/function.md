@@ -1,18 +1,65 @@
-# Functions and Higher-Order Programming
+# Functions and Blocks
 
-*Design for Comp's function system, dispatch algorithms, and execution model*
+*Defining and executing Comp functions.*
 
 ## Overview
 
-Functions in Comp transform structures through pipelines of operations. Every function receives a structure as pipeline input and generates a new structure as output. Functions also accept arguments that configure their behavior, maintaining a clear separation between data flow and parameterization.
+Functions in Comp transform structures through pipelines of operations. Every
+function receives a structure as pipeline input and generates a new structure as
+output. Functions also accept arguments that configure their behavior,
+maintaining a clear separation between data flow and parameterization.
 
-Functions are references, not values. They cannot be assigned to variables or passed as data, but they can be invoked through pipelines and accept block arguments for higher-order programming patterns. This design choice creates clear boundaries between code and data while enabling powerful composition through blocks.
+Functions are references, not values. They cannot be assigned to variables or
+passed as data, but they can be invoked through pipelines and accept block
+arguments for higher-order programming patterns. This design choice creates
+clear boundaries between code and data while enabling powerful composition
+through blocks.
+
+At a basic level, a function definition and structure literal use the same
+parsing and instruction rules. They use the same assignment rules and spread
+rules and operate identically. The difference is that a structure literal is
+evaluated immediately to provide a structure, while a function becomes a recipe
+of instructions on how to create a structure. A function also has the concept of
+an incoming pipeline structure it is expected to transform, and can be tied to
+additional things like documentation and separate shapes to define arguments.
+For more details on structure operations and assignment patterns, see
+[Structures, Spreads, and Lazy Evaluation](structure.md).
+
+The function system embodies several core principles that guide its design.
+Functions as transformations means every function is fundamentally a
+structure-to-structure mapping. Structural dispatch enables polymorphism through
+shapes rather than classes. Explicit effects through permissions make side
+effects visible and controllable. Composition over inheritance creates flexible
+systems through function and block combinations. Deterministic selection ensures
+predictable behavior in polymorphic scenarios.
+
+These principles create a function system that balances power with simplicity.
+Whether building simple data transformations or complex polymorphic systems,
+functions provide consistent, composable abstractions for computation.
 
 ## Function Definition Fundamentals
 
-Functions are defined with the `!func` keyword followed by the function name (prefixed with `|`), pipeline shape (prefixed with `~`), and optional arguments (prefixed with `^`). The function body transforms the input structure, with fields computed through expressions and pipelines. Control flow operates through function calls with blocks.
+Functions are defined with the `!func` keyword followed by the function name
+(prefixed with `|`), pipeline shape (prefixed with `~`), and optional arguments
+(prefixed with `^`). The function body transforms the input structure, with
+fields computed through expressions and pipelines. Control flow operates through
+function calls with blocks.
 
-The pipeline shape uses Comp's structural typing - any structure with compatible fields can invoke the function. Functions with no input requirements use an empty shape `{}`. Arguments are specified separately, maintaining clear distinction between data and configuration.
+The pipeline shape uses Comp's structural typing - any structure with compatible
+fields can invoke the function. Functions with no input requirements use an
+empty shape `{}`. Arguments are specified separately, maintaining clear
+distinction between data and configuration.
+
+Comp uses its structural matching rules to determine which functions can be run
+on which data. The function's shape definition can reference an externally
+defined shape, or define one inline.
+
+Functions can define a separate shape to accept arguments. The function body can
+reference this argument namespace with the `^` caret operator. This namespace
+for arguments also falls back on several other namespaces Comp tracks across
+function calls. For comprehensive information about the shape system, morphing
+operations, and structural typing, see [Shapes, Units, and Type
+System](shape.md).
 
 ```comp
 !func |calculate-area ~{width ~num height ~num} = {
@@ -33,11 +80,51 @@ The pipeline shape uses Comp's structural typing - any structure with compatible
 ({height=15 width=25} |calculate-area)  ; Named matching
 ```
 
-Each statement in the function body begins with fresh pipeline input through `$in`. Field references use undecorated tokens that cascade through output being built to input. The implicit return value is the last expression in the function body.
+Each statement in the function body begins with fresh pipeline input through
+`$in`. Field references use undecorated tokens that cascade through output being
+built to input. The implicit return value is the last expression in the function
+body.
+
+Function arguments are intended to be used for:
+
+* Modifying how a function behaves
+* Allowing definition of transformations or operations through blocks
+
+The pipeline input structure is intended to be used for:
+
+* Data the function is intended to work on or transform
+
 
 ## Function Definition Syntax
 
-Functions can be defined with inline shapes and arguments for simple cases, or with separate shape definitions for complex cases. The inline syntax uses `~` for pipeline shape and `^` for arguments.
+Functions are defined with the `!func` operator at the outermost scope of a
+file. A function is comprised of several required and optional parts.
+
+* **Name** Must be prefixed with `|` pipe, which matches how this
+function is referenced later. This immediately follows the `!func` operator.
+* **Body** The final part of the function definition is a regular structure
+definition. It's contents are not executed immediately but will be performed
+when the function is invoked to create a new structure value.
+* **Documentation** The `!doc` operator is used before the function definition
+to attach an optional description. This is intended for a shorter summary
+definition. Longer form descriptions and examples can be attached from other
+parts of the module.
+* **Shape** Either a shape reference or an inline shape definition. This
+describes the type of data the function expects to work on. The fields this
+provides will be available from the `$in` namespace, or by using it's fields as
+undecorated field names inside the function.
+* **Arguments** Is a secondary, optional shape definition that is used to
+provide arguments to the function. Arguments are intended to control the way a
+function behaves, not the data it works on. Arguments can also define special
+block values which are like callbacks. The arguments are available in the `^arg`
+namespace, which is normally accessed through the `^` operator.
+* **Permissions** The function operator can be preceded with a `!pure` or
+`!require` statements to control how permissions are handled when calling this
+function.
+
+There is no definition for the shape of the output structure from the function.
+The function can use whatever flow control, error handling, or fetched data
+results it wants to become its value.
 
 ```comp
 ; Simple inline definition
@@ -52,18 +139,6 @@ Functions can be defined with inline shapes and arguments for simple cases, or w
     items |filter .{$in > ^threshold}
 }
 
-; Complex shapes defined separately
-!shape order-data = {
-    order ~order
-    items ~item[]
-    customer ~customer
-}
-
-!shape process-config = {
-    validate? ~bool = #true
-    priority ~tag = #normal
-}
-
 !func |process-order ~order-data ^process-config = {
     ; Implementation focuses on logic, not type declarations
     validated = ^validate? |if .{#true} 
@@ -71,27 +146,45 @@ Functions can be defined with inline shapes and arguments for simple cases, or w
         .{order}
     
     processed = validated |apply-priority ^priority
-    processed
 }
 ```
 
-For complex functions that need internal shape definitions, they can be placed inside the function body:
+## Lazy Functions and Deferred Execution
+
+Functions can define lazy structures using `[]` brackets instead of `{}`. These
+create generators where fields compute on demand. Once computed, values are
+cached, making lazy structures eventually behave like regular structures. This
+enables efficient partial evaluation and infinite structures.
 
 ```comp
-!func |complex-processor = {
-    !shape {data ~record options ~config}
-    !args {retries ~num = 3}
-    
-    ; Function implementation
-    data |process-with-retries ^retries
-}
+!func |infinite-sequence ^{start ~num step ~num} = [
+    ($in |count |map {^start + $in * ^step})
+]
+
+!func |expensive-analysis ~{data} = [
+    summary = ($in |compute-summary)
+    statistics = ($in |deep-statistical-analysis)
+    visualization = ($in |generate-charts)
+    report = (|compile-full-report)
+]
+
+; Only computes what's needed
+analysis = (data |expensive-analysis)
+quick-view = analysis.summary    ; Only computes summary
+full = analysis ~{summary statistics}  ; Computes two fields
 ```
 
 ## Pure Functions and Isolation
 
-Pure functions guarantee deterministic computation without side effects. Defined with `!pure`, they receive an empty context and cannot access external resources. This isolation enables compile-time evaluation, safe parallelization, and use in shape constraints or unit definitions.
+Pure functions guarantee deterministic computation without side effects. Defined
+with `!pure`, they receive an empty context and cannot access external
+resources. This isolation enables compile-time evaluation, safe parallelization,
+and use in shape constraints or unit definitions.
 
-The distinction between `!pure` and regular functions is about capability, not syntax. Pure functions can call other functions, but those functions fail immediately if they attempt resource access. This creates a clear boundary between computation and effects.
+The distinction between `!pure` and regular functions is about capability, not
+syntax. Pure functions can call other functions, but those functions fail
+immediately if they attempt resource access. This creates a clear boundary
+between computation and effects.
 
 ```comp
 !pure
@@ -107,284 +200,30 @@ The distinction between `!pure` and regular functions is about capability, not s
 !func |validate-email ~{email ~str} = {
     $in |match/str "^[^@]+@[^@]+$"
 }
-
-; Pure functions work at compile time
-!shape user = {
-    email ~str {validate=|validate-email}
-    cache-key = (|generate-key)    ; Computed at compile time if pure
-}
-
-; Regular function with effects
-!func |save-user ~{user} = {
-    validated = ($in |validate-email)    ; Can call pure function
-    (|log "Saving ${email}")             ; Side effect - needs permissions
-    ($in |insert/database)
-}
 ```
 
-## Shape-Based Dispatch
-
-Functions use structural shapes to match incoming data, enabling multiple implementations with the same name. When multiple functions match, the most specific one is selected using lexicographic scoring that considers named field matches, tag specificity, assignment strength, and positional matches.
-
-The dispatch scoring creates a total order over function implementations. Named field matches score highest, followed by tag depth in hierarchies. Assignment operators (`=`, `*=`, `?=`) break ties when shapes are otherwise identical. This deterministic selection enables predictable polymorphic behavior.
-
-```comp
-!pipe {point}
-!func |render = {2D point}
-
-!pipe {point}
-!func |render *= {default 2D}  ; Strong assignment
-
-!pipe {x ~num y ~num z ~num}
-!func |render = {3D point}
-
-({x=5 y=10} |render)           ; "default 2D" - strong assignment wins
-({x=5 y=10 z=15} |render)      ; "3D point" - more specific shape
-({5 10} |render)               ; "default 2D" - positional matching
-
-; Tag-based dispatch with hierarchical scoring
-!pipe {status}
-!func |process = {generic status}
-
-!pipe {status #error}
-!func |process = {error handler}
-
-!pipe {status #network.error}
-!func |process = {network specialist}
-
-({status=#timeout.error} |process)  ; "error handler"
-({status=#network.error} |process)  ; "network specialist"
-```
-
-## Function Overloading and Documentation
-
-When function names are overloaded, the language treats the group of definitions as a single set. They share documentation and appear as a single object during introspection, with multiple implementations differentiated by their shapes. Dispatch is driven solely by pipeline shape - argument shapes don't affect selection.
-
-```comp
-!doc "Process different types of data appropriately"
-
-!pipe {data ~user-data}
-!doc impl "Saves to primary database"
-!func |process = {
-    $pipe.data |validate-user |save-user
-}
-
-!pipe {data ~system-data}
-!doc impl "Archives to time-series store"
-!func |process = {
-    $pipe.data |validate-system |archive
-}
-
-; Single describe shows all implementations
-!describe |process
-; Returns: {
-;   doc: "Process different types of data appropriately"
-;   module: current-module
-;   implementations: [
-;     {pipe: ~user-data, args: {}, impl-doc: "Saves to primary database"},
-;     {pipe: ~system-data, args: {}, impl-doc: "Archives to time-series store"}
-;   ]
-; }
-```
-
-Even single-implementation functions follow this pattern internally, maintaining consistency for introspection and future extension.
-
-## Blocks and Higher-Order Patterns
-
-Blocks are deferred structure definitions passed as arguments to functions, enabling higher-order programming patterns. Blocks are prefixed with `.{}` to distinguish them from structure literals. Functions specify block arguments in their args shape, with optional type specifications and default implementations. Functions invoke their blocks as needed, controlling evaluation context and frequency.
-
-Block arguments are determined by the function's arg shape definition. When the parser encounters `.{}` in argument position, it creates a deferred block. Blocks capture their definition context, allowing them to reference local variables and namespace values through the `# Functions and Higher-Order Programming
-
-*Design for Comp's function system, dispatch algorithms, and execution model*
-
-## Overview
-
-Functions in Comp transform structures through pipelines of operations. Every function receives a structure as pipeline input and generates a new structure as output. Functions also accept arguments that configure their behavior, maintaining a clear separation between data flow and parameterization.
-
-Functions are references, not values. They cannot be assigned to variables or passed as data, but they can be invoked through pipelines and accept block arguments for higher-order programming patterns. This design choice creates clear boundaries between code and data while enabling powerful composition through blocks.
-
-## Function Definition Fundamentals
-
-Functions are defined with the `!func` keyword followed by the function name (prefixed with `|`), pipeline shape (prefixed with `~`), and optional arguments (prefixed with `^`). The function body transforms the input structure, with fields computed through expressions and pipelines. Control flow operates through function calls with blocks.
-
-The pipeline shape uses Comp's structural typing - any structure with compatible fields can invoke the function. Functions with no input requirements use an empty shape `{}`. Arguments are specified separately, maintaining clear distinction between data and configuration.
-
-```comp
-!func |calculate-area ~{width ~num height ~num} = {
-    area = width * height
-    perimeter = (width + height) * 2
-    diagonal = (width ** 2 + height ** 2) ** 0.5
-    {area perimeter diagonal}
-}
-
-!func |get-timestamp ^{format ~str} = {
-    current = (|now/time)
-    formatted = (current |format/time ^format)
-    {current formatted}
-}
-
-; Functions automatically morph inputs
-({10 20} |calculate-area)        ; Positional matching
-({height=15 width=25} |calculate-area)  ; Named matching
-```
-
-Each statement in the function body begins with fresh pipeline input through `$in`. Field references use undecorated tokens that cascade through output being built to input. The implicit return value is the last expression in the function body.
-
-## Function Definition Syntax
-
-Functions can be defined with inline shapes and arguments for simple cases, or with separate shape definitions for complex cases. The inline syntax uses `~` for pipeline shape and `^` for arguments.
-
-```comp
-; Simple inline definition
-!func |double ~{~num} = { $in * 2 }
-
-!func |add ~{~num} ^{n ~num} = { $in + ^n }
-
-; Multi-line for clarity
-!func |filter-items 
-    ~{items[]} 
-    ^{threshold ~num = 0} = {
-    items |filter .{$in > ^threshold}
-}
-
-; Complex shapes defined separately
-!shape order-data = {
-    order ~order
-    items ~item[]
-    customer ~customer
-}
-
-!shape process-config = {
-    validate? ~bool = #true
-    priority ~tag = #normal
-}
-
-!func |process-order ~order-data ^process-config = {
-    ; Implementation focuses on logic, not type declarations
-    validated = ^validate? |if .{#true} 
-        .{order |validate}
-        .{order}
-    
-    processed = validated |apply-priority ^priority
-    processed
-}
-```
-
-For complex functions that need internal shape definitions, they can be placed inside the function body:
-
-```comp
-!func |complex-processor = {
-    !shape {data ~record options ~config}
-    !args {retries ~num = 3}
-    
-    ; Function implementation
-    data |process-with-retries ^retries
-}
-```
-
-## Pure Functions and Isolation
-
-Pure functions guarantee deterministic computation without side effects. Defined with `!pure`, they receive an empty context and cannot access external resources. This isolation enables compile-time evaluation, safe parallelization, and use in shape constraints or unit definitions.
-
-The distinction between `!pure` and regular functions is about capability, not syntax. Pure functions can call other functions, but those functions fail immediately if they attempt resource access. This creates a clear boundary between computation and effects.
-
-```comp
-!pure
-!func |fibonacci ~{n ~num} = {
-    ($in |if .{$in <= 1} .{$in} .{
-        $a = ($in - 1 |fibonacci)
-        $b = ($in - 2 |fibonacci)
-        $a + $b
-    })
-}
-
-!pure
-!func |validate-email ~{email ~str} = {
-    $in |match/str "^[^@]+@[^@]+$"
-}
-
-; Pure functions work at compile time
-!shape user = {
-    email ~str {validate=|validate-email}
-    cache-key = (|generate-key)    ; Computed at compile time if pure
-}
-
-; Regular function with effects
-!func |save-user ~{user} = {
-    validated = ($in |validate-email)    ; Can call pure function
-    (|log "Saving ${email}")             ; Side effect - needs permissions
-    ($in |insert/database)
-}
-```
-
-## Shape-Based Dispatch
-
-Functions use structural shapes to match incoming data, enabling multiple implementations with the same name. When multiple functions match, the most specific one is selected using lexicographic scoring that considers named field matches, tag specificity, assignment strength, and positional matches.
-
-The dispatch scoring creates a total order over function implementations. Named field matches score highest, followed by tag depth in hierarchies. Assignment operators (`=`, `*=`, `?=`) break ties when shapes are otherwise identical. This deterministic selection enables predictable polymorphic behavior.
-
-```comp
-!pipe {point}
-!func |render = {2D point}
-
-!pipe {point}
-!func |render *= {default 2D}  ; Strong assignment
-
-!pipe {x ~num y ~num z ~num}
-!func |render = {3D point}
-
-({x=5 y=10} |render)           ; "default 2D" - strong assignment wins
-({x=5 y=10 z=15} |render)      ; "3D point" - more specific shape
-({5 10} |render)               ; "default 2D" - positional matching
-
-; Tag-based dispatch with hierarchical scoring
-!pipe {status}
-!func |process = {generic status}
-
-!pipe {status #error}
-!func |process = {error handler}
-
-!pipe {status #network.error}
-!func |process = {network specialist}
-
-({status=#timeout.error} |process)  ; "error handler"
-({status=#network.error} |process)  ; "network specialist"
-```
-
-## Function Overloading and Documentation
-
-When function names are overloaded, the language treats the group of definitions as a single set. They share documentation and appear as a single object during introspection, with multiple implementations differentiated by their shapes. Dispatch is driven solely by pipeline shape - argument shapes don't affect selection.
-
-```comp
-!doc "Process different types of data appropriately"
-
-!pipe {data ~user-data}
-!doc impl "Saves to primary database"
-!func |process = {
-    $pipe.data |validate-user |save-user
-}
-
-!pipe {data ~system-data}
-!doc impl "Archives to time-series store"
-!func |process = {
-    $pipe.data |validate-system |archive
-}
-
-; Single describe shows all implementations
-!describe |process
-; Returns: {
-;   doc: "Process different types of data appropriately"
-;   module: current-module
-;   implementations: [
-;     {pipe: ~user-data, args: {}, impl-doc: "Saves to primary database"},
-;     {pipe: ~system-data, args: {}, impl-doc: "Archives to time-series store"}
-;   ]
-; }
-```
-
-Even single-implementation functions follow this pattern internally, maintaining consistency for introspection and future extension.
-
- (variables) and `^` (arguments) prefixes.
+## Block Arguments
+
+Blocks are deferred structure definitions passed as arguments to functions.
+These are typically used to allow temporary transformations of data. They are
+often used for conditional and iterative functions to manage the actions for
+different branches.
+
+Blocks are defined in arguments to functions like a regular structure with a `.`
+dot prefix.
+
+Functions may invoke their blocks as often as needed. The function must describe
+the incoming shape used for each block. The function can control the evaluation
+context and frequency of when the block is invoked.
+
+Like regular arguments, blocks can be passed as named or positionally. When
+passed as named argument the use the dotted prefix instead of an equal sign.
+
+Block arguments are determined by the function's arg shape definition. When the
+parser encounters `.{}` in argument position, it creates a deferred block.
+Blocks capture their definition context, allowing them to reference local
+variables and namespace values through the `$` (variables) and `^` (arguments)
+prefixes.
 
 ```comp
 !func |with-retry ~{operation} ^{on-error ~block} = {
@@ -401,11 +240,8 @@ Even single-implementation functions follow this pattern internally, maintaining
 ; Usage with blocks as arguments
 (data |with-retry on-error.{|log-error})
 
-!func |process-batch ~{items} ^{transform ~block validate ~block on-success ~block} = {
-    $in |map ^transform
-        |filter ^validate
-        |each .{$in |^on-success}
-}
+; Calling a function that takes both named and unnamed arguments
+(|prepare-data .{|called-unnamed-block} named.{|called-named-block})
 
 ; Complex control flow with blocks
 (items |process-batch 
@@ -414,29 +250,27 @@ Even single-implementation functions follow this pattern internally, maintaining
     on-success.{$in |save-to-database})
 ```
 
-For functions with multiple unnamed blocks (like control flow), blocks are accessed positionally:
-
-```comp
-!func |if ~{} ^{condition ~block ~block ~block} = {
-    $in |^condition |if-true
-        .{$in |^#1}   ; Then block
-        .{$in |^#2}   ; Else block
-}
-
-; Clean calling syntax
-$in |if .{value > 5} .{value * 2} .{value / 2}
-```
-
 ## Argument Spreading and Presence-Check
 
-Functions support spread operators for arguments, allowing predefined argument sets to be reused and overridden. The presence-check morphing pattern enables flag-style arguments where unnamed values matching field names set those fields to their "found" value.
+Functions support spread operators for arguments, allowing predefined argument
+sets to be reused and overridden. The presence-check morphing pattern enables
+flag-style arguments where unnamed values matching field names set those fields
+to their "found" value.
+
+The `??` fallback operator in a shape definitions indicates presence-check
+fields: left side is the default (field not found), right side is the value when
+found in unnamed arguments. These presence checks look for the existence of an
+unnamed value in the argument list.
 
 ```comp
-!func |process ^{
+
+!shape ~process-args = {
     verbose ~bool = #false ?? #true
     debug ~bool = #false ?? #true
     ..rest   ; Collect remaining fields
-} = {
+}
+
+!func |process ^process-args = {
     (^verbose |when .{#true} .{
         (|log "Verbose mode enabled")
     })
@@ -453,32 +287,104 @@ $defaults = {debug}
 ; Results in: {verbose=#true debug=#true}
 ```
 
-The `??` operator in shape definitions indicates presence-check fields: left side is the default (field not found), right side is the value when found in unnamed arguments.
+## Function Overloads
 
-## Polymorphic Tag Dispatch
+Functions can be defined multiple times to describe working with different
+shapes of inputs. The function definitions must be unambiguous or the module
+will have a build-time error. The function definition can use `?=` weak or `*=`
+strong assignment operators to break ambiguous ties.
 
-Tags enable sophisticated polymorphic dispatch across module boundaries. When a tag field is used for dispatch, the function is resolved based on the tag's hierarchy. This creates extensible polymorphism without inheritance.
+The functions use the shape matching logic to select the most specific
+implementation for the given input shape.
 
-The tag dispatch examines the tag value, determines its hierarchy, and finds the most specific function implementation. For explicit parent calls, partial tag paths enable controlled polymorphic chains.
+The tag system can be greatly used to control this dispatch, which has a strong
+influence how shape matching is defined. Functions can dispatch from themselves
+to weaker matches based on specific tags. For detailed information about tag
+hierarchies and polymorphic dispatch mechanisms, see [Tag System](tag.md).
+
+```comp
+!func |render ~point-2d = {"2D point"}
+!func |render ~point-2d *= {"2D improved"}  ; Strong assignment wins
+!func |render ~point-3d = {"3D point"}
+
+({x=5 y=10} |render)           ; "2D improved" - strong assignment wins
+({x=5 y=10 z=15} |render)      ; "3D point" - more specific shape
+({5 10} |render)               ; "2D improved" - positional matching
+
+; Tag-based dispatch with hierarchical scoring
+!func |process ~{status=#status} = {"generic status"}
+!func |process ~{status=#error.status} = {"error handler"}
+!func |process ~{status=#error.network} = {"network specialist"}
+
+({status=#timeout.error} |process)  ; "error handler"
+({status=#network.error} |process)  ; "network specialist"
+```
+
+### Overload References
+
+Functions references are defined by the function name. This reference uses all
+possible overloaded implementations. Data like docstrings will be shared across
+all implementations of the function. There is a separate `!doc impl` operator
+that assigns documentation for a specific implementation, but these should be
+meant for short summaries.
+
+```comp
+!doc "Process different types of data appropriately"
+
+!doc impl "Saves to primary database"
+!func |process ~user-data = {
+    $in |validate-user |save-user
+}
+
+!doc impl "Archives to time-series store"
+!func |process ~system-data = {
+    $in |validate-system |archive
+}
+
+; Single describe shows all implementations
+!describe |process
+; Returns: {
+;   doc: "Process different types of data appropriately"
+;   module: current-module
+;   implementations: [
+;     {pipe: ~user-data, args: {}, impl-doc: "Saves to primary database"},
+;     {pipe: ~system-data, args: {}, impl-doc: "Archives to time-series store"}
+;   ]
+; }
+```
+
+Even single-implementation functions follow this pattern internally, maintaining
+consistency for introspection and future extension.
+
+
+## Polymorphic Tag Overloads
+
+Tags enable sophisticated polymorphic dispatch across module boundaries. When a
+tag field is used for dispatch, the function is resolved based on the tag's
+hierarchy. This creates extensible polymorphism without inheritance.
+
+The tag dispatch examines the tag value, determines its hierarchy, and finds the
+most specific function implementation. For explicit parent calls, partial tag
+paths enable controlled polymorphic chains.
+
+Regular overloading works when all definitions are in the same module. The base
+module is not aware of any extended fields other modules may add to its tag
+hierarchy. When tags are extended across different modules, the tag being used
+defines where dynamic dispatch can find the correct implementation.
 
 ```comp
 ; Base module defines animal behaviors
-!tag animal = {#mammal #bird #reptile}
+!tag #animal = {#mammal #bird #reptile}
 
-!pipe {type}
-!func |speak = {generic animal sound}
-
-!pipe {type #mammal}
-!func |speak = {mammalian vocalization}
-
-!pipe {type #bird}
-!func |speak = {chirp}
+!func |speak ~{#animal} = {"generic animal sound"}
+!func |speak ~{#mammal} = {"mammalian vocalization"}
+!func |speak ~{#bird} = {"chirp"}
+!func |speak ~{#reptile} = {"hiss"}
 
 ; Extended module adds specializations
-!tag animal += {#dog.mammal #cat.mammal}
-
-!pipe {type #dog.mammal}
-!func |speak = {woof}
+!tag #mammal.animal = {#dog.mammal #cat.mammal}
+!func |speak ~{#dog} = {"woof"}
+!func |speak ~{#cat} = {"hiss"}
 
 ; Polymorphic dispatch
 ({type=#bird} |speak)          ; "chirp"
@@ -486,57 +392,36 @@ The tag dispatch examines the tag value, determines its hierarchy, and finds the
 
 ; Cross-module polymorphism
 creature = {type=#dog.mammal name=Rex}
-(creature |process-animal/external)   ; External module handles extended tag
-```
-
-## Lazy Functions and Deferred Execution
-
-Functions can define lazy structures using `[]` brackets instead of `{}`. These create generators where fields compute on demand. Once computed, values are cached, making lazy structures eventually behave like regular structures. This enables efficient partial evaluation and infinite structures.
-
-```comp
-!pipe {}
-!args {start ~num step ~num}
-!func |infinite-sequence = [
-    ($in |count |map {$arg.start + $in * $arg.step})
-]
-
-!pipe {data}
-!func |expensive-analysis = [
-    summary = ($in |compute-summary)
-    statistics = ($in |deep-statistical-analysis)
-    visualization = ($in |generate-charts)
-    report = (|compile-full-report)
-]
-
-; Only computes what's needed
-analysis = (data |expensive-analysis)
-quick-view = analysis.summary    ; Only computes summary
-full = analysis ~{summary statistics}  ; Computes two fields
+(creature |speak/#type)   ; External module handles extended tag
 ```
 
 ## Function Permissions and Security
 
-Functions can declare required permissions using the `!require` decorator. This creates compile-time documentation and enables early failure with clear error messages. The permission system uses capability tokens that flow through the context but cannot be stored or manipulated as values.
+Functions can declare required permissions using the `!require` decorator. This
+creates compile-time documentation and enables early failure with clear error
+messages. The permission system uses capability tokens that flow through the
+context but cannot be stored or manipulated as values.
 
-Pure functions implicitly drop all permissions, ensuring they cannot perform side effects. Regular functions inherit the caller's permissions unless explicitly restricted. The security model enables fine-grained control over resource access.
+Pure functions implicitly drop all permissions, ensuring they cannot perform
+side effects. Regular functions inherit the caller's permissions unless
+explicitly restricted. The security model enables fine-grained control over
+resource access. For comprehensive details about the permission system,
+capability-based security, and permission inheritance patterns, see [Runtime
+Security and Permissions](security.md).
 
 ```comp
 !require read, write
-!pipe {}
-!args {source ~str dest ~str}
-!func |backup-file = {
-    ($arg.source |read/file)      ; Needs read permission
+!func |backup-file ^{source ~str dest ~str} = {
+    (^source |read/file)      ; Needs read permission
     |compress
-    |write/file $arg.dest         ; Needs write permission
+    |write/file ^dest         ; Needs write permission
 }
 
 !require net, env
-!pipe {}
-!args {endpoint ~str}
-!func |fetch-with-config = {
-    $var.api-key = (API_KEY |get/env)      ; Needs env token
-    headers = {Authorization = Bearer ${$var.api-key}}
-    ($arg.endpoint |get/http headers)      ; Needs net token
+!func |fetch-with-config ^{endpoint ~str} = {
+    $api-key = (API_KEY |get/env)      ; Needs env token
+    headers = {Authorization = Bearer ${$api-key}}
+    (^endpoint |get/http headers)      ; Needs net token
 }
 
 ; Permissions flow through calls
@@ -547,56 +432,3 @@ Pure functions implicitly drop all permissions, ensuring they cannot perform sid
     untrusted-input = ($in |process-user-data)  ; Isolated execution
 }
 ```
-
-## Function Composition and Pipelines
-
-Functions compose naturally through pipelines, with each function's output becoming the next function's input. The `$in` reference resets at each statement boundary, enabling elegant parallel processing and analysis patterns.
-
-```comp
-!pipe {data}
-!func |comprehensive-analysis = {
-    ; All three operate on input independently
-    metrics = $in |calculate-metrics
-    patterns = $in |identify-patterns
-    anomalies = $in |detect-anomalies
-    
-    ; Combine results
-    {metrics patterns anomalies
-     summary=(|generate-summary data={metrics patterns anomalies})}
-}
-
-!pipe {raw-input}
-!func |pipeline-composition = {
-    ; Functions naturally chain
-    $in |validate
-        |normalize 
-        |enhance config=$pipe.enhancement-config
-        |transform
-        |optimize
-}
-```
-
-## Performance Considerations
-
-Function dispatch can be optimized through caching. The runtime maintains dispatch caches for frequently-called functions, avoiding repeated shape matching. Pure functions enable additional optimizations - their results can be memoized, they can be evaluated at compile time for constant inputs, and they can be safely parallelized.
-
-```comp
-; Compile-time evaluation
-!pure
-!pipe {n ~num}
-!func |factorial = {
-    $in |if {$in <= 1} {1} {$in * ($in - 1 |factorial)}
-}
-
-; This evaluates at compile time
-constant = (10 |factorial)    ; 3628800 computed during compilation
-
-; Dispatch cache example
-(users |map {$in |process})  ; Dispatch resolved once, cached for loop
-```
-
-## Design Principles
-
-The function system embodies several core principles that guide its design. Functions as transformations means every function is fundamentally a structure-to-structure mapping. Structural dispatch enables polymorphism through shapes rather than classes. Explicit effects through permissions make side effects visible and controllable. Composition over inheritance creates flexible systems through function and block combinations. Deterministic selection ensures predictable behavior in polymorphic scenarios.
-
-These principles create a function system that balances power with simplicity. Whether building simple data transformations or complex polymorphic systems, functions provide consistent, composable abstractions for computation.

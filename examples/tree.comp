@@ -1,48 +1,50 @@
-!shape tree = {
-    value ~num
-    left ~branch
-    right ~branch
+!shape ~tree = {
+	value ~num
+	left ~branch
+	right ~branch
 }
 
-!shape branch = ~tree | ~nil
+!shape ~branch = ~tree|~nil
 
 !main = {
-    ; Build tree from values using fold
-    $tree = {5 3 8 1 7 9} |fold-into .{|insert}
-    
-    ; Test finding values
-    $seven = {$tree 7} |contains  ; true
-    $four = {$tree 4} |contains   ; false
+	; Build tree from values using fold
+	$tree = {5 3 8 1 7 9} |fold-into .{|insert}
+
+	; Test finding values
+	$seven = {$tree 7} |contains  ; true
+	$four = {$tree 4} |contains   ; false
 }
+
 
 ; inserts
 !func |insert ~{tree ~nil value ~num} = {
-    {value}~tree
+	value~tree
 }
 
 !func |insert ~{tree ~tree value ~num} = {
-    |if .{value < tree.value}
-        .{..tree left={tree.left value} |insert}
-        .{..tree right={tree.right value} |insert}
+	|if .{value < tree.value}
+			.{..tree left = {tree.left value} |insert}
+			.{..tree right = {tree.right value} |insert}
 }
+
 
 ; finds
 !func |contains ~{tree ~nil value ~num} = {
-    #false
+	#false
 }
 
 !func |contains ~{tree ~tree value ~num} = {
-    tree.value |match
-        .{$in < value} .{{tree.left value} |contains}
-        .{$in > value} .{{tree.right value} |contains}
-        .{#true} .{#true}
+	tree.value |match
+		.{$in < value} .{{tree.left value} |contains}
+		.{$in > value} .{{tree.right value} |contains}
+		.{#true}.{#true}
 }
 
-; iterate values (lazy)
-!func |values ~nil = {}
+
+!func |values = {}
 
 !func |values ~tree = [
-    value
-    ..(left |values)
-    ..(right |values)
+	..(left |values)
+	value
+	..(right |values)
 ]

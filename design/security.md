@@ -4,13 +4,28 @@
 
 ## Overview
 
-Comp implements capability-based security through permission tokens that flow through the execution context. These tokens cannot be stored, serialized, or manipulated as values - they exist only in the protected context namespace and control access to system resources. Any code can drop permissions for downstream calls, but dropped permissions cannot be restored until returning to the scope that held them.
+Comp implements capability-based security through permission tokens that flow
+through the execution context. These tokens cannot be stored, serialized, or
+manipulated as values - they exist only in the protected context namespace and
+control access to system resources. Any code can drop permissions for downstream
+calls, but dropped permissions cannot be restored until returning to the scope
+that held them.
 
-The security model draws from proven designs like Deno's permission system while adding Comp-specific features. Permissions are declarative, enabling static analysis and clear documentation of function requirements. Pure functions provide guaranteed isolation by executing with no permissions, making them safe for untrusted code and compile-time evaluation.
+The security model draws from proven designs like Deno's permission system while
+adding Comp-specific features. Permissions are declarative, enabling static
+analysis and clear documentation of function requirements. Pure functions
+provide guaranteed isolation by executing with no permissions, making them safe
+for untrusted code and compile-time evaluation. For information about how
+permissions integrate with function definitions, see [Functions and
+Blocks](function.md).
 
 ## Permission Token System
 
-The runtime defines a fixed set of permission tokens that control access to system resources. These tokens live in the protected portion of the `$ctx` namespace and flow through function calls. Programs start with a set of permissions determined by runtime flags, and these can only be reduced, never expanded, during execution.
+The runtime defines a fixed set of permission tokens that control access to
+system resources. These tokens live in the protected portion of the `$ctx`
+namespace and flow through function calls. Programs start with a set of
+permissions determined by runtime flags, and these can only be reduced, never
+expanded, during execution.
 
 Core system tokens based on proven models:
 - `read` - File system read access
@@ -45,21 +60,24 @@ Comp-specific tokens for language features:
 
 ## Function Permission Requirements
 
-Functions declare required permissions using the `require` decorator. This serves as documentation, enables compile-time verification where possible, and provides clear error messages when permissions are missing. The decorator appears before the function definition and lists required tokens.
+Functions declare required permissions using the `require` decorator. This
+serves as documentation, enables compile-time verification where possible, and
+provides clear error messages when permissions are missing. The decorator
+appears before the function definition and lists required tokens.
 
 ```comp
 require read, write
 func backup_file pipeline{} args{source dest} = {
-    ($arg.source | read/file)      # Needs read permission
+    (^source | read/file)      # Needs read permission
     | compress
-    | write/file $arg.dest         # Needs write permission
+    | write/file ^dest         # Needs write permission
 }
 
 require net, env
 func fetch_with_config pipeline{} args{endpoint} = {
-    $var.api_key = (API_KEY | get/env)      # Needs env token
-    headers = {Authorization = Bearer ${$var.api_key}}
-    ($arg.endpoint | get/http headers)      # Needs net token
+    $api_key = (API_KEY | get/env)      # Needs env token
+    headers = {Authorization = Bearer ${$api_key}}
+    (^endpoint | get/http headers)      # Needs net token
 }
 
 # Permissions flow through call chains
@@ -76,7 +94,7 @@ Pure functions provide deterministic computation without side effects. The `pure
 
 ```comp
 pure calculate pipeline{} args{x y} = {
-    result = $arg.x * $arg.y + 42
+    result = ^x * ^y + 42
     normalized = result % 100
     {result normalized}
 }
@@ -99,11 +117,18 @@ shape Config = {
 }
 ```
 
-The `pure` decorator syntax emphasizes that purity is an additional constraint on a function, not a different kind of entity. Pure functions can call other functions, but those calls execute in the same restricted context, failing if they attempt any resource access.
+The `pure` decorator syntax emphasizes that purity is an additional constraint
+on a function, not a different kind of entity. Pure functions can call other
+functions, but those calls execute in the same restricted context, failing if
+they attempt any resource access.
 
 ## Module Permission Boundaries
 
-Each module import creates a permission boundary. Imported modules cannot access the importing module's permissions unless explicitly delegated. This prevents supply chain attacks where compromised dependencies could abuse the main application's permissions.
+Each module import creates a permission boundary. Imported modules cannot access
+the importing module's permissions unless explicitly delegated. This prevents
+supply chain attacks where compromised dependencies could abuse the main
+application's permissions. For detailed information about module boundaries and
+import mechanisms, see [Modules, Imports, and Namespaces](module.md).
 
 ```comp
 # Main application has full permissions
@@ -123,11 +148,16 @@ func process_with_untrusted pipeline{data} args{} = {
 }
 ```
 
-Modules can declare their permission requirements, making dependencies' security needs transparent. Build tools can analyze the permission tree to identify the total permission surface of an application.
+Modules can declare their permission requirements, making dependencies' security
+needs transparent. Build tools can analyze the permission tree to identify the
+total permission surface of an application.
 
 ## Runtime Permission Control
 
-Applications specify their permission requirements at startup through command-line flags or configuration. The runtime enforces that no code can exceed these initial permissions, creating a security sandbox for the entire program.
+Applications specify their permission requirements at startup through
+command-line flags or configuration. The runtime enforces that no code can
+exceed these initial permissions, creating a security sandbox for the entire
+program.
 
 ```bash
 # Run with specific permissions
@@ -143,11 +173,17 @@ comp app.comp --allow-all
 comp app.comp --prompt
 ```
 
-The runtime can also implement permission prompting, where users are asked to grant permissions when first needed. Granted permissions can be remembered for future runs, creating a trust model similar to mobile applications.
+The runtime can also implement permission prompting, where users are asked to
+grant permissions when first needed. Granted permissions can be remembered for
+future runs, creating a trust model similar to mobile applications.
 
 ## Permission Inheritance and Dropping
 
-Permissions follow a strict inheritance model through the call stack. Each function receives its caller's permissions by default. Functions can drop permissions for downstream calls, but cannot add permissions they didn't receive. This creates a monotonic security model where permissions only decrease along call paths.
+Permissions follow a strict inheritance model through the call stack. Each
+function receives its caller's permissions by default. Functions can drop
+permissions for downstream calls, but cannot add permissions they didn't
+receive. This creates a monotonic security model where permissions only decrease
+along call paths.
 
 ```comp
 require read, write, net
@@ -179,7 +215,11 @@ func mixed_permissions pipeline{} args{} = {
 
 ## Security Patterns and Best Practices
 
-The permission system enables several security patterns that promote safe code. The principle of least privilege guides permission usage - functions should require only the minimum permissions needed. Permissions should be dropped as soon as they're no longer needed, reducing the attack surface for downstream code.
+The permission system enables several security patterns that promote safe code.
+The principle of least privilege guides permission usage - functions should
+require only the minimum permissions needed. Permissions should be dropped as
+soon as they're no longer needed, reducing the attack surface for downstream
+code.
 
 ```comp
 func secure_pipeline pipeline{user_input} args{} = {
@@ -213,6 +253,17 @@ func audited_operation pipeline{} args{} = {
 
 ## Design Principles
 
-The security system embodies several core principles. Capability-based design means permissions are unforgeable tokens, not strings or flags that can be manipulated. Monotonic reduction ensures permissions only decrease, never increase, along execution paths. Fail-fast behavior makes permission violations immediate and clear. Declarative requirements enable static analysis and documentation. Module isolation prevents supply chain attacks through permission boundaries.
+The security system embodies several core principles. Capability-based design
+means permissions are unforgeable tokens, not strings or flags that can be
+manipulated. Monotonic reduction ensures permissions only decrease, never
+increase, along execution paths. Fail-fast behavior makes permission violations
+immediate and clear. Declarative requirements enable static analysis and
+documentation. Module isolation prevents supply chain attacks through permission
+boundaries.
 
-These principles create a security model that balances safety with usability. Whether running trusted applications or sandboxing untrusted code, the permission system provides clear, enforceable boundaries that protect system resources while enabling necessary operations.
+These principles create a security model that balances safety with usability.
+Whether running trusted applications or sandboxing untrusted code, the
+permission system provides clear, enforceable boundaries that protect system
+resources while enabling necessary operations. For information about resource
+access patterns that work with the permission system, see [Resources and
+Transactions](resource.md).

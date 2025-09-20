@@ -4,26 +4,52 @@
 
 ## Overview
 
-Shapes define structural schemas that describe and validate data. They specify field names, types, defaults, and constraints, creating a powerful system for type checking and data transformation. Unlike nominal type systems, Comp's shapes use structural compatibility - any structure with the required fields can satisfy a shape.
+Shapes define structural schemas that describe and validate data. They specify
+field names, types, defaults, and constraints, creating a powerful system for
+type checking and data transformation. Unlike nominal type systems, Comp's
+shapes use structural compatibility - any structure with the required fields can
+satisfy a shape.
 
-The shape system integrates with units to provide semantic typing for primitive values. Units attach to numbers and strings through tags, enabling automatic conversions, type-safe operations, and domain-specific validation. Together, shapes and units create a flexible yet rigorous type system.
+The shape system integrates with units to provide semantic typing for primitive
+values. Units attach to numbers and strings through tags, enabling automatic
+conversions, type-safe operations, and domain-specific validation. Together,
+shapes and units create a flexible yet rigorous type system. For information
+about the tag system that underlies units, see [Tag System](tag.md).
+
+The shape and unit system embodies several core principles. Structural
+compatibility means types are defined by structure, not names, enabling flexible
+composition. Semantic typing through units provides meaning beyond primitive
+types. Gradual validation allows choosing strictness levels appropriate to each
+context. Namespace integration enables shapes to work with Comp's layered data
+model. Compile-time optimization ensures type checking doesn't sacrifice
+performance.
+
+These principles create a type system that balances flexibility with safety.
+Whether validating API inputs, ensuring dimensional correctness in calculations,
+or transforming between data formats, shapes and units provide powerful tools
+for managing complexity in real-world applications. For details about the core
+primitive types that shapes validate, see [Core Types](type.md).
 
 ## Shape Definition and Inheritance
 
-Shapes are defined with the `!shape` keyword and live declaratively in the module namespace. They can be referenced anywhere within the module regardless of definition order. Shape definitions specify fields with optional types, defaults, and documentation. The spread operator enables shape composition through inheritance.
+Shapes are defined with the `!shape` keyword and live declaratively in the
+module namespace. They can be referenced anywhere within the module regardless
+of definition order. Shape definitions specify fields with optional types,
+defaults, and documentation. The spread operator enables shape composition
+through inheritance.
 
 ```comp
-!shape point-2d = {
+!shape ~point-2d = {
     x ~num = 0
     y ~num = 0
 }
 
-!shape point-3d = {
+!shape ~point-3d = {
     ..~point-2d              ; Inherit x, y fields
     z ~num = 0              ; Add z coordinate
 }
 
-!shape user = {
+!shape ~user = {
     name ~str
     email ~str
     age ~num = 0
@@ -33,7 +59,7 @@ Shapes are defined with the `!shape` keyword and live declaratively in the modul
 }
 
 ; Shape composition with multiple inheritance
-!shape authenticated-user = {
+!shape ~authenticated-user = {
     ..~user
     token ~str
     permissions #permission[]
@@ -41,10 +67,12 @@ Shapes are defined with the `!shape` keyword and live declaratively in the modul
 }
 ```
 
-Fields in shapes can specify ranges for collections, enabling precise cardinality constraints. The syntax `[min-max]` defines acceptable element counts, with shortcuts for common patterns.
+Fields in shapes can specify ranges for collections, enabling precise
+cardinality constraints. The syntax `[min-max]` defines acceptable element
+counts, with shortcuts for common patterns.
 
 ```comp
-!shape config = {
+!shape ~config = {
     servers ~server[1-]      ; At least one server
     backups ~backup[0-3]     ; Up to three backups
     nodes ~node[5-10]        ; Between 5 and 10 nodes
@@ -54,17 +82,21 @@ Fields in shapes can specify ranges for collections, enabling precise cardinalit
 
 ## Shape Morphing Algorithm
 
-Shape morphing transforms structures to match shape specifications through a multi-phase matching process. The algorithm considers field names, types, positions, and defaults to create the best possible match. During morphing, missing fields can be sourced from the namespace stack (`$ctx` and `$mod`).
+Shape morphing transforms structures to match shape specifications through a
+multi-phase matching process. The algorithm considers field names, types,
+positions, and defaults to create the best possible match. During morphing,
+missing fields can be sourced from the namespace stack (`$ctx` and `$mod`).
 
 The morphing process follows these phases:
 1. **Named field matching** - Exact field name matches are assigned first
 2. **Tag field matching** - Fields with matching tag types are assigned
 3. **Positional matching** - Remaining fields match by position
-4. **Default application** - Unmatched shape fields receive defaults from shape definition
+4. **Default application** - Unmatched shape fields receive defaults from shape
+   definition
 5. **Namespace lookup** - Missing fields check `$ctx` and `$mod`
 
 ```comp
-!shape connection = {
+!shape ~connection = {
     host ~str = localhost
     port ~num = 8080
     secure? ~bool = #false
@@ -81,15 +113,18 @@ $ctx.port = 3000
 ; port comes from $ctx, secure? from shape default
 
 ; Function parameters automatically morph with namespace access
-!pipe {conn ~connection}
-!func |connect = {
-    (Connecting to ${$pipe.host}:${$pipe.port} |log)
+!func |connect ~{conn ~connection} = {
+    (Connecting to ${host}:${port} |log)
 }
 ```
 
 ## Shape Application Operators
 
-Different morphing operators control strictness and error handling. The standard morph (`~`) applies defaults and allows extra fields. Strong morph (`*~`) rejects structures with undefined fields. Weak morph (`?~`) makes all shape fields optional. Each variant has a corresponding check operator that tests compatibility without morphing.
+Different morphing operators control strictness and error handling. The standard
+morph (`~`) applies defaults and allows extra fields. Strong morph (`*~`)
+rejects structures with undefined fields. Weak morph (`?~`) makes all shape
+fields optional. Each variant has a corresponding check operator that tests
+compatibility without morphing.
 
 ```comp
 data ~shape             ; Normal morph with defaults
@@ -109,10 +144,17 @@ data ?~? shape           ; Can morph weakly?
 
 ## Shape Constraints
 
-Shapes can define constraints that validate field values beyond basic type checking. These constraints are checked during morphing and can cause morphing to fail if violated. Constraints use pure functions that return boolean values or failure structures.
+Shapes can define constraints that validate field values beyond basic type
+checking. These constraints are checked during morphing and can cause morphing
+to fail if violated. Constraints use pure functions that return boolean values
+or failure structures.
+
+Constraints are evaluated during morphing, with failures generating descriptive
+error structures. This enables precise validation at type boundaries while
+maintaining composability.
 
 ```comp
-!shape valid-user = {
+!shape ~valid-user = {
     name ~str {min-length=3 max-length=50}
     email ~str {pattern="^[^@]+@[^@]+$"}
     age ~num {min=13 max=120}
@@ -121,28 +163,30 @@ Shapes can define constraints that validate field values beyond basic type check
 
 ; Constraint functions for complex validation
 !pure
-!pipe {name ~str}
-!func |valid-username = {
+!func |valid-username ~{name ~str} = {
     ($in |length/str) >= 3 && 
     ($in |match/str "^[a-z][a-z0-9_]*$") &&
     !($in |contains/reserved-words)
 }
 
-!shape account = {
+!shape ~account = {
     username ~str {validate=|valid-username}
     balance ~num {min=0}
     status #account-status
 }
 ```
 
-Constraints are evaluated during morphing, with failures generating descriptive error structures. This enables precise validation at type boundaries while maintaining composability.
-
 ## Presence-Check Fields
 
-Shapes support presence-check fields that are set based on whether their name appears as an unnamed value in the input structure. This enables flag-style arguments and configuration patterns.
+Shapes support presence-check fields that are set based on whether their name
+appears as an unnamed value in the input structure. This enables flag-style
+arguments and configuration patterns.
+
+These are mostly useful on shape definitions for function arguments, but
+they can be used anywhere shape references are used.
 
 ```comp
-!shape process-flags = {
+!shape ~process-flags = {
     verbose ~bool = #false ?? #true
     debug ~bool = #false ?? #true
     quiet? ~bool = #true ?? #false
@@ -156,9 +200,8 @@ Shapes support presence-check fields that are set based on whether their name ap
 ({verbose extra=data} ~process-flags)
 ; Result: {verbose=#true debug=#false quiet?=#true extra=data}
 
-!args ~process-flags
-!func |process = {
-    ($arg.verbose |when {#true} {
+!func |process ^~process-flags = {
+    (^verbose |when {#true} {
         ("Verbose mode enabled" |log)
     })
 }
@@ -169,10 +212,12 @@ Shapes support presence-check fields that are set based on whether their name ap
 
 ## Spreading Shape Defaults
 
-Shapes can be used in spread position to provide default values. This treats shapes as "default providers" without performing validation or type coercion. Only fields with defaults in the shape are included in the spread.
+Shapes can be used in spread position to provide default values. This treats
+shapes as "default providers" without performing validation or type coercion.
+Only fields with defaults in the shape are included in the spread.
 
 ```comp
-!shape config = {
+!shape ~config = {
     port ~num = 8080
     host ~str = "localhost"
     timeout ~num = 30
@@ -194,11 +239,17 @@ mixed = {..~config port="not-a-number"}
 ; port is a string now, not coerced to number
 ```
 
-The spread operation is purely mechanical - "copy all fields that have defaults" - while morphing is semantic - "transform this structure to match this shape."
+The spread operation is purely mechanical - "copy all fields that have defaults"
+- while morphing is semantic - "transform this structure to match this shape."
+For detailed information about spread operations and structure composition, see
+[Structures, Spreads, and Lazy Evaluation](structure.md).
 
 ## Unit System Fundamentals
 
-Units provide semantic typing for primitive values through the tag system. Units are implemented as tag hierarchies with conversion rules, enabling type-safe operations and automatic conversions. The standard library provides comprehensive units through the `unit/` module.
+Units provide semantic typing for primitive values through the tag system. Units
+are implemented as tag hierarchies with conversion rules, enabling type-safe
+operations and automatic conversions. The standard library provides
+comprehensive units through the `unit/` module.
 
 ```comp
 !import unit = std "core/unit"
@@ -226,7 +277,10 @@ Units follow algebraic rules:
 
 ## String Units and Domain Validation
 
-String units provide semantic typing and validation for string values. They can enforce formats, apply transformations, and control escaping in templates. String units are particularly valuable for security, ensuring proper escaping based on context.
+String units provide semantic typing and validation for string values. They can
+enforce formats, apply transformations, and control escaping in templates.
+String units are particularly valuable for security, ensuring proper escaping
+based on context.
 
 ```comp
 !tag email ~str = {
@@ -256,49 +310,55 @@ html = <h1>${title}</h1>#html
 
 ## Union and Conditional Shapes
 
-Shapes can be combined with `|` to create union types that accept multiple structures. This enables flexible APIs that handle different input formats while maintaining type safety. Union shapes are particularly useful for result types and variant handling.
+Shapes can be combined with `|` to create union types that accept multiple
+structures. This enables flexible APIs that handle different input formats while
+maintaining type safety. Union shapes are particularly useful for result types
+and variant handling.
 
 ```comp
-!shape result = ~success | ~error
-!shape success = {value ~any}
-!shape error = {#fail message ~str}
+!shape ~result = ~success | ~error
+!shape ~success = {value ~any}
+!shape ~error = {#fail message ~str}
 
-!shape config-source = ~file-config | ~env-config | ~default-config
-!shape file-config = {path ~str}
-!shape env-config = {prefix ~str}
-!shape default-config = {}
+!shape ~config-source = ~file-config | ~env-config | ~default-config
+!shape ~file-config = {path ~str}
+!shape ~env-config = {prefix ~str}
+!shape ~default-config = {}
 
 ; Conditional shape selection
-!pipe {input}
-!func |process = {
+!func |process ~{input} = {
     $in |match
-        {$in ~? success} {$pipe.value |handle-success}
-        {$in ~? error} {$pipe.message |log-error}
+        {$in ~? success} {value |handle-success}
+        {$in ~? error} {message |log-error}
 }
 ```
 
 ## Shape-Based Pattern Matching
 
-Shapes integrate with pattern matching to enable type-directed control flow. The `~?` operator tests shape compatibility, while morphing operations transform data for processing. This creates elegant APIs where function behavior adapts to input structure.
+Shapes integrate with pattern matching to enable type-directed control flow. The
+`~?` operator tests shape compatibility, while morphing operations transform
+data for processing. This creates elegant APIs where function behavior adapts to
+input structure. For comprehensive information about pattern matching and
+control flow patterns, see [Pipelines, Flow Control, and Failure
+Handling](pipeline.md).
 
 ```comp
-!shape get-request = {method=GET path ~str}
-!shape post-request = {method=POST path ~str body ~any}
-!shape delete-request = {method=DELETE path ~str}
+!shape ~get-request = {method=#get path ~str}
+!shape ~post-request = {method=#post path ~str body ~any}
+!shape ~delete-request = {method=#delete path ~str}
 
-!pipe {request}
-!func |handle-request = {
+!func |handle-request ~{request} = {
     $in |match
-        {$in ~? get-request} {
+        .{$in ~? get-request} .{
             $in ~get-request |fetch-resource
         }
-        {$in ~? post-request} {
+        .{$in ~? post-request} .{
             $in ~post-request |create-resource
         }
-        {$in ~? delete-request} {
+        .{$in ~? delete-request} .{
             $in ~delete-request |delete-resource
         }
-        {#true} {
+        .{#true} .{
             {#http.fail status=405 message=Method not allowed}
         }
 }
@@ -306,11 +366,17 @@ Shapes integrate with pattern matching to enable type-directed control flow. The
 
 ## Performance Optimization
 
-Shape operations can be optimized through caching and compilation. Repeated morphing operations with the same shape benefit from cached validation rules. The runtime can compile shape definitions into efficient validators, particularly for shapes with complex constraints.
+Shape operations can be optimized through caching and compilation. Repeated
+morphing operations with the same shape benefit from cached validation rules.
+The runtime can compile shape definitions into efficient validators,
+particularly for shapes with complex constraints.
+
+When this happens, the language understands the types used by fields,
+which allows faster code paths in successive uses.
 
 ```comp
 ; Shapes used in hot paths should be pre-compiled
-!shape hot-path = {
+!shape ~hot-path = {
     data ~str {validate=|complex-validation}
     timestamp ~num {min=0}
     flags #flag[]
@@ -322,9 +388,3 @@ first-result = input ~hot-path      ; Compiles and caches
 ; Subsequent uses reuse compiled rules
 loop-results = items |map {$in ~hot-path}  ; Fast validation
 ```
-
-## Design Principles
-
-The shape and unit system embodies several core principles. Structural compatibility means types are defined by structure, not names, enabling flexible composition. Semantic typing through units provides meaning beyond primitive types. Gradual validation allows choosing strictness levels appropriate to each context. Namespace integration enables shapes to work with Comp's layered data model. Compile-time optimization ensures type checking doesn't sacrifice performance.
-
-These principles create a type system that balances flexibility with safety. Whether validating API inputs, ensuring dimensional correctness in calculations, or transforming between data formats, shapes and units provide powerful tools for managing complexity in real-world applications.

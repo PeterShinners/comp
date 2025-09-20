@@ -6,7 +6,7 @@
 
 Structures are the backbone of the Comp language. Every function receives a structure as input and generates a new structure as output. Even simple values like booleans and numbers are automatically promoted into single-element structures when used in pipeline contexts.
 
-Structures are immutable collections that can contain any mix of named and unnamed fields. Field names can be simple tokens, complex strings, or even tag values. Fields are ordered and can be accessed by name or position. This unified approach means structures work equally well as records, arrays, or hybrid collections.
+Structures are immutable collections that can contain any mix of named and unnamed fields. Field names can be simple tokens, complex strings, or even tag values. Fields are ordered and can be accessed by name or position. This unified approach means structures work equally well as records, arrays, or hybrid collections. Functions that operate on structures are detailed in [Functions and Blocks](function.md), while the pipeline processing of structures is covered in [Pipelines, Flow Control, and Failure Handling](pipeline.md).
 
 ## Structure Definition and Field Access
 
@@ -47,6 +47,8 @@ Field access distinguishes between:
 - `data#0` - Positional index (numeric literals only)
 - `data.'expr'` - Computed field name from expression
 - `data."string"` - String literal as field name
+
+For more sophisticated navigation patterns through complex data structures, see [Trail System](trail.md).
 
 ## Spread Operations and Structure Assembly
 
@@ -111,10 +113,10 @@ tree.left.value = 10
 
 ; Assignment targets
 !func |example = {
-    $var.temp = 5                    ; Local variable
-    result = (|compute)              ; Output field (implicit $pipe)
-    $ctx.setting = value             ; Context namespace
-    $var.data = {field=10}          ; New structure in variable
+    $temp = 5               ; Local variable
+    result = (|compute)     ; Output field (implicit $in)
+    $ctx.setting = value    ; Context namespace
+    $data = {field=10}      ; New structure in variable
 }
 ```
 
@@ -124,23 +126,23 @@ Destructured assignment extracts multiple fields from a structure in a single st
 
 ```comp
 ; Extract named fields
-{name age city} = $pipe.user
-; Equivalent to: name=$pipe.user.name age=$pipe.user.age city=$pipe.user.city
+{name age city} = user
+; Equivalent to: name=user.name age=user.age city=user.city
 
 ; Extract with renaming
-{name=username age=years} = $pipe.user
-; Creates: username=$pipe.user.name years=$pipe.user.age
+{name=username age=years} = user
+; Creates: username=user.name years=user.age
 
 ; Mix named and positional
-{x y label=name} = $pipe.point
+{x y label=name} = point
 ; Gets first two unnamed fields as x,y and 'label' field as name
 
 ; Nested destructuring
-{user={name email} status} = $pipe.response
+{user={name email} status} = response
 ; Extracts nested fields directly
 
 ; With defaults using fallback
-{port=$pipe.config.port ?? 8080 host=$pipe.config.host ?? localhost} = {}
+{port=config.port ?? 8080 host=config.host ?? localhost} = {}
 ```
 
 Destructured assignment is particularly useful when working with function returns that provide multiple values, or when extracting configuration from nested structures.
@@ -159,18 +161,18 @@ cleaned = {..original !delete temp}
 modified = {..base !delete field1 !delete field2}
 
 ; Remove fields via shape morphing
-!shape public-user = {name ~str email ~str}  ; No password field
+!shape ~public-user = {name ~str email ~str}  ; No password field
 user = {name=Alice email=a@example.com password=secret}
 public = user ~public-user  ; Result: {name=Alice email=a@example.com}
 
 ; Conditional field inclusion
 result = {
-    id = $pipe.data.id
-    ?..(data.is-public |if {$in} {name=$pipe.data.name email=$pipe.data.email} {})
+    id = data.id
+    ?..(data.is-public |if {$in} {name=data.name email=data.email} {})
 }
 ```
 
-The pattern of using shapes to define "public" versions of structures is idiomatic in Comp, providing type safety along with field filtering.
+The pattern of using shapes to define "public" versions of structures is idiomatic in Comp, providing type safety along with field filtering. For comprehensive information about shapes, morphing operations, and type validation, see [Shapes, Units, and Type System](shape.md).
 
 ## Lazy Evaluation
 
@@ -190,25 +192,23 @@ expensive = [
 value = expensive.summary  ; Only computes summary field
 
 ; Context capture
-!pipe {}
-!args {multiplier ~num}
-!func |create-processor = {
+!func |create-processor ^{multiplier ~num} = {
     ; Context captured when [] is created
     processor = [
-        doubled = $in * $arg.multiplier * 2
-        tripled = $in * $arg.multiplier * 3
+        doubled = $in * ^multiplier * 2
+        tripled = $in * ^multiplier * 3
     ]
     processor  ; Returns lazy structure with captured multiplier
 }
 
 ; Multiple independent calls in lazy structure
-$var.lazy = [
+$lazy = [
     call1 = ($in |slow-call1)     ; Explicit $in breaks chain
     call2 = ($in |slow-call2)     ; Independent call
 ]
 
 ; Or with parentheses
-$var.lazy = [
+$lazy = [
     call1 = (|slow-call1)          ; Independent pipeline
     call2 = (|slow-call2)          ; Independent pipeline
 ]
@@ -228,7 +228,7 @@ When a lazy structure is morphed to a shape that requires only specific fields, 
 
 Structures can be compared for equality and ordering. Equality (`==`) checks structural equivalence - named fields must match by name and value (regardless of order), while unnamed fields must match by position. Ordering (`<`, `>`) uses lexicographic comparison, first comparing matched named fields alphabetically, then positional fields left-to-right.
 
-The standard library provides comprehensive structure operations through the `struct/` module. These functions enable field inspection, filtering, transformation, and analysis without breaking immutability.
+The standard library provides comprehensive structure operations through the `struct/` module. These functions enable field inspection, filtering, transformation, and analysis without breaking immutability. The module system and standard library organization are detailed in [Modules, Imports, and Namespaces](module.md).
 
 ```comp
 ; Equality ignores named field order
@@ -245,7 +245,7 @@ The standard library provides comprehensive structure operations through the `st
 
 (data |field-names/struct)           ; [name age status]
 (data |has-field/struct email)       ; true or false
-(data |filter/struct {$pipe.value > 0})  ; Keep positive fields
+(data |filter/struct {value > 0})  ; Keep positive fields
 (data |map-fields/struct |upper/str) ; Transform all fields
 ```
 
@@ -255,24 +255,22 @@ Complex structures often combine multiple composition techniques. Template funct
 
 ```comp
 ; Template function for consistent structure creation
-!pipe {}
-!args {status ~tag data ~any}
-!func |create-response = {
-    status = $arg.status
-    data = $arg.data
+!func |create-response ^{status ~tag data ~any} = {
+    status = ^status
+    data = ^data
     timestamp = (|now/time)
     metadata = {
         version = 1.0
-        ?..(($arg.status >= 400) |if {$in} {error=#true} {})
+        ?..((^status >= 400) |if {$in} {error=#true} {})
     }
 }
 
 ; Conditional field inclusion
 user-view = {
-    id = $pipe.user.id
-    name = $pipe.user.name
-    ?..($pipe.is-admin |if {$in} {email=$pipe.user.email role=$pipe.user.role} {})
-    ?..($pipe.is-self |if {$in} {preferences=$pipe.user.preferences} {})
+    id = user.id
+    name = user.name
+    ?..(is-admin |if {$in} {email=user.email role=user.role} {})
+    ?..(is-self |if {$in} {preferences=user.preferences} {})
 }
 
 ; Structure transformation pipeline
@@ -286,4 +284,4 @@ user-view = {
 
 The structure system embodies core Comp principles that guide its design. Immutability ensures predictable behavior and enables safe parallelism. Unified representation means arrays, records, and hybrid collections use the same structure type. Flexible field naming accommodates any data source naturally. Order preservation maintains structure and enables positional access. Compositional operations through spreading and morphing build complex structures from simple pieces.
 
-These principles create a structure system that handles real-world data elegantly. Whether working with JSON APIs, database records, or internal computations, structures provide a consistent, powerful abstraction for data manipulation.
+These principles create a structure system that handles real-world data elegantly. Whether working with JSON APIs, database records, or internal computations, structures provide a consistent, powerful abstraction for data manipulation. For controlled mutation patterns when immutability constraints need to be relaxed, see [Store System](store.md).
