@@ -10,45 +10,45 @@ The shape system integrates with units to provide semantic typing for primitive 
 
 ## Shape Definition and Inheritance
 
-Shapes are defined with the `shape` keyword and live declaratively in the module namespace. They can be referenced anywhere within the module regardless of definition order. Shape definitions specify fields with optional types, defaults, and documentation. The spread operator enables shape composition through inheritance.
+Shapes are defined with the `!shape` keyword and live declaratively in the module namespace. They can be referenced anywhere within the module regardless of definition order. Shape definitions specify fields with optional types, defaults, and documentation. The spread operator enables shape composition through inheritance.
 
 ```comp
-shape Point2d = {
+!shape point-2d = {
     x ~num = 0
     y ~num = 0
 }
 
-shape Point3d = {
-    ..~Point2d              # Inherit x, y fields
-    z ~num = 0              # Add z coordinate
+!shape point-3d = {
+    ..~point-2d              ; Inherit x, y fields
+    z ~num = 0              ; Add z coordinate
 }
 
-shape User = {
+!shape user = {
     name ~str
     email ~str
     age ~num = 0
-    active ~bool = #true
-    preferences?            # Optional field (any type)
-    tags #user_tag[]        # Array of specific tags
+    active? ~bool = #true
+    preferences?            ; Optional field (any type)
+    tags #user-tag[]        ; Array of specific tags
 }
 
-# Shape composition with multiple inheritance
-shape AuthenticatedUser = {
-    ..~User
+; Shape composition with multiple inheritance
+!shape authenticated-user = {
+    ..~user
     token ~str
     permissions #permission[]
-    last_login ~str = (| now/time)
+    last-login ~str = (|now/time)
 }
 ```
 
 Fields in shapes can specify ranges for collections, enabling precise cardinality constraints. The syntax `[min-max]` defines acceptable element counts, with shortcuts for common patterns.
 
 ```comp
-shape Config = {
-    servers ~Server[1-]      # At least one server
-    backups ~Backup[0-3]     # Up to three backups
-    nodes ~Node[5-10]        # Between 5 and 10 nodes
-    options ~str[]           # Any number of strings
+!shape config = {
+    servers ~server[1-]      ; At least one server
+    backups ~backup[0-3]     ; Up to three backups
+    nodes ~node[5-10]        ; Between 5 and 10 nodes
+    options ~str[]           ; Any number of strings
 }
 ```
 
@@ -64,25 +64,26 @@ The morphing process follows these phases:
 5. **Namespace lookup** - Missing fields check `$ctx` and `$mod`
 
 ```comp
-shape Connection = {
+!shape connection = {
     host ~str = localhost
     port ~num = 8080
-    secure ~bool = #false
+    secure? ~bool = #false
 }
 
-# Basic morphing
-({example.com 443 #true} ~ Connection)
-# Result: {host=example.com port=443 secure=#true}
+; Basic morphing
+({example.com 443 #true} ~connection)
+; Result: {host=example.com port=443 secure?=#true}
 
-# Namespace fields are automatically available
+; Namespace fields are automatically available
 $ctx.port = 3000
-({host=prod.example.com} ~ Connection)
-# Result: {host=prod.example.com port=3000 secure=#false}
-# port comes from $ctx, secure from shape default
+({host=prod.example.com} ~connection)
+; Result: {host=prod.example.com port=3000 secure?=#false}
+; port comes from $ctx, secure? from shape default
 
-# Function parameters automatically morph with namespace access
-func connect pipeline{conn} args{} = {
-    (Connecting to ${$in.host}:${$in.port} | log)
+; Function parameters automatically morph with namespace access
+!pipe {conn ~connection}
+!func |connect = {
+    (Connecting to ${$pipe.host}:${$pipe.port} |log)
 }
 ```
 
@@ -91,18 +92,18 @@ func connect pipeline{conn} args{} = {
 Different morphing operators control strictness and error handling. The standard morph (`~`) applies defaults and allows extra fields. Strong morph (`*~`) rejects structures with undefined fields. Weak morph (`?~`) makes all shape fields optional. Each variant has a corresponding check operator that tests compatibility without morphing.
 
 ```comp
-data ~ Shape             # Normal morph with defaults
-data *~ Shape            # Strong - no extra fields allowed
-data ?~ Shape            # Weak - missing fields acceptable
+data ~shape             ; Normal morph with defaults
+data *~shape            ; Strong - no extra fields allowed
+data ?~shape            ; Weak - missing fields acceptable
 
-# Check operators return #true or #false
-data ~? Shape            # Can morph normally?
-data *~? Shape           # Can morph strictly?
-data ?~? Shape           # Can morph weakly?
+; Check operators return #true or #false
+data ~? shape            ; Can morph normally?
+data *~? shape           ; Can morph strictly?
+data ?~? shape           ; Can morph weakly?
 
-# Usage in validation
-($in | if {$in ~? ExpectedShape} 
-         {$in ~ ExpectedShape | handle}
+; Usage in validation
+($in |if {$in ~? expected-shape} 
+         {$in ~expected-shape |handle}
          {#shape.fail message=Invalid input structure})
 ```
 
@@ -111,49 +112,110 @@ data ?~? Shape           # Can morph weakly?
 Shapes can define constraints that validate field values beyond basic type checking. These constraints are checked during morphing and can cause morphing to fail if violated. Constraints use pure functions that return boolean values or failure structures.
 
 ```comp
-shape ValidUser = {
-    name ~str {min_length=3 max_length=50}
+!shape valid-user = {
+    name ~str {min-length=3 max-length=50}
     email ~str {pattern="^[^@]+@[^@]+$"}
     age ~num {min=13 max=120}
     score ~num {validate={$in >= 0 && $in <= 100}}
 }
 
-# Constraint functions for complex validation
-pure valid_username pipeline{name} args{} = {
-    ($in | length/str) >= 3 && 
-    ($in | match/str "^[a-z][a-z0-9_]*$") &&
-    !($in | contains/reserved_words)
+; Constraint functions for complex validation
+!pure
+!pipe {name ~str}
+!func |valid-username = {
+    ($in |length/str) >= 3 && 
+    ($in |match/str "^[a-z][a-z0-9_]*$") &&
+    !($in |contains/reserved-words)
 }
 
-shape Account = {
-    username ~str {validate=|valid_username}
+!shape account = {
+    username ~str {validate=|valid-username}
     balance ~num {min=0}
-    status #account_status
+    status #account-status
 }
 ```
 
 Constraints are evaluated during morphing, with failures generating descriptive error structures. This enables precise validation at type boundaries while maintaining composability.
+
+## Presence-Check Fields
+
+Shapes support presence-check fields that are set based on whether their name appears as an unnamed value in the input structure. This enables flag-style arguments and configuration patterns.
+
+```comp
+!shape process-flags = {
+    verbose ~bool = #false ?? #true
+    debug ~bool = #false ?? #true
+    quiet? ~bool = #true ?? #false
+}
+
+; The ?? operator defines:
+; - Left side: value when field name NOT found in unnamed values
+; - Right side: value when field name IS found
+
+; Usage
+({verbose extra=data} ~process-flags)
+; Result: {verbose=#true debug=#false quiet?=#true extra=data}
+
+!args ~process-flags
+!func |process = {
+    ($arg.verbose |when {#true} {
+        ("Verbose mode enabled" |log)
+    })
+}
+
+; Natural calling syntax
+(data |process verbose)  ; Sets verbose=#true
+```
+
+## Spreading Shape Defaults
+
+Shapes can be used in spread position to provide default values. This treats shapes as "default providers" without performing validation or type coercion. Only fields with defaults in the shape are included in the spread.
+
+```comp
+!shape config = {
+    port ~num = 8080
+    host ~str = "localhost"
+    timeout ~num = 30
+    api-key ~str           ; No default - not included
+}
+
+; Spread only includes fields WITH defaults
+server = {..~config}
+; Result: {port=8080 host="localhost" timeout=30}
+; Note: api-key NOT included
+
+; Override some defaults
+custom = {..~config port=3000 host="0.0.0.0"}
+; Result: {port=3000 host="0.0.0.0" timeout=30}
+
+; No type coercion during spread
+mixed = {..~config port="not-a-number"}  
+; Result: {port="not-a-number" host="localhost" timeout=30}
+; port is a string now, not coerced to number
+```
+
+The spread operation is purely mechanical - "copy all fields that have defaults" - while morphing is semantic - "transform this structure to match this shape."
 
 ## Unit System Fundamentals
 
 Units provide semantic typing for primitive values through the tag system. Units are implemented as tag hierarchies with conversion rules, enabling type-safe operations and automatic conversions. The standard library provides comprehensive units through the `unit/` module.
 
 ```comp
-import unit = std "core/unit"
+!import unit = std "core/unit"
 
-# Units as tags
-distance = 5#kilometer      # Using shortened form
+; Units as tags
+distance = 5#kilometer      ; Using shortened form
 duration = 30#second
 temp = 20#celsius
 
-# Automatic conversion in operations
-total = 5#meter + 10#foot         # Result in meters
-speed = 100#kilometer / 1#hour    # Compound unit
+; Automatic conversion in operations
+total = 5#meter + 10#foot         ; Result in meters
+speed = 100#kilometer / 1#hour    ; Compound unit
 
-# Explicit conversion
-meters = distance ~ num#meter     # 5000
-feet = distance ~ num#foot        # ~16.404
-kelvin = temp ~ num#kelvin        # 293.15
+; Explicit conversion
+meters = distance ~num#meter     ; 5000
+feet = distance ~num#foot        ; ~16404
+kelvin = temp ~num#kelvin        ; 293.15
 ```
 
 Units follow algebraic rules:
@@ -167,29 +229,29 @@ Units follow algebraic rules:
 String units provide semantic typing and validation for string values. They can enforce formats, apply transformations, and control escaping in templates. String units are particularly valuable for security, ensuring proper escaping based on context.
 
 ```comp
-tag email ~str = {
+!tag email ~str = {
     validate = |match/str "^[^@]+@[^@]+$"
     normalize = |lowercase/str
 }
 
-tag sql ~str = {
-    escape = |escape_literal/sql
-    validate = |check_syntax/sql
+!tag sql ~str = {
+    escape = |escape-literal/sql
+    validate = |check-syntax/sql
 }
 
-tag html ~str = {
-    escape = |escape_entities/html
-    sanitize = |remove_scripts/html
+!tag html ~str = {
+    escape = |escape-entities/html
+    sanitize = |remove-scripts/html
 }
 
-# Usage with automatic validation
+; Usage with automatic validation
 address = "User@Example.COM"#email
-normalized = address ~ str#email    # user@example.com
+normalized = address ~str#email    ; user@example.com
 
-# Template safety through units
+; Template safety through units
 query = SELECT * FROM users WHERE id = ${id}#sql
 html = <h1>${title}</h1>#html
-# Units ensure proper escaping in templates
+; Units ensure proper escaping in templates
 ```
 
 ## Union and Conditional Shapes
@@ -197,20 +259,21 @@ html = <h1>${title}</h1>#html
 Shapes can be combined with `|` to create union types that accept multiple structures. This enables flexible APIs that handle different input formats while maintaining type safety. Union shapes are particularly useful for result types and variant handling.
 
 ```comp
-shape Result = ~Success | ~Error
-shape Success = {value ~any}
-shape Error = {#fail message ~str}
+!shape result = ~success | ~error
+!shape success = {value ~any}
+!shape error = {#fail message ~str}
 
-shape ConfigSource = ~FileConfig | ~EnvConfig | ~DefaultConfig
-shape FileConfig = {path ~str}
-shape EnvConfig = {prefix ~str}
-shape DefaultConfig = {}
+!shape config-source = ~file-config | ~env-config | ~default-config
+!shape file-config = {path ~str}
+!shape env-config = {prefix ~str}
+!shape default-config = {}
 
-# Conditional shape selection
-func process pipeline{input} args{} = {
-    $in | match
-        {$in ~? Success} {.value | handle_success}
-        {$in ~? Error} {.message | log_error}
+; Conditional shape selection
+!pipe {input}
+!func |process = {
+    $in |match
+        {$in ~? success} {$pipe.value |handle-success}
+        {$in ~? error} {$pipe.message |log-error}
 }
 ```
 
@@ -219,20 +282,21 @@ func process pipeline{input} args{} = {
 Shapes integrate with pattern matching to enable type-directed control flow. The `~?` operator tests shape compatibility, while morphing operations transform data for processing. This creates elegant APIs where function behavior adapts to input structure.
 
 ```comp
-shape GetRequest = {method=GET path ~str}
-shape PostRequest = {method=POST path ~str body ~any}
-shape DeleteRequest = {method=DELETE path ~str}
+!shape get-request = {method=GET path ~str}
+!shape post-request = {method=POST path ~str body ~any}
+!shape delete-request = {method=DELETE path ~str}
 
-func handle_request pipeline{request} args{} = {
-    $in | match
-        {$in ~? GetRequest} {
-            $in ~ GetRequest | fetch_resource
+!pipe {request}
+!func |handle-request = {
+    $in |match
+        {$in ~? get-request} {
+            $in ~get-request |fetch-resource
         }
-        {$in ~? PostRequest} {
-            $in ~ PostRequest | create_resource
+        {$in ~? post-request} {
+            $in ~post-request |create-resource
         }
-        {$in ~? DeleteRequest} {
-            $in ~ DeleteRequest | delete_resource
+        {$in ~? delete-request} {
+            $in ~delete-request |delete-resource
         }
         {#true} {
             {#http.fail status=405 message=Method not allowed}
@@ -245,18 +309,18 @@ func handle_request pipeline{request} args{} = {
 Shape operations can be optimized through caching and compilation. Repeated morphing operations with the same shape benefit from cached validation rules. The runtime can compile shape definitions into efficient validators, particularly for shapes with complex constraints.
 
 ```comp
-# Shapes used in hot paths should be pre-compiled
-shape HotPath = {
-    data ~str {validate=|complex_validation}
+; Shapes used in hot paths should be pre-compiled
+!shape hot-path = {
+    data ~str {validate=|complex-validation}
     timestamp ~num {min=0}
     flags #flag[]
 }
 
-# First use compiles validation rules
-first_result = input ~ HotPath      # Compiles and caches
+; First use compiles validation rules
+first-result = input ~hot-path      ; Compiles and caches
 
-# Subsequent uses reuse compiled rules
-loop_results = items | map {$in ~ HotPath}  # Fast validation
+; Subsequent uses reuse compiled rules
+loop-results = items |map {$in ~hot-path}  ; Fast validation
 ```
 
 ## Design Principles

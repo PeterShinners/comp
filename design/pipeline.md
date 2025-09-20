@@ -15,23 +15,24 @@ The `|` operator is Comp's fundamental composition mechanism, marking function a
 A pipeline consists of one or more functions connected by `|`. The first element can be either a value or a function. When starting with a value, it becomes the input to the first function. When starting with a function (marked by leading `|`), the function receives no initial input or uses ambient data depending on its definition.
 
 ```comp
-func process pipeline{data} args{} = {
-    # Pipelines with value input
-    validated = $in | validate
-    transformed = $in | transform
+!pipe {data}
+!func |process = {
+    ; Pipelines with value input
+    validated = $in |validate
+    transformed = $in |transform
     
-    # Pipeline without initial value
-    timestamp = (| now/time)
+    ; Pipeline without initial value
+    timestamp = (|now/time)
     
-    # Explicit pipeline with multiple steps
-    result = $in | validate | transform | save
+    ; Explicit pipeline with multiple steps
+    result = $in |validate |transform |save
     
-    # All results combined
+    ; All results combined
     {validated transformed timestamp result}
 }
 ```
 
-The `$in` reference provides access to pipeline data and resets at each statement boundary. This enables natural parallel processing patterns where multiple statements work on the same input data independently.
+The `$in` reference provides access to pipeline data and resets at each statement boundary. This enables natural parallel processing patterns where multiple statements work on the same input data independently. The `$pipe` namespace cascades from output being built to `$in`, allowing access to intermediate results.
 
 ## Statements and Temporaries
 
@@ -44,19 +45,20 @@ Each statement in Comp performs one of three actions based on its target. These 
 **Unnamed Assignment** has no assignment target, adding the pipeline result as an unnamed field to the output structure. These unnamed fields maintain their order and can be accessed by position.
 
 ```comp
-func analyze pipeline{data} args{} = {
-    # Variable - available in function, not in output
-    $var.threshold = $in.average * 1.5
+!pipe {data}
+!func |analyze = {
+    ; Variable - available in function, not in output
+    $var.threshold = $pipe.average * 1.5
     
-    # Named field - part of output structure
-    high_values = $in | filter {.value > $var.threshold}
+    ; Named field - part of output structure
+    high-values = $in |filter {$pipe.value > $var.threshold}
     
-    # Unnamed field - added to output positionally
-    $in | calculate_median
+    ; Unnamed field - added to output positionally
+    $in |calculate-median
     
-    # Variables with nested access
+    ; Variables with nested access
     $var.config = {timeout=30 retries=3}
-    $var.timeout = $var.config.timeout  # Access nested field
+    $var.timeout = $var.config.timeout  ; Access nested field
 }
 ```
 
@@ -69,37 +71,39 @@ Control flow in Comp uses functions with block arguments rather than special syn
 The core conditional functions - `if`, `when`, and `match` - cover the spectrum from simple branches to complex pattern matching. The `if` function provides classic if-then-else semantics. The `when` function handles single conditions without an else clause. The `match` function enables pattern matching with multiple conditions tested in order. All accept blocks that capture the current scope and execute conditionally.
 
 ```comp
-func process_request pipeline{request} args{} = {
-    # Multiple conditional patterns
-    response_type = $in | if {$in.priority == urgent} 
+!pipe {request}
+!func |process-request = {
+    ; Multiple conditional patterns
+    response-type = $in |if {$pipe.priority == urgent} 
                              immediate 
                              queued
     
-    $in | when {.response_type == immediate} {
-        (Urgent: ${$in.summary} | alert_team)
+    $in |when {$pipe.response-type == immediate} {
+        (Urgent: ${$pipe.summary} |alert-team)
     }
     
-    $in.status | match
-        {$in == 200} {$in | handle_success}
-        {$in >= 500} {$in | handle_server_error | alert_ops}
-        {$in >= 400} {$in | handle_client_error}
-        {#true} {$in | log_unknown | investigate}
+    $pipe.status |match
+        {$in == 200} {$in |handle-success}
+        {$in >= 500} {$in |handle-server-error |alert-ops}
+        {$in >= 400} {$in |handle-client-error}
+        {#true} {$in |log-unknown |investigate}
 }
 ```
 
 Iteration follows the same function-with-blocks pattern. The `map` function transforms each element and collects results, while `each` performs side effects without collection. The `filter` function selects matching elements, and `fold` reduces collections to single values using an accumulator. These functions recognize special control tags - `#skip` continues to the next element, `#break` stops iteration immediately, and any failure stops iteration and propagates the error.
 
 ```comp
-func analyze_records pipeline{records} args{} = {
-    # Complete iteration pipeline
-    processed = $in | filter {.status != archived}
-                   | map {
-                       $in | if {.priority < 0} 
+!pipe {records}
+!func |analyze-records = {
+    ; Complete iteration pipeline
+    processed = $in |filter {$pipe.status != archived}
+                   |map {
+                       $in |if {$pipe.priority < 0} 
                                {#skip} 
-                               {$in | validate | enhance | {$in processed=(| now/time)}}
+                               {$in |validate |enhance |{$in processed=(|now/time)}}
                    }
-                   | fold {total=0 count=0} {
-                       {total=(.total + .amount) count=(.count + 1)}
+                   |fold {total=0 count=0} {
+                       {total=($pipe.total + $pipe.amount) count=($pipe.count + 1)}
                    }
     
     {records=processed.count average=processed.total/processed.count}
@@ -115,7 +119,7 @@ The language defines a hierarchical `#fail` tag system that categorizes errors b
 Modules can extend the failure hierarchy to define domain-specific error categories. These extensions work like any tag extension - they create new leaf nodes in the hierarchy while maintaining compatibility with parent handlers.
 
 ```comp
-# Core hierarchy
+; Core hierarchy
 #fail
   #io
     #missing
@@ -125,8 +129,8 @@ Modules can extend the failure hierarchy to define domain-specific error categor
     #shape
     #constraint
 
-# Module extension
-tag fail += {
+; Module extension
+!tag fail += {
     #database = Database operation failed {
         #connection = Unable to connect
         #constraint = Constraint violation  
@@ -138,8 +142,8 @@ tag fail += {
     }
 }
 
-# Usage
-{#connection.database.fail message="Connection pool exhausted" pool_id=5}
+; Usage
+{#connection.database.fail message="Connection pool exhausted" pool-id=5}
 ```
 
 ## Failure Recovery Patterns
@@ -149,38 +153,39 @@ Comp provides multiple mechanisms for handling failures, from simple fallbacks t
 The `??` fallback operator provides immediate recovery for single operations. It receives the original input (not the failure) and provides an alternative value. Multiple fallbacks can be chained, creating a cascade of alternatives tried in order. This operator shines for providing defaults when optional fields are missing or operations might fail.
 
 ```comp
-# Cascading fallbacks for configuration
-port = .config.port ?? .env.PORT ?? 8080
-display_name = .user.nickname ?? .user.username ?? .user.email ?? Anonymous
+; Cascading fallbacks for configuration
+port = $pipe.config.port ?? $pipe.env.PORT ?? 8080
+display-name = $pipe.user.nickname ?? $pipe.user.username ?? $pipe.user.email ?? Anonymous
 
-# Fallback with computation
-timeout = .settings.timeout ?? (.settings.retry_count * 1000) ?? 5000
+; Fallback with computation
+timeout = $pipe.settings.timeout ?? ($pipe.settings.retry-count * 1000) ?? 5000
 ```
 
 The `|?` operator handles failures with more complex recovery logic. It can be configured with tag filters to handle specific failure types, with multiple `|?` operators creating a chain of handlers tested in order.
 
 ```comp
-func process_transaction pipeline{data} args{} = {
-    $in | validate
-        | execute_steps
-        |? {#io.fail} {$in | retry_with_backoff}
-        |? {#deadlock.database.fail} {$in | wait_and_retry}
+!pipe {data}
+!func |process-transaction = {
+    $in |validate
+        |execute-steps
+        |? {#io.fail} {$in |retry-with-backoff}
+        |? {#deadlock.database.fail} {$in |wait-and-retry}
         |? {
-            # General failure - multiple operations for recovery
+            ; General failure - multiple operations for recovery
             $var.error = $in
-            (Operation failed: ${$var.error.message} | log)
-            $var.error | cleanup_resources | {status=failed original=$in}
+            (Operation failed: ${$var.error.message} |log)
+            $var.error |cleanup-resources |{status=failed original=$in}
         }
 }
 
-# Complex recovery in a single block
-$in | risky_operation |? {
+; Complex recovery in a single block
+$in |risky-operation |? {
     $var.error = $in
-    (Operation failed: ${$var.error.message} | log)
-    $var.error.code | match
-        {$in >= 500} {$in | wait_and_retry}
-        {$in == 429} {$in | backoff_exponentially}
-        {#true} {$in | use_fallback_service}
+    (Operation failed: ${$var.error.message} |log)
+    $var.error.code |match
+        {$in >= 500} {$in |wait-and-retry}
+        {$in == 429} {$in |backoff-exponentially}
+        {#true} {$in |use-fallback-service}
 }
 ```
 
@@ -191,25 +196,27 @@ Complex pipelines benefit from clear composition patterns. Parentheses clearly d
 The fresh `$in` at each statement boundary enables elegant parallel processing patterns where multiple independent operations process the same input, then combine their results. Each statement gets the same input, processes independently, and contributes to the final structure.
 
 ```comp
-func comprehensive_analysis pipeline{data} args{} = {
-    # Three independent analyses on same input
-    structure_valid = $in | validate_structure
-    business_valid = $in | validate_business_rules  
-    security_valid = $in | validate_security
+!pipe {data}
+!func |comprehensive-analysis = {
+    ; Three independent analyses on same input
+    structure-valid = $in |validate-structure
+    business-valid = $in |validate-business-rules  
+    security-valid = $in |validate-security
     
-    $in | if {structure_valid && business_valid && security_valid}
-            {$in | process}
-            {#validation.fail issues={structure_valid business_valid security_valid}}
+    $in |if {structure-valid && business-valid && security-valid}
+            {$in |process}
+            {#validation.fail issues={structure-valid business-valid security-valid}}
 }
 
-func parallel_enrichment pipeline{record} args{} = {
-    # Multiple enrichments of the same record
-    with_score = $in | calculate_score
-    with_category = $in | determine_category
-    with_timestamp = $in | add_processing_time
+!pipe {record}
+!func |parallel-enrichment = {
+    ; Multiple enrichments of the same record
+    with-score = $in |calculate-score
+    with-category = $in |determine-category
+    with-timestamp = $in |add-processing-time
     
-    # Merge all enrichments
-    {$in ..with_score ..with_category ..with_timestamp}
+    ; Merge all enrichments
+    {$in ..with-score ..with-category ..with-timestamp}
 }
 ```
 
@@ -218,17 +225,34 @@ func parallel_enrichment pipeline{record} args{} = {
 Blocks can contain pipelines without requiring additional parentheses, as the block boundaries provide clear scope. This keeps the syntax clean for common patterns like filtering and mapping.
 
 ```comp
-# Block contains pipeline - no extra parens needed
-items | map {$in | validate | enhance}
+; Block contains pipeline - no extra parens needed
+items |map {$in |validate |enhance}
 
-# Equivalent to (but cleaner than)
-items | map {($in | validate | enhance)}
+; Equivalent to (but cleaner than)
+items |map {($in |validate |enhance)}
 
-# At statement level, no parens needed
-$var.result = $in | process | validate
+; At statement level, no parens needed
+$var.result = $in |process |validate
 
-# In expression position, parens required
-total = (.base | calculate) + (.bonus | calculate)
+; In expression position, parens required
+total = ($pipe.base |calculate) + ($pipe.bonus |calculate)
+```
+
+## Placeholder Operator
+
+The `???` operator serves as a placeholder for not-yet-implemented code. It can appear anywhere an expression is expected and always evaluates to `{#not-implemented.fail}` when reached at runtime. This enables sketching code structure with compilable placeholders.
+
+```comp
+!pipe {data}
+!func |incomplete = {
+    validated = $in |validate
+    processed = ???  ; TODO: implement processing
+    saved = processed |save
+    {validated saved}
+}
+
+; Runtime behavior
+??? ; Returns {#not-implemented.fail location="file.comp:42"}
 ```
 
 ## Design Principles

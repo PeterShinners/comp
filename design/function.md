@@ -10,61 +10,109 @@ Functions are references, not values. They cannot be assigned to variables or pa
 
 ## Function Definition Fundamentals
 
-Functions are defined with the `func` keyword and specify two shapes: one for pipeline input and one for arguments. The function body transforms the input structure, with fields computed through expressions and pipelines. Control flow operates through function calls with blocks.
+Functions are defined with the `!func` keyword and specify two shapes: one for pipeline input and one for arguments. The function body transforms the input structure, with fields computed through expressions and pipelines. Control flow operates through function calls with blocks.
 
 The pipeline shape uses Comp's structural typing - any structure with compatible fields can invoke the function. Functions with no input requirements use an empty shape `{}`. Arguments are specified separately, maintaining clear distinction between data and configuration.
 
 ```comp
-func calculate_area pipeline{shape} args{} = {
-    area = $in.width * $in.height
-    perimeter = ($in.width + $in.height) * 2
-    diagonal = ($in.width ** 2 + $in.height ** 2) ** 0.5
+!pipe {shape}
+!args {}
+!func |calculate-area = {
+    area = $pipe.width * $pipe.height
+    perimeter = ($pipe.width + $pipe.height) * 2
+    diagonal = ($pipe.width ** 2 + $pipe.height ** 2) ** 0.5
     {area perimeter diagonal}
 }
 
-func get_timestamp pipeline{} args{format} = {
-    current = (| now/time)
-    formatted = (current | format/time $arg.format)
+!pipe {}
+!args {format ~str}
+!func |get-timestamp = {
+    current = (|now/time)
+    formatted = (current |format/time $arg.format)
     {current formatted}
 }
 
-# Functions automatically morph inputs
-({10 20} | calculate_area)        # Positional matching
-({height=15 width=25} | calculate_area)  # Named matching
+; Functions automatically morph inputs
+({10 20} |calculate-area)        ; Positional matching
+({height=15 width=25} |calculate-area)  ; Named matching
 ```
 
-Each statement in the function body begins with fresh pipeline input through `$in`. This eliminates verbose field extraction while maintaining explicit data flow when needed.
+Each statement in the function body begins with fresh pipeline input through `$in`. This eliminates verbose field extraction while maintaining explicit data flow when needed. The `$pipe` namespace provides cascading access to the output being built, falling back to `$in`.
+
+## Function Definition Stanza
+
+Functions use a stanza-style definition where each aspect gets its own line. This approach reduces line density, makes shapes optional, creates space for documentation, and allows flexible ordering (except `!func` must be last).
+
+```comp
+!doc "Calculate area with optional precision"
+!pipe {width ~num height ~num}
+!args {precision ~num = 2}
+!pure
+!require read, write
+!func |calculate-area = {
+    raw = $pipe.width * $pipe.height
+    rounded = (raw |round $arg.precision)
+    {raw rounded}
+}
+
+; Minimal function (no shapes needed)
+!func |get-timestamp = {
+    (|now/time)
+}
+
+; Pipeline-only shape
+!pipe {data}
+!func |validate = {
+    $in |check-required |check-format
+}
+
+; Pure function with full decoration
+!doc "Convert temperature units"
+!pipe {value ~num unit ~tag}
+!args {target ~tag}
+!pure
+!func |convert-temp = {
+    ; conversion logic
+}
+```
+
+Function names always include the pipe prefix: `!func |name` mirrors how they're referenced (`|name`).
 
 ## Pure Functions and Isolation
 
-Pure functions guarantee deterministic computation without side effects. Defined with `pure`, they receive an empty context and cannot access external resources. This isolation enables compile-time evaluation, safe parallelization, and use in shape constraints or unit definitions.
+Pure functions guarantee deterministic computation without side effects. Defined with `!pure`, they receive an empty context and cannot access external resources. This isolation enables compile-time evaluation, safe parallelization, and use in shape constraints or unit definitions.
 
-The distinction between `pure` and `func` is about capability, not syntax. Pure functions can call other functions, but those functions fail immediately if they attempt resource access. This creates a clear boundary between computation and effects.
+The distinction between `!pure` and regular functions is about capability, not syntax. Pure functions can call other functions, but those functions fail immediately if they attempt resource access. This creates a clear boundary between computation and effects.
 
 ```comp
-pure fibonacci pipeline{n} args{} = {
-    ($in | if {$in <= 1} {$in} {
-        $var.a = ($in - 1 | fibonacci)
-        $var.b = ($in - 2 | fibonacci)
+!pure
+!pipe {n ~num}
+!func |fibonacci = {
+    ($in |if {$in <= 1} {$in} {
+        $var.a = ($in - 1 |fibonacci)
+        $var.b = ($in - 2 |fibonacci)
         $var.a + $var.b
     })
 }
 
-pure validate_email pipeline{email} args{} = {
-    $in | match/str "^[^@]+@[^@]+$"
+!pure
+!pipe {email ~str}
+!func |validate-email = {
+    $in |match/str "^[^@]+@[^@]+$"
 }
 
-# Pure functions work at compile time
-shape User = {
-    email ~str {validate=|validate_email}
-    cache_key = (| generate_key)    # Computed at compile time if pure
+; Pure functions work at compile time
+!shape user = {
+    email ~str {validate=|validate-email}
+    cache-key = (|generate-key)    ; Computed at compile time if pure
 }
 
-# Regular function with effects
-func save_user pipeline{user} args{} = {
-    validated = ($in | validate_email)    # Can call pure function
-    (Saving ${$in.email} | log)          # Side effect - needs permissions
-    ($in | insert/database)
+; Regular function with effects
+!pipe {user}
+!func |save-user = {
+    validated = ($in |validate-email)    ; Can call pure function
+    (Saving ${$pipe.email} |log)         ; Side effect - needs permissions
+    ($in |insert/database)
 }
 ```
 
@@ -75,56 +123,146 @@ Functions use structural shapes to match incoming data, enabling multiple implem
 The dispatch scoring creates a total order over function implementations. Named field matches score highest, followed by tag depth in hierarchies. Assignment operators (`=`, `*=`, `?=`) break ties when shapes are otherwise identical. This deterministic selection enables predictable polymorphic behavior.
 
 ```comp
-func render pipeline{point} args{} = 2D point
-func render pipeline{point} *= default 2D  # Strong assignment
-func render pipeline{x y z} args{} = 3D point
+!pipe {point}
+!func |render = {2D point}
 
-({x=5 y=10} | render)           # "default 2D" - strong assignment wins
-({x=5 y=10 z=15} | render)      # "3D point" - more specific shape
-({5 10} | render)               # "default 2D" - positional matching
+!pipe {point}
+!func |render *= {default 2D}  ; Strong assignment
 
-# Tag-based dispatch with hierarchical scoring
-func process pipeline{status} args{} = generic status
-func process pipeline{status #error} args{} = error handler
-func process pipeline{status #network.error} args{} = network specialist
+!pipe {x ~num y ~num z ~num}
+!func |render = {3D point}
 
-({status=#timeout.error} | process)  # "error handler"
-({status=#network.error} | process)  # "network specialist"
+({x=5 y=10} |render)           ; "default 2D" - strong assignment wins
+({x=5 y=10 z=15} |render)      ; "3D point" - more specific shape
+({5 10} |render)               ; "default 2D" - positional matching
+
+; Tag-based dispatch with hierarchical scoring
+!pipe {status}
+!func |process = {generic status}
+
+!pipe {status #error}
+!func |process = {error handler}
+
+!pipe {status #network.error}
+!func |process = {network specialist}
+
+({status=#timeout.error} |process)  ; "error handler"
+({status=#network.error} |process)  ; "network specialist"
 ```
+
+## Function Overloading and Documentation
+
+When function names are overloaded, the language treats the group of definitions as a single set. They share documentation and appear as a single object during introspection, with multiple implementations differentiated by their shapes. Dispatch is driven solely by pipeline shape - argument shapes don't affect selection.
+
+```comp
+!doc "Process different types of data appropriately"
+
+!pipe {data ~user-data}
+!doc impl "Saves to primary database"
+!func |process = {
+    $pipe.data |validate-user |save-user
+}
+
+!pipe {data ~system-data}
+!doc impl "Archives to time-series store"
+!func |process = {
+    $pipe.data |validate-system |archive
+}
+
+; Single describe shows all implementations
+!describe |process
+; Returns: {
+;   doc: "Process different types of data appropriately"
+;   module: current-module
+;   implementations: [
+;     {pipe: ~user-data, args: {}, impl-doc: "Saves to primary database"},
+;     {pipe: ~system-data, args: {}, impl-doc: "Archives to time-series store"}
+;   ]
+; }
+```
+
+Even single-implementation functions follow this pattern internally, maintaining consistency for introspection and future extension.
 
 ## Blocks and Higher-Order Patterns
 
 Blocks are deferred structure definitions passed as arguments to functions, enabling higher-order programming patterns. Functions specify block arguments in their args shape, with optional type specifications and default implementations. Functions invoke their blocks as needed, controlling evaluation context and frequency.
 
-Block arguments are just another argument type in the args shape. Blocks capture their definition context, allowing them to reference local variables and namespace values.
+Block arguments are determined by the function's arg shape definition. When the parser encounters `{}` in argument position, it checks the function definition to determine whether to interpret it as a structure literal or a deferred block. Blocks capture their definition context, allowing them to reference local variables and namespace values.
 
 ```comp
-func with_retry pipeline{operation} args{on_error} = {
+!pipe {operation}
+!args {on-error ~block}
+!func |with-retry = {
     $var.attempts = 0
-    ($in | while {$var.attempts < 3} {
-        $var.result = ($in | operation |? {
+    ($in |while {$var.attempts < 3} {
+        $var.result = ($in |operation |? {
             $var.attempts = $var.attempts + 1
-            ($in | if {$var.attempts >= 3} {$in} {#skip})
+            ($in |if {$var.attempts >= 3} {$in} {#skip})
         })
     })
     $var.result
 }
 
-# Usage with blocks as arguments
-(data | with_retry operation=|risky_network_call on_error=|log_error)
+; Usage with blocks as arguments
+(data |with-retry on-error={|log-error})
 
-func process_batch pipeline{items} args{transform validate on_success} = {
-    $in | map transform
-        | filter validate
-        | each {$in | on_success}
+!pipe {items}
+!args {transform ~block validate ~block on-success ~block}
+!func |process-batch = {
+    $in |map transform
+        |filter validate
+        |each {$in |on-success}
 }
 
-# Complex control flow with blocks
-(items | process_batch 
-    transform={$in | enhance | normalize}
-    validate={.score > .threshold}
-    on_success={$in | save_to_database})
+; Complex control flow with blocks
+(items |process-batch 
+    transform={$in |enhance |normalize}
+    validate={$pipe.score > $pipe.threshold}
+    on-success={$in |save-to-database})
 ```
+
+For functions with multiple unnamed blocks (like control flow), blocks are accessed positionally:
+
+```comp
+!args {condition ~block ~block ~block}
+!func |if = {
+    $in |$arg.condition |if-true
+        {$in |$arg#1}   ; Then block
+        {$in |$arg#2}   ; Else block
+}
+
+; Clean calling syntax
+$in |if {$pipe.value > 5} {$pipe.value * 2} {$pipe.value / 2}
+```
+
+## Argument Spreading and Presence-Check
+
+Functions support spread operators for arguments, allowing predefined argument sets to be reused and overridden. The presence-check morphing pattern enables flag-style arguments where unnamed values matching field names set those fields to their "found" value.
+
+```comp
+!args {
+    verbose ~bool = #false ?? #true
+    debug ~bool = #false ?? #true
+    ..rest   ; Collect remaining fields
+}
+!func |process = {
+    ($arg.verbose |when {#true} {
+        ("Verbose mode enabled" |log)
+    })
+    ; $arg.rest contains unmatched fields
+}
+
+; Natural calling syntax
+(data |process verbose extra=1 more=2)
+; Results in: {verbose=#true debug=#false extra=1 more=2}
+
+; With argument spreading
+$var.defaults = {debug}
+(data |process ..$var.defaults verbose)
+; Results in: {verbose=#true debug=#true}
+```
+
+The `??` operator in shape definitions indicates presence-check fields: left side is the default (field not found), right side is the value when found in unnamed arguments.
 
 ## Polymorphic Tag Dispatch
 
@@ -133,23 +271,31 @@ Tags enable sophisticated polymorphic dispatch across module boundaries. When a 
 The tag dispatch examines the tag value, determines its hierarchy, and finds the most specific function implementation. For explicit parent calls, partial tag paths enable controlled polymorphic chains.
 
 ```comp
-# Base module defines animal behaviors
-tag animal = {#mammal #bird #reptile}
-func speak pipeline{type} args{} = generic animal sound
-func speak pipeline{type #mammal} args{} = mammalian vocalization
-func speak pipeline{type #bird} args{} = chirp
+; Base module defines animal behaviors
+!tag animal = {#mammal #bird #reptile}
 
-# Extended module adds specializations
-tag animal += {#dog.mammal #cat.mammal}
-func speak pipeline{type #dog.mammal} args{} = woof
+!pipe {type}
+!func |speak = {generic animal sound}
 
-# Polymorphic dispatch
-({type=#bird} | speak)          # "chirp"
-({type=#dog.mammal} | speak)    # "woof"
+!pipe {type #mammal}
+!func |speak = {mammalian vocalization}
 
-# Cross-module polymorphism
+!pipe {type #bird}
+!func |speak = {chirp}
+
+; Extended module adds specializations
+!tag animal += {#dog.mammal #cat.mammal}
+
+!pipe {type #dog.mammal}
+!func |speak = {woof}
+
+; Polymorphic dispatch
+({type=#bird} |speak)          ; "chirp"
+({type=#dog.mammal} |speak)    ; "woof"
+
+; Cross-module polymorphism
 creature = {type=#dog.mammal name=Rex}
-(creature | process_animal/external)   # External module handles extended tag
+(creature |process-animal/external)   ; External module handles extended tag
 ```
 
 ## Lazy Functions and Deferred Execution
@@ -157,43 +303,57 @@ creature = {type=#dog.mammal name=Rex}
 Functions can define lazy structures using `[]` brackets instead of `{}`. These create generators where fields compute on demand. Once computed, values are cached, making lazy structures eventually behave like regular structures. This enables efficient partial evaluation and infinite structures.
 
 ```comp
-func infinite_sequence pipeline{} args{start step} = [
-    ($in | count | map {$arg.start + $in * $arg.step})
+!pipe {}
+!args {start ~num step ~num}
+!func |infinite-sequence = [
+    ($in |count |map {$arg.start + $in * $arg.step})
 ]
 
-func expensive_analysis pipeline{data} args{} = [
-    summary = ($in | compute_summary)
-    statistics = ($in | deep_statistical_analysis)
-    visualization = ($in | generate_charts)
-    report = (| compile_full_report)
+!pipe {data}
+!func |expensive-analysis = [
+    summary = ($in |compute-summary)
+    statistics = ($in |deep-statistical-analysis)
+    visualization = ($in |generate-charts)
+    report = (|compile-full-report)
 ]
 
-# Only computes what's needed
-analysis = (data | expensive_analysis)
-quick_view = analysis.summary    # Only computes summary
-full = analysis ~ {summary statistics}  # Computes two fields
+; Only computes what's needed
+analysis = (data |expensive-analysis)
+quick-view = analysis.summary    ; Only computes summary
+full = analysis ~{summary statistics}  ; Computes two fields
 ```
 
 ## Function Permissions and Security
 
-Functions can declare required permissions using the `require` keyword. This creates compile-time documentation and enables early failure with clear error messages. The permission system uses capability tokens that flow through the context but cannot be stored or manipulated as values.
+Functions can declare required permissions using the `!require` decorator. This creates compile-time documentation and enables early failure with clear error messages. The permission system uses capability tokens that flow through the context but cannot be stored or manipulated as values.
 
 Pure functions implicitly drop all permissions, ensuring they cannot perform side effects. Regular functions inherit the caller's permissions unless explicitly restricted. The security model enables fine-grained control over resource access.
 
 ```comp
-require read, write
-func backup_database pipeline{} args{source dest} = {
-    ($arg.source | read/file)      # Needs read permission
-    | compress
-    | write/file $arg.dest         # Needs write permission
+!require read, write
+!pipe {}
+!args {source ~str dest ~str}
+!func |backup-file = {
+    ($arg.source |read/file)      ; Needs read permission
+    |compress
+    |write/file $arg.dest         ; Needs write permission
 }
 
-# Permissions flow through calls
-func admin_operation pipeline{} args{} = {
-    (| backup_database)          # Inherits admin's permissions
+!require net, env
+!pipe {}
+!args {endpoint ~str}
+!func |fetch-with-config = {
+    $var.api-key = (API_KEY |get/env)      ; Needs env token
+    headers = {Authorization = Bearer ${$var.api-key}}
+    ($arg.endpoint |get/http headers)      ; Needs net token
+}
+
+; Permissions flow through calls
+!func |admin-operation = {
+    (|backup-file)           ; Inherits admin's permissions
     
-    # Temporarily drop permissions for untrusted code
-    untrusted_input = ($in | process_user_data)  # Isolated execution
+    ; Temporarily drop permissions for untrusted code
+    untrusted-input = ($in |process-user-data)  ; Isolated execution
 }
 ```
 
@@ -202,24 +362,26 @@ func admin_operation pipeline{} args{} = {
 Functions compose naturally through pipelines, with each function's output becoming the next function's input. The `$in` reference resets at each statement boundary, enabling elegant parallel processing and analysis patterns.
 
 ```comp
-func comprehensive_analysis pipeline{data} args{} = {
-    # All three operate on input independently
-    metrics = $in | calculate_metrics
-    patterns = $in | identify_patterns
-    anomalies = $in | detect_anomalies
+!pipe {data}
+!func |comprehensive-analysis = {
+    ; All three operate on input independently
+    metrics = $in |calculate-metrics
+    patterns = $in |identify-patterns
+    anomalies = $in |detect-anomalies
     
-    # Combine results
+    ; Combine results
     {metrics patterns anomalies
-     summary=(| generate_summary data={metrics patterns anomalies})}
+     summary=(|generate-summary data={metrics patterns anomalies})}
 }
 
-func pipeline_composition pipeline{raw_input} args{} = {
-    # Functions naturally chain
-    $in | validate
-        | normalize 
-        | enhance config=.enhancement_config
-        | transform
-        | optimize
+!pipe {raw-input}
+!func |pipeline-composition = {
+    ; Functions naturally chain
+    $in |validate
+        |normalize 
+        |enhance config=$pipe.enhancement-config
+        |transform
+        |optimize
 }
 ```
 
@@ -228,16 +390,18 @@ func pipeline_composition pipeline{raw_input} args{} = {
 Function dispatch can be optimized through caching. The runtime maintains dispatch caches for frequently-called functions, avoiding repeated shape matching. Pure functions enable additional optimizations - their results can be memoized, they can be evaluated at compile time for constant inputs, and they can be safely parallelized.
 
 ```comp
-# Compile-time evaluation
-pure factorial pipeline{n} args{} = {
-    $in | if {$in <= 1} {1} {$in * ($in - 1 | factorial)}
+; Compile-time evaluation
+!pure
+!pipe {n ~num}
+!func |factorial = {
+    $in |if {$in <= 1} {1} {$in * ($in - 1 |factorial)}
 }
 
-# This evaluates at compile time
-constant = (10 | factorial)    # 3628800 computed during compilation
+; This evaluates at compile time
+constant = (10 |factorial)    ; 3628800 computed during compilation
 
-# Dispatch cache example
-(users | map {$in | process})  # Dispatch resolved once, cached for loop
+; Dispatch cache example
+(users |map {$in |process})  ; Dispatch resolved once, cached for loop
 ```
 
 ## Design Principles

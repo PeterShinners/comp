@@ -15,27 +15,37 @@ Structures are created with `{}` braces containing field definitions. Fields can
 Field names in structures are incredibly flexible. Tokens need no quoting and are treated as string literals when used as values. Field names themselves (left of `=`) are identifiers. Arbitrary strings use double quotes for field names, and expressions use single quotes.
 
 ```comp
-# Various field types
+; Various field types
 user = {
-    name = Alice              # Token as string literal
-    age = 30                  # Number literal
-    #active.status = #true    # Tag as field name
-    "Full Name" = Alice Smith # String field name
-    'score * 2' = 60         # Expression field name
+    name = Alice              ; Token as string literal
+    age = 30                  ; Number literal
+    #active.status = #true    ; Tag as field name
+    "Full Name" = Alice Smith ; String field name
+    'score * 2' = 60         ; Expression field name
 }
 
-# Accessing fields
-user.name                    # Token access
-user.#active.status         # Tag field access
-user."Full Name"            # String field access
-user.'score * 2'            # Expression field access
+; Accessing fields
+user.name                    ; Token access
+user.#active.status         ; Tag field access
+user."Full Name"            ; String field access
+user.'score * 2'            ; Expression field access
+user.'$var.idx'             ; Variable value as field name
 
-# Positional fields
-coords = {10 20 30}          # Three unnamed fields
-mixed = {x=5 10 y=15}        # Mix of named and unnamed
+; Positional fields
+coords = {10 20 30}          ; Three unnamed fields
+mixed = {x=5 10 y=15}        ; Mix of named and unnamed
+
+; Index access (no period before #)
+coords#0                     ; 10 - first unnamed field
+coords#1                     ; 20 - second unnamed field
+mixed#0                      ; 10 - first unnamed field
 ```
 
-Each field has a positional index accessible with `#`. Indexing is zero-based and counts all fields regardless of whether they're named or unnamed. Assignment to an index beyond the structure's size normally fails, but strong assignment (`*=`) extends the structure to accommodate the index.
+Field access distinguishes between:
+- `data.field` - Named field access
+- `data#0` - Positional index (numeric literals only)
+- `data.'expr'` - Computed field name from expression
+- `data."string"` - String literal as field name
 
 ## Spread Operations and Structure Assembly
 
@@ -47,24 +57,31 @@ When spreading multiple structures, fields are applied in source order. Named fi
 base = {x=1 y=2 mode=default}
 overlay = {y=3 z=4 mode*=fixed}
 
-# Basic spreading with conflicts
+; Basic spreading with conflicts
 merged = {..base ..overlay}
-# Result: {x=1 y=3 z=4 mode=fixed}
+; Result: {x=1 y=3 z=4 mode=fixed}
 
-# Strong spread dominates
+; Strong spread dominates
 locked = {!..base y=99}
-# Result: {x=1 y=2 mode=default} - strong spread resists override
+; Result: {x=1 y=2 mode=default} - strong spread resists override
 
-# Weak spread for defaults
+; Weak spread for defaults
 config = {
     port = 8080
     ?..{port=3000 host=localhost timeout=30}
 }
-# Result: {port=8080 host=localhost timeout=30}
+; Result: {port=8080 host=localhost timeout=30}
 
-# Unnamed fields accumulate
+; Spread from shapes for defaults
+defaults = {..~config-shape}
+custom = {..~config-shape port=3000}
+
+; Field deletion with !delete
+cleaned = {..original !delete temp-field !delete old-field}
+
+; Unnamed fields accumulate
 arrays = {..{1 2} ..{3 4}}
-# Result: {1 2 3 4}
+; Result: {1 2 3 4}
 ```
 
 The spread operators work identically in all contexts - structure literals, function parameters, and shape definitions. This consistency makes them predictable tools for structure composition.
@@ -73,30 +90,30 @@ The spread operators work identically in all contexts - structure literals, func
 
 Assignment in Comp creates new structures rather than modifying existing ones. The assignment operators control how conflicts are resolved when the same field is set multiple times. Normal assignment (`=`) overwrites, strong assignment (`*=`) creates persistent values, and weak assignment (`?=`) only sets undefined fields.
 
-Deep field assignment creates new nested structures at each level, preserving immutability throughout the hierarchy. The assignment target determines where the value goes - local variables with `$var`, output structure fields, or namespace structures like `$ctx`.
+Deep field assignment creates new nested structures at each level, preserving immutability throughout the hierarchy. The assignment target determines where the value goes - local variables with `$var`, output structure fields (no prefix), or namespace structures like `$ctx`.
 
 ```comp
-# Field override behavior
+; Field override behavior
 config = {
-    port *= 8080        # Strong - resists override
-    host = localhost    # Normal - can be overwritten
-    timeout ?= 30       # Weak - only if undefined
+    port *= 8080        ; Strong - resists override
+    host = localhost    ; Normal - can be overwritten
+    timeout ?= 30       ; Weak - only if undefined
     
-    port = 3000        # Ignored due to strong assignment
-    host = 0.0.0.0     # Overwrites normal assignment
+    port = 3000        ; Ignored due to strong assignment
+    host = 0.0.0.0     ; Overwrites normal assignment
 }
 
-# Deep assignment preserves immutability
+; Deep assignment preserves immutability
 tree = {left={value=1} right={value=2}}
 tree.left.value = 10
-# Creates new structures: {..tree left={..tree.left value=10}}
+; Creates new structures: {..tree left={..tree.left value=10}}
 
-# Assignment targets
-func example pipeline{} args{} = {
-    $var.temp = 5                    # Local variable
-    result = (| compute)             # Output field
-    $ctx.setting = value             # Context namespace
-    $var.data = {field=10}          # New structure in variable
+; Assignment targets
+!func |example = {
+    $var.temp = 5                    ; Local variable
+    result = (|compute)              ; Output field (implicit $pipe)
+    $ctx.setting = value             ; Context namespace
+    $var.data = {field=10}          ; New structure in variable
 }
 ```
 
@@ -105,46 +122,50 @@ func example pipeline{} args{} = {
 Destructured assignment extracts multiple fields from a structure in a single statement. Named fields are extracted by name while unnamed fields are extracted positionally. This provides a concise way to unpack structures into individual variables or fields.
 
 ```comp
-# Extract named fields
-{name age city} = .user
-# Equivalent to: name=.user.name age=.user.age city=.user.city
+; Extract named fields
+{name age city} = $pipe.user
+; Equivalent to: name=$pipe.user.name age=$pipe.user.age city=$pipe.user.city
 
-# Extract with renaming
-{name=username age=years} = .user
-# Creates: username=.user.name years=.user.age
+; Extract with renaming
+{name=username age=years} = $pipe.user
+; Creates: username=$pipe.user.name years=$pipe.user.age
 
-# Mix named and positional
-{x y label=name} = .point
-# Gets first two unnamed fields as x,y and 'label' field as name
+; Mix named and positional
+{x y label=name} = $pipe.point
+; Gets first two unnamed fields as x,y and 'label' field as name
 
-# Nested destructuring
-{user={name email} status} = .response
-# Extracts nested fields directly
+; Nested destructuring
+{user={name email} status} = $pipe.response
+; Extracts nested fields directly
 
-# With defaults using fallback
-{port=.config.port ?? 8080 host=.config.host ?? localhost} = {}
+; With defaults using fallback
+{port=$pipe.config.port ?? 8080 host=$pipe.config.host ?? localhost} = {}
 ```
 
 Destructured assignment is particularly useful when working with function returns that provide multiple values, or when extracting configuration from nested structures.
 
 ## Field Deletion
 
-Removing fields from structures requires creating new structures without those fields. Since structures are immutable, there's no direct deletion - only construction of new structures missing certain fields. Shape morphing provides the cleanest approach for controlled field removal.
+Removing fields from structures requires creating new structures without those fields. Since structures are immutable, there's no direct deletion - only construction of new structures missing certain fields. The `!delete` operator and shape morphing provide clean approaches for controlled field removal.
 
 ```comp
-# Remove fields via shape morphing
-shape PublicUser = {name ~str email ~str}  # No password field
-user = {name=Alice email=a@example.com password=secret}
-public = user ~ PublicUser  # Result: {name=Alice email=a@example.com}
-
-# Explicit construction for simple cases
+; Remove fields with !delete operator
 original = {x=1 y=2 z=3 temp=remove}
-cleaned = {x=original.x y=original.y z=original.z}
+cleaned = {..original !delete temp}
+; Result: {x=1 y=2 z=3}
 
-# Conditional field inclusion
+; Multiple deletions
+modified = {..base !delete field1 !delete field2}
+
+; Remove fields via shape morphing
+!shape public-user = {name ~str email ~str}  ; No password field
+user = {name=Alice email=a@example.com password=secret}
+public = user ~public-user  ; Result: {name=Alice email=a@example.com}
+
+; Conditional field inclusion
 result = {
-    id = .data.id
-    ?..(data.is_public | if {$in} {name=.data.name email=.data.email} {})
+    id = $pipe.data.id
+    ?..(data.is-public |if {$in} {name=$pipe.data.name email=$pipe.data.email} {})
 }
 ```
 
@@ -157,33 +178,47 @@ Lazy structures delay computation until fields are accessed. Created with `[]` b
 Lazy structures capture their creation context - local variables, namespace values, and function parameters are frozen at creation time. This allows lazy computations to reference values that may change or go out of scope after creation.
 
 ```comp
-# Lazy structure delays expensive operations
+; Lazy structure delays expensive operations
 expensive = [
-    summary = (| compute_summary)
-    analysis = (| deep_analysis)
-    report = (| generate_report)
+    summary = (|compute-summary)
+    analysis = (|deep-analysis)
+    report = (|generate-report)
 ]
-# No computation happens yet
+; No computation happens yet
 
-value = expensive.summary  # Only computes summary field
+value = expensive.summary  ; Only computes summary field
 
-# Context capture
-func create_processor pipeline{} args{multiplier} = {
-    # Context captured when [] is created
+; Context capture
+!pipe {}
+!args {multiplier ~num}
+!func |create-processor = {
+    ; Context captured when [] is created
     processor = [
         doubled = $in * $arg.multiplier * 2
         tripled = $in * $arg.multiplier * 3
     ]
-    processor  # Returns lazy structure with captured multiplier
+    processor  ; Returns lazy structure with captured multiplier
 }
 
-# Lazy evaluation with shapes
+; Multiple independent calls in lazy structure
+$var.lazy = [
+    call1 = ($in |slow-call1)     ; Explicit $in breaks chain
+    call2 = ($in |slow-call2)     ; Independent call
+]
+
+; Or with parentheses
+$var.lazy = [
+    call1 = (|slow-call1)          ; Independent pipeline
+    call2 = (|slow-call2)          ; Independent pipeline
+]
+
+; Lazy evaluation with shapes
 data = [
-    field1 = (| expensive1)
-    field2 = (| expensive2)
-    field3 = (| expensive3)
-    extra = (| not_needed)
-] ~ {field1 field2}  # Only computes field1 and field2
+    field1 = (|expensive1)
+    field2 = (|expensive2)
+    field3 = (|expensive3)
+    extra = (|not-needed)
+] ~{field1 field2}  ; Only computes field1 and field2
 ```
 
 When a lazy structure is morphed to a shape that requires only specific fields, computation stops once those fields are resolved. This enables efficient partial evaluation of complex structures.
@@ -195,22 +230,22 @@ Structures can be compared for equality and ordering. Equality (`==`) checks str
 The standard library provides comprehensive structure operations through the `struct/` module. These functions enable field inspection, filtering, transformation, and analysis without breaking immutability.
 
 ```comp
-# Equality ignores named field order
-{x=1 y=2} == {y=2 x=1}                # true
-{1 2 3} == {1 2 3}                    # true
-{x=1 2} == {2 x=1}                    # false - positional order matters
+; Equality ignores named field order
+{x=1 y=2} == {y=2 x=1}                ; true
+{1 2 3} == {1 2 3}                    ; true
+{x=1 2} == {2 x=1}                    ; false - positional order matters
 
-# Ordering is deterministic
-{a=1 z=3} < {a=2 b=1}                 # true - 'a' field compared first
-{x=1} < {x=1 y=2}                     # true - subset is less
+; Ordering is deterministic
+{a=1 z=3} < {a=2 b=1}                 ; true - 'a' field compared first
+{x=1} < {x=1 y=2}                     ; true - subset is less
 
-# Structure operations via standard library
-import struct = std "core/struct"
+; Structure operations via standard library
+!import struct = std "core/struct"
 
-(data | field_names/struct)           # [name age status]
-(data | has_field/struct email)       # true or false
-(data | filter/struct {.value > 0})   # Keep positive fields
-(data | map_fields/struct |upper/str) # Transform all fields
+(data |field-names/struct)           ; [name age status]
+(data |has-field/struct email)       ; true or false
+(data |filter/struct {$pipe.value > 0})  ; Keep positive fields
+(data |map-fields/struct |upper/str) ; Transform all fields
 ```
 
 ## Advanced Structure Patterns
@@ -218,30 +253,32 @@ import struct = std "core/struct"
 Complex structures often combine multiple composition techniques. Template functions generate structures with computed fields. Conditional spreading includes fields based on runtime conditions. Nested structures maintain immutability through all levels.
 
 ```comp
-# Template function for consistent structure creation
-func create_response pipeline{} args{status data} = {
+; Template function for consistent structure creation
+!pipe {}
+!args {status ~tag data ~any}
+!func |create-response = {
     status = $arg.status
     data = $arg.data
-    timestamp = (| now/time)
+    timestamp = (|now/time)
     metadata = {
         version = 1.0
-        ?..(($arg.status >= 400) | if {$in} {error=#true} {})
+        ?..(($arg.status >= 400) |if {$in} {error=#true} {})
     }
 }
 
-# Conditional field inclusion
-user_view = {
-    id = .user.id
-    name = .user.name
-    ?..(.is_admin | if {$in} {email=.user.email role=.user.role} {})
-    ?..(.is_self | if {$in} {preferences=.user.preferences} {})
+; Conditional field inclusion
+user-view = {
+    id = $pipe.user.id
+    name = $pipe.user.name
+    ?..($pipe.is-admin |if {$in} {email=$pipe.user.email role=$pipe.user.role} {})
+    ?..($pipe.is-self |if {$in} {preferences=$pipe.user.preferences} {})
 }
 
-# Structure transformation pipeline
-(raw_data | validate
-          | {$in validated=#true timestamp=(| now/time)}
-          | enhance_with_metadata
-          | {$in checksum=(| calculate_checksum)})
+; Structure transformation pipeline
+(raw-data |validate
+          |{$in validated=#true timestamp=(|now/time)}
+          |enhance-with-metadata
+          |{$in checksum=(|calculate-checksum)})
 ```
 
 ## Design Principles
