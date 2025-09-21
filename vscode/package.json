@@ -20,7 +20,10 @@
         "extensions": [
           ".comp"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "mimetypes": [
+          "text/x-comp"
+        ]
       }
     ],
     "grammars": [
@@ -28,6 +31,13 @@
         "language": "comp",
         "scopeName": "source.comp",
         "path": "./syntaxes/comp.tmLanguage.json"
+      },
+      {
+        "scopeName": "text.html.markdown.comp.injection",
+        "path": "./syntaxes/comp-injection.tmLanguage.json",
+        "injectTo": [
+          "text.html.markdown"
+        ]
       }
     ]
   }
