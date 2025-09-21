@@ -45,20 +45,20 @@ immutable, maintaining Comp's functional programming guarantees.
 
 ```comp
 ; Create a store with initial data
-$store = (|new/store {
+@store = (|new/store {
     users = {}
     config = {theme=dark lang=en}
     cache = {}
 })
 
 ; Read immutable data from store
-$user = $store |get /users.123/
-$theme = $store |get /config.theme/
+@user = @store |get /users.123/
+@theme = @store |get /config.theme/
 
 ; Explicit mutations through store operations
-$store |set /users.123/ new-user
-$store |update /config.theme/ light
-$store |delete /cache.temp/
+@store |set /users.123/ new-user
+@store |update /config.theme/ light
+@store |delete /cache.temp/
 ```
 
 The separation between reading and writing is intentional and explicit. You
@@ -74,18 +74,18 @@ query operations provide information about the Store's contents.
 
 ```comp
 ; Basic operations
-$store |get /path/              ; Read value at path
-$store |set /path/ value        ; Write value at path
-$store |delete /path/           ; Remove path and value
-$store |exists? /path/          ; Check if path exists
-$store |clear                   ; Remove all data
+@store |get /path/              ; Read value at path
+@store |set /path/ value        ; Write value at path
+@store |delete /path/           ; Remove path and value
+@store |exists? /path/          ; Check if path exists
+@store |clear                   ; Remove all data
 
-; Update operations with functions
-$store |update /counter/ {$in + 1}
-$store |modify /users/ |filter {active?}
+; Functional updates
+@store |update /counter/ {$in + 1}
+@store |modify /users/ |filter {active?}
 
-; Bulk operations
-$store |set-many {
+; Batch operations
+@store |set-many {
     /users.new/ = new-user
     /cache.user/ = new-user.id
     /stats.count/ = count + 1
@@ -105,16 +105,16 @@ see [Trail System](trail.md).
 
 ```comp
 ; Use trails for dynamic access
-$user-trail = /users.${user-id}/
-$store |get $user-trail
+@user-trail = /users.${user-id}/
+@store |get @user-trail
 
 ; Bulk operations with trail patterns
-$store |select /users.*.active/       ; Get all active flags
-$store |update-all /prices.*/ {$in * 1.1}  ; Increase all prices
+@store |select /users.*.active/       ; Get all active flags
+@store |update-all /prices.*/ {$in * 1.1}  ; Increase all prices
 
 ; Complex queries
-active-users = $store |query /users.[active]/
-$store |delete-matching /cache.expired.*/
+active-users = @store |query /users.[active]/
+@store |delete-matching /cache.expired.*/
 ```
 
 ## Transactions
@@ -125,7 +125,7 @@ operations succeed or none do, leaving the Store in a consistent state.
 
 ```comp
 ; Transaction with multiple operations
-$store |transaction {
+@store |transaction {
     $in |set /users.123/ user-data
     $in |update /stats.user-count/ {$in + 1}
     $in |delete /cache.temp/
@@ -133,9 +133,9 @@ $store |transaction {
 ; All operations succeed or all rollback
 
 ; Conditional transactions
-$store |transaction {
-    $current = $in |get /balance/
-    $in |if {$current >= amount} {
+@store |transaction {
+    @current = $in |get /balance/
+    $in |if {@current >= amount} {
         $in |update /balance/ {$in - amount}
         $in |set /transactions.${id}/ {amount from=balance}
     } {
@@ -156,18 +156,18 @@ efficient checking for modifications without expensive comparisons.
 
 ```comp
 ; Get current version (opaque value)
-$version = $store |version
+@version = @store |version
 
 ; Check if store changed since version
-$store |changed? $version        ; Returns #true or #false
+@store |changed? @version        ; Returns #true or #false
 
 ; Get changes since version
-$changes = $store |changes-since $version
+@changes = @store |changes-since @version
 ; Returns: {paths=[/users.123/ /config/] new-version=...}
 
 ; Conditional updates based on version
-$store |set-if-unchanged /path/ value since=$version
-; Succeeds only if store hasn't changed since $version
+@store |set-if-unchanged /path/ value since=@version
+; Succeeds only if store hasn't changed since @version
 ```
 
 Versions are opaque values that only the Store understands. They might be
@@ -206,14 +206,14 @@ $mod.app-store = (|new/store {
 
 ; Local state for UI components
 !func |counter-component = {
-    $local = (|new/store {count=0})
+    @local = (|new/store {count=0})
     
     ; Event handlers modify store
-    on-increment = {$local |update /count/ {$in + 1}}
-    on-reset = {$local |set /count/ 0}
+    on-increment = {@local |update /count/ {$in + 1}}
+    on-reset = {@local |set /count/ 0}
     
     ; Render from immutable snapshot
-    current = $local |get /count/
+    current = @local |get /count/
     {value=current on-increment on-reset}
 }
 ```

@@ -1,41 +1,38 @@
 ; Lock-free stack using linked nodes and atomic head pointer
-; Simpler approach focusing on the core lock-free algorithm
 
-!import .atomic = comp "@systems/atomic@1.0.1/lib"
+!import atomic = comp "@systems/atomic@1.0.1/lib"
 
 !shape ~node = {
-    data~str
-    next~node|~nil
+	data ~str
+	next ~node | ~nil
 }
 
 !shape ~stack = {
-    head~node|~nil = {}
-    ..~version.atomic
+	head ~node | ~nil = {}
+	..~version/atomic  ; Include whatever fields needed for atomic operations
 }
 
-!func :push ~{stack~stack data~str} = {
-    stack |retry-exchange 
-        .{..$in head={data=data next=head}}
+!func |push ~{stack ~stack} ^{data ~str} = {
+	^stack |retry-exchange/atomic 
+		{..$in head = {data = ^data next = head}}
 }
 
-!func :pop ~{stack~stack} = {
-    stack |retry-exchange 
-        .{..!in head=head.next} // fails when head is {}
+!func |pop ^{stack ~stack} = {
+	^stack |retry-exchange/atomic 
+		{..$in head = head.next}  ; fails when head is {}
 }
 
-!func :test_stack = {
-    $stack = {..~stack}
-    
-    ; Push some items
-    $stack = $stack 
-    |push{data="first"}
-    |push{data="second"} 
-    |push{data="third"}
-    
-    ; Pop them back
-    (|while .{
-        $stack = $stack |pop |tap .{head.data % "Popped: ${}" |print}
-        |> #break  ; Stop gracefully when empty
-    })
+!func |test-stack = {
+	; Push some items
+	@stack = {}
+	|push data = "first"
+	|push data = "second" 
+	|push data = "third"
+	
+	; Pop them back
+	(|forever .{
+		@stack = @stack |pop 
+		|tap {|% "Popped: ${head.data}" |print}
+		?> #field.fail {#break}  ; Stop gracefully when empty
+	})
 }
-

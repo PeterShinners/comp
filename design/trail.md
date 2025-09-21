@@ -14,17 +14,17 @@ A trail literal using `/path/` syntax creates a structure containing an array of
 
 ```comp
 ; Trail literal creates a structure
-$path = /users.profile.theme/
+@path = /users.profile.theme/
 ; Equivalent to approximately:
 ; {segments=[users profile theme]}
 
 ; Apply trail structure to data
 config |get /database.host/           ; Apply trail to navigate
-$in |get $path                   ; Apply stored trail variable
+$in |get @path                   ; Apply stored trail variable
 
 ; Setting values through trails
 data |set /user.name/ Alice          ; Navigate and set value
-config |set $path new-value      ; Set using trail variable
+config |set @path new-value      ; Set using trail variable
 ```
 
 The trail syntax provides convenient shorthand for creating these navigation structures. The actual structure format is an implementation detail, but conceptually it's just an array of strings and operator tags that describe how to navigate through data.
@@ -55,12 +55,12 @@ Since trails are just structures, they can be created programmatically without u
 
 ```comp
 ; Programmatic trail construction
-$dynamic-trail = {segments=[users user-id settings]}
-data |set $dynamic-trail new-settings
+@dynamic-trail = {segments=[users user-id settings]}
+data |set @dynamic-trail new-settings
 
 ; Trail manipulation as regular structures
-$base-trail = /api.v2/
-$extended = {..$base-trail segments=[..$base-trail.segments users]}
+@base-trail = /api.v2/
+@extended = {..@base-trail segments=[..@base-trail.segments users]}
 ```
 
 ## Trail Operations
@@ -73,8 +73,8 @@ data |get /users.profile/
 data |set /users.profile/ value
 
 ; The trail structure can be manipulated
-$path = /users/
-$extended = $path |extend/trail profile.theme
+@path = /users/
+@extended = @path |extend/trail profile.theme
 ; Results in trail structure for /users.profile.theme/
 ```
 
@@ -100,21 +100,21 @@ Since trails are just structures, they compose using normal structure operations
 
 ```comp
 ; Trail concatenation syntax
-$api = /api/
-$version = /v2/
-$endpoint = /users/
-$full = $api/$version/$endpoint     ; Creates combined trail structure
+@api = /api/
+@version = /v2/
+@endpoint = /users/
+@full = @api/@version/@endpoint     ; Creates combined trail structure
 
 ; This is just structure manipulation
 ; The `/` operator between trails combines their segment arrays
 
 ; Direct structure manipulation works too
-$custom-trail = {
-    segments = [..$api.segments ..$version.segments ..$endpoint.segments]
+@custom-trail = {
+    segments = [..@api.segments ..@version.segments ..@endpoint.segments]
 }
 
 ; Both create equivalent trail structures
-data |get $full == data |get $custom-trail    ; Same navigation result
+data |get @full == data |get @custom-trail    ; Same navigation result
 ```
 
 ## Navigation Patterns

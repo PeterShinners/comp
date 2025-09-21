@@ -42,21 +42,21 @@ also explicitly release them early.
 
 ```comp
 ; Resources are created by system functions
-$file = (path/to/file |open/file)
-$conn = (postgresql://localhost/mydb |connect/db)
-$socket = {host=api.example.com port=443} |connect/net
+@file = (path/to/file |open/file)
+@conn = (postgresql://localhost/mydb |connect/db)
+@socket = {host=api.example.com port=443} |connect/net
 
 ; Automatic cleanup when leaving scope
 !func |process-file ^{path ~str} = {
-    $file = ^path |open/file
-    $file |read/file |process
-    ; $file automatically closed when function returns
+    @file = ^path |open/file
+    @file |read/file |process
+    ; @file automatically closed when function returns
 }
 
 ; Explicit early release
-$temp = (/tmp/data |open/file)
-$temp |write/file data
-$temp |release              ; Close immediately
+@temp = (/tmp/data |open/file)
+@temp |write/file data
+@temp |release              ; Close immediately
 ```
 
 Resources flow through pipelines like any other value but maintain their special
@@ -84,9 +84,9 @@ transactions, outside of resources that naturally provide this, like databases.
 ; All inserts commit together or all rollback
 
 ; Multiple coordinated resources
-!transact $database $cache $search {
-    $user-id = (user |insert/db |get-id)
-    (user |set/cache user:${$user-id})
+!transact @database @cache @search {
+    @user-id = (user |insert/db |get-id)
+    (user |set/cache user:${@user-id})
     (user |index/search users)
 }
 ; All three systems update atomically
@@ -104,11 +104,11 @@ batching, and coordinating resources without explicit concurrency management.
 
 ```comp
 ; Connection pooling with automatic management
-$pool = (|create-pool/db url=database-url max=10)
+@pool = (|create-pool/db url=database-url max=10)
 
 ; Pool automatically multiplexes connections
 (requests |map {
-    $pool |with {$in |
+    @pool |with {$in |
         (|query SELECT * FROM users WHERE id = ${id})
     }
 })
@@ -138,12 +138,12 @@ rollback.
 
 ```comp
 ; State preservation across transaction boundaries
-$counter = 0
-!transact $resource {
-    $counter = $counter + 1     ; Local change
+@counter = 0
+!transact @resource {
+    @counter = @counter + 1     ; Local change
     (|risky-operation)                  ; Might fail
 }
-; If operation fails, $counter remains 0
+; If operation fails, @counter remains 0
 
 ; Transaction hooks for custom resources
 resource %custom-handler {

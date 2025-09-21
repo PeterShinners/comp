@@ -93,7 +93,7 @@ The spread operators work identically in all contexts - structure literals, func
 
 Assignment in Comp creates new structures rather than modifying existing ones. The assignment operators control how conflicts are resolved when the same field is set multiple times. Normal assignment (`=`) overwrites, strong assignment (`*=`) creates persistent values, and weak assignment (`?=`) only sets undefined fields.
 
-Deep field assignment creates new nested structures at each level, preserving immutability throughout the hierarchy. The assignment target determines where the value goes - local variables with `$var`, output structure fields (no prefix), or namespace structures like `$ctx`.
+Deep field assignment creates new nested structures at each level, preserving immutability throughout the hierarchy. The assignment target determines where the value goes - local variables with `@var`, output structure fields (no prefix), or scope structures like `$ctx`.
 
 ```comp
 ; Field override behavior
@@ -113,12 +113,56 @@ tree.left.value = 10
 
 ; Assignment targets
 !func |example = {
-    $temp = 5               ; Local variable
+    @temp = 5               ; Local variable
     result = (|compute)     ; Output field (implicit $in)
-    $ctx.setting = value    ; Context namespace
-    $data = {field=10}      ; New structure in variable
+    $ctx.setting = value    ; Context scope
+    @data = {field=10}      ; New structure in variable
 }
 ```
+
+## Field Assignment Shortcuts
+
+When creating structures that extract fields from existing data, a trailing dot syntax provides a concise shorthand. The pattern `field=scope.` assigns the field to the value of the same-named field from the specified scope. If no scope is provided, `$in` is assumed.
+
+```comp
+; Long form field extraction
+user-data = {
+    name = $in.name
+    email = $in.email
+    status = $in.status
+    created-at = $in.created-at
+}
+
+; Trailing dot shorthand
+user-data = {name=. email=. status=. created-at=.}
+
+; Mixed with explicit assignments
+response = {
+    id=.                    ; From $in.id
+    name=.                  ; From $in.name
+    status = #active        ; Explicit value
+    timestamp = (|now)      ; Computed value
+}
+
+; Works with different scopes
+config = {
+    port=$ctx.              ; From $ctx.port
+    host=$mod.              ; From $mod.host
+    timeout=.               ; From $in.timeout (default scope)
+}
+
+; Works with all assignment operators
+fields = {
+    name=.                  ; Normal assignment
+    title*=.                ; Strong assignment
+    description?=.          ; Weak assignment
+}
+
+; Particularly useful in map operations
+(users |map {id=. name=. email=. active=.})
+```
+
+The trailing dot syntax significantly reduces repetition when extracting multiple fields, making structure creation more readable while maintaining explicit field naming. This pattern is especially common in data transformation pipelines where input structures are filtered or reorganized.
 
 ## Destructured Assignment
 
@@ -178,7 +222,7 @@ The pattern of using shapes to define "public" versions of structures is idiomat
 
 Lazy structures delay computation until fields are accessed. Created with `[]` brackets instead of `{}`, they behave like generators that compute values on demand. Once a field is computed, its value is cached for future access. After full evaluation, a lazy structure behaves identically to a regular structure.
 
-Lazy structures capture their creation context - local variables, namespace values, and function parameters are frozen at creation time. This allows lazy computations to reference values that may change or go out of scope after creation.
+Lazy structures capture their creation context - local variables, scope values, and function parameters are frozen at creation time. This allows lazy computations to reference values that may change or go out of scope after creation.
 
 ```comp
 ; Lazy structure delays expensive operations
@@ -202,13 +246,13 @@ value = expensive.summary  ; Only computes summary field
 }
 
 ; Multiple independent calls in lazy structure
-$lazy = [
+@lazy = [
     call1 = ($in |slow-call1)     ; Explicit $in breaks chain
     call2 = ($in |slow-call2)     ; Independent call
 ]
 
 ; Or with parentheses
-$lazy = [
+@lazy = [
     call1 = (|slow-call1)          ; Independent pipeline
     call2 = (|slow-call2)          ; Independent pipeline
 ]

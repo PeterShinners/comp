@@ -15,7 +15,7 @@ The security model draws from proven designs like Deno's permission system while
 adding Comp-specific features. Permissions are declarative, enabling static
 analysis and clear documentation of function requirements. Pure functions
 provide guaranteed isolation by executing with no permissions, making them safe
-for untrusted code and compile-time evaluation. For information about how
+for untrusted code and build-time evaluation. For information about how
 permissions integrate with function definitions, see [Functions and
 Blocks](function.md).
 
@@ -61,7 +61,7 @@ Comp-specific tokens for language features:
 ## Function Permission Requirements
 
 Functions declare required permissions using the `require` decorator. This
-serves as documentation, enables compile-time verification where possible, and
+serves as documentation, enables build-time verification where possible, and
 provides clear error messages when permissions are missing. The decorator
 appears before the function definition and lists required tokens.
 
@@ -75,8 +75,8 @@ func backup_file pipeline{} args{source dest} = {
 
 require net, env
 func fetch_with_config pipeline{} args{endpoint} = {
-    $api_key = (API_KEY | get/env)      # Needs env token
-    headers = {Authorization = Bearer ${$api_key}}
+    @api_key = (API_KEY | get/env)      # Needs env token
+    headers = {Authorization = Bearer ${@api_key}}
     (^endpoint | get/http headers)      # Needs net token
 }
 
@@ -112,7 +112,7 @@ pure validate_structure pipeline{data} args{} = {
 
 # Pure functions enable optimizations
 shape Config = {
-    cache_key = (| generate_key)    # Evaluated at compile time
+    cache_key = (| generate_key)    # Evaluated at build time
     validator = |validate_structure
 }
 ```

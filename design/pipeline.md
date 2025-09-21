@@ -5,7 +5,11 @@ management*
 
 ## Overview
 
-Comp uses pipelines to connect operations into data transformation chains. The
+Comp uses pipelines to connect operations into data # Module extension
+!tag #fail += {
+    #database = Database operation failed {
+        #connection = Unable to connect
+        #constraint = Constraint violationformation chains. The
 `|` operator marks function application, creating readable left-to-right data
 flow. Control flow and error handling are achieved through functions that accept
 block arguments (dotted structures `.{}`), providing a consistent and composable
@@ -75,7 +79,7 @@ Each statement in Comp performs one of three actions based on its target. These
 actions determine how the pipeline's result is used and whether it contributes
 to the output structure being built.
 
-**Variable Assignment** uses `$name` followed by `=` to create
+**Variable Assignment** uses `@name` followed by `=` to create
 function-local variables that can be referenced later in the function. These
 variables exist only within the function's scope and are immutable once
 assigned.
@@ -90,24 +94,16 @@ an unnamed field to the output structure. These unnamed fields maintain their
 order and can be accessed by position.
 
 ```comp
-!func |analyze ~{data} = {
-    ; Variable - available in function, not in output
-    $threshold = average * 1.5
+!func |process-data ~{data} = {
+    ; Local variables store intermediate results
+    @threshold = average * 1.5
     
-    ; Named field - part of output structure
-    high-values = $in |filter {value > $threshold}
-    
-    ; Unnamed field - added to output positionally
-    $in |calculate-median
-    
-    ; Variables with nested access
-    $config = {timeout=30 retries=3}
-    $timeout = $config.timeout  ; Access nested field
-}
+    ; Use local variable in pipeline
+    high-values = $in |filter {value > @threshold}
 ```
 
-Function-local variables provide a crucial namespace separate from field
-lookups. They must always be explicitly referenced with the `$` prefix and
+Function-local variables provide a crucial scope separate from field
+lookups. They must always be explicitly referenced with the `@` prefix and
 can only be used after definition.
 
 ## Control Flow Through Functions
@@ -131,7 +127,7 @@ scope and execute conditionally.
                              queued
     
     $in |when {response-type == immediate} {
-        (Urgent: ${summary} |alert-team)
+        (%"Urgent: ${summary}" |alert-team)
     }
     
     status |match
@@ -249,17 +245,17 @@ operators creating a chain of handlers tested in order.
         |? {#deadlock.database.fail} {$in |wait-and-retry}
         |? {
             ; General failure - multiple operations for recovery
-            $error = $in
-            (Operation failed: ${$error.message} |log)
-            $error |cleanup-resources |{status=failed original=$in}
+            @error = $in
+            (%"Operation failed: ${@error.message}" |log)
+            @error |cleanup-resources |{status=#failed original=$in}
         }
 }
 
 ; Complex recovery in a single block
 $in |risky-operation |? {
-    $error = $in
-    (Operation failed: ${$error.message} |log)
-    $error.code |match
+    @error = $in
+    (%"Operation failed: ${@error.message}" |log)
+    @error.code |match
         {$in >= 500} {$in |wait-and-retry}
         {$in == 429} {$in |backoff-exponentially}
         {#true} {$in |use-fallback-service}
@@ -315,7 +311,8 @@ items |map {$in |validate |enhance}
 items |map {($in |validate |enhance)}
 
 ; At statement level, no parens needed
-$result = $in |process |validate
+; Simple variable usage in pipeline
+@result = $in |process |validate
 
 ; In expression position, parens required
 total = (base |calculate) + (bonus |calculate)

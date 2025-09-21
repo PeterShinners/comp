@@ -1,67 +1,67 @@
 ; io_uring file reader using hypothetical Comp uring library
-; Compare with: https:;unixism.net/loti/liburing_examples.html
+; Compare with: https://unixism.net/loti/liburing_examples.html
 
-!import .ring = comp "system:/uring@1.2/uring"
-!import .s = stdlib "fs"
-!import .o = stdlib "io"
-!import .lib = stdlib "clib"
+!import ring = comp "system:/uring@1.2/uring"
+!import fs = stdlib "fs"
+!import io = stdlib "io"
+!import clib = stdlib "clib"
 
 $mod.QUEUE_DEPTH = 1
 $mod.BLOCK_SIZE = 1024
 
-
 ; Library-provided shapes for io_uring operations
-!shape ~FileInfo = {
-    size ~number@size.bytes
-    blocks ~IoVec[]
+!shape ~file-info = {
+	size ~number@size.bytes
+	blocks ~io-vec[]
 }
 
-!func read_file_async ~{path ~string} = {
-    $size = path -> :clib/stat -> size
-    $ vecs = {$size BLOCK_SIZE} ->:uring/alloc_buffers
+!func |read-file-async ^{path ~string} = {
+	@size = ^path |stat/clib |.size
+	@vecs = {@size $mod.BLOCK_SIZE} |alloc-buffers/uring
 
-    $op = {
-        op_type = #uring_op#read#readv
-        fd = &file_descriptor
-        iovecs = $vecs
-        offset = 0
-    }
+	@op = {
+		op_type = #readv.read.uring_op
+		fd = file_descriptor
+		io-vecs = @vecs
+		offset = 0
+	}
 
-    ; Submit async read operation
-    :uring/get_ring -> !label ^ring
-    -> :uring/get_sqe 
-    -> :uring/prep_readv{
-        fd = &file_descriptor
-        iovecs = $blocks
-        offset = 0
-        op_type = #uring_op#read#readv
-    }
-    -> :uring/set_data(file_info)
-    -> :uring/submit
+	; Submit async read operation
+	@ring = (|get-ring/uring)
+	@file-info = {size=@. blocks = @vecs}
+	@ring |get-sqe/uring
+	|prep-readv/uring {
+		fd = file_descriptor
+		io-vecs = @vecs
+		offset = 0
+		op_type = #readv.read.uring_op
+	} 
+	|set-data/uring @file-info
+	|submit/uring
 
-    ; Wait for completion and process result
-    ^ring -> :uring/wait_completion
-    -> :uring/get_data
-    -> {blocks} 
-    => {{iovec.base length=iovec.length} -> :buffer/to_string -> :io/print}
+	; Wait for completion and process result
+	@ring 
+	|wait-completion/uring
+	|get-data/uring
+	|map {
+		@buffer = io-vec.base |to-string/buffer {length = io-vec.length}
+		@buffer |print
+	}
 }
 
-!main ~{args ~string[1-]} = {
-    $args = :env/cmdline
-    $args -> :length < 2 
-        ? {#fail#process#arguments "Usage: file_reader paths..."} | {}
+!main = {
+	@args = (|cmdline/env)
+	@args |if length < 2
+		.{#fail.process.arguments message="Usage: file_reader paths..."}
 
-    ; Initialize io_uring with queue depth
-    QUEUE_DEPTH -> :uring/init
+	; Initialize io_uring with queue depth
+	$mod.QUEUE_DEPTH |init/uring
 
-    ; Process each file argument
-    $args -> :skip(1) => {filepath ->
-        filepath -> :read_file_async
-        !> {error -> 
-            "Error reading file ${filepath}: ${error.message}" -> :io/print_error
-        }
-    }
-    
-    ; Ring cleanup handled automatically by Comp's scope management
+	; Process each file argument
+	@args |skip 1 |map {
+		$in |read-file-async
+		?> {%"Error reading file ${filepath}: ${message}" |print-error}
+	}
+	
+	; Ring cleanup handled automatically by Comp's scope management
 }
-

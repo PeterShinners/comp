@@ -53,11 +53,13 @@ Control flow functions interpret values for conditional logic. While only `#fals
 ```comp
 ; Control flow interpretation
 ($in |if {#false} true-branch false-branch)      ; False branch
+($in |if {#false} .{true-branch} .{false-branch}) ; Explicit block syntax
 ($in |if {{}} true-branch false-branch)          ; False branch (empty)
 ($in |if {0} true-branch false-branch)           ; True branch (non-empty)
 ($in |if {empty} true-branch false-branch)       ; True branch (non-empty)
 
-; Preferred explicit style
+; Preferred explicit style with simple values
+($in |if {count > 0} "has-items" "no-items")
 ($in |if {count > 0} has-items no-items)
 ($in |when {user.active? == #true} process)
 ```
@@ -186,28 +188,37 @@ ab * 3                    ; ERROR - no * for strings
 
 ### Template Formatting
 
-The `%` operator applies template formatting to strings. Templates use `${}` placeholders that are filled from the provided structure. The operator can be used for complex string building without concatenation.
+The `%` operator applies template formatting to strings. Templates use `${}` placeholders that are filled from the provided structure. The operator can be used as a binary operator or as a prefix for string literals to enable immediate template expansion.
 
 ```comp
-; Template syntax with % operator
-template = Hello, ${name}!
-result = template % {name=Alice}     ; "Hello, Alice!"
+; Binary template operator
+template = "Hello, ${name}!"
+result = {name="Alice"} % template     ; "Hello, Alice!"
+
+; Template string prefix for immediate expansion
+name = "Alice"
+result = %"Hello, ${name}!"           ; "Hello, Alice!"
 
 ; Positional placeholders
-${} + ${} = ${} % {2 3 5}         ; "2 + 3 = 5"
+%"${} + ${} = ${}" % {2 3 5}         ; "2 + 3 = 5"
 
 ; Named and positional mixing
-{name=Bob Developer} % Hi ${name}, you are a ${}
+%"Hi ${name}, you are a ${}" % {name="Bob" "Developer"}
 
 ; Index-based placeholders
-${#1} before ${#0} % {first second}  ; "second before first"
+%"${#1} before ${#0}" % {"first" "second"}  ; "second before first"
+
+; Pipeline template operator
+{greeting="World"} |% "Hello, ${greeting}!"  ; "Hello, World!"
 ```
 
 Template formatting follows Python-style rules:
 - Positional `${}` matches unnamed fields in order
-- Named `${field}` matches named fields
+- Named `${field}` matches named fields  
 - Indexed `${#n}` references specific positions
 - Cannot mix positional and indexed in same template
+- Prefix `%"..."` enables immediate template expansion with variables in scope
+- Pipeline `|%` applies template formatting in pipeline context
 
 ### String Operations
 
@@ -252,7 +263,7 @@ invalid = not-an-email#email       ; Fails validation
 normalized = USER@EXAMPLE.COM#email ; Becomes lowercase
 
 ; Custom string units
-!tag url ~str = {
+!tag #url ~str = {
     validate = |parse/url
     normalize = |normalize/url
     escape = |encode/url

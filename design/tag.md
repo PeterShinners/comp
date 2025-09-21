@@ -4,18 +4,21 @@
 
 ## Overview
 
-Tags are compile-time tokens that serve as values, types, and dispatch mechanisms. They form hierarchical taxonomies that enable polymorphic behavior, provide enumerated constants, and create extensible categorization systems. Tags are always prefixed with `#` when referenced and use reversed hierarchy notation where the most specific part comes first.
+Tags are build-time tokens that serve as values, types, and dispatch mechanisms. They form hierarchical taxonomies that enable polymorphic behavior, provide enumerated constants, and create extensible categorization systems. Tags are always prefixed with `#` when referenced and use reversed hierarchy notation where the most specific part comes first.
 
-The tag system bridges multiple roles - they work as simple enumerations, as type markers that influence shape matching, and as dispatch keys for polymorphic functions. Tags are declarative entities that are fully resolved and validated at module build time, ensuring type safety and enabling compile-time optimizations. This versatility makes them fundamental to Comp's approach to categorization and polymorphism. For information about how tags integrate with shape validation, see [Shapes, Units, and Type System](shape.md).
+The tag system bridges multiple roles - they work as simple enumerations, as type markers that influence shape matching, and as dispatch keys for polymorphic functions. Tags are declarative entities that are fully resolved and validated at module build time, ensuring type safety and enabling build-time optimizations. This versatility makes them fundamental to Comp's approach to categorization and polymorphism. For information about how tags integrate with shape validation, see [Shapes, Units, and Type System](shape.md).
 
 ## Tag Definition and Hierarchy
 
 Tags are defined using the `!tag` keyword, creating hierarchical structures where each tag can have both a value and children. The `#` prefix must be used consistently on each tag name in the definition. When the same tag name appears multiple times in a definition, the last assignment wins - there's no concept of strong or weak assignment for tag definitions.
 
-Tag values can be any compile-time constant - numbers, strings, or even other tags. Tags without explicit values cannot be automatically converted from values but can still be used as markers and for dispatch. A tag can simultaneously have a value and children, and even the root of a hierarchy can carry a value.
+Tag values can be any build-time constant - numbers, strings, or even other tags. Tags without explicit values cannot be automatically converted from values but can still be used as markers and for dispatch. A tag can simultaneously have a value and children, and even the root of a hierarchy can carry a value.
+
+Tag definitions support multiple definition styles that can be mixed within the same module for flexibility and readability:
 
 ```comp
-!tag status = unknown {
+; Traditional nested style
+!tag #status = unknown {
     #active = 1
     #inactive = 0
     #pending           ; No value - used as marker only
@@ -26,26 +29,60 @@ Tag values can be any compile-time constant - numbers, strings, or even other ta
     }
 }
 
-!tag priority = {
+; Flat top-down style - useful for long paths
+!tag #status = unknown
+!tag #status.error = -1
+!tag #status.error.timeout = -100
+!tag #status.error.network = -200
+!tag #status.error.parse
+!tag #status.active = 1
+!tag #status.inactive = 0
+!tag #status.pending
+
+; Mixed style - combine approaches as appropriate
+!tag #priority = {
     #low = 1
     #medium = 2
     #high = 3
-    #critical = 3      ; Duplicate name - this definition wins
-    #critical = 99     ; Last assignment wins: critical = 99
 }
+!tag #priority.critical = 99       ; Add to existing hierarchy
+!tag #priority.debug = 0           ; Another addition
+
+; Multiple definitions with same root - merged together
+!tag #color = {#red = 1 #green = 2}
+!tag #color = {#blue = 3}          ; Extends color with blue
 ```
 
-Tags are referenced using reversed hierarchy notation with `.` as the separator. The most specific part comes first, with parent components added only when disambiguation is needed.
+All definition styles are equivalent and produce the same hierarchy. Choose the style that best fits the context - nested for compact definitions, flat for long paths, and mixed for flexibility.
+
+## Tag Reference and Notation
+
+Tags are referenced using reversed hierarchy notation with `.` as the separator for hierarchy levels. The most specific part comes first, with parent components added only when disambiguation is needed. When tags are imported from other modules, the full reference includes the module namespace using `/` as the separator.
 
 ```comp
-$status = #timeout.error.status
-$parent = #error.status         ; Parent of timeout
-$root = #status                 ; Root with value "unknown"
+; Local hierarchy references
+@status = #timeout.error.status
+@parent = #error.status         ; Parent of timeout
+@root = #status                 ; Root with value "unknown"
 
 ; Short forms when unique
 state = #active                    ; If only one 'active' tag exists
 error = #timeout                   ; If unique, no parents needed
+
+; Cross-module references with namespace
+@imported = #active.status/other   ; Tag from "other" module
+@std-tag = #error/std              ; Tag from standard library
+
+; Full reference format: #tag.hierarchy/module
+#specific.parent.root/namespace
 ```
+
+The reference format follows the pattern `#tag.hierarchy/module` where:
+- `tag` is the most specific tag name
+- `hierarchy` (optional) provides parent context for disambiguation
+- `module` (optional) specifies the source module namespace
+- `.` separates hierarchy levels (parent.child)
+- `/` separates tag hierarchy from module namespace
 
 ## Automatic Value Generation
 
@@ -57,13 +94,13 @@ The context passed to generation functions includes the tag's name, its position
 !import tag = std "core/tag"
 
 ; Use standard generators
-!tag color {|name/tag} = {
+!tag #color {|name/tag} = {
     #red              ; Value: "red"
     #green            ; Value: "green"
     #blue             ; Value: "blue"
 }
 
-!tag permission {|bitflag/tag} = {
+!tag #permission {|bitflag/tag} = {
     #read             ; Value: 1 (1 << 0)
     #write            ; Value: 2 (1 << 1)
     #execute          ; Value: 4 (1 << 2)
@@ -76,7 +113,7 @@ The context passed to generation functions includes the tag's name, its position
     parent-value + (index + 1) * 100
 }
 
-!tag error = 0 {|enum-from-100} = {
+!tag #error = 0 {|enum-from-100} = {
     #network          ; Value: 100
     #database         ; Value: 200
     #validation       ; Value: 300
@@ -158,7 +195,7 @@ When extending tags from another module, the new tags become part of your module
 
 ```comp
 ; base.comp - defines core tags
-!tag media = {
+!tag #media = {
     #image {#jpeg #png #gif}
     #video {#mp4 #webm}
     #audio {#mp3 #ogg}
@@ -167,14 +204,14 @@ When extending tags from another module, the new tags become part of your module
 ; extended.comp - adds domain-specific tags
 !import base = comp "./base.comp"
 
-!tag media += {
+!tag #media += {
     #image {#svg #webp}        ; Add to existing branch
     #document {#pdf #epub}     ; Add new branch
 }
 
 ; Usage - extended tags work everywhere
-$icon = #svg.image.media
-($icon |process-media/base)      ; Base functions handle extended tags
+@icon = #svg.image.media
+(@icon |process-media/base)      ; Base functions handle extended tags
 ```
 
 Extended tags maintain full compatibility with parent modules. Functions expecting parent tags can receive extended ones, enabling specialization without breaking compatibility. For detailed information about module organization and cross-module coordination, see [Modules, Imports, and Namespaces](module.md).
@@ -218,8 +255,8 @@ Tags can be aliased for convenience and composed into union types for flexible c
 !alias #critical = #critical.priority
 
 ; Union types for flexible matching
-!tag result = #active | #inactive | #pending
-!tag problem = #error.status | #critical.priority
+!tag #result = #active | #inactive | #pending
+!tag #problem = #error.status | #critical.priority
 
 ; Usage in shapes
 !shape ~task-status = {
@@ -234,7 +271,7 @@ Tags provide semantic typing for numeric and string values through the unit syst
 
 ```comp
 ; Units are tags with conversion values
-!tag length = {
+!tag #length = {
     #meter = 1.0
     #kilometer = 0.001
     #foot = 3.28084

@@ -21,7 +21,7 @@ compatibility means types are defined by structure, not names, enabling flexible
 composition. Semantic typing through units provides meaning beyond primitive
 types. Gradual validation allows choosing strictness levels appropriate to each
 context. Namespace integration enables shapes to work with Comp's layered data
-model. Compile-time optimization ensures type checking doesn't sacrifice
+model. Build-time optimization ensures type checking doesn't sacrifice
 performance.
 
 These principles create a type system that balances flexibility with safety.
@@ -85,7 +85,7 @@ counts, with shortcuts for common patterns.
 Shape morphing transforms structures to match shape specifications through a
 multi-phase matching process. The algorithm considers field names, types,
 positions, and defaults to create the best possible match. During morphing,
-missing fields can be sourced from the namespace stack (`$ctx` and `$mod`).
+missing fields can be sourced from the scope stack (`$ctx` and `$mod`).
 
 The morphing process follows these phases:
 1. **Named field matching** - Exact field name matches are assigned first
@@ -93,7 +93,7 @@ The morphing process follows these phases:
 3. **Positional matching** - Remaining fields match by position
 4. **Default application** - Unmatched shape fields receive defaults from shape
    definition
-5. **Namespace lookup** - Missing fields check `$ctx` and `$mod`
+5. **Scope lookup** - Missing fields check `$ctx` and `$mod`
 
 ```comp
 !shape ~connection = {
@@ -283,17 +283,17 @@ String units are particularly valuable for security, ensuring proper escaping
 based on context.
 
 ```comp
-!tag email ~str = {
+!tag #email ~str = {
     validate = |match/str "^[^@]+@[^@]+$"
     normalize = |lowercase/str
 }
 
-!tag sql ~str = {
+!tag #sql ~str = {
     escape = |escape-literal/sql
     validate = |check-syntax/sql
 }
 
-!tag html ~str = {
+!tag #html ~str = {
     escape = |escape-entities/html
     sanitize = |remove-scripts/html
 }

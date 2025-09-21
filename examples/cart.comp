@@ -11,27 +11,27 @@
 
 !doc "Replace item by name, or append new"
 !func |add-item ~{cart ~cart item ~item} = {
-	$add? = #true
-	$items = {cart.items |substitute {name == item.name} {item $add?=#false}}
-	(|if .{$add?} .{..$items item} .{$items})
+	@add? = #true
+	@items = (cart.items |substitute .{name == item.name} .{item @add?=#false})
+	(|if .{@add?} .{..@items item} .{@items})
 }
 
 
 !doc "Calculate price of all items with cart discounts"
 !func |cart-total ~cart = {
-	(items |sum {price * quantity}) * (1 - discount)
+	(items |sum .{price * quantity}) * (1 - discount)
 }
 
 !main = {
-	$values = {
+	@values = {
 		{name="Apple" price=1.00 quantity=2}
 		{name="Banana" price=0.50 quantity=3}
 		{name="Apple" price=1.00 quantity=1}
 	}
 	
-	$cart = {..~cart}
-	$cart = $values |reduce-into $cart .{{accum value} -> |add-item}
+	@cart = {..~cart}
+	@cart = (@values |reduce-into @cart .{{accum value} |add-item})
 	
-	$cart.discount = 0.8
-	$cart |cart-total |print  ; Displays "2.00"
+	@cart.discount = 0.8
+	@cart |cart-total |print/io  ; Displays "2.00"
 }

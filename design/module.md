@@ -185,11 +185,11 @@ Blocks](function.md).
     ; Program entry point - only in executable modules
     ; All module initialization is complete
     
-    $args = (|parse/cli)
-    $config = $args.config-file |load-config
+    @args = (|parse/cli)
+    @config = @args.config-file |load-config
     
-    $args.command |match
-        {serve} {$config |start-server}
+    @args.command |match
+        {serve} {@config |start-server}
         {test} {|run-tests}
         {#true} {|show-help}
 }

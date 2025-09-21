@@ -1,53 +1,56 @@
 ; Cloudflare Worker for vector embeddings and search
-; Original: https://developers.cloudflare.com / vectorize / get - started / embeddings /
-!import.cloudflare = comp "github://cloudflare/workers-comp@2.7/complib"
+; Original: https://developers.cloudflare.com/vectorize/get-started/embeddings/
+!import cloudflare = comp "github://cloudflare/workers-comp@2.7/complib"
 
 !entry = {
-	$mod.vectorize = "VECTORIZE" | binding.cloudflare
-	$mod.ai = "AI" | binding.cloudflare
+	$mod.vectorize = "VECTORIZE" |binding/cloudflare
+	$mod.ai = "AI" |binding/cloudflare
 }
 
-!func :fetch ~cloudflare~Request ~request.cloudflare = {
-	url 
-	| parse.url 
-	| dispatch.url
-		"/favicon*".{#not-found.response.cloudflare}
-		"/insert".{|insert_vectors}
-		else.{|query_vectors}
+!func |fetch ^{request ~request/cloudflare} = {
+	^request.url 
+	|parse/url 
+	|dispatch/url
+		"/favicon*".{#not-found.response}
+		"/insert".{|insert-vectors}
+		else.{|query-vectors}
 	?> {
-		body = "Request processing failed: ${fail.message}"
-		status = status ?? #server - error.response
+		body = %"Request processing failed: ${fail.message}"
+		status = status ?? #server-error.response
 	}
-	| response_json.cloudflare
+	|response-json/cloudflare
 }
 
-; Only need to generate vector embeddings once(or as data changes)
-!func |insert_vectors = {
-	; In a real- world application, you could read content from R2 or
-	; a SQL database(like D1) and pass it to Workers AI
-	$stories = {
+; Only need to generate vector embeddings once (or as data changes)
+!func |insert-vectors = {
+	; In a real-world application, you could read content from R2 or
+	; a SQL database (like D1) and pass it to Workers AI
+	@stories = [
 		"This is a story about an orange cloud"
 		"This is a story about a llama" 
 		"This is a story about a hugging emoji"
-	}
+	]
 
-	{ text = $stories }; automatic!mod.model and!mod.ai
-	|ai_run/cloudflare
-	|iter .{ id = "${index}" values=value }
-	|vectorize_upsert/cloudflare
+	@stories |map .{
+		text = $in
+		model=. ai=. |from $mod
+	} 
+	|ai-run
+	|iter .{
+		id = %"${index}"
+		values = value.embedding
+	} |vectorize-upsert
 }
 
-!func |query_vectors = {
-	; Your query: expect this to match vector ID. 1 in this example
-	$user_query = "orange cloud"
+!func |query-vectors = {
+	; Your query: expect this to match vector ID 1 in this example
+	@user-query = "orange cloud"
 	
-	matches = 
-	{text=$user_query}  ; model is supplied from !mod.model
-	|ai_run/cloudflare
-	|vectorize_query/cloudflare topK=1
+	{text = @user-query model=. ai=. |from $mod}
+	|ai-run
+	|vectorize-query topK=1
 
-	; Expect a vector ID. 1 to be your top match with a score of
-	; ~0.89693683
+	; Expect vector ID 1 to be your top match with a score of ~0.89693683
 	; This tutorial uses a cosine distance metric, where the closer to one,
 	; the more similar.
 }

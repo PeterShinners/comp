@@ -55,8 +55,8 @@ on which data. The function's shape definition can reference an externally
 defined shape, or define one inline.
 
 Functions can define a separate shape to accept arguments. The function body can
-reference this argument namespace with the `^` caret operator. This namespace
-for arguments also falls back on several other namespaces Comp tracks across
+reference this argument scope with the `^` caret operator. This scope
+for arguments also falls back on several other scopes Comp tracks across
 function calls. For comprehensive information about the shape system, morphing
 operations, and structural typing, see [Shapes, Units, and Type
 System](shape.md).
@@ -111,7 +111,7 @@ definition. Longer form descriptions and examples can be attached from other
 parts of the module.
 * **Shape** Either a shape reference or an inline shape definition. This
 describes the type of data the function expects to work on. The fields this
-provides will be available from the `$in` namespace, or by using it's fields as
+provides will be available from the `$in` scope, or by using it's fields as
 undecorated field names inside the function.
 * **Arguments** Is a secondary, optional shape definition that is used to
 provide arguments to the function. Arguments are intended to control the way a
@@ -178,7 +178,7 @@ full = analysis ~{summary statistics}  ; Computes two fields
 
 Pure functions guarantee deterministic computation without side effects. Defined
 with `!pure`, they receive an empty context and cannot access external
-resources. This isolation enables compile-time evaluation, safe parallelization,
+resources. This isolation enables build-time evaluation, safe parallelization,
 and use in shape constraints or unit definitions.
 
 The distinction between `!pure` and regular functions is about capability, not
@@ -190,9 +190,9 @@ between computation and effects.
 !pure
 !func |fibonacci ~{n ~num} = {
     ($in |if .{$in <= 1} .{$in} .{
-        $a = ($in - 1 |fibonacci)
-        $b = ($in - 2 |fibonacci)
-        $a + $b
+        @a = ($in - 1 |fibonacci)
+        @b = ($in - 2 |fibonacci)
+        @a + @b
     })
 }
 
@@ -204,50 +204,107 @@ between computation and effects.
 
 ## Block Arguments
 
-Blocks are deferred structure definitions passed as arguments to functions.
+Blocks are deferred structure definitions that can be passed as arguments to functions or stored as values. Blocks exist in two states: ephemeral blocks (raw `.{...}` syntax) that cannot be invoked, and callable blocks that have been typed with an input shape definition.
+
 These are typically used to allow temporary transformations of data. They are
 often used for conditional and iterative functions to manage the actions for
 different branches.
 
 Blocks are defined in arguments to functions like a regular structure with a `.`
-dot prefix.
+dot prefix. Functions that expect block arguments can also accept simple values,
+which are automatically wrapped in trivial blocks for convenience.
 
 Functions may invoke their blocks as often as needed. The function must describe
 the incoming shape used for each block. The function can control the evaluation
 context and frequency of when the block is invoked.
 
 Like regular arguments, blocks can be passed as named or positionally. When
-passed as named argument the use the dotted prefix instead of an equal sign.
+passed as named argument they use the dotted prefix instead of an equal sign.
+For simple values passed to named block parameters, use regular named argument
+syntax without the dot prefix.
+
+Ephemeral blocks are created with `.{...}` syntax but cannot be invoked until they are typed. When passed to function arguments, they are automatically morphed to match the expected block input shape. This provides type safety while allowing flexible block definitions.
 
 Block arguments are determined by the function's arg shape definition. When the
 parser encounters `.{}` in argument position, it creates a deferred block.
 Blocks capture their definition context, allowing them to reference local
-variables and namespace values through the `$` (variables) and `^` (arguments)
-prefixes.
+variables and scope values through the `$` (variables) and `^` (arguments)
+prefixes. Simple values passed to block arguments are automatically wrapped in
+blocks that return the value.
+
+Functions invoke blocks using the `|.` operator, which executes the block with
+the current pipeline value as input. Block parameters in function argument
+shapes can specify the expected input shape using `~block{shape}` syntax.
 
 ```comp
-!func |with-retry ~{operation} ^{on-error ~block} = {
-    $attempts = 0
-    ($in |while .{$attempts < 3} .{
-        $result = ($in |operation |? .{
-            $attempts = $attempts + 1
-            ($in |if .{$attempts >= 3} .{$in} .{#skip})
+!func |with-retry ~{operation} ^{on-error ~block{~str}} = {
+    @attempts = 0
+    ($in |while .{@attempts < 3} .{
+        @result = ($in |operation |? .{
+            @attempts = @attempts + 1
+            @error-msg = %"Attempt ${@attempts} failed"
+            (@error-msg |. ^on-error)  ; Invoke block with string input
+            ($in |if .{@attempts >= 3} .{$in} .{#skip})
         })
     })
-    $result
+    @result
 }
 
-; Usage with blocks as arguments
-(data |with-retry on-error.{|log-error})
+!func |process-items ~{items[]} ^{
+    transform ~block{~item}
+    validate ~block{~item} 
+    callback ~block{~num ~num}
+} = {
+    @processed = (items |map .{$in |. ^transform})
+    @valid = (@processed |filter .{$in |. ^validate})
+    @count = (@valid |count)
+    @total = (@valid |sum {amount})
+    ({@count @total} |. ^callback)  ; Invoke with two numbers
+}
 
-; Calling a function that takes both named and unnamed arguments
+; Usage with explicit blocks
+(data |with-retry on-error.{error-msg |log})
+
+; Usage with simple values - automatically wrapped
+@style = (|if complete "strikethrough" "normal")
+@variant = (|if priority == urgent "primary" "secondary")
+
+; Named block arguments can use simple values too
+(items |process-items 
+    transform.{$in |enhance |normalize}  ; explicit block
+    validate=#true                       ; simple value for block parameter
+    callback.{@count @total |summarize}) ; explicit block with two inputs
+
+; Mixed usage in conditionals
 (|prepare-data .{|called-unnamed-block} named.{|called-named-block})
+(|prepare-data simple-value named=simple-named-value)
 
-; Complex control flow with blocks
+; Complex control flow with mixed block styles
 (items |process-batch 
     transform.{$in |enhance |normalize}
     validate.{score > threshold}
-    on-success.{$in |save-to-database})
+    on-success="completed")  ; Simple string wrapped automatically
+```
+
+## Block Invocation
+
+Blocks can be invoked using the `|.` operator, which executes the block with the current pipeline value as input. This is how functions internally invoke their block arguments, but it's also available as a general pipeline operator for any block value.
+
+```comp
+; Block stored in variable
+@validator = .{$in |check-format |validate-rules}
+result = (data |. @validator)  ; Invoke the block
+
+; Block in structure
+handlers = {
+    process = .{$in |transform |save}
+    validate = .{$in.email |check-email}
+}
+(user |. handlers.validate)  ; Invoke validation block
+
+; Chaining block invocations
+pipeline = .{$in |step1 |step2 |step3}
+final = (input |. pipeline |post-process)
 ```
 
 ## Argument Spreading and Presence-Check
@@ -282,9 +339,15 @@ unnamed value in the argument list.
 ; Results in: {verbose=#true debug=#false extra=1 more=2}
 
 ; With argument spreading
-$defaults = {debug}
-(data |process ..$defaults verbose)
+@defaults = {debug}
+(data |process ..@defaults verbose)
 ; Results in: {verbose=#true debug=#true}
+
+; Spread operators work like Python **kwargs
+@preset = {verbose debug port=8080}
+(server |configure ..@preset host="localhost" port=3000)
+; Results in: {verbose=#true debug=#true host="localhost" port=3000}
+; Note: explicit port=3000 overrides preset port=8080
 ```
 
 ## Function Overloads
@@ -376,29 +439,30 @@ defines where dynamic dispatch can find the correct implementation.
 ; Base module defines animal behaviors
 !tag #animal = {#mammal #bird #reptile}
 
-!func |speak ~{#animal} = {"generic animal sound"}
-!func |speak ~{#mammal} = {"mammalian vocalization"}
-!func |speak ~{#bird} = {"chirp"}
-!func |speak ~{#reptile} = {"hiss"}
+!func |speak ~{type #animal} = {"generic animal sound"}
+!func |speak ~{type #mammal} = {"mammalian vocalization"}
+!func |speak ~{type #bird} = {"chirp"}
+!func |speak ~{type #reptile} = {"hiss"}
 
 ; Extended module adds specializations
 !tag #mammal.animal = {#dog.mammal #cat.mammal}
-!func |speak ~{#dog} = {"woof"}
-!func |speak ~{#cat} = {"hiss"}
+!func |speak ~{type #dog.mammal} = {"woof"}
+!func |speak ~{type #cat.mammal} = {"meow"}
 
-; Polymorphic dispatch
+; Polymorphic dispatch with nested tags
 ({type=#bird} |speak)          ; "chirp"
 ({type=#dog.mammal} |speak)    ; "woof"
+({type=#cat.mammal} |speak)    ; "meow"
 
 ; Cross-module polymorphism
 creature = {type=#dog.mammal name=Rex}
-(creature |speak/#type)   ; External module handles extended tag
+(creature |speak)             ; "woof" - most specific match
 ```
 
 ## Function Permissions and Security
 
 Functions can declare required permissions using the `!require` decorator. This
-creates compile-time documentation and enables early failure with clear error
+creates build-time documentation and enables early failure with clear error
 messages. The permission system uses capability tokens that flow through the
 context but cannot be stored or manipulated as values.
 
@@ -419,8 +483,8 @@ Security and Permissions](security.md).
 
 !require net, env
 !func |fetch-with-config ^{endpoint ~str} = {
-    $api-key = (API_KEY |get/env)      ; Needs env token
-    headers = {Authorization = Bearer ${$api-key}}
+    @api-key = ("API_KEY" |get/env)      ; Needs env token
+    headers = {Authorization = %"Bearer ${@api-key}"}
     (^endpoint |get/http headers)      ; Needs net token
 }
 
