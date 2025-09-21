@@ -4,39 +4,19 @@
 
 ## Overview
 
-Shapes define structural schemas that describe and validate data. They specify
-field names, types, defaults, and constraints, creating a powerful system for
-type checking and data transformation. Unlike nominal type systems, Comp's
-shapes use structural compatibility - any structure with the required fields can
-satisfy a shape.
+Shapes solve the type system problem that most languages get wrong—balancing flexibility with safety. Instead of forcing rigid class hierarchies, shapes use structural compatibility: any data with the right fields works, period. No inheritance ceremonies, no interface implementations, just data that fits.
 
-The shape system integrates with units to provide semantic typing for primitive
-values. Units attach to numbers and strings through tags, enabling automatic
-conversions, type-safe operations, and domain-specific validation. Together,
-shapes and units create a flexible yet rigorous type system. For information
-about the tag system that underlies units, see [Tag System](tag.md).
+The shape system integrates with units to provide semantic typing that actually matters. Units attach meaning to numbers and strings—5#meters is different from 5#seconds, and the type system keeps you from accidentally mixing them. Together, shapes and units create a type system that helps instead of hindering.
 
-The shape and unit system embodies several core principles. Structural
-compatibility means types are defined by structure, not names, enabling flexible
-composition. Semantic typing through units provides meaning beyond primitive
-types. Gradual validation allows choosing strictness levels appropriate to each
-context. Namespace integration enables shapes to work with Comp's layered data
-model. Build-time optimization ensures type checking doesn't sacrifice
-performance.
-
-These principles create a type system that balances flexibility with safety.
-Whether validating API inputs, ensuring dimensional correctness in calculations,
-or transforming between data formats, shapes and units provide powerful tools
-for managing complexity in real-world applications. For details about the core
-primitive types that shapes validate, see [Core Types](type.md).
+Whether you're validating API inputs, ensuring dimensional correctness in calculations, or transforming between data formats, shapes and units provide powerful tools that actually help manage complexity. For information about the tag system that underlies units, see [Tag System](tag.md), and for details about the core primitive types, see [Core Types](type.md).
 
 ## Shape Definition and Inheritance
 
-Shapes are defined with the `!shape` keyword and live declaratively in the
-module namespace. They can be referenced anywhere within the module regardless
-of definition order. Shape definitions specify fields with optional types,
-defaults, and documentation. The spread operator enables shape composition
-through inheritance.
+Shapes are defined with the `!shape` operator. Their definition appears similar
+to a structure definition, but this is focused on types and default values.
+
+A shape is not a value. It is a referencable part of the module namespace that
+is accessed within the module and other modules after !import.
 
 ```comp
 !shape ~point-2d = {

@@ -4,20 +4,25 @@
 
 ## Overview
 
-Comp implements capability-based security through permission tokens that flow
-through the execution context. These tokens cannot be stored, serialized, or
-manipulated as values - they exist only in the protected context namespace and
-control access to system resources. Any code can drop permissions for downstream
-calls, but dropped permissions cannot be restored until returning to the scope
-that held them.
+Comp implements capability-based security that actually works. Permission tokens flow through execution context and cannot be stored, forged, or manipulated—they exist only in the protected context and control access to system resources. Any code can drop permissions for downstream calls, but dropped permissions can't be restored until returning to the scope that held them.
 
-The security model draws from proven designs like Deno's permission system while
-adding Comp-specific features. Permissions are declarative, enabling static
-analysis and clear documentation of function requirements. Pure functions
-provide guaranteed isolation by executing with no permissions, making them safe
-for untrusted code and build-time evaluation. For information about how
-permissions integrate with function definitions, see [Functions and
-Blocks](function.md).
+This security model draws from proven designs like Deno's permission system while adding Comp-specific features. Permissions are declarative, enabling static analysis and clear documentation of what functions actually need. Pure functions provide guaranteed isolation by executing with no permissions—perfect for untrusted code and build-time evaluation.
+
+
+The security system embodies several core principles. Capability-based design
+means permissions are unforgeable tokens, not strings or flags that can be
+manipulated. Monotonic reduction ensures permissions only decrease, never
+increase, along execution paths. Fail-fast behavior makes permission violations
+immediate and clear. Declarative requirements enable static analysis and
+documentation. Module isolation prevents supply chain attacks through permission
+boundaries.
+
+These principles create a security model that balances safety with usability.
+Whether running trusted applications or sandboxing untrusted code, the
+permission system provides clear, enforceable boundaries that protect system
+resources while enabling necessary operations. For information about resource
+access patterns that work with the permission system, see [Resources and
+Transactions](resource.md).
 
 ## Permission Token System
 
@@ -250,20 +255,3 @@ func audited_operation pipeline{} args{} = {
     (| perform_operations)
 }
 ```
-
-## Design Principles
-
-The security system embodies several core principles. Capability-based design
-means permissions are unforgeable tokens, not strings or flags that can be
-manipulated. Monotonic reduction ensures permissions only decrease, never
-increase, along execution paths. Fail-fast behavior makes permission violations
-immediate and clear. Declarative requirements enable static analysis and
-documentation. Module isolation prevents supply chain attacks through permission
-boundaries.
-
-These principles create a security model that balances safety with usability.
-Whether running trusted applications or sandboxing untrusted code, the
-permission system provides clear, enforceable boundaries that protect system
-resources while enabling necessary operations. For information about resource
-access patterns that work with the permission system, see [Resources and
-Transactions](resource.md).

@@ -8,6 +8,16 @@ Trails provide a way to represent navigation paths through data as regular struc
 
 There is no special "trail" type in Comp - trails are simply structures with a conventional shape that trail operations know how to interpret. This design keeps the language core simple while enabling powerful navigation patterns through library functions. For information about the underlying structure operations that trails build upon, see [Structures, Spreads, and Lazy Evaluation](structure.md).
 
+The trail system embodies several key principles:
+
+- **No special types**: Trails are just structures with conventional shapes
+- **Syntactic convenience**: The `/path/` syntax generates these structures easily
+- **Library interpretation**: Trail operations give meaning to trail structures  
+- **Data as data**: Trails can be stored, passed, and manipulated like any value
+- **Clear visual marker**: The `/` delimiters make navigation operations obvious
+
+This design keeps the language core minimal while enabling sophisticated navigation patterns through library functions. By representing trails as ordinary structures, Comp maintains its principle that everything is data while providing convenient syntax for common operations.
+
 ## Trail Fundamentals
 
 A trail literal using `/path/` syntax creates a structure containing an array of navigation segments. Each segment is either a field name (as a string) or a navigation operator (as a tag). This structure can be stored in variables, passed to functions, or manipulated like any other data.
@@ -162,15 +172,3 @@ While trails are runtime values (just structures), they can still integrate with
     }
 }
 ```
-
-## Design Principles
-
-The trail system embodies several key principles:
-
-- **No special types**: Trails are just structures with conventional shapes
-- **Syntactic convenience**: The `/path/` syntax generates these structures easily
-- **Library interpretation**: Trail operations give meaning to trail structures  
-- **Data as data**: Trails can be stored, passed, and manipulated like any value
-- **Clear visual marker**: The `/` delimiters make navigation operations obvious
-
-This design keeps the language core minimal while enabling sophisticated navigation patterns through library functions. By representing trails as ordinary structures, Comp maintains its principle that everything is data while providing convenient syntax for common operations.

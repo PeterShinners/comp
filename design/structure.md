@@ -4,15 +4,17 @@
 
 ## Overview
 
-Structures are the backbone of the Comp language. Every function receives a structure as input and generates a new structure as output. Even simple values like booleans and numbers are automatically promoted into single-element structures when used in pipeline contexts.
+Structures are the backbone of Comp, everything is designed around creating and altering structures. Every function receives a structure as input and generates a new structure as output. Even simple values like numbers promote to single-element structures when they enter pipelines, creating a unified data model that eliminates type juggling.
 
-Structures are immutable collections that can contain any mix of named and unnamed fields. Field names can be simple tokens, complex strings, or even tag values. Fields are ordered and can be accessed by name or position. This unified approach means structures work equally well as records, arrays, or hybrid collections. Functions that operate on structures are detailed in [Functions and Blocks](function.md), while the pipeline processing of structures is covered in [Pipelines, Flow Control, and Failure Handling](pipeline.md).
+Structures handle real-world data naturally, they work equally well as records, arrays, or hybrid collections. Field names can be simple tokens, complex strings, or even tag values. This flexibility means you can work with JSON APIs, database records, or internal computations using the same fundamental operations.
+
+The structure system embodies principles that eliminate data handling complexity. Immutability ensures predictable behavior—no surprising mutations. Unified representation means one data type handles arrays, records, and everything in between. Order preservation maintains structure while enabling both positional and named access.
+
+These principles create a structure system that handles real-world data elegantly without forcing artificial distinctions between arrays and objects. Functions that operate on structures are detailed in [Functions and Blocks](function.md), while pipeline processing is covered in [Pipelines, Flow Control, and Failure Handling](pipeline.md). For controlled mutation patterns, see [Store System](store.md).
 
 ## Structure Definition and Field Access
 
-Structures are created with `{}` braces containing field definitions. Fields can have explicit names or be positional (unnamed). Named fields use `=` for assignment, while unnamed fields are simply listed. The same field name can appear multiple times, with later definitions overriding earlier ones based on assignment strength.
-
-Field names in structures are incredibly flexible. Arbitrary strings use double quotes for field names, and expressions use single quotes for computed field access.
+Structures are created with `{}` braces and handle field access intuitively. Named fields use `=` for assignment, unnamed fields are just listed. Field names are incredibly flexible—simple tokens, arbitrary strings, even expressions. The system accommodates whatever field naming convention your data source uses.
 
 ```comp
 ; Various field types
@@ -52,7 +54,7 @@ For more sophisticated navigation patterns through complex data structures, see 
 
 ## Spread Operations and Structure Assembly
 
-Spread operators allow composing new structures from existing ones. The spread incorporates all fields from a source structure, with variants controlling conflict resolution. The basic spread (`..`) applies all fields, strong spread (`!..`) creates sticky fields that resist overwriting, and weak spread (`?..`) only adds missing fields.
+Spread operators solve the "merge these data structures" problem elegantly. The basic spread (`..`) incorporates all fields, strong spread (`!..`) creates sticky fields that resist overwriting, and weak spread (`?..`) only adds missing fields. This covers the common patterns: override everything, lock in values, or provide defaults.
 
 When spreading multiple structures, fields are applied in source order. Named field conflicts are resolved by assignment strength - strong beats normal beats weak. Unnamed fields never conflict; they accumulate in order from each spread source. The spread operation preserves field ordering within each source structure.
 
@@ -323,9 +325,3 @@ user-view = {
           |enhance-with-metadata
           |{$in checksum=(|calculate-checksum)})
 ```
-
-## Design Principles
-
-The structure system embodies core Comp principles that guide its design. Immutability ensures predictable behavior and enables safe parallelism. Unified representation means arrays, records, and hybrid collections use the same structure type. Flexible field naming accommodates any data source naturally. Order preservation maintains structure and enables positional access. Compositional operations through spreading and morphing build complex structures from simple pieces.
-
-These principles create a structure system that handles real-world data elegantly. Whether working with JSON APIs, database records, or internal computations, structures provide a consistent, powerful abstraction for data manipulation. For controlled mutation patterns when immutability constraints need to be relaxed, see [Store System](store.md).

@@ -4,51 +4,24 @@
 
 ## Overview
 
-Comp modules are isolated collections of functions, shapes, and tags that define
-reusable functionality. Each module provides a declarative namespace that can be
-analyzed without executing code. The contents and definitions in a module are
-order-independent and validated at build time.
+Comp modules solve many common dependency frustrations. Each module provides a declarative namespace that can be analyzed without executing code—no, more wondering what mysterious side effects might happen just to access a module's definitions.
 
-Modules can be single `.comp` files or directories of `.comd` files. They
-reference each other through imports that assign namespace names. The module
-system provides builtin and standard libraries for core functionality while
-supporting various distribution formats like git repositories, local files, and
-package registries. For information about the security boundaries that modules
-create, see [Runtime Security and Permissions](security.md).
+Modules can be single `.comp` files or directories of `.comd` files. The directory
+approach still treats the files as a single namespace, no need to worry about
+circular dependencies or delicate file ordering. This internal module organization
+is invisible to users outside the module.
 
-Modules can exist as either single files or directories. A single `.comp` file
-contains all definitions. A directory module contains multiple `.comd` files
-that are treated as one contiguous module. The choice between single and
-multi-file organization is invisible to module users - imports work identically
-regardless of internal structure.
+Modules reference each other through imports that create clean namespaces. The system supports everything from the standard libraries, file system search paths, to git repositories, all through the same consistent import mechanism. No build files, no dependency management tools, no version conflicts—just code that works.
 
+The module system embodies several core principles that eliminate common frustrations. Declarative namespaces mean you know what a module provides without running it. Single source of truth through main module coordination prevents the "which version am I actually using?" problem. Order independence within modules eliminates those mysterious initialization race conditions.
 
-The module system embodies several core principles. Declarative namespaces mean
-module contents are knowable without execution. Single source of truth through
-main module coordination prevents version conflicts. Order independence within
-modules eliminates initialization races. Platform transparency means users don't
-see whether a module is single or multi-file. Integrated metadata keeps packages
-self-contained without external configuration. Standalone deployment through
-dependency bundling enables true portability.
-
-These principles create a module system that scales from single-file scripts to
-large applications. Whether importing standard libraries, external packages, or
-local modules, the consistent import mechanism and predictable initialization
-order provide a solid foundation for program organization. For a complete
-overview of the language features available within modules, see [Language
-Overview](overview.md).
+Whether you're importing standard libraries, external packages, or local modules, the consistent import mechanism provides a solid foundation that scales from single-file scripts to large applications. For information about the security boundaries that modules create, see [Runtime Security and Permissions](security.md).
 
 ## Import Statement and Sources
 
-The `!import` operator assigns a namespace name and specifies how to locate
-module content.
+The `!import` operator does exactly what you'd expect: assigns a namespace name and tells the system where to find the module content. Each import brings exactly one module into scope—no cherry-picking specific definitions, though you can alias them afterward.
 
-Each import brings exactly one module into scope. There's no partial importing
-of specific definitions, though they can be aliased after import.
-
-The assigned name uses the `.` dot prefix to identify its name. Modules are
-never referenced directly and cannot be used as values. They only provide a
-namespace to reference function, shapes, and tags from.
+The import system's real power comes from its variety of sources. Instead of forcing everything into one package format, Comp can import from wherever your code lives: standard libraries, Python modules, OpenAPI specs, git repositories, even local files.
 
 The import statement requires two values to identify a module. First is the name
 of the source. These can be extended, but the language offsers several builtin
@@ -60,7 +33,6 @@ behaviors depending on the source used.
 Import sources enable seamless integration with different code formats without
 precompilation. Protocol buffer definitions, OpenAPI specifications, and other
 schemas can generate Comp namespaces dynamically through specialized importers.
-
 
 ```comp
 ; Import syntax: namespace = source "specifier"
@@ -124,9 +96,9 @@ itself as multiple independent modules.
 
 ### Import Fallbacks and Coordination
 
-Imports can define fallbacks using the `??` operator. If a module cannot be
-found, the system tries the next alternative. This enables graceful degradation
-and platform-specific implementations.
+Imports can define fallbacks using the `??` operator—if a module can't be found, try the next alternative. This enables graceful degradation and platform-specific implementations without complex configuration.
+
+The coordination system solves a common problem: when multiple libraries want to use the same dependency, which version wins? Comp's solution is elegant—the main entry module becomes the single source of truth. Libraries check if the main module already imported what they need before using their own fallback.
 
 ```comp
 ; Try multiple sources in order
@@ -158,9 +130,7 @@ complex resolution algorithms.
 
 ## Entry Points and Initialization
 
-Modules can define two special entry points that control initialization and
-program execution. The `!entry` function runs when a module is imported, while
-`!main` serves as the program entry point for executable modules.
+Modules can define two special entry points that eliminate initialization headaches. The `!entry` function runs when a module is imported, while `!main` serves as the program entry point. The key insight: initialization follows a deterministic order, so you never have to worry about whether your dependencies are ready.
 
 Module initialization follows a deterministic order. First, all imported modules
 are fully loaded, with their imports resolved recursively. Then `!entry`
@@ -203,10 +173,7 @@ The initialization order ensures predictable setup:
 
 ## Package Information and Module Structure
 
-A module defines its package metadata directly in the `$mod` namespace rather
-than separate configuration files. This includes publishable names, version
-numbers, author information, and project URLs. This integrated approach means a
-single Comp file can be a complete, self-contained package.
+A module defines its package metadata directly in the `$mod` namespace rather than juggling separate configuration files. This means a single Comp file can be a complete, self-contained package—no package.json, no setup.py, no build.gradle required.
 
 This is typically done at the top level of the package using literal values.
 
@@ -222,9 +189,7 @@ $mod.package = {
 
 ## Standard Library Organization
 
-The standard library organizes modules into branches based on stability and
-maturity. This allows the language to evolve while maintaining stable core
-functionality.
+The standard library organizes modules into branches based on stability and maturity. This lets the language evolve without breaking your code—stable functionality stays stable, while experimental features get clearly marked.
 
 ```comp
 ; Core - stable, essential functionality
@@ -241,9 +206,7 @@ functionality.
 !import old-api = std "archive/old-api"
 ```
 
-Standard library modules often import from multiple branches, using stable
-implementations where possible while exploring experimental features. This
-organization balances stability with innovation.
+This organization balances stability with innovation. You can stick with core modules for production code while exploring cutting-edge features in development.
 
 ## Dynamic Module Loading
 

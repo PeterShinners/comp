@@ -4,18 +4,9 @@
 
 ## Overview
 
-Resources represent connections to the world outside Comp - files, network
-connections, database handles, graphics contexts. The language tracks these
-automatically, ensuring cleanup when they're no longer needed while allowing
-explicit early release. Combined with transactions, resources enable coordinated
-state changes that can be atomically committed or rolled back.
+Resources represent connections to the outside world—files, network connections, database handles, graphics contexts. The language tracks these automatically, ensuring cleanup without the manual bookkeeping that leads to resource leaks. Combined with transactions, resources enable coordinated state changes that can be atomically committed or rolled back.
 
-The design philosophy favors multiplexed, synchronous operations over
-traditional async/await patterns. Rather than managing concurrent promises, Comp
-provides tools for efficient resource pooling, automatic retry logic, and
-declarative coordination that eliminate most needs for explicit asynchronous
-programming. For information about how resource access integrates with the
-permission system, see [Runtime Security and Permissions](security.md).
+The design favors multiplexed, synchronous operations over async/await complexity. Instead of managing concurrent promises and callback chains, Comp provides tools for efficient resource pooling and automatic retry logic that eliminate most needs for explicit asynchronous programming.
 
 The resource system follows several guiding principles:
 

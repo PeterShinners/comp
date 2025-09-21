@@ -4,34 +4,15 @@
 
 ## Overview
 
-Functions in Comp transform structures through pipelines of operations. Every
-function receives a structure as pipeline input and generates a new structure as
-output. Functions also accept arguments that configure their behavior,
-maintaining a clear separation between data flow and parameterization.
+Functions in Comp are designed around a simple idea: take a structure, transform it, return a new structure. This consistency makes code more predictable and composable than traditional function systems.
 
-Functions are references, not values. They cannot be assigned to variables or
-passed as data, but they can be invoked through pipelines and accept block
-arguments for higher-order programming patterns. This design choice creates
-clear boundaries between code and data while enabling powerful composition
-through blocks.
+Every function receives pipeline input and generates new output, while arguments configure behavior separately from data flow. This separation eliminates the confusion between "what am I working on?" and "how should I work on it?" that plagues many languages.
 
-At a basic level, a function definition and structure literal use the same
-parsing and instruction rules. They use the same assignment rules and spread
-rules and operate identically. The difference is that a structure literal is
-evaluated immediately to provide a structure, while a function becomes a recipe
-of instructions on how to create a structure. A function also has the concept of
-an incoming pipeline structure it is expected to transform, and can be tied to
-additional things like documentation and separate shapes to define arguments.
-For more details on structure operations and assignment patterns, see
-[Structures, Spreads, and Lazy Evaluation](structure.md).
+Functions are references, not values—you can't stuff them in variables like JavaScript, but you can invoke them through pipelines and compose them with blocks. This design creates clear boundaries between code and data while enabling powerful composition patterns that feel natural to write.
 
-The function system embodies several core principles that guide its design.
-Functions as transformations means every function is fundamentally a
-structure-to-structure mapping. Structural dispatch enables polymorphism through
-shapes rather than classes. Explicit effects through permissions make side
-effects visible and controllable. Composition over inheritance creates flexible
-systems through function and block combinations. Deterministic selection ensures
-predictable behavior in polymorphic scenarios.
+At the core, function definitions and structure literals work identically—same parsing rules, same assignments, same operations. The difference is timing: structures evaluate immediately, functions become recipes for later execution. Functions come with a few extras, like pipeline inputs, documentation, and arguments.
+
+This unified approach means less syntax to learn and more consistent behavior. Whether you're building a simple data transformation or a complex polymorphic system, functions provide composable abstractions that scale naturally. For more details on structure operations and assignment patterns, see [Structures, Spreads, and Lazy Evaluation](structure.md).
 
 These principles create a function system that balances power with simplicity.
 Whether building simple data transformations or complex polymorphic systems,
@@ -39,25 +20,15 @@ functions provide consistent, composable abstractions for computation.
 
 ## Function Definition Fundamentals
 
-Functions are defined with the `!func` keyword followed by the function name
-(prefixed with `|`), pipeline shape (prefixed with `~`), and optional arguments
-(prefixed with `^`). The function body transforms the input structure, with
-fields computed through expressions and pipelines. Control flow operates through
-function calls with blocks.
+Functions are defined with the `!func` operator. they become part of the module
+namespace and normally be referenced anywhere within the module, or by other
+modules using an `!import`.
 
-The pipeline shape uses Comp's structural typing - any structure with compatible
-fields can invoke the function. Functions with no input requirements use an
-empty shape `{}`. Arguments are specified separately, maintaining clear
-distinction between data and configuration.
+The shape a function defines is the schema used to match the definition of the incoming structure. No inheritance hierarchies required, just data that fits the expected shape.
 
-Comp uses its structural matching rules to determine which functions can be run
-on which data. The function's shape definition can reference an externally
-defined shape, or define one inline.
+This structural approach eliminates the type ceremony that makes other languages verbose. Your function works with any data that has the right shape, period. Arguments are specified separately, maintaining a clear distinction between what you're processing and how you want to process it.
 
-Functions can define a separate shape to accept arguments. The function body can
-reference this argument scope with the `^` caret operator. This scope
-for arguments also falls back on several other scopes Comp tracks across
-function calls. For comprehensive information about the shape system, morphing
+For comprehensive information about the shape system, morphing
 operations, and structural typing, see [Shapes, Units, and Type
 System](shape.md).
 
@@ -76,7 +47,7 @@ System](shape.md).
 }
 
 ; Functions automatically morph inputs
-({10 20} |calculate-area)        ; Positional matching
+({10 20} |calculate-area)               ; Positional matching
 ({height=15 width=25} |calculate-area)  ; Named matching
 ```
 
@@ -151,10 +122,9 @@ results it wants to become its value.
 
 ## Lazy Functions and Deferred Execution
 
-Functions can define lazy structures using `[]` brackets instead of `{}`. These
-create generators where fields compute on demand. Once computed, values are
-cached, making lazy structures eventually behave like regular structures. This
-enables efficient partial evaluation and infinite structures.
+Functions can define lazy structures using `[]` brackets instead of `{}`. These create generators where fields compute on-demand—perfect for expensive operations or infinite sequences. Once computed, values are cached, so lazy structures eventually behave like regular ones.
+
+This solves the common problem of expensive calculations in objects: do you compute everything upfront (slow startup) or compute on-demand every time (slow access)? Lazy structures give you the best of both worlds.
 
 ```comp
 !func |infinite-sequence ^{start ~num step ~num} = [
@@ -176,15 +146,9 @@ full = analysis ~{summary statistics}  ; Computes two fields
 
 ## Pure Functions and Isolation
 
-Pure functions guarantee deterministic computation without side effects. Defined
-with `!pure`, they receive an empty context and cannot access external
-resources. This isolation enables build-time evaluation, safe parallelization,
-and use in shape constraints or unit definitions.
+Pure functions guarantee deterministic computation without side effects. Defined with `!pure`, they receive an empty context and cannot access external resources. This enables build-time evaluation, safe parallelization, and use in shape constraints or unit definitions.
 
-The distinction between `!pure` and regular functions is about capability, not
-syntax. Pure functions can call other functions, but those functions fail
-immediately if they attempt resource access. This creates a clear boundary
-between computation and effects.
+The distinction between `!pure` and regular functions is about capability, not syntax. Pure functions can call other functions, but those functions fail immediately if they attempt resource access. This creates a clear, enforceable boundary between computation and effects, no more wondering if that "simple calculation" is secretly making network calls.
 
 ```comp
 !pure
@@ -204,11 +168,9 @@ between computation and effects.
 
 ## Block Arguments
 
-Blocks are deferred structure definitions that can be passed as arguments to functions or stored as values. Blocks exist in two states: ephemeral blocks (raw `.{...}` syntax) that cannot be invoked, and callable blocks that have been typed with an input shape definition.
+Blocks are deferred structure definitions that serve as powerful callbacks and control flow mechanisms. They solve the common problem of passing behavior to functions without the complexity of function pointers or the verbosity of interface implementations.
 
-These are typically used to allow temporary transformations of data. They are
-often used for conditional and iterative functions to manage the actions for
-different branches.
+Blocks exist in two states: ephemeral blocks (raw `.{...}` syntax) that cannot be invoked directly, and callable blocks that have been typed with an input shape. Functions that expect blocks can also accept simple values, which are automatically wrapped in trivial blocks for convenience—write less, express more.
 
 Blocks are defined in arguments to functions like a regular structure with a `.`
 dot prefix. Functions that expect block arguments can also accept simple values,

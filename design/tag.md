@@ -8,6 +8,10 @@ Tags are build-time tokens that serve as values, types, and dispatch mechanisms.
 
 The tag system bridges multiple roles - they work as simple enumerations, as type markers that influence shape matching, and as dispatch keys for polymorphic functions. Tags are declarative entities that are fully resolved and validated at module build time, ensuring type safety and enabling build-time optimizations. This versatility makes them fundamental to Comp's approach to categorization and polymorphism. For information about how tags integrate with shape validation, see [Shapes, Units, and Type System](shape.md).
 
+The tag system embodies several key design principles that guide its use throughout Comp. Tags provide hierarchical organization without class inheritance complexity. They enable polymorphic dispatch through structural matching rather than virtual methods. The reversed hierarchy notation puts the most important information first. Automatic value generation reduces boilerplate while maintaining flexibility. Cross-module extension allows domain specialization without fragmenting the ecosystem.
+
+Tags bridge the gap between simple enumerations and complex type hierarchies. They provide just enough structure for real-world categorization needs while remaining simple enough to reason about. The consistent `#` prefix makes them visually distinct in code, and their multiple roles as values, types, and dispatch keys create a unified approach to categorization throughout the language. For details about the primitive types that tags can represent, see [Core Types](type.md).
+
 ## Tag Definition and Hierarchy
 
 Tags are defined using the `!tag` keyword, creating hierarchical structures where each tag can have both a value and children. The `#` prefix must be used consistently on each tag name in the definition. When the same tag name appears multiple times in a definition, the last assignment wins - there's no concept of strong or weak assignment for tag definitions.
@@ -287,9 +291,3 @@ in-miles = distance ~num#mile      ; ~3.1
 total = 5#meter + 10#foot          ; Result in meters
 speed = 100#kilometer / 1#hour     ; Compound unit
 ```
-
-## Design Principles
-
-The tag system embodies several key design principles that guide its use throughout Comp. Tags provide hierarchical organization without class inheritance complexity. They enable polymorphic dispatch through structural matching rather than virtual methods. The reversed hierarchy notation puts the most important information first. Automatic value generation reduces boilerplate while maintaining flexibility. Cross-module extension allows domain specialization without fragmenting the ecosystem.
-
-Tags bridge the gap between simple enumerations and complex type hierarchies. They provide just enough structure for real-world categorization needs while remaining simple enough to reason about. The consistent `#` prefix makes them visually distinct in code, and their multiple roles as values, types, and dispatch keys create a unified approach to categorization throughout the language. For details about the primitive types that tags can represent, see [Core Types](type.md).

@@ -4,13 +4,26 @@
 
 ## Overview
 
-Comp provides three fundamental scalar types that serve as building blocks for all data. Numbers offer unlimited precision for exact computation. Strings handle text with integrated templating. Booleans represent logical values through the tag system. These scalar types automatically promote to single-element structures when used in pipelines, maintaining Comp's uniform data model.
+Comp provides three fundamental, simple types designed to be reliable building blocks. These numbers, strings, and booleans are not structures themselves. They have no fields, but they do have their own extensible type system and are strictly typed themselves.
 
-Each type has a corresponding shape for type specifications (`~num`, `~str`, `~bool`) and standard library module for advanced operations. The type system is closed - no user-defined scalar types exist, ensuring consistent behavior throughout the language. For information about how these types integrate with structure operations, see [Structures, Spreads, and Lazy Evaluation](structure.md).
+Numbers offer unlimited precision, avoiding integer overflow and precision loss. Strings handle text with integrated templating. Booleans represent concrete logical values that do not become or act like other types.
+
+These simple types automatically promote to single-element structures when used in pipelines, maintaining Comp's uniform data model without mental overhead. Each type has a corresponding shape for specifications (`~num`, `~str`, `~bool`) and standard library module for advanced operations.
+
+The type system embodies principles that prevent common programming frustrations:
+
+- **No implicit conversion**: Types never automatically convert—prevents those "wait, why is this a string now?" moments
+- **Unlimited precision**: Numbers maintain exactness without overflow or rounding gotchas
+- **Template unification**: All strings support formatting through the `%` operator
+- **Total ordering**: Comparisons always succeed with deterministic results—no more "cannot compare X and Y" errors
+- **Semantic units**: Units provide meaning and safety for primitive values
+- **Closed type system**: Only three built-in types, everything else is structures.
+
+These principles create a type system that is both simple and powerful, avoiding the complexity and pitfalls of elaborate type hierarchies or sneaky automatic conversions. For information about how these types integrate with structure operations, see [Structures, Spreads, and Lazy Evaluation](structure.md).
 
 ## Boolean Type
 
-Booleans are the simplest type, represented by two built-in tags: `#true` and `#false`. They cannot be created from other types through automatic conversion - explicit functions must be used when converting values to booleans. This prevents ambiguity about truthiness that plagues other languages.
+Booleans are the simplest type, represented by two built-in tags: `#true` and `#false`. They eliminate the "is 0 true or false?" confusion that exists in many languages—there's no automatic conversion from other types. Want to check if something is truthy? Use an explicit comparison.
 
 ```comp
 ; Boolean literals are tags
@@ -66,9 +79,9 @@ Control flow functions interpret values for conditional logic. While only `#fals
 
 ## Number Type
 
-Numbers in Comp provide unlimited precision and range, eliminating common numeric pitfalls. Whether representing integers, decimals, or huge values, numbers maintain exact precision without overflow or rounding errors. The implementation uses efficient representations internally while presenting consistent behavior to programmers.
+Numbers in Comp eliminate the numeric headaches that plague other languages. No integer overflow. No floating-point precision loss. No "why did my calculation get rounded?" moments. Numbers maintain exact precision whether you're working with huge integers or precise decimals.
 
-Numbers follow Python's decimal.Decimal semantics, including preservation of significant digits through operations.
+The implementation follows Python's decimal.Decimal semantics, including preservation of significant digits through operations. This means your calculations stay accurate, and your financial software won't mysteriously lose pennies.
 
 ```comp
 ; Unlimited range and precision
@@ -163,7 +176,7 @@ Strings are immutable sequences of UTF-8 text. They cannot be modified after cre
 ; Unquoted tokens are string literals
 greeting = hello           ; String "hello"
 name = Alice              ; String "Alice"
-status = active           ; String "active"
+status = active           ; String "status"
 
 ; Quoted strings for special cases
 with-spaces = "Hello, World!"
@@ -188,37 +201,9 @@ ab * 3                    ; ERROR - no * for strings
 
 ### Template Formatting
 
-The `%` operator applies template formatting to strings. Templates use `${}` placeholders that are filled from the provided structure. The operator can be used as a binary operator or as a prefix for string literals to enable immediate template expansion.
+The `%` operator provides powerful template formatting that actually makes sense. Use `${}` placeholders and fill them from structures—no more string concatenation headaches or format string ceremony.
 
-```comp
-; Binary template operator
-template = "Hello, ${name}!"
-result = {name="Alice"} % template     ; "Hello, Alice!"
-
-; Template string prefix for immediate expansion
-name = "Alice"
-result = %"Hello, ${name}!"           ; "Hello, Alice!"
-
-; Positional placeholders
-%"${} + ${} = ${}" % {2 3 5}         ; "2 + 3 = 5"
-
-; Named and positional mixing
-%"Hi ${name}, you are a ${}" % {name="Bob" "Developer"}
-
-; Index-based placeholders
-%"${#1} before ${#0}" % {"first" "second"}  ; "second before first"
-
-; Pipeline template operator
-{greeting="World"} |% "Hello, ${greeting}!"  ; "Hello, World!"
-```
-
-Template formatting follows Python-style rules:
-- Positional `${}` matches unnamed fields in order
-- Named `${field}` matches named fields  
-- Indexed `${#n}` references specific positions
-- Cannot mix positional and indexed in same template
-- Prefix `%"..."` enables immediate template expansion with variables in scope
-- Pipeline `|%` applies template formatting in pipeline context
+Template formatting follows intuitive Python-style rules. Positional placeholders fill in order, named placeholders match field names, and the pipeline operator `|%` lets you apply templates in data flows naturally.
 
 ### String Operations
 
@@ -343,6 +328,26 @@ apple < banana              ; Lexicographic comparison
 ; Complex structure ordering
 {a=1 b=2} < {a=1 b=3}       ; Compares fields alphabetically
 {x=1} < {x=1 y=2}           ; Subset is less than superset
+
+; Binary template operator
+template = "Hello, ${name}!"
+result = {name="Alice"} % template     ; "Hello, Alice!"
+
+; Template string prefix for immediate expansion
+name = "Alice"
+result = %"Hello, ${name}!"           ; "Hello, Alice!"
+
+; Positional placeholders
+%"${} + ${} = ${}" % {2 3 5}         ; "2 + 3 = 5"
+
+; Named and positional mixing
+%"Hi ${name}, you are a ${}" % {name="Bob" "Developer"}
+
+; Index-based placeholders
+%"${#1} before ${#0}" % {"first" "second"}  ; "second before first"
+
+; Pipeline template operator
+{greeting="World"} |% "Hello, ${greeting}!"  ; "Hello, World!"
 ```
 
 ## Type Conversion
@@ -367,16 +372,3 @@ bool = (false |to-bool/str)          ; Returns #false (special case)
 Value: ${} % {42}                     ; Number to string
 Count: ${} % {#true}                  ; Boolean to string
 ```
-
-## Design Principles
-
-The type system embodies several core principles:
-
-- **No implicit conversion**: Types never automatically convert, preventing subtle bugs
-- **Unlimited precision**: Numbers maintain exactness without overflow or rounding
-- **Template unification**: All strings support formatting through the `%` operator
-- **Total ordering**: Comparisons always succeed with deterministic results
-- **Semantic units**: Units provide meaning and safety for primitive values
-- **Closed type system**: Only built-in scalar types, ensuring consistency
-
-These principles create a type system that is both simple and powerful. The three scalar types provide everything needed for real-world programming while avoiding the complexity and pitfalls of elaborate type hierarchies or automatic conversions. For information about how these types work with shape validation and morphing, see [Shapes, Units, and Type System](shape.md).

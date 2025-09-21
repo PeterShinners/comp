@@ -1,55 +1,21 @@
 # Pipelines, Flow Control, and Failure Handling
 
-*Design for Comp's pipeline operations, control flow patterns, and error
-management*
+*Design for Comp's pipeline operations, control flow patterns, and error management*
 
 ## Overview
 
-Comp uses pipelines to connect operations into data # Module extension
-!tag #fail += {
-    #database = Database operation failed {
-        #connection = Unable to connect
-        #constraint = Constraint violationformation chains. The
-`|` operator marks function application, creating readable left-to-right data
-flow. Control flow and error handling are achieved through functions that accept
-block arguments (dotted structures `.{}`), providing a consistent and composable
-approach to program flow.
+Comp uses pipelines to eliminate the nested function call spaghetti. The `|` labeling and operators creates readable left-to-right data flow—like a recipe where each step transforms what came before. The syntax steers towards a flatter namespace to avoid excessive nesting and bracing.
 
-Every statement in Comp benefits from fresh pipeline input - `$in` resets to the
-function's original input at each statement boundary. This enables parallel
-processing patterns where multiple statements independently transform the same
-input data. The functions that process pipeline data are detailed in [Functions
-and Blocks](function.md), while the structure operations within pipelines are
-covered in [Structures, Spreads, and Lazy Evaluation](structure.md).
+Control flow and error handling work through functions that accept block arguments, providing a consistent approach that scales from simple transformations to complex workflows.
 
-The pipeline and failure system embodies several core principles that guide its
-design and usage. The single pipeline pattern with `|` creates consistency -
-there's no special syntax for different scenarios. Automatic failure propagation
-eliminates defensive programming while ensuring errors can't be silently
-ignored. Explicit recovery makes error handling visible in the code structure.
-Fresh `$in` at statement boundaries provides clean parallel processing. The
-uniform function-and-block pattern means control flow follows the same rules as
-data transformation.
+Every statement gets fresh pipeline input through `$in`, which resets to the function's original input at each statement boundary. This enables natural parallel processing where multiple statements independently transform the same data—no variable juggling required.
 
-These principles combine to create a system where complex data transformations,
-control flow, and error handling integrate naturally. The result is code that
-reads linearly while handling the full complexity of real-world data processing.
-Failures propagate predictably without hidden control flow, variables provide
-clear scoping without namespace pollution, and all operations compose through
-the same fundamental pipeline mechanism.
+These principles combine to present code that reads linearly, while still accomodating practical
+and real world situations. Failures propagate predictably without hidden control flow, and all operations compose through the same fundamental mechanism. The functions that process pipeline data are detailed in [Functions and Blocks](function.md), while structure operations are covered in [Structures, Spreads, and Lazy Evaluation](structure.md).
 
 ## Pipeline Fundamentals
 
-The `|` operator is Comp's fundamental composition mechanism, marking function
-application within pipeline boundaries. Pipelines are enclosed in parentheses to
-clearly delimit their scope. Each function in a pipeline receives the output of
-the previous function as its input, creating natural data flow.
-
-A pipeline consists of one or more functions connected by `|`. The first element
-can be either a value or a function. When starting with a value, it becomes the
-input to the first function. When starting with a function (marked by leading
-`|`), the function receives no initial input or uses ambient data depending on
-its definition.
+A pipeline starts with either a value or a function. Starting with a value feeds that data into the first function. Starting with a function (marked by leading `|`) means the function gets no initial input or uses ambient data—perfect for things like timestamps or configuration lookups.
 
 ```comp
 !func |process ~{data} = {
