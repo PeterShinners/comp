@@ -1,0 +1,34 @@
+{
+  "name": "comp-language-support",
+  "displayName": "Comp Language Support",
+  "description": "Syntax highlighting and language support for the Comp programming language",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "comp",
+        "aliases": [
+          "Comp",
+          "comp"
+        ],
+        "extensions": [
+          ".comp"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "comp",
+        "scopeName": "source.comp",
+        "path": "./syntaxes/comp.tmLanguage.json"
+      }
+    ]
+  }
+}
