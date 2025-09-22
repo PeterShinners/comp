@@ -80,6 +80,34 @@ config = {
 ; Spread from shapes for defaults
 defaults = {..~config-shape}
 custom = {..~config-shape port=3000}
+```
+
+### Shape Spreading for Defaults
+
+Shapes can be used in spread position to apply their default values—this is the only place in Comp where shapes appear to act like values. The spread operator recognizes shape references and extracts only fields that have default values defined.
+
+```comp
+!shape ~server-config = {
+    port ~num = 8080
+    host ~str = "localhost"
+    timeout ~num = 30
+    api-key ~str           ; No default - excluded from spread
+}
+
+; Spread applies only defaulted fields
+server = {..~server-config}
+; Result: {port=8080 host="localhost" timeout=30}
+
+; Combine with explicit fields
+production = {..~server-config host="prod.example.com" api-key="secret"}
+; Result: {port=8080 host="prod.example.com" timeout=30 api-key="secret"}
+
+; Works with all spread variants
+locked-defaults = {!..~server-config port=3000}  ; Strong spread
+fallback-config = {?..~server-config ..user-settings}  ; Weak spread
+```
+
+This shape spreading syntax is special-cased by the spread operator and doesn't imply shapes can be used as values elsewhere. It's purely a convenience for applying default values from shape definitions.
 
 ; Field deletion with !delete
 cleaned = {..original !delete temp-field !delete old-field}
@@ -90,6 +118,80 @@ arrays = {..{1 2} ..{3 4}}
 ```
 
 The spread operators work identically in all contexts - structure literals, function parameters, and shape definitions. This consistency makes them predictable tools for structure composition.
+
+## Field Assignment as Spread Shorthand
+
+Field assignment in Comp is actually shorthand for spread operations that create new immutable structures. Understanding this equivalence clarifies how assignments work with immutable values and different scopes.
+
+### Basic Field Assignment Equivalence
+
+These three expressions are completely equivalent:
+
+```comp
+; Direct field assignment
+$ctx.server.port = 8000
+
+; Explicit spread syntax (single level)
+$ctx = {..$ctx server.port = 8000}
+
+; Explicit spread syntax (full nesting)
+$ctx = {..$ctx server = {..$ctx.server port = 8000}}
+```
+
+All three create a new `$ctx` structure that preserves existing fields while updating the nested `server.port` field.
+
+### Deep Assignment Creates Nested Spreads
+
+When you assign to deeply nested fields, Comp automatically generates the equivalent nested spread operations:
+
+```comp
+; This deep assignment...
+user.profile.settings.theme = "dark"
+
+; Is equivalent to this nested spread:
+user = {
+    ..user 
+    profile = {
+        ..user.profile 
+        settings = {
+            ..user.profile.settings 
+            theme = "dark"
+        }
+    }
+}
+```
+
+### Scope Assignment Examples
+
+Understanding the spread equivalence helps clarify how scope assignments work:
+
+```comp
+; Context modification
+$ctx.database.timeout = 30
+; Equivalent to:
+$ctx = {..$ctx database = {..$ctx.database timeout = 30}}
+
+; Module configuration
+$mod.settings.debug = #true
+; Equivalent to:
+$mod = {..$mod settings = {..$mod.settings debug = #true}}
+
+; Local variable update
+@config.server.port = 3000
+; Equivalent to:
+@config = {..@config server = {..@config.server port = 3000}}
+```
+
+### Why This Matters
+
+This equivalence explains several important behaviors:
+
+**Immutability is preserved** - assignments create new structures rather than modifying existing ones
+**Performance implications** - deep assignments rebuild nested structures  
+**Scope behavior** - context and module assignments affect the entire scope structure
+**Assignment strength** - `*=` and `?=` work the same way in both forms
+
+The field assignment syntax is purely a convenience - under the hood, Comp is always creating new immutable structures through spread operations.
 
 ## Assignment Operators and Field Manipulation
 

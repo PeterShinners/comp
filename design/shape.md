@@ -8,7 +8,7 @@ Shapes solve the type system problem that most languages get wrong—balancing f
 
 The shape system integrates with units to provide semantic typing that actually matters. Units attach meaning to numbers and strings—5#meters is different from 5#seconds, and the type system keeps you from accidentally mixing them. Together, shapes and units create a type system that helps instead of hindering.
 
-Whether you're validating API inputs, ensuring dimensional correctness in calculations, or transforming between data formats, shapes and units provide powerful tools that actually help manage complexity. For information about the tag system that underlies units, see [Tag System](tag.md), and for details about the core primitive types, see [Core Types](type.md).
+Shapes and units are a powerful tool for validating API inputs, ensuring dimensional correctness, or transforming between data formats. Comp's approach uses concrete types where morphing operations produce definite typed values rather than inferred types—see [Syntax and Style Guide](syntax.md) for how this affects the entire type system. For information about the tag system that underlies units, see [Tag System](tag.md), and for details about the core primitive types, see [Core Types](type.md).
 
 ## Shape Definition and Inheritance
 
@@ -192,32 +192,22 @@ they can be used anywhere shape references are used.
 
 ## Spreading Shape Defaults
 
-Shapes can be used in spread position to provide default values. This treats
-shapes as "default providers" without performing validation or type coercion.
-Only fields with defaults in the shape are included in the spread.
+Shapes can be used in spread operations to apply their default values:
 
 ```comp
 !shape ~config = {
     port ~num = 8080
     host ~str = "localhost"
     timeout ~num = 30
-    api-key ~str           ; No default - not included
+    api-key ~str           ; No default - not included in spread
 }
 
-; Spread only includes fields WITH defaults
-server = {..~config}
-; Result: {port=8080 host="localhost" timeout=30}
-; Note: api-key NOT included
-
-; Override some defaults
-custom = {..~config port=3000 host="0.0.0.0"}
-; Result: {port=3000 host="0.0.0.0" timeout=30}
-
-; No type coercion during spread
-mixed = {..~config port="not-a-number"}  
-; Result: {port="not-a-number" host="localhost" timeout=30}
-; port is a string now, not coerced to number
+; Apply defaults from shape
+server = {..~config}  ; {port=8080 host="localhost" timeout=30}
+custom = {..~config port=3000}  ; Override specific defaults
 ```
+
+For detailed information about shape spreading and structure assembly patterns, see [Structures, Spreads, and Lazy Evaluation](structure.md).
 
 The spread operation is purely mechanical - "copy all fields that have defaults"
 - while morphing is semantic - "transform this structure to match this shape."

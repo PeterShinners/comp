@@ -17,9 +17,10 @@ The type system embodies principles that prevent common programming frustrations
 - **Template unification**: All strings support formatting through the `%` operator
 - **Total ordering**: Comparisons always succeed with deterministic results—no more "cannot compare X and Y" errors
 - **Semantic units**: Units provide meaning and safety for primitive values
-- **Closed type system**: Only three built-in types, everything else is structures.
+- **Closed type system**: Only three built-in types, everything else is structures
+- **Concrete types**: Values carry their own type information rather than relying on inference
 
-These principles create a type system that is both simple and powerful, avoiding the complexity and pitfalls of elaborate type hierarchies or sneaky automatic conversions. For information about how these types integrate with structure operations, see [Structures, Spreads, and Lazy Evaluation](structure.md).
+These principles create a type system that is both simple and powerful, avoiding the complexity and pitfalls of elaborate type hierarchies or sneaky automatic conversions. Comp uses concrete types where values intrinsically know what they are, rather than inferring types from context—see [Syntax and Style Guide](syntax.md) for details on how this affects the entire language. For information about how these types integrate with structure operations, see [Structures, Spreads, and Lazy Evaluation](structure.md).
 
 ## Boolean Type
 
