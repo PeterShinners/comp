@@ -52,6 +52,7 @@ and between the operations a function or structure.
 - `..` - Normal spread
 - `*..` - Strong spread
 - `?..` - Weak spread
+- `..=` - Spread assignment (equivalent to `data = {..data value}`)
 
 **Fallback operator:**
 - `??` - Provide fallback value
@@ -139,7 +140,7 @@ pipelines starting with function calls to share the incoming structure for
 the function.
 
 The `$in` scope represents the data from the incoming pipeline that has been
-morphed to match the function's shape definition.
+morphed to match the function's shape definition. It cannot be overwritten.
 
 ```comp
 ; Example showing $in scope reset
@@ -159,6 +160,28 @@ result = data |process .{
     admin? = (|if $out.name == "admin" #true #false)
 }
 ```
+
+The `$out` scope can be directly modified to build output structures incrementally:
+
+```comp
+!func |build-user ^{name ~str age ~num} = {
+    ; Direct field assignment to $out
+    $out.name = ^name
+    $out.age = ^age
+    $out.created = (|now)
+    
+    ; Append operations using spread-assignment
+    $out ..= #active.status
+    $out ..= (^name |calculate-permissions)
+    
+    ; Conditional additions
+    (^age >= 18) |if .{
+        $out.can-vote = #true
+    }
+}
+```
+
+This direct modification approach is particularly useful in privacy structures where automatic field export is disabled.
 
 ### Local Scope
 
@@ -322,6 +345,32 @@ result = uncertain-data ~user  ; Either concrete ~user or morph failure
 - Function dispatch works on actual types, not inferred ones
 
 This approach makes Comp both simpler to understand and more predictable in behavior, though it requires a different mindset from languages that rely heavily on type inference.
+
+## Spread Assignment
+
+The spread-assignment operator `..=` provides a concise way to append data to existing structures. It acts as syntactic sugar for the common pattern of rebuilding a structure with additional unnamed fields.
+
+```comp
+; These are equivalent:
+data ..= new-value
+data = {..data new-value}
+
+; Practical examples:
+items ..= "new item"           ; Append item to list-like structure
+config ..= {debug=#true}       ; Append structure as unnamed field
+log ..= timestamp              ; Append timestamp value
+
+; Works with all spread variants:
+data *..= secure-value     ; Strong append (resists overwriting)
+data ?..= default-value    ; Weak append (only if field undefined)
+
+; Note: This is append, not merge
+settings ..= {theme="dark"}    ; Adds {theme="dark"} as unnamed field
+; Result: {..existing-settings {theme="dark"}}
+; NOT: {..existing-settings theme="dark"}
+```
+
+The spread-assignment operator is particularly useful for building up list-like structures incrementally or for adding complete sub-structures as discrete elements.
 
 ## Documentation Syntax
 

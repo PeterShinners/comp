@@ -1,0 +1,70 @@
+; Insert locator or other transform halfway between parent
+; https://github.com/TrevisanGMW/gt-tools/blob/release/gt/tools/add_offset_transform/add_offset_transform.py
+
+!import /maya = comp "maya-comp-sensational@1.0.0"
+
+!shape ~layer-config = {
+	tag ~str                    ; Suffix for created nodes
+	parent-type #parent-type    ; #parent or #selection
+	layer-type ~layer-types     ; #joint #locator or #group
+}
+
+~shape ~layer-types = #join/node | #locator/node | #group/node
+!tag #parent-type = {#parent #selection}
+
+!func |create-inbetween ^layer-config = {
+	@transaction = !transact $maya-scene/maya
+	@selection = !transact $restore-selection/maya
+
+	(|selection/maya |map .{
+		@obj = $in
+		@parent = @obj |get-parent/maya  ; top level parents get a special "root" path
+
+		(|select-clear/maya)
+
+		transform = @parent |create-node/maya ^layer-type name=%"${@obj}${^tag}"
+		|set-attr "useOutlinerColor" #true
+		|set-attr "outlinerColor" ^outliner-color ?? {1.0 0.5 0.0}  ; Orange default
+		|parent/maya @parent
+
+		@target = (|if (^parent-type == #parent) @parent @obj)
+		if @target.exists? .{
+			{@target transform} |parent-constraint/maya |delete/maya ; delete is void
+		}
+
+		@obj |parent/maya transform |void
+	})
+}
+
+
+
+; Create random buble shapes
+; https://github.com/nestrada2/bubbles/blob/main/scripts/bubbles.py
+
+!shape ~bubble-args = {
+    count ~num = 10
+    radius-range ~num[2] = {0.1 0.5}
+    position-range ~num[2] = {0.1 5}
+}
+
+!func |create-bubbles ~{parent~dagpath={}} ^bubble-args = &{
+	@transaction = !transact $maya-scene/maya
+	@group = parent |create-node #group/node name="bubbles"
+
+	; Generate bubble specifications
+	$out = {1 ^count} |range/iter .{
+		name = %"bubble_${$in}"
+		radius = (^radius-range |uniform/random)
+		position = {
+				x = (^position-range |uniform/random)
+				y = (^position-range |uniform/random)
+				z = (^position-range |uniform/random)
+		}	
+	}
+	; Create and position bubbles
+	|map .{
+		(@group |polySphere/maya name=name radius=radius)#0
+		|move/maya position
+	}
+	@group |select-replace
+}

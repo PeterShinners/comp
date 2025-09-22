@@ -427,3 +427,5 @@ user-view = {
           |enhance-with-metadata
           |{$in checksum=(|calculate-checksum)})
 ```
+
+For functions that need controlled output generation, privacy structures using `&{}` or `&[]` disable automatic field export, requiring explicit `$out` scope modifications. This enables complex internal processing without exposing implementation details. See [Privacy Structures and Explicit Output](function.md#privacy-structures-and-explicit-output) for detailed coverage of this pattern.

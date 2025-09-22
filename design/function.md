@@ -144,6 +144,62 @@ quick-view = analysis.summary    ; Only computes summary
 full = analysis ~{summary statistics}  ; Computes two fields
 ```
 
+## Privacy Structures and Explicit Output
+
+Functions can use privacy structures with the `&{}` or `&[]` prefix to disable automatic field export. In privacy mode, statements don't automatically contribute to the function's output—only explicit modifications to the `$out` scope generate results. This is essential for functions that need many intermediate calculations without exposing internal implementation details.
+
+Privacy structures solve the common problem of functions that need complex internal logic but simple outputs. Instead of needing separate helper functions or complex scoping, you can do all your work in one place while controlling exactly what gets exposed.
+
+```comp
+; Regular function - every statement contributes to output
+!func |messy-calculation ~{data} = {
+    validation = (data |validate)        ; This becomes output field
+    temp-result = (validation |process)  ; This becomes output field  
+    final = (temp-result |finalize)      ; This becomes output field
+    ; Result: {validation=... temp-result=... final=...}
+}
+
+; Privacy function - only explicit $out modifications are exported
+!func |clean-calculation ~{data} = &{
+    @validation = (data |validate)        ; Internal only
+    @temp-result = (@validation |process)  ; Internal only
+    @final = (@temp-result |finalize)     ; Internal only
+    
+    ; Only these become output
+    $out.result = @final
+    $out.success = #true
+    ; Result: {result=... success=#true}
+}
+
+; Privacy lazy function for controlled generators
+!func |filtered-sequence ^{filter-fn} = &[
+    @raw-data = (|get-large-dataset)      ; Internal processing
+    @processed = (@raw-data |expensive-transform)
+    
+    ; Only expose the final filtered results
+    ($in |^filter-fn @processed)
+]
+```
+
+Privacy structures work with all the same mechanisms as regular structures—shape morphing, argument handling, and scope management. The only difference is that field assignment doesn't automatically export unless it targets `$out` explicitly.
+
+```comp
+; Mixed approach - some fields automatic, some controlled
+!func |user-profile ~{user-id} = &{
+    @user-data = (user-id |database.fetch)
+    @permissions = (@user-data |calculate-permissions)
+    @preferences = (@user-data |load-preferences)
+    
+    ; Automatic exports (these create output fields)
+    display-name = @user-data.name
+    avatar-url = @user-data.avatar
+    
+    ; Controlled exports via $out
+    $out.can-admin = (@permissions.admin?)
+    $out ..= (@preferences |filter-public)
+}
+```
+
 ## Pure Functions and Isolation
 
 Pure functions guarantee deterministic computation without side effects. Defined with `!pure`, they receive an empty context and cannot access external resources. This enables build-time evaluation, safe parallelization, and use in shape constraints or unit definitions.
