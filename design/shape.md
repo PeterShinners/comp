@@ -64,8 +64,7 @@ counts, with shortcuts for common patterns.
 
 Shape morphing transforms structures to match shape specifications through a
 multi-phase matching process. The algorithm considers field names, types,
-positions, and defaults to create the best possible match. During morphing,
-missing fields can be sourced from the scope stack (`$ctx` and `$mod`).
+positions, and defaults to create the best possible match.
 
 The morphing process follows these phases:
 1. **Named field matching** - Exact field name matches are assigned first
@@ -73,7 +72,6 @@ The morphing process follows these phases:
 3. **Positional matching** - Remaining fields match by position
 4. **Default application** - Unmatched shape fields receive defaults from shape
    definition
-5. **Scope lookup** - Missing fields check `$ctx` and `$mod`
 
 ```comp
 !shape ~connection = {
@@ -86,13 +84,12 @@ The morphing process follows these phases:
 ({example.com 443 #true} ~connection)
 ; Result: {host=example.com port=443 secure?=#true}
 
-; Namespace fields are automatically available
-$ctx.port = 3000
+; Morphing with defaults
 ({host=prod.example.com} ~connection)
-; Result: {host=prod.example.com port=3000 secure?=#false}
-; port comes from $ctx, secure? from shape default
+; Result: {host=prod.example.com port=8080 secure?=#false}
+; port and secure? come from shape defaults
 
-; Function parameters automatically morph with namespace access
+; Function parameters automatically morph
 !func |connect ~{conn ~connection} = {
     (Connecting to ${host}:${port} |log)
 }
