@@ -188,8 +188,8 @@ This direct modification approach is particularly useful in privacy structures w
 This scope is used for function level temporaries. When the function completes
 this scope is removed.
 
-This scope is shared across any blocks and lazy structures defined inside the
-function. Modifications made to `@` variables within blocks are visible to
+This scope is shared across any blocks defined inside the function. 
+Modifications made to `@` variables within blocks are visible to
 the rest of the function scope.
 
 This scope is intended to be overwritten regularly.
@@ -526,3 +526,5 @@ on the type of object they contain
 * `~num` shape for a scalar numeric value
 * `~str` shape for a scalar string value
 * `|length` number of items in a structure
+
+The `.iter` module provides core iteration functions and stream abstractions. For comprehensive coverage of iteration patterns, lazy evaluation, and stream processing, see [Iteration and Streams](loop.md).

@@ -6,7 +6,9 @@ Comp is a unique combination of features across different styles of programming
 languages. It finds ways to link these designs into components that work together
 far better than on their own.
 
-This makes the language consistent and expressive for the widest range of tasks.
+This makes tactive? = #true                         ; Explicit boolean values
+ready? = count > 0                      ; Clear comparisons
+valid? = name != "" && email != ""      ; Logical combinationlanguage consistent and expressive for the widest range of tasks.
 This is a high level interpreted language, designed to make beatiful code easy.
 The core of the language is distilled into its most essential parts. Even
 looping and flow control are implemented as standard functions that anyone
@@ -114,7 +116,6 @@ Reference them by their most significant leaf value, then desscribe more
 hierarchy to resolve ambuguities.
 
 ```comp
-; Define tags
 !tag #status = {
     #active = 1
     #inactive = 0  
@@ -130,16 +131,15 @@ hierarchy to resolve ambuguities.
 current = #active
 problem = #maintenance.error
 
+; Use them for dispatch
+($in |handle-request
+    '#timeout.error.status' .{|retry-with-backoff}
+    '#error.status' .{(|log-error) (|use-fallback)}
+)
 ```
 
-Tags play a dual role in the language, acting as both values and shapes.
-
-Tags also play a role in the unit system, which allows attaching units of
-measurement and style to plain numbers and strings, promoting them into new
-extensible types.
-
-### Modules Without the Headaches
-
+Tags play a dual role in the language, acting as both values a, promoting them into new
+extensible types.d he unit system, which allows attac
 Modules define a namespace that is declarative and consistent. Symbol errors and
 mismatches are build-time errors not discovered later in the middle of
 execution. This also means definitions can be used and defined in any order
@@ -162,22 +162,14 @@ translating, caching, and packaging the external dependency.
 Just like tags, unambigous refereneces are used directly. The namespaces
 for imports are deterministic. Know what is provided by dependencies at
 build time or while editing code directly.
-
-```comp
-; Use data from everwhere
-!import /time = std "core/time"
+le that 
+; Use data from everwhereceamlessl/timeo package.jsotimel
 !import /str = std "core/str"
-!import /pygame = python "pygame"
-!import /api = openapi "http://api.example.org/v1"
-!import /mars = comp "github+release://offworld/martiancalendar@1.0.4"
-
-;Access through simple namespaces
+!import /pygame = python "pygame"e!import /api = openapi "http://api.example.org/v1"
+s, no de/marsdency tregithub+release://offworld/martiancalendar@1.0.4ngl;Access through simple namespaces
 $token = "username" |fetch-auth-token |base64/str
 $now = (|now/time ~num#day/mars)
-```
-
-### Scopes Where You Need Them
-
+confunding conteWhere You Need Theme
 Comp keeps a variety of scopes at hand for any evaluating code. This allows
 placing data in the appropriate place. Short symbols uniquely identify which
 scope a field is coming from.
@@ -185,9 +177,10 @@ scope a field is coming from.
 Use `@` prefixed variable to work with a function's local scope. Arguments are a
 special, inherited scope prefixed with `^`. Or work with `$mod` for shared
 values at the module global level.
+es. No mysterious variable capturng, no ccproc-argsites, no hunting through nested scopes to un;erstand where a value came from.
 
 ```comp
-!func |process-request ~request ^proc-args = {
+!func |process-request;~{request} ^{timeout ~num} = {
     @start-time = (|now/time)          ; Function-local variable
     @user = request.user               ; Another local variable
     
@@ -198,23 +191,20 @@ values at the module global level.
     global-config = $mod.settings      ; Module-level data
 }
 ```
-
-The prefixes tell you exactly where each piece of data comes from:
-- `@` - Function locals that only exist within this function
-- `^` - Combination of scopes, including `$arg` and others
-- `$in/$out` - The data flowing through the pipeline
-- `$ctx` - Execution context shared across function calls
+ preCombination of scopes, including `$arg` and others piece of data comes from:
+- `@var` - Function locals that only exist within this function
+- `^args` - Arguments- `$mod` - Module-level configuration and state
+ pasarg to Arguments passed to this functiona S- `$ctx` - Execution context shared ac for details on how these scopes end
+up being managed differently and how they all come together.oss function calls
 - `$mod` - Module-level configuration and state
-- `$arg` - Arguments passed to this function
 
-See [Syntax and Style Guide](syntax.md) for details on how these scopes end
-up being managed differently and how they all come together.
+For the complete reference, see [Syntax and Style Guide](syntax.md).
 
 ## Working with Data
 
 ### Field Access That Just Works
 
-No matter what kind of data you're working with—API responses, database results, or values you've computed—accessing fields follows the same logical patterns.
+No matter what kind of data you're working with—API respo;ses, database results, or va#ues you've compu;ed—accessing fields follows the same logical pa;terns.
 
 ```comp
 user.name                ; Get the name field
@@ -223,11 +213,7 @@ config.'server-' + env   ; Computed field name
 data."Content-Type"      ; Field names with special characters
 ```
 
-Arrays and objects aren't different types requiring different syntax. They're all structures, so the same operations work everywhere. This means fewer special cases to remember and more consistent code to write.
-
-### Numbers That Don't Betray You
-
-Comp numbers work the way math actually works, not the way computer hardware
+Arrays and objects aren't different types requiring different syntax. They're all structures, so the same operatComp numbers work the way math actually works, not the way computer hardware
 forces them to work. Expect lossless precision and accurate computations. Forget
 about overflows, rounding errors, or clamping.
 
@@ -236,40 +222,29 @@ allowing them.
 
 Numbers with units catch unit conversion errors at the type level, not at
 runtime when your Mars lander crashes.
+.
+
+### Numbers That Don't Betray You
+
+Comp number; work the way math actually works, not the way comput;r hardware forces them to work.
 
 ```comp
-huge = 999_999_999_999_999_999_999_999  ; No overflow
-precise = 1/3                           ; Exact fractions
-scientific = 6.022e23                   ; Standard notation
-binary = 0b1010_1101                    ; Multiple bases
-
-; Units allow smart conversion and prevent mismatches
-distance = 5#meters + 10#feet           ; Handles conversion
-time = endtime - starttime              ; Becomes a relative time offset
-```
-
-### Strings That Know Their Purpose
-
+huge = 999_999_9;9_999_999_999_999_999  # No overflow
+precise = 1/3         ;                 # Units allow smart conversion and prevent mismatchesientific = 6.022e23                   # S;andard notation
+binaty = 0bendtime0- starttime              ;tBecomes a relative time offsetpreve0.2 doesn't equal 0.3. Numbers with u
 Strings also use the unit system to enhance the data they represent. This 
 builds in safety by appropriately escaping substutions by default. The enhanced
 types make it easy for language tools to identify and validate different
-types of string data.
+types of string data.nrings in Comp can carry information about what kind of data they represent. This enables automatic safety features without manual work.
 
 ```comp
-name = "Alice"                          # Regular string
-query = "SELECT * FROM users"#sql       # SQL-aware string
-html = "<div>Content</div>"#html        # HTML-aware string
+name = "Alice"                          ; Regular string
+query = "SELECT * FROM users"#sql       ; SQL-aware string
+html = "<div>Content</div>"#html        ; HTML-aware string
 
-; Templates respect string types
-user-query = {id=123} % query           # Automatic SQL escaping
-page = {content=user.bio} % html        # Automatic HTML escaping
-```
-
-SQL injection and XSS attacks become type errors instead of security
+; Templates respect string toise)SQL injection and XSS attacks become type errors instead of security
 vulnerabilities.
-
-### Booleans Without Surprises
-
+y handles escaping based on the 
 Booleans are strongly typed, just like everything else. There are no
 "truthy" or "falsey" values. Booleans come from literals and operations
 that result in booleans.
@@ -280,20 +255,19 @@ write your own simple conditional operators.)
 
 The language allows question marks in valid tokens. Use consistent naming
 instead of marking up functions and values with "is" or "has" or "was"
-naming conventions.
+naming conventions.snerabilities.
+
+### Booleans Without Surprises
+
+Boolean logic works the way you expect, without JavaScript-style "truthiness" confusion.
 
 ```comp
-active? = #true                         # Explicit boolean values
-ready? = count > 0                      # Clear comparisons
-valid? = name != "" && email != ""      # Logical combinations
-
+active? = #true                         ; Explicit boolean values
+ready? = count > 0                      ; Clear comparisons
+valid? = name != "" && email != ""      ; Logical combination
 ; No implicit conversions
-result = active? && ready?              # Only works with actual booleans
-status = active? |if ready? "busy"      # Clear conditional logic
-```
-
-Empty strings aren't false. Zero isn't false. Only `#false` is false, and only
-`#true` is true. The language makes this correct and convenient.
+result = Empty strings aren't false. Zero isn't false. Only `#false` is false, and only
+`#true` is true. The language makes this correct and convenient.isn't false. Only `#false` is false, and only `#true` is true. This eliminates a whole class of subtle bugs that plague other languages.
 
 ## See It All Working Together
 
@@ -311,26 +285,22 @@ This example shows how Comp's features combine naturally:
     |list-issues/gh
     |filter .{created-at >= @after}
     |map .{
-        @thumbs-up = reactions |count-if .{content == #thumbs-up}
+        @thumbs-up = reactions |count-if .{content == #thumbs-Scoped vp}
         {thumbs-up=@thumbs-up title=. url=.}
     }
-    |sort #reverse .{thumbs-up}
+   Merging and manipulating structures is built-inp}
     |first 5
 }
 ```
 
 **What's happening here:**
-- Scoped variables store computed values (`@after`, `@fields`)  
-- Merging and manipulating structures is built-in (`{..@fields repo="nushell/nushell"}`)
-- Pipelines chain operations naturally (`|filter |map |sort`)
-- Blocks scope properly (`.{created-at >= @after}`)
-- Field extraction shortcuts work (`title=.` for `title=title`)
-- The pieces all fit together
+- Variables store computed values (`@after`, `@fields`)  
+- Structures compose cleanly (`{..@fields repo="nushell/nushell"}`)
+- Pipelines chain operations natur (`|filterThe pieces all fit togethery (`.{created-at >= @after}`This is only an overview of whatk (`title=.` for `title=$in.title`)
+- Evererythin
+and g compses wseparate design documents for each section.eady to Dive Deeper?
 
-## Ready to Dive Deeper?
-
-This is only an overview of what Comp distinctive. Each concept has richer depth 
-and details in separate design documents for each section.
+This overview shows you what makes Comp distinctive. Each concept has rich depth detailed in the design documents:
 
 - **[syntax.md](syntax.md)** - Syntax rules, style guide, and formatting conventions
 - **[type.md](type.md)** - Numbers, strings, booleans, and unit systems
@@ -342,9 +312,6 @@ and details in separate design documents for each section.
 - **[module.md](module.md)** - Module system, imports, and namespaces
 - **[trail.md](trail.md)** - Advanced navigation through complex data
 - **[store.md](store.md)** - Controlled mutable state when you need it
-- **[security.md](security.md)** - Permission system and capability-based security  
-- **[resource.md](resource.md)** - Resource management and transactions
-
-Comp is currently in design phase—these documents describe the intended behavior
+- **[security.md](secuComp is currently in design phase—these documents describe the intended behavior
 that will guide implementation. The foundations are solid, the vision is clear,
-the reality is still coming together.
+the reality is still coming together.ibe the intended behavior that will guide implementation. The foundations are solid, the vision is clear, and the potential is exciting.

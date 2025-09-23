@@ -122,21 +122,21 @@ results it wants to become its value.
 
 ## Lazy Functions and Deferred Execution
 
-Functions can define lazy structures using `[]` brackets instead of `{}`. These create generators where fields compute on-demand—perfect for expensive operations or infinite sequences. Once computed, values are cached, so lazy structures eventually behave like regular ones.
+Functions are lazy by default—their fields compute on-demand rather than all at once when the function is called. This creates generators where expensive operations are deferred until their results are actually needed. Once computed, values are cached, so functions eventually behave like regular structures after full evaluation.
 
-This solves the common problem of expensive calculations in objects: do you compute everything upfront (slow startup) or compute on-demand every time (slow access)? Lazy structures give you the best of both worlds.
+This solves the common problem of expensive calculations in objects: do you compute everything upfront (slow startup) or compute on-demand every time (slow access)? Lazy functions give you the best of both worlds.
 
 ```comp
-!func |infinite-sequence ^{start ~num step ~num} = [
+!func |infinite-sequence ^{start ~num step ~num} = {
     ($in |count |map {^start + $in * ^step})
-]
+}
 
-!func |expensive-analysis ~{data} = [
+!func |expensive-analysis ~{data} = {
     summary = ($in |compute-summary)
     statistics = ($in |deep-statistical-analysis)
     visualization = ($in |generate-charts)
     report = (|compile-full-report)
-]
+}
 
 ; Only computes what's needed
 analysis = (data |expensive-analysis)
@@ -144,9 +144,11 @@ quick-view = analysis.summary    ; Only computes summary
 full = analysis ~{summary statistics}  ; Computes two fields
 ```
 
+For comprehensive coverage of iteration patterns, core iterator functions like `|map` and `|filter`, and stream abstractions, see [Iteration and Streams](loop.md).
+
 ## Privacy Structures and Explicit Output
 
-Functions can use privacy structures with the `&{}` or `&[]` prefix to disable automatic field export. In privacy mode, statements don't automatically contribute to the function's output—only explicit modifications to the `$out` scope generate results. This is essential for functions that need many intermediate calculations without exposing internal implementation details.
+Functions can use privacy structures with the `&{}` prefix to disable automatic field export. In privacy mode, statements don't automatically contribute to the function's output—only explicit modifications to the `$out` scope generate results. This is essential for functions that need many intermediate calculations without exposing internal implementation details.
 
 Privacy structures solve the common problem of functions that need complex internal logic but simple outputs. Instead of needing separate helper functions or complex scoping, you can do all your work in one place while controlling exactly what gets exposed.
 
@@ -171,14 +173,14 @@ Privacy structures solve the common problem of functions that need complex inter
     ; Result: {result=... success=#true}
 }
 
-; Privacy lazy function for controlled generators
-!func |filtered-sequence ^{filter-fn} = &[
+; Privacy function for controlled generators (still lazy by default)
+!func |filtered-sequence ^{filter-fn} = &{
     @raw-data = (|get-large-dataset)      ; Internal processing
     @processed = (@raw-data |expensive-transform)
     
     ; Only expose the final filtered results
-    ($in |^filter-fn @processed)
-]
+    $out.result = ($in |^filter-fn @processed)
+}
 ```
 
 Privacy structures work with all the same mechanisms as regular structures—shape morphing, argument handling, and scope management. The only difference is that field assignment doesn't automatically export unless it targets `$out` explicitly.

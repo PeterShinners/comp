@@ -266,7 +266,7 @@ fields = {
 (users |map {id=. name=. email=. active=.})
 ```
 
-The trailing dot syntax significantly reduces repetition when extracting multiple fields, making structure creation more readable while maintaining explicit field naming. This pattern is especially common in data transformation pipelines where input structures are filtered or reorganized.
+The trailing dot syntax significantly reduces repetition when extracting multiple fields, making structure creation more readable while maintaining explicit field naming. This pattern is especially common in data transformation pipelines where input structures are filtered or reorganized. For comprehensive coverage of iteration patterns and pipeline operations, see [Iteration and Streams](loop.md).
 
 ## Destructured Assignment
 
@@ -324,53 +324,42 @@ The pattern of using shapes to define "public" versions of structures is idiomat
 
 ## Lazy Evaluation
 
-Lazy structures delay computation until fields are accessed. Created with `[]` brackets instead of `{}`, they behave like generators that compute values on demand. Once a field is computed, its value is cached for future access. After full evaluation, a lazy structure behaves identically to a regular structure.
+Literal structures in Comp are always immediate—all their fields are computed when the structure is created. Only functions provide lazy evaluation, computing their fields on-demand when accessed. This simplifies the mental model: data structures are immediate, functions are lazy.
 
-Lazy structures capture their creation context - local variables, scope values, and function parameters are frozen at creation time. This allows lazy computations to reference values that may change or go out of scope after creation.
+Functions capture their creation context when defined, allowing lazy computations to reference values that may change or go out of scope after creation.
 
 ```comp
-; Lazy structure delays expensive operations
-expensive = [
-    summary = (|compute-summary)
-    analysis = (|deep-analysis)
-    report = (|generate-report)
-]
-; No computation happens yet
-
-value = expensive.summary  ; Only computes summary field
-
-; Context capture
-!func |create-processor ^{multiplier ~num} = {
-    ; Context captured when [] is created
-    processor = [
-        doubled = $in * ^multiplier * 2
-        tripled = $in * ^multiplier * 3
-    ]
-    processor  ; Returns lazy structure with captured multiplier
+; Immediate structure - all fields computed right now
+immediate = {
+    summary = (|compute-summary)     ; Runs immediately
+    analysis = (|deep-analysis)      ; Runs immediately  
+    report = (|generate-report)      ; Runs immediately
 }
 
-; Multiple independent calls in lazy structure
-@lazy = [
-    call1 = ($in |slow-call1)     ; Explicit $in breaks chain
-    call2 = ($in |slow-call2)     ; Independent call
-]
+; Lazy function - fields computed on-demand
+!func |expensive-data = {
+    summary = (|compute-summary)     ; Computed when .summary accessed
+    analysis = (|deep-analysis)      ; Computed when .analysis accessed
+    report = (|generate-report)      ; Computed when .report accessed
+}
 
-; Or with parentheses
-@lazy = [
-    call1 = (|slow-call1)          ; Independent pipeline
-    call2 = (|slow-call2)          ; Independent pipeline
-]
+; Using the lazy function
+@lazy = (|expensive-data)
+value = @lazy.summary  ; Only computes summary field
+
+; Context capture in functions
+!func |create-processor ^{multiplier ~num} = {
+    ; Context captured when function is defined
+    doubled = $in * ^multiplier * 2   ; Computed when accessed
+    tripled = $in * ^multiplier * 3   ; Computed when accessed
+}
 
 ; Lazy evaluation with shapes
-data = [
-    field1 = (|expensive1)
-    field2 = (|expensive2)
-    field3 = (|expensive3)
-    extra = (|not-needed)
-] ~{field1 field2}  ; Only computes field1 and field2
+analysis = (|expensive-data)
+quick = analysis ~{summary report}  ; Only computes summary and report fields
 ```
 
-When a lazy structure is morphed to a shape that requires only specific fields, computation stops once those fields are resolved. This enables efficient partial evaluation of complex structures.
+When a function result is morphed to a shape that requires only specific fields, computation stops once those fields are resolved. This enables efficient partial evaluation of complex functions.
 
 ## Structure Comparison and Iteration
 
@@ -396,6 +385,8 @@ The standard library provides comprehensive structure operations through the `st
 (data |filter/struct {value > 0})  ; Keep positive fields
 (data |map-fields/struct |upper/str) ; Transform all fields
 ```
+
+The `struct/` module operations focus on structure introspection and field manipulation. For sequence iteration, transformation patterns, and stream processing, see [Iteration and Streams](loop.md).
 
 ## Advanced Structure Patterns
 
@@ -428,4 +419,4 @@ user-view = {
           |{$in checksum=(|calculate-checksum)})
 ```
 
-For functions that need controlled output generation, privacy structures using `&{}` or `&[]` disable automatic field export, requiring explicit `$out` scope modifications. This enables complex internal processing without exposing implementation details. See [Privacy Structures and Explicit Output](function.md#privacy-structures-and-explicit-output) for detailed coverage of this pattern.
+For functions that need controlled output generation, privacy structures using `&{}` disable automatic field export, requiring explicit `$out` scope modifications. This enables complex internal processing without exposing implementation details. See [Privacy Structures and Explicit Output](function.md#privacy-structures-and-explicit-output) for detailed coverage of this pattern.

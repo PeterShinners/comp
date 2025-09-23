@@ -97,11 +97,9 @@ The morphing process follows these phases:
 
 ## Shape Application Operators
 
-Different morphing operators control strictness and error handling. The standard
-morph (`~`) applies defaults and allows extra fields. Strong morph (`*~`)
-rejects structures with undefined fields. Weak morph (`?~`) makes all shape
-fields optional. Each variant has a corresponding check operator that tests
-compatibility without morphing.
+Different morphing operators control strictness and error handling. The morphing rules differ between function invocation and block invocation to provide appropriate flexibility and safety.
+
+### Morphing Operators
 
 ```comp
 data ~shape             ; Normal morph with defaults
@@ -109,15 +107,31 @@ data *~shape            ; Strong - no extra fields allowed
 data ?~shape            ; Weak - missing fields acceptable
 
 ; Check operators return #true or #false
-data ~? shape            ; Can morph normally?
-data *~? shape           ; Can morph strictly?
-data ?~? shape           ; Can morph weakly?
-
-; Usage in validation
-($in |if {$in ~? expected-shape} 
-         {$in ~expected-shape |handle}
-         {#shape.fail message=Invalid input structure})
+data ~? shape           ; Can morph normally?
+data *~? shape          ; Can morph strictly?
+data ?~? shape          ; Can morph weakly?
 ```
+
+### Function vs Block Morphing Rules
+
+**Function invocation uses loose morphing** - extra fields in arguments are ignored, enabling forward compatibility and optional parameters:
+
+```comp
+!func |process ~{x ~num y ~num} = {x + y}
+(|process x=1 y=2 z=3)  ; Works - z ignored
+```
+
+**Block invocation uses strict morphing** - extra fields cause morphing to fail, preventing accidental capture through closure:
+
+```comp
+!shape ~predicate = ~block{value ~num}
+@test = .{value > 10} ~predicate
+
+{value=5 extra="data"} |.@test  ; FAILS - extra field not allowed
+{value=5} |.@test               ; Works - exact match
+```
+
+This distinction ensures blocks have predictable inputs while functions remain flexible for evolution and extension.
 
 ## Shape Constraints
 
@@ -152,6 +166,35 @@ maintaining composability.
     status #account-status
 }
 ```
+
+## Block Type Signatures
+
+Blocks can be typed through shape definitions that specify their expected input structure. This enables type-safe block parameters in functions and clear contracts for stream generators.
+
+```comp
+; Block expecting any input
+!shape ~transformer = ~block{~any}
+
+; Block expecting specific structure
+!shape ~validator = ~block{name ~str age ~num}
+
+; Block expecting no input (streams)
+!shape ~generator = ~block{}
+
+; Block with union input types
+!shape ~processor = ~block{~user | ~account}
+
+; Usage in function signatures
+!func |process ^{transform ~transformer} = {
+    data |map transform  ; Block used with map
+}
+
+!func |stream-counter ^{start ~num = 0} -> ~generator = {
+    ; Returns a generator block
+}
+```
+
+When blocks are typed, they become invocable with the `|.` operator and enforce their input shape through morphing. For detailed coverage of streams, block invocation patterns, and iterator functions, see [Iteration and Streams](loop.md).
 
 ## Presence-Check Fields
 

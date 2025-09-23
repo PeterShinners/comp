@@ -48,17 +48,17 @@ Comp-specific tokens for language features:
 - `random` - Hardware entropy access
 
 ```comp
-# Check current permissions
-($ctx | has/security #read)           # Returns #true or #false
-($ctx | list/security)                # Returns list of current tokens
+; Check current permissions
+($ctx | has/security #read)           ; Returns #true or #false
+($ctx | list/security)                ; Returns list of current tokens
 
-# Drop permissions for downstream code
-($ctx | drop/security #write)         # Remove write permission
-($ctx | drop/security {#net #ffi})    # Drop multiple tokens
+; Drop permissions for downstream code
+($ctx | drop/security #write)         ; Remove write permission
+($ctx | drop/security {#net #ffi})    ; Drop multiple tokens
 
-# Create restricted execution context
+; Create restricted execution context
 ($ctx | only/security {#read} | {
-    # This block can only read files
+    ; This block can only read files
     (data | process_untrusted)
 })
 ```
@@ -73,22 +73,22 @@ appears before the function definition and lists required tokens.
 ```comp
 require read, write
 func backup_file pipeline{} args{source dest} = {
-    (^source | read/file)      # Needs read permission
+    (^source | read/file)      ; Needs read permission
     | compress
-    | write/file ^dest         # Needs write permission
+    | write/file ^dest         ; Needs write permission
 }
 
 require net, env
 func fetch_with_config pipeline{} args{endpoint} = {
-    @api_key = (API_KEY | get/env)      # Needs env token
+    @api_key = (API_KEY | get/env)      ; Needs env token
     headers = {Authorization = Bearer ${@api_key}}
-    (^endpoint | get/http headers)      # Needs net token
+    (^endpoint | get/http headers)      ; Needs net token
 }
 
-# Permissions flow through call chains
+; Permissions flow through call chains
 func admin_operation pipeline{} args{} = {
-    (| backup_file)           # Inherits caller's permissions
-    (| fetch_with_config)     # Also inherits permissions
+    (| backup_file)           ; Inherits caller's permissions
+    (| fetch_with_config)     ; Also inherits permissions
 }
 
 When a function requiring permissions is called without them, it fails immediately with a clear error identifying the missing permission and the operation that required it. This fail-fast approach prevents security violations and makes permission requirements explicit.
@@ -105,19 +105,19 @@ pure calculate pipeline{} args{x y} = {
 }
 
 pure validate_structure pipeline{data} args{} = {
-    # Can perform computation
+    ; Can perform computation
     valid = $in ~? ExpectedShape
     score = (| calculate_score)
     
-    # Cannot access resources
-    # (data | write/file log)     # ERROR: no write permission
-    # (| secure/random)            # ERROR: no random permission
+    ; Cannot access resources
+    ; (data | write/file log)     ; ERROR: no write permission
+    ; (| secure/random)            ; ERROR: no random permission
     {valid score}
 }
 
-# Pure functions enable optimizations
+; Pure functions enable optimizations
 shape Config = {
-    cache_key = (| generate_key)    # Evaluated at build time
+    cache_key = (| generate_key)    ; Evaluated at build time
     validator = |validate_structure
 }
 ```
@@ -143,10 +143,10 @@ require read, write, net
 import processor = comp "./untrusted"
 
 func process_with_untrusted pipeline{data} args{} = {
-    # Untrusted module operates without permissions
+    ; Untrusted module operates without permissions
     processed = $in | transform/processor
     
-    # Delegate specific permission for one operation
+    ; Delegate specific permission for one operation
     ($ctx | only/security {#read} | {
         (| load_config/processor)
     })
@@ -193,27 +193,27 @@ along call paths.
 ```comp
 require read, write, net
 func main_application pipeline{} args{} = {
-    # Has all three permissions
+    ; Has all three permissions
     (| full_operation)
     
-    # Drop network for file operations
+    ; Drop network for file operations
     ($ctx | drop/security #net)
-    (| file_only_operation)      # Has read, write
+    (| file_only_operation)      ; Has read, write
     
-    # Further restriction
+    ; Further restriction
     ($ctx | drop/security #write)  
-    (| read_only_operation)      # Has only read
+    (| read_only_operation)      ; Has only read
     
-    # Permissions restored when returning
+    ; Permissions restored when returning
 }
 
 func mixed_permissions pipeline{} args{} = {
-    # Selective dropping in branches
+    ; Selective dropping in branches
     ($in | if .is_production {
         ($ctx | drop/security #write)
         (| production_mode)
     } {
-        (| development_mode)     # Keeps all permissions
+        (| development_mode)     ; Keeps all permissions
     })
 }
 ```
@@ -228,21 +228,21 @@ code.
 
 ```comp
 func secure_pipeline pipeline{user_input} args{} = {
-    # Validate with no permissions (pure function)
+    ; Validate with no permissions (pure function)
     validated = $in | validate_pure
     
-    # Read configuration with minimal permissions
+    ; Read configuration with minimal permissions
     config = ($ctx | only/security {#read} | {
         (| load_config)
     })
     
-    # Process with required permissions only
+    ; Process with required permissions only
     result = ($ctx | only/security {#read #net} | {
         (validated | process_with_config config)
     })
     
-    # No permissions for logging
-    (result | log_result)  # Pure function
+    ; No permissions for logging
+    (result | log_result)  ; Pure function
 }
 
 # Audit permission usage
@@ -251,7 +251,7 @@ func audited_operation pipeline{} args{} = {
         (Permission dropped: ${$in} | log/audit)
     })
     
-    # Normal operations with audit trail
+    ; Normal operations with audit trail
     (| perform_operations)
 }
 ```
