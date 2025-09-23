@@ -1,7 +1,5 @@
 # Comp Language
 
-**The Comp language is design-only, there is no implementation.**
-
 Comp is a functional, interpreted programming language designed for general
 purpose computing. It combines the flexibility of dynamic scripting with the
 safety of static types, making it ideal for data processing, API integration,
@@ -10,6 +8,10 @@ and anywhere structured data flows reliably between systems.
 The language is high-level and practical, inspired by JavaScript and Python's
 accessibility. Developers familiar with functional languages like Clojure will
 recognize the emphasis on data transformation and uniform syntax.
+
+## Development Status
+
+The language design is mature and documented in the `design/` directory. Implementation is currently underway using an agent-assisted development process with numbered phases. Each phase focuses on specific language features, starting with basic literals and building incrementally toward the complete language. Development is test-driven, with executable specifications defining behavior before implementation begins.
 
 ## Introduction
 
@@ -48,12 +50,11 @@ of features and highlights like:
 
 ```
 comp/
-├── specs/              # Language specifications (0%)
-├── examples/           # Theoretical examples in a wide variety
-├── design/             # Design documents (95%)
-├── tasks/              # Implementation tasks (0%)
-├── src/                # Implementation source code (0%)
-└── docs/               # Documentation and design notes
-    ├── ancient/        # Super old notes extracted from notion (100%)
-    └── early/          # Iterative design docs from claude (100%)
+├── design/             # Authoritative language design documents
+├── examples/           # Sample Comp programs
+├── tasks/              # Implementation phases and milestones
+├── tests/              # Executable test specifications
+├── src/                # Implementation source code
+├── docs/               # Additional documentation
+└── AGENT.md            # AI assistant development guide
 ```
