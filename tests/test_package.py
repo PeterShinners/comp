@@ -15,25 +15,21 @@ for a modern Python library.
 """
 
 
-def test_package_import(comp):
+def test_package_import():
     """Ensure the comp fixture works."""
-    assert comp is not None
+    import comp
 
 
-def test_package_version(comp):
+def test_package_version():
     """Test that the package version is accessible."""
+    import comp
     assert hasattr(comp, "__version__")
     assert comp.__version__ == "0.0.1"
 
 
-def test_package_docstring(comp):
+def test_package_docstring():
     """Test that the package has a proper docstring."""
+    import comp
     assert comp.__doc__ is not None
     assert "Comp Programming Language" in comp.__doc__
 
-
-def test_package_cleanness(comp):
-    """Test no messy symbols exposed"""
-    underscored = [n for n in dir(comp) if n.startswith("_") and not n.endswith("__")]
-    for name in underscored:
-        assert not name

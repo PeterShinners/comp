@@ -105,24 +105,103 @@ large = 2.5e100               ; Very large but exact
 
 ### Number Literals
 
-Number literals support multiple bases and formatting options:
+Number literals support decimal notation, alternative bases, and scientific notation. All numbers maintain arbitrary precision and exact representation.
+
+#### Decimal Numbers
+
+Decimal numbers use standard base-10 notation with optional decimal points, signs, and readability underscores:
 
 ```comp
-; Decimal (base 10)
-decimal = 42
-negative = -17.5
-with-underscores = 1_000_000
+; Basic integers and decimals
+whole = 42
+negative = -17
+decimal = 3.14159
+negative-decimal = -2.5
 
-; Other bases
-binary = 0b1010_1010          ; Base 2
-octal = 0o755                 ; Base 8  
-hexadecimal = 0xFF_FF         ; Base 16
+; Zero representations
+zero = 0
+zero-decimal = 0.0
+negative-zero = -0
 
-; Scientific notation
-scientific = 6.022e23
-small = 1e-9
-negative-exp = 3.14e-10
+; Leading and trailing decimal points
+leading = .5             ; Same as 0.5
+trailing = 5.            ; Same as 5.0
+
+; Underscores for readability (ignored during parsing)
+large = 1_000_000        ; One million
+precise = 3.141_592_653  ; Pi with grouped digits
+mixed = 1_234.567_89     ; Underscores in both parts
 ```
+
+#### Scientific Notation
+
+Scientific notation uses `e` or `E` to specify powers of ten:
+
+```comp
+; Basic scientific notation
+large = 1e6              ; 1,000,000
+small = 1e-6             ; 0.000001
+avogadro = 6.022e23      ; Avogadro's number
+
+; Decimal with exponents
+precise = 1.23e-4        ; 0.000123
+negative = -2.5e2        ; -250.0
+mixed-signs = -1.5e-3    ; -0.0015
+
+; Case insensitive exponent
+upper = 1E6              ; Same as 1e6
+lower = 1e6              ; Standard form
+```
+
+#### Alternative Number Bases
+
+Binary, octal, and hexadecimal literals use standard prefixes:
+
+```comp
+; Binary (base 2) - prefix 0b or 0B
+binary = 0b1010          ; Decimal 10
+binary-long = 0b1010_1010 ; With underscores
+binary-upper = 0B1111    ; Capital B prefix
+
+; Octal (base 8) - prefix 0o or 0O  
+octal = 0o755            ; Decimal 493
+octal-zero = 0o0         ; Zero
+octal-upper = 0O644      ; Capital O prefix
+
+; Hexadecimal (base 16) - prefix 0x or 0X
+hex = 0xff               ; Decimal 255
+hex-mixed = 0xDeadBeef   ; Mixed case digits
+hex-underscores = 0xFF_FF ; With underscores
+hex-upper = 0X1A2B       ; Capital X prefix
+```
+
+Alternative base numbers follow these rules:
+- Prefixes are case-insensitive (`0b`, `0B`, `0o`, `0O`, `0x`, `0X`)
+- Hex digits `a-f` are case-insensitive
+- Underscores are allowed anywhere after the prefix for readability
+- No decimal points or scientific notation in alternative bases
+- Result is always converted to exact decimal representation
+
+#### Special Numeric Values
+
+Mathematical operations can produce special values that are represented as tagged numbers:
+
+```comp
+; Special values from mathematical operations
+positive-infinity = 1 / 0        ; Produces #inf.num
+negative-infinity = -1 / 0       ; Produces #ninf.num  
+not-a-number = 0 / 0            ; Produces #nan.num
+
+; Direct special value literals (advanced)
+inf-literal = #inf.num          ; Positive infinity
+ninf-literal = #ninf.num        ; Negative infinity
+nan-literal = #nan.num          ; Not a number
+```
+
+Special values are not regular numbers and require explicit handling:
+- They cannot be used with the `~num` shape matcher
+- Arithmetic with special values follows IEEE 754-like rules
+- Use specific shape matchers like `~maybe-infinite` for functions that accept them
 
 ### Mathematical Operators
 

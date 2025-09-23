@@ -1,0 +1,17 @@
+// Comp Language Grammar - Main Entry Point
+//
+// This is the main grammar file that will grow to include the full Comp language.
+// Currently supports only number literals as we build incrementally.
+
+// Import number grammar from separate file
+%import numbers (INTEGER, DECIMAL)
+%import numbers (integer, decimal, number)
+
+// Start rule: currently just numbers, will expand over time
+start: number_list
+
+number_list: number*
+
+// Whitespace handling
+%import common.WS
+%ignore WS

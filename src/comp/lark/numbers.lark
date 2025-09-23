@@ -1,0 +1,20 @@
+// Comp Language Grammar - Number Literals
+//
+// Two number types based on parsing needs:
+// - INTEGER: Can use ast.literal_eval (all bases, signs, underscores)  
+// - DECIMAL: Must use Decimal() directly (precision preservation)
+
+number: INTEGER | DECIMAL
+
+// Integer formats - broad patterns to catch invalid base numbers
+INTEGER: /[+-]?\d[_\d]*/                              // Plain integers
+       | /[+-]?0[bB][0-9a-fA-F_]+/                    // Binary (broad - validation in Python)
+       | /[+-]?0[oO][0-9a-fA-F_]+/                    // Octal (broad - validation in Python)
+       | /[+-]?0[xX][0-9a-fA-FG-Zg-z_]+/              // Hex (broad - validation in Python)
+
+// Decimal formats - direct to Decimal() for precision
+DECIMAL: /[+-]?(\d[_\d]*\.\d*[_\d]*|\.\d[_\d]*)/     // Fractional
+       | /[+-]?\d[_\d]*(\.\d*[_\d]*)?[eE][+-]?\d[_\d]*/ // Scientific
+
+%import common.WS
+%ignore WS

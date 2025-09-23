@@ -1,225 +1,318 @@
-# Agent Develo## Development Process
-
-Use **Agent-Assisted Development** with numbered phases:
-
-### **Core Principles:**
-1. **AI-readable specifications** - Clear, structured docs that agents can understand
-2. **Incremental + adaptive** - Easy to adjust when design changes
-3. **Context preservation** - Agents can pick up where they left off
-4. **Change management** - Handle design evolution without throwing away work
-
-### **The Development Process:**
-
-#### **1. Phase Planning** (`tasks/XX-name.md`)
-Each phase file contains:
-- **Goals** (clear, specific objectives for AI context)
-- **Success Criteria** (measurable checkboxes AI can verify)
-- **Design References** (links to relevant design docs)
-- **Implementation Notes** (architecture decisions, future considerations)
-
-#### **2. Test-First Development** (`tests/test_feature.py`)
-Tests serve as executable specifications with:
-- **Specification summary** in module docstring
-- **Design doc references** for authoritative behavior
-- **Agent context** - what this enables, dependencies, error handling
-- **Measurable assertions** that define "done"
-
-#### **3. Implementation** (`src/comp/`)
-Code includes documentation for:
-- **Phase tracking** - which phase this implements
-- **Test references** - which tests this satisfies
-- **Design decisions** - why approach A over B
-- **Future assumptions** - what this expects from later phases
-
-#### **4. Change Management**
-When design evolves:
-1. **Update design docs first** (source of truth)
-2. **Create new phase** for the change
-3. **Update affected tests** with clear commit messages
-4. **Implementation follows** test changes
-
-### **Benefits for AI Assistance:**
-- **Clear context** - AI can understand current state and goals
-- **Resumable** - AI can pick up work from any phase
-- **Traceable** - Easy to see why decisions were made
-- **Adaptable** - Design changes have clear impact scope
-- **Incremental** - Small, manageable chunks for AI to handleide for Comp Language
+# Agent Development Guide for Comp Language
 
 This document provides AI assistants with essential context for working on the Comp programming language implementation.
 
-## Project Overview
+## Project Overview & Philosophy
 
 **Comp** is a data-flow programming language where computation happens through immutable structs flowing through transformation pipelines. This is the Python implementation of the Comp interpreter/compiler.
 
-**Key Design Principles:**
-- Everything is a struct (unified data model)
-- Immutable data flow (left-to-right pipelines) 
-- Structural typing (shapes, not names)
-- No function arguments (functions receive single struct)
+### **Why Comp Exists:**
+- **Unified Data Model**: Everything is a struct - no primitive vs object distinction
+- **Pipeline-First**: Left-to-right data flow matches human reading patterns
+- **Shape-Based Types**: Structure matters, names don't (like JSON but type-safe)
+- **Mathematical Precision**: No integer overflow, decimal precision, exact calculations
+- **Developer Experience**: Clear errors, predictable behavior, no surprises
+
+### **Key Design Principles:**
+- **Everything is a struct** (unified data model - no arrays vs objects)
+- **Immutable data flow** (left-to-right pipelines using `->` operator)
+- **Structural typing** (shapes, not names - like TypeScript interfaces)
+- **No function arguments** (functions receive single struct via pipeline)
+- **No implicit conversions** (explicit operations prevent subtle bugs)
+- **Precision-first numbers** (decimal.Decimal, no floating-point gotchas)
+
+### **Language Vision Example:**
+```comp
+!import /api = http "github-api"
+!import /time = std "core/time"
+
+!main = {
+    @since = (|now/time) - 1#week
+    @fields = {"title" "url" "created-at" "reactions"}
+    
+    {..@fields repo="nushell/nushell" since=@since}
+    -> /api.issues.list
+    -> issues.{created-at |sort-desc}
+    -> issues.{0..4}  
+    -> |display/table
+}
+```
+
+## Current Implementation Status
+
+### **✅ Phase 02: Number Literals (COMPLETE)**
+- **All number formats working**: integers, decimals, scientific notation
+- **Alternative bases**: binary (`0b1010`), octal (`0o755`), hex (`0xFF_FF`)  
+- **Signed numbers**: `+42`, `-0xFF`, `+.5`, `-0b1010` (all formats support signs)
+- **Underscores for readability**: `1_000_000`, `0xFF_FF_FF`
+- **Arbitrary precision**: Uses `decimal.Decimal` for exact calculations
+- **Comprehensive tests**: 10 passing tests in `tests/test_number_literals.py`
+
+### **🔄 Phase 03: Tag & String Literals (NEXT)**
+- **Tag literals**: `#true`, `#user-name`, `#http.get` (boolean system, enums, dispatch)
+- **String literals**: `"hello"`, escape sequences, UTF-8 support
+- **Tests prepared**: 3 skipped tests in `tests/test_string_literals.py`
+
+### **📋 Future Phases:**
+- **Phase 04**: Structures (`{}`, `{x=1}`, `{1 2 3}`)
+- **Phase 05**: Expressions (arithmetic, field access)
+- **Phase 06**: Pipelines (the core `->` operator)
+
+## Architecture & Code Organization
+
+### **Parser Architecture:**
+```
+comp.parse("42") → NumberLiteral(Decimal('42'))
+                    ↑
+              _parser.py (public API)
+                    ↑  
+              _numbers.py (number parsing)
+                    ↑
+              lark/comp.lark (grammar)
+                    ↑
+              lark/numbers.lark (modular grammar)
+```
+
+### **Key Implementation Patterns:**
+- **Modular grammar**: `numbers.lark` imported by `comp.lark` for extensibility
+- **AST nodes**: Simple dataclasses in `_ast.py` (NumberLiteral, future StringLiteral, etc.)
+- **Precision-first**: All numbers become `decimal.Decimal` for exact arithmetic
+- **Parse-then-refine**: Grammar matches patterns, post-processing handles details
+- **Qualified imports**: Tests use `import comp` pattern, not `from comp import`
+
+### **File Organization:**
+```
+src/comp/
+├── __init__.py          # Public API (parse, ParseError, NumberLiteral)
+├── _parser.py           # Main parser interface  
+├── _numbers.py          # Number literal parsing (Phase 02)
+├── _ast.py              # AST node definitions
+└── lark/
+    ├── comp.lark        # Main grammar (imports modules)
+    └── numbers.lark     # Number grammar module
+```
 
 ## Development Process
 
-Use **Agent-Assisted Development** with numbered phases:
+### **Agent-Assisted Development Phases:**
 
-1. **Phase Planning** (`tasks/XX-name.md`) - Goals, scope, success criteria
-2. **Test-First** (`tests/test_XX_name.py`) - Executable specifications
-3. **Implementation** (`src/comp/`) - Make tests pass
-4. **Documentation** - Update phase status, document decisions
+#### **1. Phase Planning** (`tasks/XX-name.md`)
+Each phase contains:
+- **Clear Goals** - What we're building and why
+- **Success Criteria** - Measurable checkboxes for completion
+- **Design References** - Links to authoritative behavior specs
+- **Implementation Strategy** - Architecture approach and considerations
 
-### **Current Phase**
-Check `tasks/` directory for files marked "Ready to start" or "In progress".
+#### **2. Test-First Development** (`tests/test_feature.py`)
+Tests serve as executable specifications:
+- **Specification summary** in comprehensive docstrings
+- **Design doc references** for authoritative behavior
+- **Agent context** - what this enables, dependencies, error cases
+- **Measurable assertions** that precisely define "done"
 
-### **Making Changes**
-1. **Read the current phase file** to understand goals
-2. **Check existing tests** to see what needs to work
-3. **Implement incrementally** to make tests pass
-4. **Update documentation** as you go
+#### **3. Implementation** (`src/comp/`)
+Code includes context for agents:
+- **Phase tracking** - which phase this implements
+- **Test references** - which tests this satisfies  
+- **Design decisions** - why approach A over B (with reasoning)
+- **Future assumptions** - what this expects from later phases
 
-## Project Structure
+#### **4. Validation & Documentation**
+- **Run tests**: Verify implementation works (`pytest tests/`)
+- **Update phase status**: Mark completion in task files
+- **Document decisions**: Record architectural choices for future phases
 
-```
-design/          # Authoritative language design documents (READ THESE)
-examples/        # Working collection of hypothetical Comp examples
-tasks/           # Numbered phase planning (XX-name.md)
-tests/           # Executable specifications (test_XX_name.py)  
-src/comp/        # Implementation code
-```
+### **Benefits for AI Assistance:**
+- **Resumable context** - Any agent can pick up from any phase
+- **Clear boundaries** - Each phase has well-defined scope
+- **Traceable decisions** - Easy to understand why choices were made
+- **Incremental progress** - Small, manageable chunks
+- **Self-validating** - Tests provide immediate feedback
 
-## Key Files for AI Context
+## Key Files for Agent Context
 
-### **Essential Reading:**
-- `design/overview.md` - Language philosophy and core concepts
-- `design/*.md` - All design documents contain authorative decisions
-- Current phase file in `tasks/` - What is implementing now
+### **🎯 Start Here for New Chats:**
+1. **Current phase**: `tasks/03-tag-literals.md` (next to implement)
+2. **Design overview**: `design/overview.md` (language philosophy)
+3. **Number implementation**: `src/comp/_numbers.py` (working example)
+4. **Test patterns**: `tests/test_number_literals.py` (how to structure tests)
 
-### **Test Files:**
-- `tests/test_feature.py` - Executable specs organized by language feature
-- Tests define behavior precisely - make these pass
-- Rich docstrings provide implementation context
-- Tests evolve as features evolve across multiple phases
+### **📚 Essential Documentation:**
+- **`design/overview.md`** - Language philosophy and core concepts
+- **`design/type.md`** - Type system (numbers, strings, booleans)  
+- **`design/syntax.md`** - Language syntax rules and style
+- **`design/tag.md`** - Tag system for booleans, enums, dispatch
+- **Current phase in `tasks/`** - Immediate implementation goals
 
-### **Implementation:**
-- `src/comp/` - Python package (create as needed)
-- Follow existing patterns and document decisions
+### **🧪 Test Organization:**
+- **`tests/test_number_literals.py`** - Complete Phase 02 tests (✅ passing)
+- **`tests/test_string_literals.py`** - Phase 03 string tests (⏸️ skipped)
+- Tests define behavior precisely - implementation makes these pass
+- Each test file includes comprehensive specification docstrings
+- Tests use qualified imports (`import comp`) for consistency
+
+### **⚙️ Implementation:**
+- **`src/comp/__init__.py`** - Public API surface
+- **`src/comp/_parser.py`** - Main parse() function  
+- **`src/comp/_numbers.py`** - Working number parsing example
+- **`src/comp/_ast.py`** - AST node definitions
+- **`src/comp/lark/`** - Grammar modules (modular, extensible)
 
 ## Development Workflow
 
-### **Starting Work:**
-1. Read current phase file for goals and context
-2. Check if tests exist - run `pytest tests/` to see current state
-3. Read relevant design docs for complete understanding
-4. Implement incrementally
-
-### **Testing:**
+### **🚀 Starting a New Chat Session:**
 ```bash
-# Run all tests
-pytest tests/
+# 1. Understand current state
+cat tasks/03-tag-literals.md        # Next phase goals
+pytest tests/ -v                    # Current test status
 
-# Run specific test file
-pytest tests/test_02_basic_literals.py
+# 2. Get oriented  
+cat design/overview.md              # Language philosophy
+cat src/comp/_numbers.py            # Working implementation example
 
-# Run with verbose output
-pytest -v tests/
+# 3. Start implementing
+# Follow test-first approach, implement incrementally
 ```
 
-### **Common Tasks:**
+### **🔨 Implementation Workflow:**
+1. **Read phase file** for goals and context
+2. **Check existing tests** to understand requirements
+3. **Read design docs** for authoritative behavior
+4. **Implement incrementally** to make tests pass
+5. **Run tests frequently** for immediate feedback
+6. **Document decisions** in code and phase files
 
-#### **Adding New Feature:**
-1. Create new phase file: `tasks/XX-feature-name.md`
-2. Write or update test specification: `tests/test_feature.py`
-3. Implement in `src/comp/`
-4. Update phase status when complete
+### **🎯 Proven Iterative Development Pattern:**
 
-#### **Changing Existing Feature:**
-1. Update design/ docs first (source of truth)
-2. Create task/ phase for the change
-3. Update affected test/ files (may span multiple features)
-4. Update implementation to match tests
+#### **Step 1: Get Basic Grammar Working**
+```bash
+# Goal: Parse basic cases, get tests passing
+python -m comp._module        # Quick test
+pytest tests/test_X.py -v     # Full validation
+```
 
-## Architecture Notes
+#### **Step 2: Question Every Manual Implementation**
+- **Ask**: "Does Python stdlib already do this?"
+- **Research**: `ast`, `decimal`, `pathlib`, `json`, `urllib`, etc.
+- **Test**: Verify stdlib behavior with edge cases
 
-### **AST Design:**
-- Simple dataclasses for AST nodes
-- Preserve source information for error reporting
-- Design for easy traversal and transformation
-
-### **Testing Philosophy:**
-- Tests are specifications - they define correct behavior
-- Module level comprehensive docstrings explain requirements
-- Link back to design documents for authority
-- Test error cases and edge conditions
-- Use pytest best practices
-- Tests are organized by language feature, not implementation phase
-- Each test file should define behavior clearly in comprehensive docstrings
-- Include error cases and edge conditions
-- Tests serve as both specification and verification
-
-## Important Conventions
-
-### **Process File Naming:**
-- Task files: `XX-descriptive-name.md` (e.g., `02-basic-literals.md`)
-- Test files: `test_feature.py` (e.g., `test_literals.py`, `test_structures.py`)
-- Tests are organized by language feature, not implementation phase
-
-### **Python Namespace and Conventions**
-- The Python namespace is represented as a flat `comp` module
-- This single import will provide the entire
-- Usage is not expected to import individual values from the module (no from import)
-- This module will be a package where the individual files are named with underscores
-- Within the modules, they will prefer to use the public namespace and "import comp"
-- To reference internal objects they will import from their siblings using "from . import _sibling"
-- Sibling references will not "from import" values directly from siblings modules.
-- Objects that are only intended to be used by the current module must be named with a leading underscore.
-- Individual files will mark the objects intended for the public interface in the `__all__`.
+#### **Step 3: Simplify Grammar Based on Processing**
+- **Pattern**: If code handles cases identically, merge grammar rules
+- **Check Lark stdlib**: `%import common.DIGIT`, etc.
+- **Reduce tree depth**: Fewer levels = easier navigation
 
 
-### **Documentation Style:**
-- Reference design docs for authoritative behavior
-- Explain WHY decisions were made, not just WHAT
-- Include context for future phases
-- Document assumptions and dependencies
+### **🧪 Testing Commands:**
+```bash
+# All tests (should show current progress)
+pytest tests/ -v
 
-### **Code Style:**
-- Follow design/syntax.md for language syntax rules
-- Python code: Black formatting, clear naming
-- Comprehensive docstrings with context
+# Specific feature tests  
+pytest tests/test_number_literals.py -v    # Should pass (Phase 02 complete)
+pytest tests/test_string_literals.py -v    # Should skip (Phase 03 not started)
 
-## Gotchas and Common Issues
+# Quick smoke test for numbers
+python -m comp._numbers                     # Shows parsing examples
+```
 
-### **Design Document Authority:**
-- `design/` files are the source of truth for language behavior
-- If tests contradict design docs, update tests first
-- Implementation follows tests, not personal intuition
+### **📁 Code Style & Conventions:**
 
-### **Phase Dependencies:**
-- Phases build on each other - don't skip ahead
-- If you need something from a future phase, create a minimal version
-- Document assumptions about future implementations
+#### **Python Namespace:**
+- **Single import pattern**: `import comp` (not `from comp import`)
+- **Flat public API**: `comp.parse()`, `comp.NumberLiteral`, `comp.ParseError`
+- **Internal modules**: Use `_` prefix (`_parser.py`, `_numbers.py`)
+- **Sibling imports**: `from . import _sibling` (not direct imports)
+- **Public interface**: Mark in `__all__` lists
 
-### **Testing Strategy:**
-- Write tests before implementation (specification-driven)
-- Test both positive and negative cases
-- Include edge conditions and error handling
-- Tests should be readable as specifications
+#### **Documentation Style:**
+- **Comprehensive docstrings** with specification details
+- **Reference design docs** for authoritative behavior
+- **Explain WHY** decisions were made, not just WHAT
+- **Include agent context** - what this enables, dependencies
+- **Document assumptions** about future phases
 
-## Getting Help
+#### **Architecture Patterns:**
+- **Parse-then-refine**: Grammar handles structure, code handles details
+- **Modular grammar**: Separate `.lark` files for each language feature
+- **AST simplicity**: Plain dataclasses, preserve source info for errors
+- **Error handling**: Convert parser errors to clear user messages
 
-### **Understanding Requirements:**
-1. Check current phase file for immediate goals
-2. Read relevant sections of design documents
-3. Look at test docstrings for detailed requirements
-4. Check examples/ directory for usage patterns
+## Common Patterns & Gotchas
 
-### **Design Questions:**
-- Reference `design/overview.md` for philosophical guidance
-- `design/syntax.md` for language syntax rules
-- Specific design/*.md files for detailed behavior
+### **🔄 Iterative Refinement Process (Lessons from Phase 02)**
 
-### **Implementation Questions:**
-- Check existing code patterns in `src/comp/`
-- Look at similar languages for inspiration
-- Keep it simple - prefer clarity over cleverness
+**Expect 3-5 refinement iterations per phase** - this is normal and valuable:
+
+#### **Iteration 1: Basic Grammar + Tests**
+- **Start simple**: Get basic patterns working first
+- **Test-driven**: Write comprehensive tests early
+- **Don't optimize prematurely**: Focus on correctness over performance
+
+#### **Iteration 2: Leverage Standard Libraries**
+- **Question manual implementations**: Can Python's stdlib do this?
+- **Example discoveries**:
+  - `ast.literal_eval()` handles all integer bases, signs, underscores
+  - `decimal.Decimal()` handles underscores automatically
+  - Lark's `common.lark` has standard terminals (DIGIT, SIGNED_INT, etc.)
+
+
+### **✅ Good Patterns:**
+- **Test-first**: Write tests before implementation
+- **Grammar modularity**: Import specialized `.lark` files
+- **Precision numbers**: Use `decimal.Decimal` for all numeric values
+- **Qualified imports**: `import comp` in tests and examples
+- **Clear errors**: Convert internal errors to helpful user messages
+
+### **🔧 Technical Implementation Insights:**
+
+#### **Number Parsing Lessons (Phase 02)**
+```python
+# ❌ Original approach: Manual parsing for each base
+if node.data == "binary_number":
+    # 20+ lines of manual sign/prefix/underscore handling
+
+# ✅ Refined approach: Leverage stdlib
+if node.data == "integer":
+    python_int = ast.literal_eval(number_text)  # Handles everything!
+    return decimal.Decimal(python_int)
+```
+
+### **⚠️ Common Pitfalls:**
+- **Design doc authority**: `design/` files are source of truth, not intuition
+- **Phase dependencies**: Don't skip ahead - phases build on each other
+- **Test as specification**: Tests define behavior, implementation follows
+- **Future compatibility**: Design for extension, document assumptions
+
+### **🔧 Implementation Notes:**
+- **Grammar approach**: Use Lark for structure, Python for details
+- **Number parsing**: Signs are part of terminals, post-process for extraction
+- **Error context**: Preserve source location for helpful error messages
+- **Module testing**: Use `python -m comp._module` for quick verification
+
+## Understanding the Vision
+
+### **Why This Architecture:**
+- **Incremental**: Each phase builds working functionality
+- **Extensible**: Grammar modules can be added without breaking existing code  
+- **Precise**: `decimal.Decimal` eliminates floating-point gotchas
+- **Agent-friendly**: Clear context, resumable phases, self-validating tests
+
+### **Long-term Goals:**
+- **Complete Comp interpreter** with all language features
+- **VS Code extension** for syntax highlighting and IntelliSense
+- **Package manager** for Comp modules and libraries
+- **Documentation tools** for generating API docs from Comp code
+
+### **Current Focus:**
+**Phase 03** is the next major milestone - adding tag literals (`#true`, `#false`, `#http.get`) and string literals (`"hello"`, escape sequences). This completes the fundamental literal types before moving to structures and expressions.
 
 ---
 
-**Remember:** This is incremental development. Focus on the current phase, make tests pass, document decisions, then move forward. The design documents provide the vision, the tests provide the specification, your job is to make them work together.
+**🎯 Quick Start for New Agents:**
+1. Read `tasks/03-tag-literals.md` for current goals
+2. Check `tests/test_string_literals.py` for test structure  
+3. Look at `src/comp/_numbers.py` for implementation patterns
+4. Run `pytest tests/ -v` to see current state
+5. Start implementing incrementally!
+
+**Remember:** Design docs are authoritative, tests are specifications, implementation makes tests pass. Focus on current phase, document decisions, build incrementally.
