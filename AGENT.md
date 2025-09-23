@@ -6,20 +6,13 @@ This document provides AI assistants with essential context for working on the C
 
 **Comp** is a data-flow programming language where computation happens through immutable structs flowing through transformation pipelines. This is the Python implementation of the Comp interpreter/compiler.
 
-### **Why Comp Exists:**
-- **Unified Data Model**: Everything is a struct - no primitive vs object distinction
+### **What Defines Comp:**
+- **Unified Data Model**: Everything is immutable structs - no primitive vs object distinction
 - **Pipeline-First**: Left-to-right data flow matches human reading patterns
 - **Shape-Based Types**: Structure matters, names don't (like JSON but type-safe)
-- **Mathematical Precision**: No integer overflow, decimal precision, exact calculations
+- **Mathematical Precision**: No integer overflow, decimal precision, with unit subtypes
 - **Developer Experience**: Clear errors, predictable behavior, no surprises
-
-### **Key Design Principles:**
-- **Everything is a struct** (unified data model - no arrays vs objects)
-- **Immutable data flow** (left-to-right pipelines using `->` operator)
-- **Structural typing** (shapes, not names - like TypeScript interfaces)
-- **No function arguments** (functions receive single struct via pipeline)
 - **No implicit conversions** (explicit operations prevent subtle bugs)
-- **Precision-first numbers** (decimal.Decimal, no floating-point gotchas)
 
 ### **Language Vision Example:**
 ```comp
@@ -133,16 +126,12 @@ Code includes context for agents:
 
 ### **🎯 Start Here for New Chats:**
 1. **Current phase**: `tasks/03-tag-literals.md` (next to implement)
-2. **Design overview**: `design/overview.md` (language philosophy)
-3. **Number implementation**: `src/comp/_numbers.py` (working example)
-4. **Test patterns**: `tests/test_number_literals.py` (how to structure tests)
+2. **Number implementation**: `src/comp/_numbers.py` (working example)
+3. **Test patterns**: `tests/test_number_literals.py` (how to structure tests)
 
 ### **📚 Essential Documentation:**
+- **`design/*.md`** - Critical documentation describing the language
 - **`design/overview.md`** - Language philosophy and core concepts
-- **`design/type.md`** - Type system (numbers, strings, booleans)  
-- **`design/syntax.md`** - Language syntax rules and style
-- **`design/tag.md`** - Tag system for booleans, enums, dispatch
-- **Current phase in `tasks/`** - Immediate implementation goals
 
 ### **🧪 Test Organization:**
 - **`tests/test_number_literals.py`** - Complete Phase 02 tests (✅ passing)
@@ -162,13 +151,12 @@ Code includes context for agents:
 
 ### **🚀 Starting a New Chat Session:**
 ```bash
+# 0. Read design documents
+cat design/*.md                     # Must-know information to contribute
+
 # 1. Understand current state
 cat tasks/03-tag-literals.md        # Next phase goals
 pytest tests/ -v                    # Current test status
-
-# 2. Get oriented  
-cat design/overview.md              # Language philosophy
-cat src/comp/_numbers.py            # Working implementation example
 
 # 3. Start implementing
 # Follow test-first approach, implement incrementally
@@ -182,38 +170,16 @@ cat src/comp/_numbers.py            # Working implementation example
 5. **Run tests frequently** for immediate feedback
 6. **Document decisions** in code and phase files
 
-### **🎯 Proven Iterative Development Pattern:**
+### ** Workflow **
+- When working in VSCode, use provided MCP tools to run in the proper environment
+- Use `ruff` to keep code formatted consistently
+- Use `pytest` to run unit testing suite
+- Parsing and tokenization handled by `lark`
 
-#### **Step 1: Get Basic Grammar Working**
-```bash
-# Goal: Parse basic cases, get tests passing
-python -m comp._module        # Quick test
-pytest tests/test_X.py -v     # Full validation
-```
+### **🎯 Proven Iterative Development Strategies:**
+- Rely on Python's standard library, avoid reimplmenting
+- Build lark tokens to identify data, avoid reparsing in Python
 
-#### **Step 2: Question Every Manual Implementation**
-- **Ask**: "Does Python stdlib already do this?"
-- **Research**: `ast`, `decimal`, `pathlib`, `json`, `urllib`, etc.
-- **Test**: Verify stdlib behavior with edge cases
-
-#### **Step 3: Simplify Grammar Based on Processing**
-- **Pattern**: If code handles cases identically, merge grammar rules
-- **Check Lark stdlib**: `%import common.DIGIT`, etc.
-- **Reduce tree depth**: Fewer levels = easier navigation
-
-
-### **🧪 Testing Commands:**
-```bash
-# All tests (should show current progress)
-pytest tests/ -v
-
-# Specific feature tests  
-pytest tests/test_number_literals.py -v    # Should pass (Phase 02 complete)
-pytest tests/test_string_literals.py -v    # Should skip (Phase 03 not started)
-
-# Quick smoke test for numbers
-python -m comp._numbers                     # Shows parsing examples
-```
 
 ### **📁 Code Style & Conventions:**
 
@@ -229,13 +195,7 @@ python -m comp._numbers                     # Shows parsing examples
 - **Reference design docs** for authoritative behavior
 - **Explain WHY** decisions were made, not just WHAT
 - **Include agent context** - what this enables, dependencies
-- **Document assumptions** about future phases
-
-#### **Architecture Patterns:**
-- **Parse-then-refine**: Grammar handles structure, code handles details
-- **Modular grammar**: Separate `.lark` files for each language feature
-- **AST simplicity**: Plain dataclasses, preserve source info for errors
-- **Error handling**: Convert parser errors to clear user messages
+- **Avoid historical** - no need to explain older revisions of the document
 
 ## Common Patterns & Gotchas
 
@@ -252,16 +212,13 @@ python -m comp._numbers                     # Shows parsing examples
 - **Question manual implementations**: Can Python's stdlib do this?
 - **Example discoveries**:
   - `ast.literal_eval()` handles all integer bases, signs, underscores
-  - `decimal.Decimal()` handles underscores automatically
+  - `decimal.Decimal()` handles underscores automatically, parses cases ast does not
   - Lark's `common.lark` has standard terminals (DIGIT, SIGNED_INT, etc.)
-
 
 ### **✅ Good Patterns:**
 - **Test-first**: Write tests before implementation
 - **Grammar modularity**: Import specialized `.lark` files
-- **Precision numbers**: Use `decimal.Decimal` for all numeric values
 - **Qualified imports**: `import comp` in tests and examples
-- **Clear errors**: Convert internal errors to helpful user messages
 
 ### **🔧 Technical Implementation Insights:**
 
@@ -299,7 +256,6 @@ if node.data == "integer":
 
 ### **Long-term Goals:**
 - **Complete Comp interpreter** with all language features
-- **VS Code extension** for syntax highlighting and IntelliSense
 - **Package manager** for Comp modules and libraries
 - **Documentation tools** for generating API docs from Comp code
 
@@ -315,4 +271,4 @@ if node.data == "integer":
 4. Run `pytest tests/ -v` to see current state
 5. Start implementing incrementally!
 
-**Remember:** Design docs are authoritative, tests are specifications, implementation makes tests pass. Focus on current phase, document decisions, build incrementally.
+**Remember:** Design docs are authoritative, tests are specifications, implementation makes tests pass. Rely on Python's features. Focus on current phase, document decisions, build incrementally. Followup reviewing code quality and architecture.
