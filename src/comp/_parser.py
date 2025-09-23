@@ -21,11 +21,11 @@ FUTURE CAPABILITIES:
 - Everything else
 """
 
-from lark import ParseError as LarkParseError
+__all__ = ["parse", "ParseError"]
+
+import lark
 
 from . import _ast, _numbers
-
-__all__ = ["parse", "ParseError"]
 
 
 class ParseError(Exception):
@@ -75,8 +75,5 @@ def parse(text: str) -> _ast.ASTNode:
             raise ParseError(f"Expected single expression, got {len(numbers)} numbers")
         else:
             raise ParseError("No valid expression found")
-    except LarkParseError as e:
-        # Convert Lark errors to our ParseError
+    except (lark.ParseError, lark.UnexpectedCharacters) as e:
         raise ParseError(f"Syntax error: {e}") from e
-    except Exception as e:
-        raise ParseError(f"Parse error: {e}") from e

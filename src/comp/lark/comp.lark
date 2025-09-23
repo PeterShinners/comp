@@ -4,7 +4,7 @@
 // Currently supports only number literals as we build incrementally.
 
 // Import number grammar from separate file
-%import numbers (INTEGER, DECIMAL)
+%import numbers (INTEGER, DECIMAL, NUMBER)
 %import numbers (integer, decimal, number)
 
 // Start rule: currently just numbers, will expand over time

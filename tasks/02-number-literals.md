@@ -32,7 +32,7 @@ Implement complete number literal parsing for the Comp language, supporting all 
 - [x] Support underscores in all number formats
 - [x] Handle signed numbers: `+42`, `-0xFF`
 - [x] Provide clear error messages for invalid number formats
-- [x] All number tests in `test_number_literals.py` pass (12/12)
+- [x] All number tests in `test_number_literals.py` pass (11/11)
 - [x] Precision preservation for large numbers and decimals
 - [x] Bigint support for numbers larger than 64-bit
 
@@ -46,9 +46,9 @@ Implement complete number literal parsing for the Comp language, supporting all 
 
 ### Technical Highlights
 - **Standard Library First**: Used `ast.literal_eval()` for integer parsing, `decimal.Decimal()` for precision
-- **Grammar Streamlining**: Reduced from 30+ lines to 15 lines while maintaining full functionality  
+- **Grammar Streamlining**: Reduced complexity while maintaining full functionality using BASED/DECIMAL token distinction
 - **Precision Preservation**: All numbers stored as `decimal.Decimal` to avoid float precision loss
-- **Robust Detection**: Fixed scientific notation detection to avoid conflicts with hex digits
+- **Simplified Validation**: Leveraged Python stdlib validation instead of manual checking
 - **Modular Design**: Clean separation between grammar, parsing, and AST construction
 
 ### Key Files Created/Modified
@@ -56,7 +56,7 @@ Implement complete number literal parsing for the Comp language, supporting all 
 - `src/comp/_numbers.py` - Number parsing implementation  
 - `src/comp/_ast.py` - AST node definitions
 - `src/comp/_parser.py` - Main parser interface
-- `tests/test_number_literals.py` - Comprehensive test suite (12 tests)
+- `tests/test_number_literals.py` - Comprehensive test suite (11 tests)
 
 ## Implementation Strategy
 
