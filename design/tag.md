@@ -95,7 +95,7 @@ The tag system supports automatic value generation through pure functions that c
 The context passed to generation functions includes the tag's name, its position among siblings, parent values, and sibling values. This enables sophisticated generation patterns like sequential numbering, bit flags, or string derivation from names.
 
 ```comp
-!import tag = std "core/tag"
+!import /tag = std "core/tag"
 
 ; Use standard generators
 !tag #color {|name/tag} = {
@@ -206,7 +206,7 @@ When extending tags from another module, the new tags become part of your module
 }
 
 ; extended.comp - adds domain-specific tags
-!import base = comp "./base.comp"
+!import /base = comp "./base.comp"
 
 !tag #media += {
     #image {#svg #webp}        ; Add to existing branch
@@ -225,7 +225,7 @@ Extended tags maintain full compatibility with parent modules. Functions expecti
 The `tag/` module provides comprehensive utilities for working with tag hierarchies. These functions enable iteration, introspection, and manipulation of tag structures at runtime.
 
 ```comp
-!import tag = std "core/tag"
+!import /tag = std "core/tag"
 
 ; Iterate over hierarchy
 (#status |children/tag)         ; Returns {#active #inactive #pending #error}

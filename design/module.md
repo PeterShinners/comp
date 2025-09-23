@@ -102,13 +102,13 @@ The coordination system solves a common problem: when multiple libraries want to
 
 ```comp
 ; Try multiple sources in order
-!import json = main "json" ?? std "core/json" ?? comp "./minimal-json"
+!import /json = main "json" ?? std "core/json" ?? comp "./minimal-json"
 
 ; Platform-specific fallbacks
-!import graphics = comp "./graphics-gpu" ?? comp "./graphics-cpu"
+!import /graphics = comp "./graphics-gpu" ?? comp "./graphics-cpu"
 
 ; Version preferences
-!import db = comp "@db/postgres@3.0" ?? comp "@db/postgres@2.0" ?? std "core/db"
+!import /db = comp "@db/postgres@3.0" ?? comp "@db/postgres@2.0" ?? std "core/db"
 ```
 
 By default, imports coordinate through the main entry module. Libraries check if
@@ -118,14 +118,14 @@ complex resolution algorithms.
 
 ```comp
 ; In a library - automatically checks main first
-!import json = std "core/json"
+!import /json = std "core/json"
 ; Behaves as: main "json" ?? std "core/json"
 
 ; Force specific version with strong assignment
-!import json *= std "core/json"    ; Always use standard library
+!import /json *= std "core/json"    ; Always use standard library
 
 ; In main module - becomes source for libraries
-!import json = comp "@fast-json@2.0"  ; All libraries use this
+!import /json = comp "@fast-json@2.0"  ; All libraries use this
 ```
 
 ## Entry Points and Initialization
@@ -193,17 +193,17 @@ The standard library organizes modules into branches based on stability and matu
 
 ```comp
 ; Core - stable, essential functionality
-!import str = std "core/str"
-!import struct = std "core/struct"
+!import /str = std "core/str"
+!import /struct = std "core/struct"
 
 ; Proposed - experimental but promising
-!import async = std "propose/async"
+!import /async = std "propose/async"
 
 ; Early - actively developed, heading for core
-!import ml = std "early/ml"
+!import /ml = std "early/ml"
 
 ; Archive - deprecated but available
-!import old-api = std "archive/old-api"
+!import /old-api = std "archive/old-api"
 ```
 
 This organization balances stability with innovation. You can stick with core modules for production code while exploring cutting-edge features in development.
@@ -217,9 +217,9 @@ loaded modules behave identically to static imports.
 
 ```comp
 ; Schema-based imports generate typed namespaces
-!import api = openapi "./swagger.json"
-!import db = postgres "localhost/mydb?schema=public"
-!import proto = protobuf "./messages.proto"
+!import /api = openapi "./swagger.json"
+!import /db = postgres "localhost/mydb?schema=public"
+!import /proto = protobuf "./messages.proto"
 
 ; Use generated namespaces normally
 user = (|get/users/api id=123)

@@ -1,6 +1,6 @@
 ; Cloudflare Worker for vector embeddings and search
 ; Original: https://developers.cloudflare.com/vectorize/get-started/embeddings/
-!import cloudflare = comp "github://cloudflare/workers-comp@2.7/complib"
+!import /cloudflare = comp "github://cloudflare/workers-comp@2.7/complib"
 
 !entry = {
 	$mod.vectorize = "VECTORIZE" |binding/cloudflare

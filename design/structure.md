@@ -378,7 +378,7 @@ The standard library provides comprehensive structure operations through the `st
 {x=1} < {x=1 y=2}                     ; true - subset is less
 
 ; Structure operations via standard library
-!import struct = std "core/struct"
+!import /struct = std "core/struct"
 
 (data |field-names/struct)           ; [name age status]
 (data |has-field/struct email)       ; true or false

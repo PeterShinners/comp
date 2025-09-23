@@ -1,6 +1,6 @@
 !doc module "TODO UI App, based on hypothetical migration from the Rio UI library for Python."
 
-!import rio = comp "@gh/rio-dev/rio-comp@0.1.5/lib"
+!import /rio = comp "@gh/rio-dev/rio-comp@0.1.5/lib"
 
 !shape ~todo = {
 	title ~string

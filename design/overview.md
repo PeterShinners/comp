@@ -274,8 +274,8 @@ result = Empty strings aren't false. Zero isn't false. Only `#false` is false, a
 This example shows how Comp's features combine naturally:
 
 ```comp
-!import gh = comp "github-api"
-!import time = std "core/time"
+!import /gh = comp "github-api"
+!import /time = std "core/time"
 
 !main = {
     @after = (|now/time) - 1#week

@@ -91,7 +91,7 @@ data |set /users.profile/ value
 The standard library provides trail operations that interpret these structures. For information about the module system and standard library organization, see [Modules, Imports, and Namespaces](module.md).
 
 ```comp
-!import trail = std "core/trail"
+!import /trail = std "core/trail"
 
 ; Navigation operations interpret trail structures
 {data /users.*/} |select/trail      ; Get all matches

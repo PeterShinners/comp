@@ -262,7 +262,7 @@ operations and automatic conversions. The standard library provides
 comprehensive units through the `unit/` module.
 
 ```comp
-!import unit = std "core/unit"
+!import /unit = std "core/unit"
 
 ; Units as tags
 distance = 5#kilometer      ; Using shortened form

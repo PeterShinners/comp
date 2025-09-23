@@ -1,6 +1,6 @@
 ; Lock-free stack using linked nodes and atomic head pointer
 
-!import atomic = comp "@systems/atomic@1.0.1/lib"
+!import /atomic = comp "@systems/atomic@1.0.1/lib"
 
 !shape ~node = {
 	data ~str

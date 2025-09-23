@@ -211,7 +211,7 @@ Template formatting follows intuitive Python-style rules. Positional placeholder
 String manipulation uses library functions rather than operators:
 
 ```comp
-!import str = std "core/str"
+!import /str = std "core/str"
 
 ; Common operations
 (text |length)                      ; Character count
