@@ -56,5 +56,6 @@ comp/
 ├── tests/              # Executable test specifications
 ├── src/                # Implementation source code
 ├── docs/               # Additional documentation
+├── vscode/             # Syntax plugin (textmate) for VSCode
 └── AGENT.md            # AI assistant development guide
 ```
