@@ -149,9 +149,9 @@ def test_invalid_numbers():
     with pytest.raises(comp.ParseError):
         comp.parse("1e")  # Incomplete scientific notation
 
-    with pytest.raises(comp.ParseError):
-        comp.parse("inf")  # Special values are tags, not numbers (Phase 03)
-
+    # Note: 'inf' is now a valid identifier since we added identifier support
+    # It will be handled as a tag in Phase 03, but for now it's an identifier
+    
     with pytest.raises(comp.ParseError):
         comp.parse("0x80.80")  # Decimals not allowed in alternate bases
 
@@ -239,6 +239,29 @@ def test_bigint_support():
     assert abs(int(big_negative)) > max_64bit, (
         "Test negative integer should be larger than 64-bit"
     )
+
+
+def test_comprehensive_number_formats():
+    """Comprehensive test of all supported number formats."""
+    test_cases = [
+        ("42", 42),
+        ("-17", -17),
+        ("3.14", Decimal("3.14")),
+        ("0xFF", 255),
+        ("0b1010", 10),
+        ("0o755", 493),
+        ("1e3", Decimal("1000")),
+        ("-0xFF", -255),
+        ("+0b11", 3),
+        ("1_000_000", 1000000),
+        ("0xFF_FF", 65535),
+        ("3.141_592", Decimal("3.141592")),
+    ]
+
+    for input_str, expected_value in test_cases:
+        result = comp.parse(input_str)
+        assert isinstance(result, comp.NumberLiteral)
+        assert result.value == expected_value
 
 
 def _assertNum(value, match):

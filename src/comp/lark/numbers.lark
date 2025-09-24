@@ -1,18 +1,18 @@
 // Comp Language Grammar - Number Literals
 //
 // Two number types based on parsing needs:
-// - INTEGER: Can use ast.literal_eval (all bases, signs, underscores)  
+// - BASED: Can use ast.literal_eval (all bases, signs, underscores)  
 // - DECIMAL: Must use Decimal() directly (precision preservation)
 
 number: BASED | DECIMAL
 
-// Integer formats - broad patterns to catch invalid base numbers
-BASED: /[+-]?0[xXbBoO][\da-zA-Z_]+/                 // Base integers
+// Integer formats with higher priority than decimal
+BASED.2: /[+-]?0[xXbBoO][\da-zA-Z_]+/                 
 
-// Decimal formats - direct to Decimal() for precision
-DECIMAL: /[+-]?([_\d]+)/                           // Whole            
-       | /[+-]?([_\d]*\.[_\d]*|\.\d[_\d]*)/        // Fractional
-       | /[+-]?[_\d]*(\.[_\d]*)?[eE][+-]?\d[_\d]*/ // Scientific
+// Decimal formats - direct to Decimal() for precision  
+DECIMAL.1: /[+-]?([_\d]+)/                           // Whole            
+         | /[+-]?([_\d]*\.[_\d]*|\.\d[_\d]*)/        // Fractional
+         | /[+-]?[_\d]*(\.[_\d]*)?[eE][+-]?\d[_\d]*/ // Scientific
 
 
 %import common.WS

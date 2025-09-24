@@ -1,0 +1,19 @@
+// Identifier tokenization for the Comp language
+//
+// Defines tokens for identifier parsing following UAX #31 + hyphen rules.
+// 
+// UAX #31 Rules:
+// - ID_Start: Letters, Letter_numbers, underscore
+// - ID_Continue: ID_Start + Mark_nonspacing, Mark_spacing_combining, Decimal_numbers, Connector_punctuation
+// - Plus Comp extension: hyphens allowed in continue position
+// - Plus Comp extension: optional trailing ? for boolean-style identifiers
+
+// More precise identifier token following UAX #31
+// Start: letter, underscore, or other ID_Start characters  
+// Continue: ID_Start + digits, marks, hyphens
+// Optional trailing ? for boolean style
+// Higher priority to avoid conflicts with number parsing
+IDENTIFIER.3: /[a-zA-Z_][\w-]*[?]?/
+
+// Rule to create AST node
+identifier: IDENTIFIER

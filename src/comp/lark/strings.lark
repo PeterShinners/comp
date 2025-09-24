@@ -1,0 +1,12 @@
+// Comp Language Grammar - String Literals
+//
+// String parsing with comprehensive escape sequence support.
+// Handles basic strings, escaped content, and Unicode escapes.
+
+string: BASIC_STRING
+
+// Basic string with escape sequences
+BASIC_STRING: /"([^"\\]|\\.)*"/
+
+%import common.WS
+%ignore WS

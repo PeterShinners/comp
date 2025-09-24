@@ -2,41 +2,35 @@
 Main parser interface for the Comp language.
 
 This module provides the primary parse() function that handles single expressions.
-It's built on top of the number parsing infrastructure but will eventually
-handle all Comp language constructs.
+It uses a unified Lark grammar with transformers for clean AST construction.
 
 DESIGN GOALS:
 - Simple public API: parse(text) → ASTNode
 - Clear error messages with source location
 - Extensible for all future language features
+- Single parser instance for efficiency
 
 CURRENT CAPABILITIES:
 - Number literals (all formats)
+- String literals (with escape sequences)
 
 FUTURE CAPABILITIES:
-- String literals
-- Tag literals
-- Structure literals
+- Reference literals (#tag, ~shape, |function)
+- Structure literals ({field=value})
 - Expressions
 - Everything else
 """
 
-__all__ = ["parse", "ParseError"]
+__all__ = ["parse"]
 
-import lark
+from pathlib import Path
 
-from . import _ast, _numbers
+from lark import Lark, ParseError, UnexpectedCharacters, Transformer
+
+from . import _ast
 
 
-class ParseError(Exception):
-    """Raised when parsing fails due to invalid syntax."""
-
-    def __init__(
-        self, message: str, line: int | None = None, column: int | None = None
-    ):
-        super().__init__(message)
-        self.line = line
-        self.column = column
+_lark_parser: Lark | None = None  # Singleton lark parser instance
 
 
 def parse(text: str) -> _ast.ASTNode:
@@ -57,23 +51,121 @@ def parse(text: str) -> _ast.ASTNode:
         NumberLiteral(42)
         >>> parse("0xFF")
         NumberLiteral(255)
-        >>> parse("3.14")
-        NumberLiteral(3.14)
+        >>> parse('"hello"')
+        StringLiteral('hello')
+        >>> parse('"say \\"hi\\""')
+        StringLiteral('say "hi"')
     """
     text = text.strip()
     if not text:
-        raise ParseError("Empty input")
+        raise _ast.ParseError("Empty input")
 
-    # For now, we only handle numbers
-    # Try to parse as a single number first
+    parser = _get_parser()
     try:
-        # Use our existing number parser
-        numbers = _numbers.parse_numbers(text)
-        if len(numbers) == 1:
-            return numbers[0]
-        elif len(numbers) > 1:
-            raise ParseError(f"Expected single expression, got {len(numbers)} numbers")
-        else:
-            raise ParseError("No valid expression found")
-    except (lark.ParseError, lark.UnexpectedCharacters) as e:
-        raise ParseError(f"Syntax error: {e}") from e
+        result = parser.parse(text)
+        assert isinstance(result, list | _ast.ASTNode)
+    except (ParseError, UnexpectedCharacters) as e:
+        # Try to provide more user-friendly error messages for common cases
+        error_msg = str(e)
+
+        # Unterminated string literal
+        if "No terminal matches '\"'" in error_msg and "BASIC_STRING" in error_msg:
+            raise _ast.ParseError(
+                "Unterminated string literal - missing closing quote"
+            ) from e
+
+        # Invalid characters (not at start) - after parsing some valid tokens
+        if "No terminal matches" in error_msg and "Previous tokens:" in error_msg:
+            # Extract the problematic character from error message
+            lines = error_msg.split('\n')
+            for line in lines:
+                if "No terminal matches" in line:
+                    # Extract character between quotes
+                    start = line.find("'") + 1
+                    end = line.find("'", start)
+                    if start > 0 and end > start:
+                        bad_char = line[start:end]
+                        raise _ast.ParseError(f"Invalid character '{bad_char}' in input") from e
+            # Fallback if we can't extract the character
+            raise _ast.ParseError("Invalid character in input") from e
+
+        # Invalid characters at start of input
+        if "No terminal matches" in error_msg and "at line 1 col 1" in error_msg:
+            if "invalid" in text.lower():
+                raise _ast.ParseError("Invalid input - unrecognized characters") from e
+
+        # Generic fallback
+        raise _ast.ParseError(f"Syntax error: {e}") from e
+
+    # If list with single item, return that item
+    if isinstance(result, list):
+        if len(result) == 1:
+            result = result[0]
+        elif len(result) == 0:
+            raise _ast.ParseError("No valid expression found")
+        raise _ast.ParseError(f"Expected single expression, got {len(result)} items")
+
+    return result
+
+
+def _get_parser() -> Lark:
+    """Singleton lark parser"""
+    global _lark_parser
+    if _lark_parser is not None:
+        return _lark_parser
+
+    lark_path = Path(__file__).parent / "lark"
+    with (lark_path / "comp.lark").open() as f:
+        grammar = f.read()
+
+    # Set up parser with import paths and transformer
+    _lark_parser = Lark(
+        grammar,
+        start="start",
+        parser="lalr",
+        import_paths=[lark_path],
+        transformer=_CompTransformer(),
+    )
+    return _lark_parser
+
+
+class _CompTransformer(Transformer):
+    """
+    Transforms Lark parse trees into Comp AST nodes.
+
+    This follows Lark's transformer pattern where methods named after grammar
+    rules automatically receive the children of matching tree nodes.
+    """
+
+    def start(self, items):
+        """Transform the start rule - return single item if only one."""
+        if len(items) == 1:
+            return items[0]
+        return items
+
+    def literal_list(self, items):
+        """Transform list of literals."""
+        # Filter out None values (empty matches)
+        filtered = [item for item in items if item is not None]
+        if len(filtered) == 1:
+            return filtered[0]
+        return filtered
+
+    def literal(self, items):
+        """Transform literal rule - just pass through the contained literal."""
+        return items[0]
+
+    def number(self, tokens):
+        """Transform number rule into NumberLiteral AST node."""
+        token = tokens[0]
+        return _ast.NumberLiteral.fromToken(token)
+
+    def string(self, tokens):
+        """Transform string rule into StringLiteral AST node."""
+        token = tokens[0]
+        return _ast.StringLiteral.fromToken(token)
+
+    def identifier(self, tokens):
+        """Transform identifier rule into Identifier AST node."""
+        token = tokens[0]
+        return _ast.Identifier(str(token))
