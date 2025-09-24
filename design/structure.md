@@ -1,422 +1,211 @@
-# Structures, Spreads, and Lazy Evaluation
+# Runtime Security and Permissions
 
-*Design for Comp's structure generation, manipulation, and management*
+*Design for Comp's simplified capability-based security model*
 
 ## Overview
 
-Structures are the backbone of Comp, everything is designed around creating and altering structures. Every function receives a structure as input and generates a new structure as output. Even simple values like numbers promote to single-element structures when they enter pipelines, creating a unified data model that eliminates type juggling.
+Comp implements capability-based security through a simple binary model: functions either have access to external resources or they don't. The `!pure` decorator creates guaranteed isolation by executing functions in a resource-free context. This straightforward approach provides real security boundaries without the complexity of fine-grained permissions that rarely deliver on their promises.
 
-Structures handle real-world data naturally, they work equally well as records, arrays, or hybrid collections. Field names can be simple tokens, complex strings, or even tag values. This flexibility means you can work with JSON APIs, database records, or internal computations using the same fundamental operations.
+The security model draws from proven designs while maintaining radical simplicity. A single `resource` capability token controls all external access—filesystem, network, threads, everything. Pure functions execute with no resource access, providing guaranteed determinism and safety. This binary distinction makes security boundaries clear and enforceable.
 
-The structure system embodies principles that eliminate data handling complexity. Immutability ensures predictable behavior—no surprising mutations. Unified representation means one data type handles arrays, records, and everything in between. Order preservation maintains structure while enabling both positional and named access.
+The security system embodies core principles of simplicity and honesty. Rather than pretending to offer fine-grained sandboxing that can't be properly enforced, Comp provides a clear boundary between computation and effects. Pure functions guarantee deterministic computation without side effects, while regular functions can access resources as needed. This binary model is easy to understand, simple to enforce, and actually useful for optimization and reasoning about code.
 
-These principles create a structure system that handles real-world data elegantly without forcing artificial distinctions between arrays and objects. Functions that operate on structures are detailed in [Functions and Blocks](function.md), while pipeline processing is covered in [Pipelines, Flow Control, and Failure Handling](pipeline.md). For controlled mutation patterns, see [Store System](store.md).
+## The Resource Token
 
-## Structure Definition and Field Access
-
-Structures are created with `{}` braces and handle field access intuitively. Named fields use `=` for assignment, unnamed fields are just listed. Field names are incredibly flexible—simple tokens, arbitrary strings, even expressions. The system accommodates whatever field naming convention your data source uses.
+The runtime provides a single `resource` token that controls access to all external systems. Functions either have this token (can perform I/O) or don't (pure computation only). This binary model admits what permission systems are actually protecting—the boundary between computation and the outside world.
 
 ```comp
-; Various field types
-user = {
-    name = "Alice"              ; String literal value
-    age = 30                    ; Number literal
-    #active.status = #true      ; Tag as field name
-    "Full Name" = "Alice Smith" ; String field name
-    'score * 2' = 60           ; Expression field name
+; Regular function - has resource access
+!func |process-file ^{path ~str} = {
+    content = (^path |fetch)          ; Needs resource token
+    processed = (content |transform)   ; Pure computation
+    (processed |save-to-cache)        ; Needs resource token
 }
 
-; Accessing fields - undecorated tokens for common case
-user.name                    ; Token access
-user.#active.status         ; Tag field access
-user."Full Name"            ; String field access
-user.'score * 2'            ; Expression field access
-user.'$idx'                 ; Variable value as field name
-
-; Positional fields
-coords = {10 20 30}          ; Three unnamed fields
-mixed = {x=5 10 y=15}        ; Mix of named and unnamed
-
-; Index access (no period before #)
-coords#0                     ; 10 - first unnamed field
-coords#1                     ; 20 - second unnamed field
-mixed#0                      ; 10 - first unnamed field
-#0                          ; From $in in pipeline
-```
-
-Field access distinguishes between:
-- `data.field` - Named field access
-- `data#0` - Positional index (numeric literals only)
-- `data.'expr'` - Computed field name from expression
-- `data."string"` - String literal as field name
-
-For more sophisticated navigation patterns through complex data structures, see [Trail System](trail.md).
-
-## Spread Operations and Structure Assembly
-
-Spread operators solve the "merge these data structures" problem elegantly. The basic spread (`..`) incorporates all fields, strong spread (`!..`) creates sticky fields that resist overwriting, and weak spread (`?..`) only adds missing fields. This covers the common patterns: override everything, lock in values, or provide defaults.
-
-When spreading multiple structures, fields are applied in source order. Named field conflicts are resolved by assignment strength - strong beats normal beats weak. Unnamed fields never conflict; they accumulate in order from each spread source. The spread operation preserves field ordering within each source structure.
-
-```comp
-base = {x=1 y=2 mode=default}
-overlay = {y=3 z=4 mode*=fixed}
-
-; Basic spreading with conflicts
-merged = {..base ..overlay}
-; Result: {x=1 y=3 z=4 mode=fixed}
-
-; Strong spread dominates
-locked = {!..base y=99}
-; Result: {x=1 y=2 mode=default} - strong spread resists override
-
-; Weak spread for defaults
-config = {
-    port = 8080
-    ?..{port=3000 host=localhost timeout=30}
-}
-; Result: {port=8080 host=localhost timeout=30}
-
-; Spread from shapes for defaults
-defaults = {..~config-shape}
-custom = {..~config-shape port=3000}
-```
-
-### Shape Spreading for Defaults
-
-Shapes can be used in spread position to apply their default values—this is the only place in Comp where shapes appear to act like values. The spread operator recognizes shape references and extracts only fields that have default values defined.
-
-```comp
-!shape ~server-config = {
-    port ~num = 8080
-    host ~str = "localhost"
-    timeout ~num = 30
-    api-key ~str           ; No default - excluded from spread
-}
-
-; Spread applies only defaulted fields
-server = {..~server-config}
-; Result: {port=8080 host="localhost" timeout=30}
-
-; Combine with explicit fields
-production = {..~server-config host="prod.example.com" api-key="secret"}
-; Result: {port=8080 host="prod.example.com" timeout=30 api-key="secret"}
-
-; Works with all spread variants
-locked-defaults = {!..~server-config port=3000}  ; Strong spread
-fallback-config = {?..~server-config ..user-settings}  ; Weak spread
-```
-
-This shape spreading syntax is special-cased by the spread operator and doesn't imply shapes can be used as values elsewhere. It's purely a convenience for applying default values from shape definitions.
-
-; Field deletion with !delete
-cleaned = {..original !delete temp-field !delete old-field}
-
-; Unnamed fields accumulate
-arrays = {..{1 2} ..{3 4}}
-; Result: {1 2 3 4}
-```
-
-The spread operators work identically in all contexts - structure literals, function parameters, and shape definitions. This consistency makes them predictable tools for structure composition.
-
-## Field Assignment as Spread Shorthand
-
-Field assignment in Comp is actually shorthand for spread operations that create new immutable structures. Understanding this equivalence clarifies how assignments work with immutable values and different scopes.
-
-### Basic Field Assignment Equivalence
-
-These three expressions are completely equivalent:
-
-```comp
-; Direct field assignment
-$ctx.server.port = 8000
-
-; Explicit spread syntax (single level)
-$ctx = {..$ctx server.port = 8000}
-
-; Explicit spread syntax (full nesting)
-$ctx = {..$ctx server = {..$ctx.server port = 8000}}
-```
-
-All three create a new `$ctx` structure that preserves existing fields while updating the nested `server.port` field.
-
-### Deep Assignment Creates Nested Spreads
-
-When you assign to deeply nested fields, Comp automatically generates the equivalent nested spread operations:
-
-```comp
-; This deep assignment...
-user.profile.settings.theme = "dark"
-
-; Is equivalent to this nested spread:
-user = {
-    ..user 
-    profile = {
-        ..user.profile 
-        settings = {
-            ..user.profile.settings 
-            theme = "dark"
-        }
-    }
+; Pure function - no resource access
+!pure
+!func |transform ~{data} = {
+    ; Guaranteed: deterministic, no side effects
+    ; Can be cached, parallelized, evaluated at build time
+    validated = $in |validate
+    normalized = $in |normalize
+    {validated normalized}
 }
 ```
 
-### Scope Assignment Examples
+## Pure Function Guarantees
 
-Understanding the spread equivalence helps clarify how scope assignments work:
+Pure functions execute in a completely empty context with no access to resources. The `!pure` decorator isn't just a hint—it creates hard enforcement at runtime. These functions literally cannot access the outside world because the resource token doesn't exist in their context.
 
-```comp
-; Context modification
-$ctx.database.timeout = 30
-; Equivalent to:
-$ctx = {..$ctx database = {..$ctx.database timeout = 30}}
+### What Pure Functions Cannot Do
 
-; Module configuration
-$mod.settings.debug = #true
-; Equivalent to:
-$mod = {..$mod settings = {..$mod.settings debug = #true}}
+- **No filesystem access** - Cannot read/write files or directories
+- **No network operations** - Cannot make HTTP requests or open sockets
+- **No system information** - Cannot access time, random numbers, or environment
+- **No mutable state** - Cannot create or modify stores (which require resources)
+- **No module globals** - Cannot access `$mod` mutable state
+- **No describe operations** - Cannot introspect runtime state or stack traces
 
-; Local variable update
-@config.server.port = 3000
-; Equivalent to:
-@config = {..@config server = {..@config.server port = 3000}}
-```
+### What Pure Functions Can Do
 
-### Why This Matters
-
-This equivalence explains several important behaviors:
-
-**Immutability is preserved** - assignments create new structures rather than modifying existing ones
-**Performance implications** - deep assignments rebuild nested structures  
-**Scope behavior** - context and module assignments affect the entire scope structure
-**Assignment strength** - `*=` and `?=` work the same way in both forms
-
-The field assignment syntax is purely a convenience - under the hood, Comp is always creating new immutable structures through spread operations.
-
-## Assignment Operators and Field Manipulation
-
-Assignment in Comp creates new structures rather than modifying existing ones. The assignment operators control how conflicts are resolved when the same field is set multiple times. Normal assignment (`=`) overwrites, strong assignment (`*=`) creates persistent values, and weak assignment (`?=`) only sets undefined fields.
-
-Deep field assignment creates new nested structures at each level, preserving immutability throughout the hierarchy. The assignment target determines where the value goes - local variables with `@var`, output structure fields (no prefix), or scope structures like `$ctx`.
+- **Computation** - Any deterministic calculation on input data
+- **Pass resources through** - Resources can flow through without being accessed
+- **Create blocks** - Blocks inherit purity from their creation context
+- **Handle errors** - Full error handling with `|?` and `??` operators
+- **Call other pure functions** - Build complex pure computations
 
 ```comp
-; Field override behavior
-config = {
-    port *= 8080        ; Strong - resists override
-    host = localhost    ; Normal - can be overwritten
-    timeout ?= 30       ; Weak - only if undefined
+!pure
+!func |calculate ~{input} = {
+    ; Can do complex computation
+    result = $in |validate |process |optimize
     
-    port = 3000        ; Ignored due to strong assignment
-    host = 0.0.0.0     ; Overwrites normal assignment
-}
-
-; Deep assignment preserves immutability
-tree = {left={value=1} right={value=2}}
-tree.left.value = 10
-; Creates new structures: {..tree left={..tree.left value=10}}
-
-; Assignment targets
-!func |example = {
-    @temp = 5               ; Local variable
-    result = (|compute)     ; Output field (implicit $in)
-    $ctx.setting = value    ; Context scope
-    @data = {field=10}      ; New structure in variable
+    ; Can handle errors normally
+    safe-result = result |? {
+        ; Error handlers run in pure context too
+        {#calculation-failed value=$in}
+    }
+    
+    ; Can pass resources through without accessing
+    {result resource=input.resource}  ; Resource passes through untouched
 }
 ```
 
-## Field Assignment Shortcuts
+## Store and Resource Integration
 
-When creating structures that extract fields from existing data, a trailing dot syntax provides a concise shorthand. The pattern `field=scope.` assigns the field to the value of the same-named field from the specified scope. If no scope is provided, `$in` is assumed.
-
-```comp
-; Long form field extraction
-user-data = {
-    name = $in.name
-    email = $in.email
-    status = $in.status
-    created-at = $in.created-at
-}
-
-; Trailing dot shorthand
-user-data = {name=. email=. status=. created-at=.}
-
-; Mixed with explicit assignments
-response = {
-    id=.                    ; From $in.id
-    name=.                  ; From $in.name
-    status = #active        ; Explicit value
-    timestamp = (|now)      ; Computed value
-}
-
-; Works with different scopes
-config = {
-    port=$ctx.              ; From $ctx.port
-    host=$mod.              ; From $mod.host
-    timeout=.               ; From $in.timeout (default scope)
-}
-
-; Works with all assignment operators
-fields = {
-    name=.                  ; Normal assignment
-    title*=.                ; Strong assignment
-    description?=.          ; Weak assignment
-}
-
-; Particularly useful in map operations
-(users |map {id=. name=. email=. active=.})
-```
-
-The trailing dot syntax significantly reduces repetition when extracting multiple fields, making structure creation more readable while maintaining explicit field naming. This pattern is especially common in data transformation pipelines where input structures are filtered or reorganized. For comprehensive coverage of iteration patterns and pipeline operations, see [Iteration and Streams](loop.md).
-
-## Destructured Assignment
-
-Destructured assignment extracts multiple fields from a structure in a single statement. Named fields are extracted by name while unnamed fields are extracted positionally. This provides a concise way to unpack structures into individual variables or fields.
+Stores require resources internally, preventing their use in pure functions. This ensures pure functions cannot smuggle mutable state:
 
 ```comp
-; Extract named fields
-{name age city} = user
-; Equivalent to: name=user.name age=user.age city=user.city
+; Store creation requires resource token
+!func |create-cache = {
+    @store = (|new/store {})  ; Acquires resource internally
+    @store
+}
 
-; Extract with renaming
-{name=username age=years} = user
-; Creates: username=user.name years=user.age
+!pure
+!func |pure-attempt = {
+    @store = (|new/store {})  ; FAILS - no resource token available
+}
 
-; Mix named and positional
-{x y label=name} = point
-; Gets first two unnamed fields as x,y and 'label' field as name
-
-; Nested destructuring
-{user={name email} status} = response
-; Extracts nested fields directly
-
-; With defaults using fallback
-{port=config.port ?? 8080 host=config.host ?? localhost} = {}
-```
-
-Destructured assignment is particularly useful when working with function returns that provide multiple values, or when extracting configuration from nested structures.
-
-## Field Deletion
-
-Removing fields from structures requires creating new structures without those fields. Since structures are immutable, there's no direct deletion - only construction of new structures missing certain fields. The `!delete` operator and shape morphing provide clean approaches for controlled field removal.
-
-```comp
-; Remove fields with !delete operator
-original = {x=1 y=2 z=3 temp=remove}
-cleaned = {..original !delete temp}
-; Result: {x=1 y=2 z=3}
-
-; Multiple deletions
-modified = {..base !delete field1 !delete field2}
-
-; Remove fields via shape morphing
-!shape ~public-user = {name ~str email ~str}  ; No password field
-user = {name=Alice email=a@example.com password=secret}
-public = user ~public-user  ; Result: {name=Alice email=a@example.com}
-
-; Conditional field inclusion
-result = {
-    id = data.id
-    ?..(data.is-public |if {$in} {name=data.name email=data.email} {})
+; Pure functions can work with immutable snapshots
+!pure
+!func |analyze ~{snapshot} = {
+    ; Read from immutable snapshot (no resource needed)
+    value = snapshot.data
+    ; Cannot modify - snapshot is immutable
+    value |transform
 }
 ```
 
-The pattern of using shapes to define "public" versions of structures is idiomatic in Comp, providing type safety along with field filtering. For comprehensive information about shapes, morphing operations, and type validation, see [Shapes, Units, and Type System](shape.md).
+## Module Initialization and Purity
 
-## Lazy Evaluation
+Module-level initialization has specific rules for pure functions:
 
-Literal structures in Comp are always immediate—all their fields are computed when the structure is created. Only functions provide lazy evaluation, computing their fields on-demand when accessed. This simplifies the mental model: data structures are immediate, functions are lazy.
-
-Functions capture their creation context when defined, allowing lazy computations to reference values that may change or go out of scope after creation.
+- Module constants defined at top level are accessible to pure functions
+- `!entry` modifications to `$mod` are NOT visible to pure functions
+- Pure functions see `$mod` as it exists at build time
 
 ```comp
-; Immediate structure - all fields computed right now
-immediate = {
-    summary = (|compute-summary)     ; Runs immediately
-    analysis = (|deep-analysis)      ; Runs immediately  
-    report = (|generate-report)      ; Runs immediately
+; Module-level constant - visible to pure functions
+$mod.constant = 42
+
+!entry = {
+    ; Runtime initialization - NOT visible to pure functions
+    $mod.cache = (|initialize-cache)
+    $mod.runtime-config = (|load-config)
 }
 
-; Lazy function - fields computed on-demand
-!func |expensive-data = {
-    summary = (|compute-summary)     ; Computed when .summary accessed
-    analysis = (|deep-analysis)      ; Computed when .analysis accessed
-    report = (|generate-report)      ; Computed when .report accessed
+!pure
+!func |pure-calc = {
+    value = $mod.constant     ; OK - build-time constant
+    ; cache = $mod.cache     ; FAILS - not available in pure context
 }
-
-; Using the lazy function
-@lazy = (|expensive-data)
-value = @lazy.summary  ; Only computes summary field
-
-; Context capture in functions
-!func |create-processor ^{multiplier ~num} = {
-    ; Context captured when function is defined
-    doubled = $in * ^multiplier * 2   ; Computed when accessed
-    tripled = $in * ^multiplier * 3   ; Computed when accessed
-}
-
-; Lazy evaluation with shapes
-analysis = (|expensive-data)
-quick = analysis ~{summary report}  ; Only computes summary and report fields
 ```
 
-When a function result is morphed to a shape that requires only specific fields, computation stops once those fields are resolved. This enables efficient partial evaluation of complex functions.
+## Standard Library Enforcement
 
-## Structure Comparison and Iteration
-
-Structures can be compared for equality and ordering. Equality (`==`) checks structural equivalence - named fields must match by name and value (regardless of order), while unnamed fields must match by position. Ordering (`<`, `>`) uses lexicographic comparison, first comparing matched named fields alphabetically, then positional fields left-to-right.
-
-The standard library provides comprehensive structure operations through the `struct/` module. These functions enable field inspection, filtering, transformation, and analysis without breaking immutability. The module system and standard library organization are detailed in [Modules, Imports, and Namespaces](module.md).
+The standard library enforces purity through internal resource requirements. Every function that could have side effects acquires a resource internally, making it impossible to call from pure functions:
 
 ```comp
-; Equality ignores named field order
-{x=1 y=2} == {y=2 x=1}                ; true
-{1 2 3} == {1 2 3}                    ; true
-{x=1 2} == {2 x=1}                    ; false - positional order matters
+; Standard library implementations
+!func |current-time = {
+    @clock = (|acquire-resource clock)  ; Fails in pure context
+    @clock |read
+}
 
-; Ordering is deterministic
-{a=1 z=3} < {a=2 b=1}                 ; true - 'a' field compared first
-{x=1} < {x=1 y=2}                     ; true - subset is less
+!func |random = {
+    @rng = (|acquire-resource entropy)  ; Fails in pure context
+    @rng |generate
+}
 
-; Structure operations via standard library
-!import /struct = std "core/struct"
+!func |print ~{message} = {
+    @output = (|acquire-resource io)    ; Fails in pure context
+    @output |write message
+}
 
-(data |field-names/struct)           ; [name age status]
-(data |has-field/struct email)       ; true or false
-(data |filter/struct {value > 0})  ; Keep positive fields
-(data |map-fields/struct |upper/str) ; Transform all fields
+; File operations through capability system
+!func |fetch ^{path ~str} = {
+    @fs = (|acquire-resource filesystem) ; Fails in pure context
+    @fs |read ^path
+}
 ```
 
-The `struct/` module operations focus on structure introspection and field manipulation. For sequence iteration, transformation patterns, and stream processing, see [Iteration and Streams](loop.md).
+This design makes purity automatic—if a function runs in a pure context, it's actually pure. No careful labeling or trust required.
 
-## Advanced Structure Patterns
+## Runtime Enforcement
 
-Complex structures often combine multiple composition techniques. Template functions generate structures with computed fields. Conditional spreading includes fields based on runtime conditions. Nested structures maintain immutability through all levels.
+Applications can control resource availability at startup:
+
+```bash
+# Run with resource access (default)
+comp app.comp
+
+# Run with no resource access (pure computation only)
+comp app.comp --pure
+
+# Future: prompt for resource access
+comp app.comp --prompt
+```
+
+The runtime ensures no code can create resource tokens—they're only available through the initial runtime context. Pure functions receive an empty context with no possibility of acquiring resources.
+
+## Benefits of Simplicity
+
+The single resource token model provides real, enforceable benefits:
+
+**Build-time evaluation** - Pure functions can run during compilation
+**Aggressive caching** - Results are deterministic and cacheable forever  
+**Parallelization** - No coordination needed between pure computations
+**Testing** - Pure functions need no mocks or environment setup
+**Optimization** - Compiler can reorder, deduplicate, or eliminate pure calls
+
+This binary distinction—pure or not—is honest about what can actually be enforced while providing genuine value for optimization and reasoning about code.
+
+## Security Patterns
+
+The simplified model enables clear security patterns:
 
 ```comp
-; Template function for consistent structure creation
-!func |create-response ^{status ~tag data ~any} = {
-    status = ^status
-    data = ^data
-    timestamp = (|now/time)
-    metadata = {
-        version = 1.0
-        ?..((^status >= 400) |if {$in} {error=#true} {})
+; Validate untrusted data with pure functions
+!pure
+!func |validate-input ~{data} = {
+    ; Cannot access filesystem, network, or state
+    ; Perfect for untrusted data validation
+    data |check-format |verify-constraints
+}
+
+; Process with minimal resource exposure
+!func |safe-process ~{untrusted} = {
+    ; Validate in pure context first
+    validated = (untrusted |validate-input)
+    
+    ; Only access resources after validation
+    validated |if .{$in} .{
+        $in |process-with-resources
+    } .{
+        {#invalid-input.fail}
     }
 }
-
-; Conditional field inclusion
-user-view = {
-    id = user.id
-    name = user.name
-    ?..(is-admin |if {$in} {email=user.email role=user.role} {})
-    ?..(is-self |if {$in} {preferences=user.preferences} {})
-}
-
-; Structure transformation pipeline
-(raw-data |validate
-          |{$in validated=#true timestamp=(|now/time)}
-          |enhance-with-metadata
-          |{$in checksum=(|calculate-checksum)})
 ```
 
-For functions that need controlled output generation, privacy structures using `&{}` disable automatic field export, requiring explicit `$out` scope modifications. This enables complex internal processing without exposing implementation details. See [Privacy Structures and Explicit Output](function.md#privacy-structures-and-explicit-output) for detailed coverage of this pattern.
+The beauty of this model is its honesty—it doesn't pretend to offer security it can't provide, while delivering real guarantees about computational behavior that enable meaningful optimizations and safer code.

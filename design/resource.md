@@ -1,71 +1,78 @@
-# Resources and Transactions
+Resources and Transactions
+Managing external state and coordinating changes in Comp
 
-*Managing external state and coordinating changes in Comp*
+Overview
+Resources represent connections to the outside world—files, network connections, database handles, graphics contexts. These are opaque handles that cannot be serialized, copied, or directly inspected. The language tracks them automatically, ensuring cleanup without manual bookkeeping. Combined with transactions, resources enable coordinated state changes that can be atomically committed or rolled back.
 
-## Overview
-
-Resources represent connections to the outside world—files, network connections, database handles, graphics contexts. The language tracks these automatically, ensuring cleanup without the manual bookkeeping that leads to resource leaks. Combined with transactions, resources enable coordinated state changes that can be atomically committed or rolled back.
-
-The design favors multiplexed, synchronous operations over async/await complexity. Instead of managing concurrent promises and callback chains, Comp provides tools for efficient resource pooling and automatic retry logic that eliminate most needs for explicit asynchronous programming.
+The design favors simplicity over complexity. Resources require the single resource capability token to create, making them impossible to access from pure functions. This creates a clear boundary between pure computation and effectful operations. The system provides synchronous operations with automatic retry and pooling patterns rather than explicit async/await complexity.
 
 The resource system follows several guiding principles:
 
-- **Automatic tracking** ensures cleanup without manual bookkeeping
-- **Explicit control** allows early release when needed
-- **Transactional coordination** provides atomic multi-resource operations
-- **Synchronous interface** eliminates callback complexity
-- **Multiplexed operations** achieve efficiency without explicit async
+Automatic tracking ensures cleanup without manual bookkeeping
+Explicit control allows early release when needed
+Transactional coordination provides atomic multi-resource operations
+Synchronous interface eliminates callback complexity
+Pure function isolation prevents resource access in pure contexts
+These principles create a resource model that handles real-world complexity while maintaining Comp's simplicity. Whether managing database connections, coordinating distributed updates, or handling system resources, the unified approach provides predictable, composable behavior.
 
-These principles create a resource model that handles real-world complexity
-while maintaining Comp's simplicity. Whether managing database connections,
-coordinating distributed updates, or handling system resources, the unified
-approach provides predictable, composable behavior. For patterns that complement
-resource management with controlled state mutation, see [Store
-System](store.md).
+Resource Fundamentals
+A resource is an opaque handle to something outside the language's control. Resources cannot be serialized, copied, or directly inspected—they exist solely as capabilities for interaction with external systems. The language automatically releases resources when they go out of scope, but programs can also explicitly release them early.
 
-## Resource Fundamentals
+All resource creation requires the resource capability token, which is absent in pure functions:
 
-A resource is an opaque handle to something outside the language's control.
-Resources cannot be serialized, copied, or directly inspected - they exist
-solely as capabilities for interaction with external systems. The language
-automatically releases resources when they go out of scope, but programs can
-also explicitly release them early.
-
-```comp
-; Resources are created by system functions
-@file = (path/to/file |open/file)
-@conn = (postgresql://localhost/mydb |connect/db)
-@socket = {host=api.example.com port=443} |connect/net
+comp
+; Resources require capability token (fails in pure functions)
+@file = ("/path/to/file" |open/file)      ; Needs resource token
+@conn = ("postgresql://localhost/mydb" |connect/db)
+@socket = {host="api.example.com" port=443} |connect/net
 
 ; Automatic cleanup when leaving scope
 !func |process-file ^{path ~str} = {
-    @file = ^path |open/file
+    @file = (^path |open/file)      ; Acquires resource
     @file |read/file |process
     ; @file automatically closed when function returns
 }
 
 ; Explicit early release
-@temp = (/tmp/data |open/file)
+@temp = ("/tmp/data" |open/file)
 @temp |write/file data
-@temp |release              ; Close immediately
-```
+@temp |release                      ; Close immediately
 
-Resources flow through pipelines like any other value but maintain their special
-cleanup semantics. They can be stored in structures, passed to functions, and
-returned from operations while the runtime tracks their lifecycle.
+; Pure functions cannot create resources
+!pure
+!func |pure-process ~{data} = {
+    ; @file = ("path" |open/file)   ; FAILS - no resource token
+    data |transform                 ; Can only do computation
+}
+Resources flow through pipelines like any other value but maintain their special cleanup semantics. They can be stored in structures, passed to functions, and returned from operations while the runtime tracks their lifecycle.
 
-## Transaction System
+Resource Passing Through Pure Functions
+While pure functions cannot create or access resources, they can pass them through as opaque values:
 
-Transactions coordinate multiple operations that should succeed or fail as a
-unit. The `!transact` construct wraps a block of operations, automatically
-handling commit on success or rollback on failure. Resources that support
-transactions participate automatically through their defined transaction hooks.
+comp
+!pure
+!func |transform-container ~{data} = {
+    ; Can pass resource through without accessing it
+    {
+        transformed = data.value |calculate
+        resource = data.resource     ; Passes through untouched
+    }
+}
 
-Be aware that the language's use of transactions is more focused on rolling
-back errors. There is currently no focus on isolation of concurrent 
-transactions, outside of resources that naturally provide this, like databases.
+; Regular function uses the resource
+!func |process = {
+    @conn = (|connect/db)
+    
+    container = {value=100 resource=@conn}
+    result = (container |transform-container)  ; Pure function
+    
+    ; Can access resource after pure function returns it
+    result.resource |query "SELECT * FROM users"
+}
+Transaction System
+Transactions coordinate multiple operations that should succeed or fail as a unit. The !transact construct wraps a block of operations, automatically handling commit on success or rollback on failure. Resources that support transactions participate automatically through their defined transaction hooks.
 
-```comp
+comp
 ; Basic transaction with single resource
 !transact $database {
     (users |insert-user/db)
@@ -77,30 +84,23 @@ transactions, outside of resources that naturally provide this, like databases.
 ; Multiple coordinated resources
 !transact @database @cache @search {
     @user-id = (user |insert/db |get-id)
-    (user |set/cache user:${@user-id})
-    (user |index/search users)
+    (user |set/cache "user:${@user-id}")
+    (user |index/search "users")
 }
 ; All three systems update atomically
-```
+Transactions can be nested, with inner transactions becoming part of the outer transaction's scope. This creates natural composition for complex operations built from simpler transactional pieces.
 
-Transactions can be nested, with inner transactions becoming part of the outer
-transaction's scope. This creates natural composition for complex operations
-built from simpler transactional pieces.
+Resource Multiplexing Patterns
+Rather than async/await, Comp favors multiplexed operations that handle multiple resources efficiently. The standard library provides patterns for pooling, batching, and coordinating resources without explicit concurrency management.
 
-## Resource Multiplexing Patterns
-
-Rather than async/await, Comp favors multiplexed operations that handle multiple
-resources efficiently. The standard library provides patterns for pooling,
-batching, and coordinating resources without explicit concurrency management.
-
-```comp
+comp
 ; Connection pooling with automatic management
-@pool = (|create-pool/db url=database-url max=10)
+@pool = (|create-pool/db url="database-url" max=10)
 
 ; Pool automatically multiplexes connections
 (requests |map {
     @pool |with {$in |
-        (|query SELECT * FROM users WHERE id = ${id})
+        (|query "SELECT * FROM users WHERE id = ${id}")
     }
 })
 
@@ -113,33 +113,48 @@ batching, and coordinating resources without explicit concurrency management.
 ; Coordinated fanout without async
 (endpoints |map {$in |get/http timeout=5000}
            |gather)   ; Waits for all, handles partial failures
-```
+The language runtime can optimize these patterns, potentially using parallel execution or async I/O internally while presenting a synchronous interface to the programmer.
 
-The language runtime can optimize these patterns, potentially using parallel
-execution or async I/O internally while presenting a synchronous interface to
-the programmer.
+Transaction Semantics
+Transactions maintain consistency through several mechanisms. State capture preserves the execution context at transaction boundaries. Resource coordination ensures all participants move through transaction phases together. Error propagation guarantees that any failure triggers a complete rollback.
 
-## Transaction Semantics
-
-Transactions maintain consistency through several mechanisms that work together.
-State capture preserves the execution context at transaction boundaries.
-Resource coordination ensures all participants move through transaction phases
-together. Error propagation guarantees that any failure triggers a complete
-rollback.
-
-```comp
+comp
 ; State preservation across transaction boundaries
 @counter = 0
 !transact @resource {
     @counter = @counter + 1     ; Local change
-    (|risky-operation)                  ; Might fail
+    (|risky-operation)          ; Might fail
 }
 ; If operation fails, @counter remains 0
 
 ; Transaction hooks for custom resources
-resource %custom-handler {
+resource ~custom-handler {
     on-begin = |prepare-transaction
     on-commit = |finalize-changes  
     on-rollback = |restore-state
 }
-```
+Pure Functions and Resources
+The integration between resources and pure functions is simple: pure functions cannot create or manipulate resources, but can pass them through as opaque values. This maintains purity while allowing resources to flow through pure transformations:
+
+comp
+!pure
+!func |route-data ~{packet} = {
+    ; Can't access the connection resource
+    ; But can route based on other fields
+    packet.type |match
+        {#priority} {{..packet queue="express"}}
+        {#bulk} {{..packet queue="standard"}}
+        {#true} {packet}
+}
+
+!func |network-handler = {
+    @conn = (|open-connection)
+    
+    packets |map {
+        packet = {data=$in connection=@conn type=#bulk}
+        routed = (packet |route-data)  ; Pure routing logic
+        routed.connection |send routed.data  ; Use resource after
+    }
+}
+This separation ensures pure functions remain deterministic while still participating in resource-based workflows.
+

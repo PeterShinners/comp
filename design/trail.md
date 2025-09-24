@@ -1,12 +1,12 @@
 # Trail System
 
-*Structured navigation paths through Comp data*
+*Structured navigation paths through Comp data and filesystems*
 
 ## Overview
 
-Trails provide a way to represent navigation paths through data as regular structures. The `/path/` syntax is syntactic sugar that creates structures containing arrays of field names and navigation operators. These structures can be stored, passed, and manipulated like any other data, then applied to navigate or modify data using trail-aware operations.
+Trails provide a way to represent navigation paths through hierarchical data as regular structures. The `/path/` syntax is syntactic sugar that creates structures representing navigation through various dimensional spaces. These paths can navigate filesystems, data structures, archives, and any hierarchical system through explicit axis-shift notation.
 
-There is no special "trail" type in Comp - trails are simply structures with a conventional shape that trail operations know how to interpret. This design keeps the language core simple while enabling powerful navigation patterns through library functions. For information about the underlying structure operations that trails build upon, see [Structures, Spreads, and Lazy Evaluation](structure.md).
+Trails are not special types in Comp - they're structures with conventional shapes that trail operations interpret. This design keeps the language core simple while enabling powerful navigation patterns through library functions. The axis-shift notation (using `:`) allows trails to explicitly mark transitions between different navigational contexts. For information about the underlying structure operations that trails build upon, see [Structures, Spreads, and Lazy Evaluation](structure.md).
 
 The trail system embodies several key principles:
 
@@ -15,147 +15,209 @@ The trail system embodies several key principles:
 - **Library interpretation**: Trail operations give meaning to trail structures  
 - **Data as data**: Trails can be stored, passed, and manipulated like any value
 - **Clear visual marker**: The `/` delimiters make navigation operations obvious
+- **Explicit dimensional shifts**: The `:` operator marks transitions between contexts
 
-This design keeps the language core minimal while enabling sophisticated navigation patterns through library functions. By representing trails as ordinary structures, Comp maintains its principle that everything is data while providing convenient syntax for common operations.
+This design maintains Comp's principle that everything is data while providing convenient syntax for navigation. The axis-shift capability makes trails universal for navigating any hierarchical system.
 
 ## Trail Fundamentals
 
-A trail literal using `/path/` syntax creates a structure containing an array of navigation segments. Each segment is either a field name (as a string) or a navigation operator (as a tag). This structure can be stored in variables, passed to functions, or manipulated like any other data.
+A trail literal using `/path/` syntax creates a structure containing navigation segments. Each segment is either a field name, an expression in single quotes, or an axis-shift marker using `:`. This structure can be stored in variables, passed to functions, or manipulated like any other data.
 
 ```comp
-; Trail literal creates a structure
-@path = /users.profile.theme/
-; Equivalent to approximately:
-; {segments=[users profile theme]}
+; Simple trail literal
+@path = /users/profile/theme/
 
-; Apply trail structure to data
-config |get /database.host/           ; Apply trail to navigate
-$in |get @path                   ; Apply stored trail variable
+; Trail with expression segments
+@dynamic = /users/'user-id'/settings/
 
-; Setting values through trails
-data |set /user.name/ Alice          ; Navigate and set value
-config |set @path new-value      ; Set using trail variable
+; Trail with axis shift
+@archive = /backup.zip/zip:/data/config.json/
+
+; Apply trails to navigate data
+config |get /database/host/
+data |set @path new-value
 ```
 
-The trail syntax provides convenient shorthand for creating these navigation structures. The actual structure format is an implementation detail, but conceptually it's just an array of strings and operator tags that describe how to navigate through data.
+The trail syntax provides convenient shorthand for creating navigation structures. Trails are always relative to whatever object they're applied to - there's no concept of absolute trails.
 
-## Trail Structure and Syntax
+## Axis-Shift Notation
 
-When you write a trail literal, the language parses it into a structure. The dot separators become array boundaries, and special syntax elements become operator tags that trail operations recognize.
-
-```comp
-; Simple trail - array of field names
-/users.0.email/
-; Creates: {segments=[users 0 email]}
-
-; Wildcard operator becomes a tag
-/users.*.email/
-; Creates: {segments=[users #trail-any email]}
-
-; Recursive descent operator
-/**.error/
-; Creates: {segments=[#trail-recursive error]}
-
-; Complex navigation with operators
-/items.[price < 100].name/
-; Creates structure with predicate information
-```
-
-Since trails are just structures, they can be created programmatically without using the literal syntax:
+The colon (`:`) operator marks dimensional transitions in trails, where the navigation context changes. This is essential for navigating through different types of hierarchical systems that require different interpretation rules.
 
 ```comp
-; Programmatic trail construction
-@dynamic-trail = {segments=[users user-id settings]}
-data |set @dynamic-trail new-settings
+; Filesystem to archive
+/home/backup.tar/tar:/2024/data/
 
-; Trail manipulation as regular structures
-@base-trail = /api.v2/
-@extended = {..@base-trail segments=[..@base-trail.segments users]}
+; Archive to nested archive  
+/archives/data.zip/zip:/inner.tar/tar:/files/
+
+; Future: filesystem to metadata
+/var/log/system.log/stat:/mtime/
+
+Common axis types for filesystem navigation (considered):
+- `zip:` - Navigate into ZIP archive
+- `tar:` - Navigate into TAR archive
+- `gz:` - Decompress GZIP stream
+- `stat:` - Access file metadata (future)
+
+## Trail Syntax Elements
+
+```comp
+; Simple segments
+/users/alice/profile/
+
+; Expression segments (single quotes)
+/users/'username'/profile/
+/data/'key-name'/value/
+
+; Axis shifts (colon notation)
+/archive.zip/zip:/contents/
+/data.tar.gz/gz:/tar:/files/
+
+; Mixed syntax
+/backups/'date'/tar:/users/'user-id'/
+
+; Quoted segments for special characters
+/documents/"law:"/record.pdf/
+/folders/"my/folder"/file.txt/
 ```
 
 ## Trail Operations
 
-Trail operations are functions that know how to interpret trail structures and apply them to data. The primary operations are `get` and `set`, but the standard library provides many trail-aware functions.
+Trail operations are functions that interpret trail structures and apply them to data. The primary operations for filesystem and data navigation:
 
 ```comp
 ; Basic trail operations
-data |get /users.profile/
-data |set /users.profile/ value
+data |get /users/profile/
+data |set /users/profile/ value
+data |exists? /users/alice/
 
-; The trail structure can be manipulated
-@path = /users/
-@extended = @path |extend/trail profile.theme
-; Results in trail structure for /users.profile.theme/
+; Filesystem operations with trails
+@dir |get /src/lib/utils/
+@dir |set /config/settings.json/ content
+@dir |exists? /build/output/
+
+; Archive navigation
+@archive = ("/data.zip" |open-as-filesystem)
+@file = (@archive |get /documents/report.pdf/)
 ```
 
 The standard library provides trail operations that interpret these structures. For information about the module system and standard library organization, see [Modules, Imports, and Namespaces](module.md).
 
 ```comp
-!import /trail = std "core/trail"
+!import /trail = std /core/trail/
 
-; Navigation operations interpret trail structures
-{data /users.*/} |select/trail      ; Get all matches
-{data /path/} |exists?/trail        ; Check existence
-{data /old/ /new/} |move/trail      ; Move data between paths
-
-; Trail structures can be analyzed and modified
-/users.profile.theme/ |segments/trail    ; [users profile theme]
-/users.profile/ |parent/trail            ; /users/
-{/base/ /extend/} |join/trail           ; Combine trail structures
+; Trail manipulation functions
+/users/profile/theme/ |segments/trail    ; [users profile theme]
+/users/profile/ |parent/trail            ; /users/
+{/base/ /extend/} |join/trail           ; Combine trails
 ```
 
 ## Trail Composition
 
-Since trails are just structures, they compose using normal structure operations. The language provides syntax sugar to make common compositions convenient, but underneath it's standard structure manipulation.
+Since trails are just structures, they compose using normal structure operations. Expression segments allow dynamic path construction:
 
 ```comp
-; Trail concatenation syntax
-@api = /api/
-@version = /v2/
+; Dynamic segments with expressions
+@user = "alice"
+@data = data |get /users/'@user'/profile/
+
+; Trail variables
+@base = /api/v2/
 @endpoint = /users/
-@full = @api/@version/@endpoint     ; Creates combined trail structure
+@full = @base/'@endpoint'/    ; Expression joins paths
 
-; This is just structure manipulation
-; The `/` operator between trails combines their segment arrays
+; Computed field names
+@field = "email"
+profile |get /user/'@field'/
+```
 
-; Direct structure manipulation works too
-@custom-trail = {
-    segments = [..@api.segments ..@version.segments ..@endpoint.segments]
-}
+## Filesystem Integration
 
-; Both create equivalent trail structures
-data |get @full == data |get @custom-trail    ; Same navigation result
+Trails are the primary way to navigate filesystem hierarchies, with axis-shift notation for entering archives and other virtual filesystems:
+
+```comp
+; Directory operations with trails
+@project = ("./myapp" |open-dir)
+@config = (@project |get /config/settings.json/)
+@source = (@project |list /src/*/)
+
+; Archive navigation
+/backups/2024.tar/tar:/january/data.json/
+/downloads/package.zip/zip:/lib/core.comp/
+
+; Windows drive letters work naturally
+/C:/Windows/System32/
+/D:/games/data.zip/zip:/assets/
+```
+
+## Import Statement Syntax
+
+The import system uses trail notation for consistency with the rest of Comp's path-based operations:
+
+```comp
+; Standard library imports
+!import /str = std /core/str/
+!import /math = std /core/math/
+
+; Git repository imports
+!import /lib = comp /git@github.com:/user/repo.git/
+
+; Local filesystem imports
+!import /utils = comp /./lib/utils/
+
+; Archive imports
+!import /vendor = comp /vendor.tar/tar:/libs/
+
+; URL-based imports
+!import /remote = comp /https:/cdn.example.com/libs/v2/
+
+; Fallback to string literals for complex cases
+!import /special = custom "complex://provider?params=value"
 ```
 
 ## Navigation Patterns
 
-Trail operations interpret certain tags and patterns in trail structures to enable sophisticated navigation:
+Trail operations can include wildcards and recursive patterns:
 
 ```comp
-; Numeric indices for array access
-data |get /items.0/                  ; First item
-data |get /items.-1/                 ; Last item
+; Wildcard selection
+@dir |list /src/*/
 
-; Wildcard selection (through functions)
-data |select/trail /users.*.email/     ; All user emails
+; Recursive descent (with explicit axis)
+/photos:dir/**.jpg/exif:/DateTaken/
 
-; Recursive search
-data |find/trail /**.error/            ; Find at any depth
+; Pattern matching
+@dir |match /tests/*_test.comp/
 
-; Predicate filtering (future enhancement)
-data |where/trail /users.[active].name/  ; Conditional selection
+; Future: predicate filtering
+/users:/array/[age > 18]/email/
 ```
 
-These patterns work because trail operations recognize special tags and structures within the trail and interpret them accordingly. The trail itself remains just data.
+## Store System Integration
+
+The Store system uses trails for navigating mutable state:
+
+```comp
+; Store operations with trails
+@store |get /users/alice/profile/
+@store |set /cache/results/ data
+@store |delete /temp/*/
+
+; Axis shifts clarify navigation intent
+@store |get /users:/key/alice/field:/email/
+@store |set /cache:/ttl/3600/data:/results/ value
+```
 
 ## Type Safety and Validation
 
-While trails are runtime values (just structures), they can still integrate with Comp's type system. Functions can specify they expect trail-shaped structures, and operations can validate trails before applying them. For comprehensive information about the shape system and validation patterns, see [Shapes, Units, and Type System](shape.md).
+While trails are runtime values (just structures), they can integrate with Comp's type system:
 
 ```comp
 ; Shape for trail structures (simplified)
 !shape ~trail = {
     segments ~array
+    axes ~array?
 }
 
 ; Functions can require trail-shaped inputs
@@ -163,12 +225,30 @@ While trails are runtime values (just structures), they can still integrate with
     ^data |apply/trail ^path
 }
 
-; Validation of trail structures
+; Trail validation
 !func |safe-navigate ~{data} ^{path} = {
-    $in |if {^path |valid?/trail} {
-        $in |get/trail ^path
+    ^path |valid?/trail |if {
+        data |get ^path
     } {
-        {#trail.fail message=Invalid trail structure}
+        {#invalid-trail.fail path=^path}
     }
 }
+```
+
+## Performance Considerations
+
+Trail operations can be optimized through caching and compilation:
+
+- Parsed trail structures can be cached for repeated use
+- Common navigation patterns can be compiled to efficient accessors
+- Axis-shift handlers can be pre-resolved for known types
+
+```comp
+; First use parses and caches
+@path = /users/profile/settings/
+data |get @path     ; Cached trail structure reused
+
+; Compiled accessors for hot paths
+@hot-path = /api/v2/users/ |compile/trail
+requests |map {$in |get @hot-path}
 ```

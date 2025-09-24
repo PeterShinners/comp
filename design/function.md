@@ -89,9 +89,8 @@ provide arguments to the function. Arguments are intended to control the way a
 function behaves, not the data it works on. Arguments can also define special
 block values which are like callbacks. The arguments are available in the `^arg`
 namespace, which is normally accessed through the `^` operator.
-* **Permissions** The function operator can be preceded with a `!pure` or
-`!require` statements to control how permissions are handled when calling this
-function.
+* **Pure** The function can be preceded with a `!pure` statement to guarantee
+it has no side effects and executes deterministically.
 
 There is no definition for the shape of the output structure from the function.
 The function can use whatever flow control, error handling, or fetched data
@@ -101,6 +100,7 @@ results it wants to become its value.
 ; Simple inline definition
 !func |double ~{~num} = { $in * 2 }
 
+!pure
 !func |add ~{~num} ^{n ~num} = { $in + ^n }
 
 ; Multi-line for clarity
@@ -204,9 +204,9 @@ Privacy structures work with all the same mechanisms as regular structures—sha
 
 ## Pure Functions and Isolation
 
-Pure functions guarantee deterministic computation without side effects. Defined with `!pure`, they receive an empty context and cannot access external resources. This enables build-time evaluation, safe parallelization, and use in shape constraints or unit definitions.
+Pure functions guarantee deterministic computation without side effects. Defined with `!pure`, they execute in a completely resource-free context. This enables build-time evaluation, safe parallelization, and use in shape constraints or unit definitions.
 
-The distinction between `!pure` and regular functions is about capability, not syntax. Pure functions can call other functions, but those functions fail immediately if they attempt resource access. This creates a clear, enforceable boundary between computation and effects, no more wondering if that "simple calculation" is secretly making network calls.
+The `!pure` decorator creates hard enforcement—these functions literally cannot access the outside world because no resource token exists in their context. They cannot read files, access the network, get the current time, create stores, or access module runtime state. This creates an unforgeable boundary between computation and effects.
 
 ```comp
 !pure
@@ -221,6 +221,14 @@ The distinction between `!pure` and regular functions is about capability, not s
 !pure
 !func |validate-email ~{email ~str} = {
     $in |match/str "^[^@]+@[^@]+$"
+}
+
+!pure
+!func |transform ~{data} = {
+    ; Can compute, validate, transform
+    ; Cannot: access files, network, time, random, stores
+    ; Cannot: access $mod runtime state or |describe
+    data |normalize |validate
 }
 ```
 
@@ -479,40 +487,38 @@ creature = {type=#dog.mammal name=Rex}
 (creature |speak)             ; "woof" - most specific match
 ```
 
-## Function Permissions and Security
+## Function Security and Resource Access
 
-Functions can declare required permissions using the `!require` decorator. This
-creates build-time documentation and enables early failure with clear error
-messages. The permission system uses capability tokens that flow through the
-context but cannot be stored or manipulated as values.
+Functions either have access to external resources or they don't—a simple binary model. Regular functions can access the filesystem, network, and other external systems through the single `resource` capability token. Pure functions execute in a completely resource-free context, guaranteeing deterministic behavior without side effects.
 
-Pure functions implicitly drop all permissions, ensuring they cannot perform
-side effects. Regular functions inherit the caller's permissions unless
-explicitly restricted. The security model enables fine-grained control over
-resource access. For comprehensive details about the permission system,
-capability-based security, and permission inheritance patterns, see [Runtime
-Security and Permissions](security.md).
+The security model is refreshingly honest: instead of pretending to offer fine-grained permissions that can't be properly enforced, Comp provides a clear boundary between pure computation and effectful operations. Regular functions inherit resource access from their callers, while pure functions operate in guaranteed isolation. For comprehensive details about the security model and resource system, see [Runtime Security and Permissions](security.md).
 
 ```comp
-!require read, write
+; Regular function with resource access
 !func |backup-file ^{source ~str dest ~str} = {
-    (^source |read/file)      ; Needs read permission
+    (^source |read/file)      ; Uses resource capability
     |compress
-    |write/file ^dest         ; Needs write permission
+    |write/file ^dest         ; Uses resource capability
 }
 
-!require net, env
-!func |fetch-with-config ^{endpoint ~str} = {
-    @api-key = ("API_KEY" |get/env)      ; Needs env token
-    headers = {Authorization = %"Bearer ${@api-key}"}
-    (^endpoint |get/http headers)      ; Needs net token
+; Pure function - no resource access
+!pure
+!func |compress ~{data} = {
+    ; Deterministic compression algorithm
+    ; Cannot access filesystem, network, time, etc.
+    data |apply-compression-algorithm
 }
 
-; Permissions flow through calls
-!func |admin-operation = {
-    (|backup-file)           ; Inherits admin's permissions
+; Mixed usage
+!func |process-safely = {
+    ; Validate with pure function first
+    validated = (untrusted-input |validate-pure)
     
-    ; Temporarily drop permissions for untrusted code
-    untrusted-input = ($in |process-user-data)  ; Isolated execution
+    ; Then use resources if valid
+    validated |if .{$in} .{
+        $in |save-to-disk
+    } .{
+        {#invalid.fail}
+    }
 }
 ```
