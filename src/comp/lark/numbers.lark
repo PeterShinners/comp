@@ -1,19 +1,20 @@
 // Comp Language Grammar - Number Literals
 //
+// Adapted from Lark's Python grammar but simplified for our needs
 // Two number types based on parsing needs:
-// - BASED: Can use ast.literal_eval (all bases, signs, underscores)  
+// - BASED: Can use ast.literal_eval (hex, binary, octal with signs and underscores)  
 // - DECIMAL: Must use Decimal() directly (precision preservation)
 
 number: BASED | DECIMAL
 
-// Integer formats with higher priority than decimal
-BASED.2: /[+-]?0[xXbBoO][\da-zA-Z_]+/                 
+// Based number formats - consolidated pattern for hex/binary/octal
+BASED.2: /[+-]?0[xXbBoO](_?[\da-zA-Z])+/    // All bases: allow any alphanumeric, literal_eval will catch invalid
 
-// Decimal formats - direct to Decimal() for precision  
-DECIMAL.1: /[+-]?([_\d]+)/                           // Whole            
-         | /[+-]?([_\d]*\.[_\d]*|\.\d[_\d]*)/        // Fractional
-         | /[+-]?[_\d]*(\.[_\d]*)?[eE][+-]?\d[_\d]*/ // Scientific
-
+// Decimal formats - consolidated with optional groups
+DECIMAL.1: /[+-]?(([1-9](_?\d)*)|0(_?0)*)/                          // Integer: 123, 1_000, -42, 0, 0_0  
+         | /[+-]?\d(_?\d)*\.(\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?/       // Decimal: 3.14, 5., 1.5e-10, 5.e10
+         | /[+-]?\.\d(_?\d)*([eE][+-]?\d(_?\d)*)?/                   // Leading dot: .5, .123_456, .5e10  
+         | /[+-]?\d(_?\d)*[eE][+-]?\d(_?\d)*/                        // Scientific integer: 1e5, 1_000e10
 
 %import common.WS
 %ignore WS

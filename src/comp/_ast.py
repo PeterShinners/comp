@@ -45,23 +45,21 @@ class NumberLiteral(ASTNode):
     @classmethod
     def fromToken(cls, token):
         """Create NumberLiteral from a Lark token."""
-        number_text = str(token)
-
         try:
             # Handle based integers (0x, 0b, 0o) with ast.literal_eval
             if token.type == "BASED":
-                python_int = ast.literal_eval(number_text)
+                python_int = ast.literal_eval(str(token))
                 decimal_value = decimal.Decimal(python_int)
             else:  # DECIMAL types
-                # Direct conversion for decimal precision preservation
-                decimal_value = decimal.Decimal(number_text)
+                decimal_value = decimal.Decimal(str(token))
 
             return cls(decimal_value)
 
-        except (decimal.InvalidOperation, ValueError) as err:
-            raise ParseError(f"Invalid number syntax: {number_text}") from err
         except SyntaxError as err:
-            raise ParseError(f"Invalid number format: {err.args[0]}") from err
+            # Pass through literal_eval's better error messages
+            raise ParseError(f"Invalid number: {err.args[0]}") from err
+        except (decimal.InvalidOperation, ValueError) as err:
+            raise ParseError(f"Invalid number syntax: {token}") from err
 
     def __repr__(self) -> str:
         return f"NumberLiteral({self.value})"

@@ -82,7 +82,7 @@ def test_parse_binary_numbers():
     result = comp.parse("0B11_11")
     _assertNum(result, 15)
 
-    with pytest.raises(comp.ParseError, match="binary"):
+    with pytest.raises(comp.ParseError, match="invalid.*binary"):
         comp.parse("0b789")
 
 
@@ -94,7 +94,7 @@ def test_parse_octal_numbers():
     result = comp.parse("0O644")
     _assertNum(result, 420)
 
-    with pytest.raises(comp.ParseError, match="octal"):
+    with pytest.raises(comp.ParseError, match="invalid.*octal"):
         comp.parse("-0o89")
 
 
@@ -106,7 +106,7 @@ def test_parse_hex_numbers():
     result = comp.parse("0xDeadBeef")
     _assertNum(result, 3735928559)
 
-    with pytest.raises(comp.ParseError, match="hexadecimal"):
+    with pytest.raises(comp.ParseError, match="invalid.*hex"):
         comp.parse("+0xGHI")
 
 
@@ -121,11 +121,12 @@ def test_underscores():
     result = comp.parse("3.141_592")
     _assertNum(result, "3.141592")
 
-    result = comp.parse("-_2_")
-    _assertNum(result, -2)
+    # Test valid signed numbers with underscores (following Python rules)
+    result = comp.parse("-123_456")
+    _assertNum(result, -123456)
 
-    result = comp.parse("+_2_._2_")
-    _assertNum(result, "2.2")
+    result = comp.parse("+123_456")
+    _assertNum(result, 123456)
 
 
 def test_dangling_decimals():
@@ -151,7 +152,7 @@ def test_invalid_numbers():
 
     # Note: 'inf' is now a valid identifier since we added identifier support
     # It will be handled as a tag in Phase 03, but for now it's an identifier
-    
+
     with pytest.raises(comp.ParseError):
         comp.parse("0x80.80")  # Decimals not allowed in alternate bases
 
