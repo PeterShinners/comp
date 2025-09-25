@@ -31,6 +31,12 @@ This document provides AI assistants with essential context for working on the C
 }
 ```
 
+## Project Tasks and Overview
+- The tasks/ directory has a readme outline the bulk of the implementation
+- The project is split into incremental chapters
+- Each chapter has approximately 10 phases
+- Each phase (completed, current, and some future) are described in detail as separate files
+
 ## Current Implementation Status
 
 ### **✅ Phase 02: Number Literals (COMPLETE)**
