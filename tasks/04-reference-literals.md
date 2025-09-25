@@ -1,8 +1,32 @@
 # Phase 04: Reference Literals (Tags, Shapes, Functions)
 
 **Depends on**: Phase 03 - String literals and token infrastructure  
-**Status**: Future phase  
-**Target start**: After strings and tokens are implemented
+**Status**: ✅ **COMPLETE**  
+**Completed**: September 2025
+
+## Completion Summary
+
+Phase 4 has been successfully implemented with full Unicode support and grammar refactoring:
+
+### ✅ Implemented Features
+- **All reference types**: Tags (`#tag`), shapes (`~shape`), functions (`|function`) 
+- **All patterns**: Simple, hierarchical (`.`), module (`/`), and combined references
+- **Unicode support**: Full UAX #31 compliance using `[^\W\d]` pattern for identifier starts
+- **Grammar refactoring**: Eliminated duplication by reusing identifier patterns
+- **Comprehensive testing**: 26/26 reference tests passing, full Unicode coverage
+
+### ✅ Technical Achievements  
+- **Modular grammar**: `references.lark` imports from `identifiers.lark` to eliminate duplication
+- **Unicode compliance**: Support for international identifiers (Greek, Arabic, etc.)
+- **Error handling**: Proper validation for malformed references
+- **AST integration**: Clean `TagReference`, `ShapeReference`, `FunctionReference` nodes
+- **Terminology**: Updated "literal" to "expression" for semantic accuracy
+
+### ✅ Test Results
+- **Reference tests**: 26/26 passing (100%)
+- **Total test suite**: 75/75 passing (100%) 
+- **Unicode coverage**: International characters, boolean forms, error cases
+- **Integration**: Works seamlessly with existing number and string parsing
 
 ## Overview
 
@@ -67,15 +91,26 @@ String literals moved to **Phase 03: Strings and Tokens**
 - Comprehensive error handling for malformed references
 - Leverages token infrastructure from Phase 03
 
-## Implementation Notes
+## Implementation Completed
 
-- Builds on token infrastructure from Phase 03 (strings and tokens)
-- **99% shared parsing logic** for tags/shapes/functions - just different sigils
-- References follow UAX #31 + hyphen rules (established in Phase 03)
-- Dots in reference names for hierarchical namespacing within modules
-- Slashes for module namespacing across modules (`/module`)
-- Full reference format: `sigil + identifier[.hierarchy][/module]`
-- Foundation for future polymorphic dispatch (tags), type system (shapes), and function calls
+### Grammar Architecture
+- **Modular design**: `src/comp/lark/references.lark` imports patterns from `identifiers.lark`
+- **Unified parsing**: 99% shared logic across tags/shapes/functions with different sigils
+- **Unicode support**: `[^\W\d]` pattern provides full international character support
+- **Grammar reuse**: Eliminated regex duplication by importing identifier patterns
+
+### AST Integration  
+- Clean `TagReference`, `ShapeReference`, `FunctionReference` AST nodes
+- Proper transformer methods in `_parser.py` with identifier path processing
+- Updated terminology from "literal" to "expression" for semantic accuracy
+- Integration with existing number and string parsing from Phases 02-03
+
+### Parser Features
+- **Reference types**: All three types (`#`, `~`, `|`) fully implemented
+- **All patterns**: Simple, hierarchical (`.`), module (`/`), combined references  
+- **Unicode identifiers**: International characters supported (Greek, Arabic, etc.)
+- **Error handling**: Comprehensive validation for malformed references
+- **Naming conventions**: Supports lisp-case and kebab-case naming
 
 ## Test Structure
 
@@ -88,6 +123,7 @@ Tests are organized by literal type:
 
 ## What We're NOT Building (Yet)
 
+- Definitions of tags, shapes, or functions
 - Structures (`{}`, `{x=1}`) → **Phase 05**
 - Expressions (`1 + 2`) - operator precedence  
 - String templating/interpolation - advanced feature

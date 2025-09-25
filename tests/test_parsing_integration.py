@@ -140,23 +140,3 @@ def test_cross_type_parsing_integration():
     hex_number = comp.parse("0xFF")
     assert isinstance(hex_number, comp.NumberLiteral)
     assert hex_number.value == 255
-
-
-def test_future_phase_preparation():
-    """Test that current parser provides good foundation for future phases."""
-    # These should all fail now but be ready for future implementation
-    future_inputs = [
-        "#true",          # Boolean literals (Phase 4)
-        "~num",           # Shape references (Phase 4)
-        "|connect",       # Function references (Phase 4)
-        "#http.get",      # Namespaced tags (Phase 4)
-        "~database.record", # Namespaced shapes (Phase 4)
-    ]
-
-    for input_str in future_inputs:
-        with pytest.raises(comp.ParseError):
-            comp.parse(input_str)
-
-    # Verify our current architecture can be extended
-    assert hasattr(comp, "parse")  # Main entry point ready
-    assert hasattr(comp, "ParseError")  # Error handling ready

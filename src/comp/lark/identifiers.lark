@@ -12,7 +12,7 @@
 // Start: letter, underscore, or other ID_Start characters  
 // Continue: ID_Start + digits, marks, hyphens
 // Optional trailing ? for boolean style
-IDENTIFIER.1: /[a-zA-Z_][\w-]*[?]?/
+IDENTIFIER.1: /[^\W\d][\w-]*[?]?/
 
 // Rule to create AST node
 identifier: IDENTIFIER

@@ -77,7 +77,7 @@ def parse(text: str) -> _ast.ASTNode:
         # Invalid characters (not at start) - after parsing some valid tokens
         if "No terminal matches" in error_msg and "Previous tokens:" in error_msg:
             # Extract the problematic character from error message
-            lines = error_msg.split('\n')
+            lines = error_msg.split("\n")
             for line in lines:
                 if "No terminal matches" in line:
                     # Extract character between quotes
@@ -85,7 +85,9 @@ def parse(text: str) -> _ast.ASTNode:
                     end = line.find("'", start)
                     if start > 0 and end > start:
                         bad_char = line[start:end]
-                        raise _ast.ParseError(f"Invalid character '{bad_char}' in input") from e
+                        raise _ast.ParseError(
+                            f"Invalid character '{bad_char}' in input"
+                        ) from e
             # Fallback if we can't extract the character
             raise _ast.ParseError("Invalid character in input") from e
 
@@ -143,16 +145,16 @@ class _CompTransformer(Transformer):
             return items[0]
         return items
 
-    def literal_list(self, items):
-        """Transform list of literals."""
+    def expression_list(self, items):
+        """Transform list of expressions."""
         # Filter out None values (empty matches)
         filtered = [item for item in items if item is not None]
         if len(filtered) == 1:
             return filtered[0]
         return filtered
 
-    def literal(self, items):
-        """Transform literal rule - just pass through the contained literal."""
+    def expression(self, items):
+        """Transform expression rule - just pass through the contained expression."""
         return items[0]
 
     def number(self, tokens):
@@ -169,3 +171,21 @@ class _CompTransformer(Transformer):
         """Transform identifier rule into Identifier AST node."""
         token = tokens[0]
         return _ast.Identifier(str(token))
+
+    def tag_reference(self, tokens):
+        """Transform tag_reference rule into TagReference AST node."""
+        # tokens[0] is the IDENTIFIER_PATH token (sigil is consumed by grammar)
+        identifier_path_token = tokens[0]
+        return _ast.TagReference.fromToken(identifier_path_token)
+
+    def shape_reference(self, tokens):
+        """Transform shape_reference rule into ShapeReference AST node."""
+        # tokens[0] is the IDENTIFIER_PATH token (sigil is consumed by grammar)
+        identifier_path_token = tokens[0]
+        return _ast.ShapeReference.fromToken(identifier_path_token)
+
+    def function_reference(self, tokens):
+        """Transform function_reference rule into FunctionReference AST node."""
+        # tokens[0] is the IDENTIFIER_PATH token (sigil is consumed by grammar)
+        identifier_path_token = tokens[0]
+        return _ast.FunctionReference.fromToken(identifier_path_token)

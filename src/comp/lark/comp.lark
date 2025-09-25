@@ -7,13 +7,14 @@
 %import numbers (BASED, DECIMAL, number)
 %import strings (BASIC_STRING, string)
 %import identifiers (IDENTIFIER, identifier)
+%import references (TAG_REFERENCE, SHAPE_REFERENCE, FUNCTION_REFERENCE, tag_reference, shape_reference, function_reference)
 
-// Start rule: currently supports numbers, strings, and identifiers
-start: literal_list
+// Start rule: currently supports numbers, strings, identifiers, and references
+start: expression_list
 
-literal_list: literal*
+expression_list: expression*
 
-literal: number | string | identifier
+expression: number | string | identifier | tag_reference | shape_reference | function_reference
 
 // Whitespace handling
 %import common.WS

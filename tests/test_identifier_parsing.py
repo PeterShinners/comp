@@ -52,7 +52,6 @@ def test_lisp_case_boolean_identifiers():
         _assertIdent(result, identifier)
 
 
-
 def test_mixed_case_identifiers():
     """Mixed case identifiers."""
     test_cases = ["userId", "firstName", "XMLHttpRequest", "iOS"]
@@ -62,7 +61,6 @@ def test_mixed_case_identifiers():
         _assertIdent(result, identifier)
 
 
-
 def test_numbers_in_identifiers():
     """Identifiers with numbers (not at start)."""
     test_cases = ["user1", "test123", "var2name", "item42"]
@@ -70,6 +68,63 @@ def test_numbers_in_identifiers():
     for identifier in test_cases:
         result = comp.parse(identifier)
         _assertIdent(result, identifier)
+
+
+def test_unicode_identifiers():
+    """Unicode identifiers following UAX #31."""
+    # A few valid Unicode letters that should work
+    valid_unicode = [
+        "用户名",  # Chinese characters
+        "naïve",  # Latin with diacritics
+        "Москва",  # Cyrillic
+        "θεός",  # Greek
+    ]
+
+    for identifier in valid_unicode:
+        result = comp.parse(identifier)
+        _assertIdent(result, identifier)
+
+
+def test_unicode_identifiers_with_hyphens():
+    """Unicode identifiers with hyphens (lisp-case style)."""
+    test_cases = [
+        "café-table",  # Mixed script with hyphen
+        "用户-名称",  # Chinese with hyphen
+    ]
+
+    for identifier in test_cases:
+        result = comp.parse(identifier)
+        _assertIdent(result, identifier)
+
+
+def test_unicode_boolean_identifiers():
+    """Unicode boolean-style identifiers."""
+    test_cases = [
+        "готов?",  # Cyrillic boolean
+        "válido?",  # Spanish boolean
+    ]
+
+    for identifier in test_cases:
+        result = comp.parse(identifier)
+        _assertIdent(result, identifier)
+
+
+def test_invalid_unicode_characters():
+    """Characters that should not be valid identifier starts."""
+    import pytest
+
+    # Emoji and symbols should not work as identifier starts
+    invalid_cases = [
+        "😀hello",  # Emoji (symbol, not letter)
+        "🚀launch",  # Another emoji
+        "❤️love",  # Emoji with modifier
+        "€price",  # Currency symbol
+        "©copyright",  # Copyright symbol
+    ]
+
+    for invalid in invalid_cases:
+        with pytest.raises(comp.ParseError):
+            comp.parse(invalid)
 
 
 def _assertIdent(value, match):

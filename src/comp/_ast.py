@@ -2,10 +2,19 @@
 AST node definitions and exceptions for Comp language.
 
 This module defines the Abstract Syntax Tree nodes used to represent parsed Comp code.
-Currently supports number and string literals, designed to grow with the full language.
+Currently supports number and string literals, identifiers, and reference literals.
 """
 
-__all__ = ["ASTNode", "NumberLiteral", "StringLiteral", "Identifier", "ParseError"]
+__all__ = [
+    "ASTNode",
+    "NumberLiteral",
+    "StringLiteral",
+    "Identifier",
+    "TagReference",
+    "ShapeReference",
+    "FunctionReference",
+    "ParseError",
+]
 
 import ast
 import decimal
@@ -117,6 +126,81 @@ class Identifier(ASTNode):
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, Identifier):
+            return False
+        return self.name == other.name
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+
+class TagReference(ASTNode):
+    """AST node representing a tag reference (#tag)."""
+
+    def __init__(self, name: str):
+        super().__init__()
+        self.name = name
+
+    @classmethod
+    def fromToken(cls, token):
+        """Create TagReference from a Lark token (without the # sigil)."""
+        # Token contains the identifier path without the sigil
+        return cls(str(token))
+
+    def __repr__(self) -> str:
+        return f"TagReference({self.name!r})"
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, TagReference):
+            return False
+        return self.name == other.name
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+
+class ShapeReference(ASTNode):
+    """AST node representing a shape reference (~shape)."""
+
+    def __init__(self, name: str):
+        super().__init__()
+        self.name = name
+
+    @classmethod
+    def fromToken(cls, token):
+        """Create ShapeReference from a Lark token (without the ~ sigil)."""
+        # Token contains the identifier path without the sigil
+        return cls(str(token))
+
+    def __repr__(self) -> str:
+        return f"ShapeReference({self.name!r})"
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, ShapeReference):
+            return False
+        return self.name == other.name
+
+    def __hash__(self) -> int:
+        return hash(self.name)
+
+
+class FunctionReference(ASTNode):
+    """AST node representing a function reference (|function)."""
+
+    def __init__(self, name: str):
+        super().__init__()
+        self.name = name
+
+    @classmethod
+    def fromToken(cls, token):
+        """Create FunctionReference from a Lark token (without the | sigil)."""
+        # Token contains the identifier path without the sigil
+        return cls(str(token))
+
+    def __repr__(self) -> str:
+        return f"FunctionReference({self.name!r})"
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, FunctionReference):
             return False
         return self.name == other.name
 
