@@ -1,6 +1,5 @@
 # Phase 03: String Literals and Tokens
 
-**Depends on**: Phase 02 - Number literal parsing  
 **Status**: Complete ✅  
 **Completed**: September 2025
 

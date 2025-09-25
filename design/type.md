@@ -224,6 +224,13 @@ positive = +value       ; Rarely needed but available
 result = 2 + 3 * 4      ; 14, not 20
 ```
 
+The language does not support "floor division" or "integer division" as seen
+on other languages.
+
+The language does not currently have any syntax for "in-place" updates
+or increment operators. These seem useful, but are a secondary priority
+that will wait for other parts of the language to settle.
+
 ### Special Numeric Values
 
 Mathematical operations can produce special values that require explicit handling:

@@ -1,6 +1,5 @@
 # Phase 04: Reference Literals (Tags, Shapes, Functions)
 
-**Depends on**: Phase 03 - String literals and token infrastructure  
 **Status**: ✅ **COMPLETE**  
 **Completed**: September 2025
 

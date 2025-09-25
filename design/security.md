@@ -1,257 +1,211 @@
 # Runtime Security and Permissions
 
-*Design for Comp's capability-based security model and permission system*
+*Design for Comp's simplified capability-based security model*
 
 ## Overview
 
-Comp implements capability-based security that actually works. Permission tokens flow through execution context and cannot be stored, forged, or manipulated—they exist only in the protected context and control access to system resources. Any code can drop permissions for downstream calls, but dropped permissions can't be restored until returning to the scope that held them.
+Comp implements capability-based security through a simple binary model: functions either have access to external resources or they don't. The `!pure` decorator creates guaranteed isolation by executing functions in a resource-free context. This straightforward approach provides real security boundaries without the complexity of fine-grained permissions that rarely deliver on their promises.
 
-This security model draws from proven designs like Deno's permission system while adding Comp-specific features. Permissions are declarative, enabling static analysis and clear documentation of what functions actually need. Pure functions provide guaranteed isolation by executing with no permissions—perfect for untrusted code and build-time evaluation.
+The security model draws from proven designs while maintaining radical simplicity. A single `resource` capability token controls all external access—filesystem, network, threads, everything. Pure functions execute with no resource access, providing guaranteed determinism and safety. This binary distinction makes security boundaries clear and enforceable.
 
+The security system embodies core principles of simplicity and honesty. Rather than pretending to offer fine-grained sandboxing that can't be properly enforced, Comp provides a clear boundary between computation and effects. Pure functions guarantee deterministic computation without side effects, while regular functions can access resources as needed. This binary model is easy to understand, simple to enforce, and actually useful for optimization and reasoning about code.
 
-The security system embodies several core principles. Capability-based design
-means permissions are unforgeable tokens, not strings or flags that can be
-manipulated. Monotonic reduction ensures permissions only decrease, never
-increase, along execution paths. Fail-fast behavior makes permission violations
-immediate and clear. Declarative requirements enable static analysis and
-documentation. Module isolation prevents supply chain attacks through permission
-boundaries.
+## The Resource Token
 
-These principles create a security model that balances safety with usability.
-Whether running trusted applications or sandboxing untrusted code, the
-permission system provides clear, enforceable boundaries that protect system
-resources while enabling necessary operations. For information about resource
-access patterns that work with the permission system, see [Resources and
-Transactions](resource.md).
-
-## Permission Token System
-
-The runtime defines a fixed set of permission tokens that control access to
-system resources. These tokens live in the protected portion of the `$ctx`
-namespace and flow through function calls. Programs start with a set of
-permissions determined by runtime flags, and these can only be reduced, never
-expanded, during execution.
-
-Core system tokens based on proven models:
-- `read` - File system read access
-- `write` - File system write access  
-- `net` - Network access (TCP/UDP, HTTP)
-- `env` - Environment variable access
-- `run` - Subprocess execution
-- `ffi` - Foreign function interface access
-- `sys` - System information queries
-
-Comp-specific tokens for language features:
-- `import` - Runtime module loading
-- `unbounded` - Infinite loops and recursion
-- `timing` - High-resolution timers
-- `random` - Hardware entropy access
+The runtime provides a single `resource` token that controls access to all external systems. Functions either have this token (can perform I/O) or don't (pure computation only). This binary model admits what permission systems are actually protecting—the boundary between computation and the outside world.
 
 ```comp
-; Check current permissions
-($ctx | has/security #read)           ; Returns #true or #false
-($ctx | list/security)                ; Returns list of current tokens
+; Regular function - has resource access
+!func |process-file ^{path ~str} = {
+    content = (^path |fetch)          ; Needs resource token
+    processed = (content |transform)   ; Pure computation
+    (processed |save-to-cache)        ; Needs resource token
+}
 
-; Drop permissions for downstream code
-($ctx | drop/security #write)         ; Remove write permission
-($ctx | drop/security {#net #ffi})    ; Drop multiple tokens
-
-; Create restricted execution context
-($ctx | only/security {#read} | {
-    ; This block can only read files
-    (data | process_untrusted)
-})
+; Pure function - no resource access
+!pure
+!func |transform ~{data} = {
+    ; Guaranteed: deterministic, no side effects
+    ; Can be cached, parallelized, evaluated at build time
+    validated = $in |validate
+    normalized = $in |normalize
+    {validated normalized}
+}
 ```
 
-## Function Permission Requirements
+## Pure Function Guarantees
 
-Functions declare required permissions using the `require` decorator. This
-serves as documentation, enables build-time verification where possible, and
-provides clear error messages when permissions are missing. The decorator
-appears before the function definition and lists required tokens.
+Pure functions execute in a completely empty context with no access to resources. The `!pure` decorator isn't just a hint—it creates hard enforcement at runtime. These functions literally cannot access the outside world because the resource token doesn't exist in their context.
 
-```comp
-require read, write
-func backup_file pipeline{} args{source dest} = {
-    (^source | read/file)      ; Needs read permission
-    | compress
-    | write/file ^dest         ; Needs write permission
-}
+### What Pure Functions Cannot Do
 
-require net, env
-func fetch_with_config pipeline{} args{endpoint} = {
-    @api_key = (API_KEY | get/env)      ; Needs env token
-    headers = {Authorization = Bearer ${@api_key}}
-    (^endpoint | get/http headers)      ; Needs net token
-}
+- **No filesystem access** - Cannot read/write files or directories
+- **No network operations** - Cannot make HTTP requests or open sockets
+- **No system information** - Cannot access time, random numbers, or environment
+- **No mutable state** - Cannot create or modify stores (which require resources)
+- **No module globals** - Cannot access `$mod` mutable state
+- **No describe operations** - Cannot introspect runtime state or stack traces
 
-; Permissions flow through call chains
-func admin_operation pipeline{} args{} = {
-    (| backup_file)           ; Inherits caller's permissions
-    (| fetch_with_config)     ; Also inherits permissions
-}
+### What Pure Functions Can Do
 
-When a function requiring permissions is called without them, it fails immediately with a clear error identifying the missing permission and the operation that required it. This fail-fast approach prevents security violations and makes permission requirements explicit.
-
-## Pure Functions and Guaranteed Isolation
-
-Pure functions provide deterministic computation without side effects. The `pure` decorator on a function definition creates guaranteed isolation - these functions receive an empty `$ctx` with no permission tokens, preventing any resource access.
+- **Computation** - Any deterministic calculation on input data
+- **Pass resources through** - Resources can flow through without being accessed
+- **Create blocks** - Blocks inherit purity from their creation context
+- **Handle errors** - Full error handling with `|?` and `??` operators
+- **Call other pure functions** - Build complex pure computations
 
 ```comp
-pure calculate pipeline{} args{x y} = {
-    result = ^x * ^y + 42
-    normalized = result % 100
-    {result normalized}
-}
-
-pure validate_structure pipeline{data} args{} = {
-    ; Can perform computation
-    valid = $in ~? ExpectedShape
-    score = (| calculate_score)
+!pure
+!func |calculate ~{input} = {
+    ; Can do complex computation
+    result = $in |validate |process |optimize
     
-    ; Cannot access resources
-    ; (data | write/file log)     ; ERROR: no write permission
-    ; (| secure/random)            ; ERROR: no random permission
-    {valid score}
-}
-
-; Pure functions enable optimizations
-shape Config = {
-    cache_key = (| generate_key)    ; Evaluated at build time
-    validator = |validate_structure
+    ; Can handle errors normally
+    safe-result = result |? {
+        ; Error handlers run in pure context too
+        {#calculation-failed value=$in}
+    }
+    
+    ; Can pass resources through without accessing
+    {result resource=input.resource}  ; Resource passes through untouched
 }
 ```
 
-The `pure` decorator syntax emphasizes that purity is an additional constraint
-on a function, not a different kind of entity. Pure functions can call other
-functions, but those calls execute in the same restricted context, failing if
-they attempt any resource access.
+## Store and Resource Integration
 
-## Module Permission Boundaries
-
-Each module import creates a permission boundary. Imported modules cannot access
-the importing module's permissions unless explicitly delegated. This prevents
-supply chain attacks where compromised dependencies could abuse the main
-application's permissions. For detailed information about module boundaries and
-import mechanisms, see [Modules, Imports, and Namespaces](module.md).
+Stores require resources internally, preventing their use in pure functions. This ensures pure functions cannot smuggle mutable state:
 
 ```comp
-# Main application has full permissions
-require read, write, net
+; Store creation requires resource token
+!func |create-cache = {
+    @store = (|new/store {})  ; Acquires resource internally
+    @store
+}
 
-# Import untrusted module - gets no permissions by default
-import processor = comp "./untrusted"
+!pure
+!func |pure-attempt = {
+    @store = (|new/store {})  ; FAILS - no resource token available
+}
 
-func process_with_untrusted pipeline{data} args{} = {
-    ; Untrusted module operates without permissions
-    processed = $in | transform/processor
-    
-    ; Delegate specific permission for one operation
-    ($ctx | only/security {#read} | {
-        (| load_config/processor)
-    })
+; Pure functions can work with immutable snapshots
+!pure
+!func |analyze ~{snapshot} = {
+    ; Read from immutable snapshot (no resource needed)
+    value = snapshot.data
+    ; Cannot modify - snapshot is immutable
+    value |transform
 }
 ```
 
-Modules can declare their permission requirements, making dependencies' security
-needs transparent. Build tools can analyze the permission tree to identify the
-total permission surface of an application.
+## Module Initialization and Purity
 
-## Runtime Permission Control
+Module-level initialization has specific rules for pure functions:
 
-Applications specify their permission requirements at startup through
-command-line flags or configuration. The runtime enforces that no code can
-exceed these initial permissions, creating a security sandbox for the entire
-program.
+- Module constants defined at top level are accessible to pure functions
+- `!entry` modifications to `$mod` are NOT visible to pure functions
+- Pure functions see `$mod` as it exists at build time
+
+```comp
+; Module-level constant - visible to pure functions
+$mod.constant = 42
+
+!entry = {
+    ; Runtime initialization - NOT visible to pure functions
+    $mod.cache = (|initialize-cache)
+    $mod.runtime-config = (|load-config)
+}
+
+!pure
+!func |pure-calc = {
+    value = $mod.constant     ; OK - build-time constant
+    ; cache = $mod.cache     ; FAILS - not available in pure context
+}
+```
+
+## Standard Library Enforcement
+
+The standard library enforces purity through internal resource requirements. Every function that could have side effects acquires a resource internally, making it impossible to call from pure functions:
+
+```comp
+; Standard library implementations
+!func |current-time = {
+    @clock = (|acquire-resource clock)  ; Fails in pure context
+    @clock |read
+}
+
+!func |random = {
+    @rng = (|acquire-resource entropy)  ; Fails in pure context
+    @rng |generate
+}
+
+!func |print ~{message} = {
+    @output = (|acquire-resource io)    ; Fails in pure context
+    @output |write message
+}
+
+; File operations through capability system
+!func |fetch ^{path ~str} = {
+    @fs = (|acquire-resource filesystem) ; Fails in pure context
+    @fs |read ^path
+}
+```
+
+This design makes purity automatic—if a function runs in a pure context, it's actually pure. No careful labeling or trust required.
+
+## Runtime Enforcement
+
+Applications can control resource availability at startup:
 
 ```bash
-# Run with specific permissions
-comp app.comp --allow read,env --deny net,ffi
+# Run with resource access (default)
+comp app.comp
 
-# Run with no permissions (sandbox mode)
-comp app.comp --sandbox
+# Run with no resource access (pure computation only)
+comp app.comp --pure
 
-# Run with all permissions (development mode)
-comp app.comp --allow-all
-
-# Prompt for permissions interactively
+# Future: prompt for resource access
 comp app.comp --prompt
 ```
 
-The runtime can also implement permission prompting, where users are asked to
-grant permissions when first needed. Granted permissions can be remembered for
-future runs, creating a trust model similar to mobile applications.
+The runtime ensures no code can create resource tokens—they're only available through the initial runtime context. Pure functions receive an empty context with no possibility of acquiring resources.
 
-## Permission Inheritance and Dropping
+## Benefits of Simplicity
 
-Permissions follow a strict inheritance model through the call stack. Each
-function receives its caller's permissions by default. Functions can drop
-permissions for downstream calls, but cannot add permissions they didn't
-receive. This creates a monotonic security model where permissions only decrease
-along call paths.
+The single resource token model provides real, enforceable benefits:
+
+**Build-time evaluation** - Pure functions can run during compilation
+**Aggressive caching** - Results are deterministic and cacheable forever  
+**Parallelization** - No coordination needed between pure computations
+**Testing** - Pure functions need no mocks or environment setup
+**Optimization** - Compiler can reorder, deduplicate, or eliminate pure calls
+
+This binary distinction—pure or not—is honest about what can actually be enforced while providing genuine value for optimization and reasoning about code.
+
+## Security Patterns
+
+The simplified model enables clear security patterns:
 
 ```comp
-require read, write, net
-func main_application pipeline{} args{} = {
-    ; Has all three permissions
-    (| full_operation)
-    
-    ; Drop network for file operations
-    ($ctx | drop/security #net)
-    (| file_only_operation)      ; Has read, write
-    
-    ; Further restriction
-    ($ctx | drop/security #write)  
-    (| read_only_operation)      ; Has only read
-    
-    ; Permissions restored when returning
+; Validate untrusted data with pure functions
+!pure
+!func |validate-input ~{data} = {
+    ; Cannot access filesystem, network, or state
+    ; Perfect for untrusted data validation
+    data |check-format |verify-constraints
 }
 
-func mixed_permissions pipeline{} args{} = {
-    ; Selective dropping in branches
-    ($in | if .is_production {
-        ($ctx | drop/security #write)
-        (| production_mode)
-    } {
-        (| development_mode)     ; Keeps all permissions
-    })
+; Process with minimal resource exposure
+!func |safe-process ~{untrusted} = {
+    ; Validate in pure context first
+    validated = (untrusted |validate-input)
+    
+    ; Only access resources after validation
+    validated |if .{$in} .{
+        $in |process-with-resources
+    } .{
+        {#invalid-input.fail}
+    }
 }
 ```
 
-## Security Patterns and Best Practices
-
-The permission system enables several security patterns that promote safe code.
-The principle of least privilege guides permission usage - functions should
-require only the minimum permissions needed. Permissions should be dropped as
-soon as they're no longer needed, reducing the attack surface for downstream
-code.
-
-```comp
-func secure_pipeline pipeline{user_input} args{} = {
-    ; Validate with no permissions (pure function)
-    validated = $in | validate_pure
-    
-    ; Read configuration with minimal permissions
-    config = ($ctx | only/security {#read} | {
-        (| load_config)
-    })
-    
-    ; Process with required permissions only
-    result = ($ctx | only/security {#read #net} | {
-        (validated | process_with_config config)
-    })
-    
-    ; No permissions for logging
-    (result | log_result)  ; Pure function
-}
-
-# Audit permission usage
-func audited_operation pipeline{} args{} = {
-    ($ctx | on_drop/security {$in |
-        (Permission dropped: ${$in} | log/audit)
-    })
-    
-    ; Normal operations with audit trail
-    (| perform_operations)
-}
-```
+The beauty of this model is its honesty—it doesn't pretend to offer security it can't provide, while delivering real guarantees about computational behavior that enable meaningful optimizations and safer code.

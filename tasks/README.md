@@ -18,13 +18,14 @@ Focused just on parsing the main language features into ast trees
 [X] 01-03. String Literals - Parse string literals and identifiers
 [X] 01-04. References - Parse function, string, and shape references
 [X] 01-05. Structures - Parse structures with fields, nested structures
-[ ] 01-PP. Operators - Parse all operators (numeric, spread, assignment), comments
+[ ] 01-06. Operators - Parse all operators (numeric, spread, assignment), comments
 [ ] 01-PP. Scopes and Assignments - Parse scope operators and references
 [ ] 01-PP. Pipeline - Parse statements and pipelines
 [ ] 01-PP. Tags Initial - Parse simple tag definitions (no values)
 [ ] 01-PP. Shapes - Parse shape definitions
 [ ] 01-PP. Function - Parse function definitions
 [ ] 01-PP. Tags Complete - Complete parsing of tags with values
+[ ] 01-PP. Non-definition Bang Operators - Parse !delete, !doc, etc.
 [ ] 01-PP. Blocks and Args - Parsing of blocks and definition and passing function args
 
 ## CC. Values and Expressions
