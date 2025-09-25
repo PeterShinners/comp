@@ -7,7 +7,7 @@
 The standard style uses:
 
 - Tabs for indentation
-- Tokens prefer lisp-case (lowercase with hyphens)
+- Tokens prefer kebab-case (lowercase with hyphens)
 - Prefer boolean function and fields with a trailing `?`
 - Operators at the start (`|`) when splitting long lines
 - Lines under 100 characters when reasonable
@@ -405,7 +405,7 @@ The style preference is to use the hyphens as word separators instead of
 compacting token names into abnormal compound words.
 
 The style of using lowercase words with hyphen separates is referred to as
-**lisp-case**.
+**kebab-case**.
 
 Allowed tokens (although not always preferred)
 * `html5`

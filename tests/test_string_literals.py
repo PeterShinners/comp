@@ -1,9 +1,17 @@
 """
 Test cases for string literal parsing.
 
-Comprehensive tests for string parsing with UTF-8 support, escape sequences,
-and Unicode handling. Tests basic strings, complex escapes, error conditions,
-and integration with the overall parsing system.
+SPECIFICATION:
+- Basic strings: "hello", "", "with spaces"
+- Escape sequences: \\", \\\\, \\n, \\t, \\r, \\0
+- Unicode: UTF-8 literals, \\uXXXX, \\UXXXXXXXX escape sequences
+- Error cases: unterminated strings, invalid escapes
+
+PARSER EXPECTATIONS:
+- comp.parse('"hello"') → StringLiteral("hello")
+- comp.parse('"say \\"hi\\""') → StringLiteral('say "hi"')
+
+AST NODE: StringLiteral(value: str)
 """
 
 from decimal import Decimal
@@ -13,19 +21,16 @@ import pytest
 import comp
 
 
-def test_parse_basic_strings():
+@pytest.mark.parametrize("input_text,expected_value", [
+    ('"hello"', "hello"),
+    ('""', ""),
+    ('"with spaces"', "with spaces"),
+    ('"multiple words here"', "multiple words here"),
+])
+def test_parse_basic_strings(input_text, expected_value):
     """Basic string literals."""
-    result = comp.parse('"hello"')
-    _assertStr(result, "hello")
-
-    result = comp.parse('""')
-    _assertStr(result, "")
-
-    result = comp.parse('"with spaces"')
-    _assertStr(result, "with spaces")
-
-    result = comp.parse('"multiple words here"')
-    _assertStr(result, "multiple words here")
+    result = comp.parse(input_text)
+    _assertStr(result, expected_value)
 
 
 def test_parse_escaped_strings():

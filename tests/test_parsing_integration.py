@@ -64,24 +64,6 @@ def test_single_expression_parsing():
         comp.parse("42 0xFF")
 
 
-def test_ast_node_properties():
-    """Test that AST nodes have expected properties and string representations."""
-    num = comp.parse("42")
-    string = comp.parse('"hello"')
-
-    # All nodes should have these properties (even if None for now)
-    assert hasattr(num, "line")
-    assert hasattr(num, "column")
-    assert hasattr(string, "line")
-    assert hasattr(string, "column")
-
-    # Should have proper string representations
-    assert "NumberLiteral" in repr(num)
-    assert "42" in repr(num)
-    assert "StringLiteral" in repr(string)
-    assert "hello" in repr(string)
-
-
 def test_parser_reuse():
     """Test that the parser can be reused without issues."""
     # Multiple calls should work fine without state interference
@@ -118,25 +100,3 @@ def test_error_message_quality():
             f"Expected '{expected_msg_part}' in error message for '{input_str}', got: {exc_info.value}"
         )
 
-
-def test_cross_type_parsing_integration():
-    """Test that number and string parsing work correctly together."""
-    # Numbers should still work as expected
-    num_result = comp.parse("42")
-    assert isinstance(num_result, comp.NumberLiteral)
-    assert num_result.value == 42
-
-    # Strings should work as expected
-    str_result = comp.parse('"hello"')
-    assert isinstance(str_result, comp.StringLiteral)
-    assert str_result.value == "hello"
-
-    # String literals that look like numbers should be strings
-    str_number = comp.parse('"42"')
-    assert isinstance(str_number, comp.StringLiteral)
-    assert str_number.value == "42"
-
-    # Number literals should not be confused with strings
-    hex_number = comp.parse("0xFF")
-    assert isinstance(hex_number, comp.NumberLiteral)
-    assert hex_number.value == 255

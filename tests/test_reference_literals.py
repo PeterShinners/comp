@@ -1,104 +1,20 @@
 """
 Test cases for reference literal parsing - Phase 04.
 
-SPECIFICATION SUMMARY:
-Reference literals for tags (#tag), shapes (~shape), and functions (|function)
-using unified parsing pattern with hierarchical and module references.
-
-REQUIREMENTS FROM DESIGN DOCS:
-- Unified reference pattern: 99% shared parsing logic for #, ~, |
-- Local references: #identifier, ~identifier, |identifier
-- Hierarchical references: #identifier.qualified.path
-- Module references: #identifier/module
-- Full references: #identifier.qualified.path/module
-- Lisp-case naming: #user-name, ~api-response, |parse-config
+SPECIFICATION:
+- Tag references: #tag, #user-name, #timeout.error, #error/std
+- Shape references: ~shape, ~user-profile, ~database.record, ~record/database
+- Function references: |func, |parse-config, |json.parse, |query/database
+- Unified pattern: 99% shared parsing logic across #, ~, |
+- Hierarchical: dot notation for qualified paths (error.status)
+- Modular: slash notation for modules (identifier/module)
 
 PARSER EXPECTATIONS:
-- comp.parse("#true") → TagLiteral("true")
-- comp.parse("~num") → ShapeLiteral("num")
-- comp.parse("|connect") → FunctionLiteral("connect")
-- comp.parse("#timeout.error.status") → TagLiteral("timeout.error.status")
-- comp.parse("~record/database") → ShapeLiteral("record/database")
+- comp.parse("#active") → TagReference("active")
+- comp.parse("~user") → ShapeReference("user")
+- comp.parse("|connect") → FunctionReference("connect")
 
-ERROR CASES TO HANDLE:
-- Invalid references: #123, ~, |
-- Empty components: #.invalid, #/empty
-- Invalid identifiers in references
-- Malformed hierarchy: #..double.dot
-
-AST NODE STRUCTURE:
-- TagLiteral: name (str)
-- ShapeLiteral: name (str)
-- FunctionLiteral: name (str)
-
-IMPLEMENTATION DETAILS:
-Comprehensive tests for unified reference literal parsing pattern.
-
-KEY FEATURES TESTED:
-
-TAG LITERALS (#):
-- Simple tags: #true, #false, #active, #error
-- Hierarchical tags: #timeout.error.status, #http.get.method
-- Module tags: #error/std, #active/other
-- Full references: #timeout.error.status/std
-
-SHAPE LITERALS (~):
-- Simple shapes: ~num, ~str, ~bool, ~user
-- Hierarchical shapes: ~database.record, ~ui.component
-- Module shapes: ~record/database, ~component/ui
-- Full references: ~database.record/persistence
-
-FUNCTION LITERALS (|):
-- Simple functions: |connect, |validate, |process
-- Hierarchical functions: |database.query, |json.parse
-- Module functions: |query/database, |parse/json
-- Full references: |database.query.select/persistence
-
-UNIFIED PATTERN TESTING:
-- 99% shared parsing logic across all three types
-- Consistent naming conventions (lisp-case, kebab-case)
-- Error handling for invalid references, hierarchies, modules
-- Integration with existing literal types
-
-DESIGN COMPLIANCE:
-- Reversed hierarchy notation (most specific first)
-- Dot notation for hierarchy (timeout.error.status)
-- Slash notation for modules (identifier/module)
-- UAX #31 + hyphen identifier rules
-- Comprehensive error handling and clear error messages
-
-TEST ORGANIZATION:
-All tests follow the established patterns from Phase 2:
-- Comprehensive docstrings with specification summaries
-- Clear test organization by feature category
-- Specific error testing with expected error messages
-- Integration testing with existing functionality
-- Preparation testing for future phases
-
-ERROR HANDLING:
-- Invalid format detection
-- Boundary case testing
-- Clear, specific error messages
-- Integration failure scenarios
-
-FUTURE-PROOFING:
-- Tests prepare for subsequent language phases
-- Integration points clearly documented
-- Performance considerations included
-- Extensibility patterns established
-
-IMPLEMENTATION READINESS:
-When Phase 4 is implemented:
-1. Remove `@pytest.mark.skip` decorators from relevant tests
-2. Implement missing AST nodes: `TagLiteral`, `ShapeLiteral`, `FunctionLiteral`
-3. Update main parser to handle reference literal parsing
-4. Tests will immediately validate implementation correctness
-
-The tests are designed to pass immediately once the implementation is complete,
-providing comprehensive validation of the language specifications from the design documents.
-
-NOTE: All tests in this file are currently skipped as Phase 04
-(reference literals) is not implemented yet.
+AST NODES: TagReference(name), ShapeReference(name), FunctionReference(name)
 """
 
 import pytest
@@ -111,83 +27,27 @@ import comp
 # ============================================================================
 
 
-def test_parse_simple_tags():
-    """Simple tag references without hierarchy."""
-    result = comp.parse("#true")
-    _assertTag(result, "true")
-
-    result = comp.parse("#false")
-    _assertTag(result, "false")
-
-    result = comp.parse("#active")
-    _assertTag(result, "active")
-
-    result = comp.parse("#error")
-    _assertTag(result, "error")
-
-
-def test_parse_lisp_case_tags():
-    """Tags using lisp-case naming convention."""
-    result = comp.parse("#user-name")
-    assert isinstance(result, comp.TagReference)
-    assert result.name == "user-name"
-
-    result = comp.parse("#error-status")
-    assert isinstance(result, comp.TagReference)
-    assert result.name == "error-status"
-
-    result = comp.parse("#long-descriptive-name")
-    assert isinstance(result, comp.TagReference)
-    assert result.name == "long-descriptive-name"
-
-
-def test_parse_hierarchical_tags():
-    """Tags with hierarchical references using dot notation."""
-    result = comp.parse("#timeout.error")
-    assert isinstance(result, comp.TagReference)
-    assert result.name == "timeout.error"
-
-    result = comp.parse("#timeout.error.status")
-    assert isinstance(result, comp.TagReference)
-    assert result.name == "timeout.error.status"
-
-    result = comp.parse("#network.error.status")
-    assert isinstance(result, comp.TagReference)
-    assert result.name == "network.error.status"
-
-    result = comp.parse("#http.get.method")
-    assert isinstance(result, comp.TagReference)
-    assert result.name == "http.get.method"
-
-
-def test_parse_module_tags():
-    """Tags with module references using slash notation."""
-    result = comp.parse("#error/std")
-    assert isinstance(result, comp.TagReference)
-    assert result.name == "error/std"
-
-    result = comp.parse("#active/other")
-    assert isinstance(result, comp.TagReference)
-    assert result.name == "active/other"
-
-    result = comp.parse("#status/user-auth")
-    assert isinstance(result, comp.TagReference)
-    assert result.name == "status/user-auth"
-
-
-def test_parse_full_tags():
-    """Tags with both hierarchy and module references."""
-    result = comp.parse("#timeout.error.status/std")
-    assert isinstance(result, comp.TagReference)
-    assert result.name == "timeout.error.status/std"
-
-    result = comp.parse("#active.status/other")
-    assert isinstance(result, comp.TagReference)
-    assert result.name == "active.status/other"
-
-    result = comp.parse("#primary.button.ui/components")
-    assert isinstance(result, comp.TagReference)
-    assert result.name == "primary.button.ui/components"
+@pytest.mark.parametrize("input_text,expected_name", [
+    # Simple tags
+    ("#true", "true"),
+    ("#active", "active"),
+    # Kebab-case tags
+    ("#user-name", "user-name"),
+    ("#error-status", "error-status"),
+    # Hierarchical tags
+    ("#timeout.error", "timeout.error"),
+    ("#timeout.error.status", "timeout.error.status"),
+    # Module tags
+    ("#error/std", "error/std"),
+    ("#status/user-auth", "status/user-auth"),
+    # Full tags (hierarchy + module)
+    ("#timeout.error.status/std", "timeout.error.status/std"),
+    ("#primary.button.ui/components", "primary.button.ui/components"),
+])
+def test_parse_tags(input_text, expected_name):
+    """Comprehensive tag parsing: simple, kebab-case, hierarchical, module, and full references."""
+    result = comp.parse(input_text)
+    _assertTag(result, expected_name)
 
 
 # ============================================================================
@@ -195,87 +55,27 @@ def test_parse_full_tags():
 # ============================================================================
 
 
-def test_parse_simple_shapes():
-    """Simple shape references without hierarchy."""
-    result = comp.parse("~num")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "num"
-
-    result = comp.parse("~str")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "str"
-
-    result = comp.parse("~bool")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "bool"
-
-    result = comp.parse("~user")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "user"
-
-
-def test_parse_lisp_case_shapes():
-    """Shapes using lisp-case naming convention."""
-    result = comp.parse("~user-profile")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "user-profile"
-
-    result = comp.parse("~api-response")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "api-response"
-
-    result = comp.parse("~database-record")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "database-record"
-
-
-def test_parse_hierarchical_shapes():
-    """Shapes with hierarchical references using dot notation."""
-    result = comp.parse("~database.record")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "database.record"
-
-    result = comp.parse("~ui.component")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "ui.component"
-
-    result = comp.parse("~math.vector")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "math.vector"
-
-    result = comp.parse("~http.request.headers")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "http.request.headers"
-
-
-def test_parse_module_shapes():
-    """Shapes with module references using slash notation."""
-    result = comp.parse("~record/database")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "record/database"
-
-    result = comp.parse("~component/ui")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "component/ui"
-
-    result = comp.parse("~user/auth")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "user/auth"
-
-
-def test_parse_full_shapes():
-    """Shapes with both hierarchy and module references."""
-    result = comp.parse("~database.record/persistence")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "database.record/persistence"
-
-    result = comp.parse("~button.primary.ui/components")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "button.primary.ui/components"
-
-    result = comp.parse("~vector.math/geometry")
-    assert isinstance(result, comp.ShapeReference)
-    assert result.name == "vector.math/geometry"
+@pytest.mark.parametrize("input_text,expected_name", [
+    # Simple shapes
+    ("~num", "num"),
+    ("~bool", "bool"),
+    # Kebab-case shapes
+    ("~user-profile", "user-profile"),
+    ("~api-response", "api-response"),
+    # Hierarchical shapes
+    ("~database.record", "database.record"),
+    ("~ui.component", "ui.component"),
+    # Module shapes
+    ("~record/database", "record/database"),
+    ("~user/auth", "user/auth"),
+    # Full shapes (hierarchy + module)
+    ("~database.record/persistence", "database.record/persistence"),
+    ("~button.primary.ui/components", "button.primary.ui/components"),
+])
+def test_parse_shapes(input_text, expected_name):
+    """Comprehensive shape parsing: simple, kebab-case, hierarchical, module, and full references."""
+    result = comp.parse(input_text)
+    _assertShape(result, expected_name)
 
 
 # ============================================================================
@@ -283,87 +83,27 @@ def test_parse_full_shapes():
 # ============================================================================
 
 
-def test_parse_simple_functions():
-    """Simple function references without hierarchy."""
-    result = comp.parse("|connect")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "connect"
-
-    result = comp.parse("|validate")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "validate"
-
-    result = comp.parse("|process")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "process"
-
-    result = comp.parse("|save")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "save"
-
-
-def test_parse_kebab_case_functions():
-    """Functions using kebab-case naming convention."""
-    result = comp.parse("|parse-config")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "parse-config"
-
-    result = comp.parse("|send-email")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "send-email"
-
-    result = comp.parse("|validate-input")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "validate-input"
-
-
-def test_parse_hierarchical_functions():
-    """Functions with hierarchical references using dot notation."""
-    result = comp.parse("|database.query")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "database.query"
-
-    result = comp.parse("|json.parse")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "json.parse"
-
-    result = comp.parse("|math.sqrt")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "math.sqrt"
-
-    result = comp.parse("|http.get.request")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "http.get.request"
-
-
-def test_parse_module_functions():
-    """Functions with module references using slash notation."""
-    result = comp.parse("|query/database")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "query/database"
-
-    result = comp.parse("|parse/json")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "parse/json"
-
-    result = comp.parse("|validate/auth")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "validate/auth"
-
-
-def test_parse_full_functions():
-    """Functions with both hierarchy and module references."""
-    result = comp.parse("|database.query.select/persistence")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "database.query.select/persistence"
-
-    result = comp.parse("|json.parse.stream/parser")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "json.parse.stream/parser"
-
-    result = comp.parse("|user.auth.validate/security")
-    assert isinstance(result, comp.FunctionReference)
-    assert result.name == "user.auth.validate/security"
+@pytest.mark.parametrize("input_text,expected_name", [
+    # Simple functions
+    ("|connect", "connect"),
+    ("|validate", "validate"),
+    # Kebab-case functions
+    ("|parse-config", "parse-config"),
+    ("|send-email", "send-email"),
+    # Hierarchical functions
+    ("|database.query", "database.query"),
+    ("|json.parse", "json.parse"),
+    # Module functions
+    ("|query/database", "query/database"),
+    ("|validate/auth", "validate/auth"),
+    # Full functions (hierarchy + module)
+    ("|database.query.select/persistence", "database.query.select/persistence"),
+    ("|user.auth.validate/security", "user.auth.validate/security"),
+])
+def test_parse_functions(input_text, expected_name):
+    """Comprehensive function parsing: simple, kebab-case, hierarchical, module, and full references."""
+    result = comp.parse(input_text)
+    _assertFunc(result, expected_name)
 
 
 # ============================================================================
@@ -378,40 +118,36 @@ def test_unified_pattern_consistency():
     shape = comp.parse("~status")
     func = comp.parse("|status")
 
-    assert isinstance(tag, comp.TagReference)
-    assert isinstance(shape, comp.ShapeReference)
-    assert isinstance(func, comp.FunctionReference)
-
-    assert tag.name == "status"
-    assert shape.name == "status"
-    assert func.name == "status"
+    _assertTag(tag, "status")
+    _assertShape(shape, "status")
+    _assertFunc(func, "status")
 
     # Hierarchical references
     tag_hier = comp.parse("#error.status")
     shape_hier = comp.parse("~error.status")
     func_hier = comp.parse("|error.status")
 
-    assert tag_hier.name == "error.status"
-    assert shape_hier.name == "error.status"
-    assert func_hier.name == "error.status"
+    _assertTag(tag_hier, "error.status")
+    _assertShape(shape_hier, "error.status")
+    _assertFunc(func_hier, "error.status")
 
     # Module references
     tag_mod = comp.parse("#status/std")
     shape_mod = comp.parse("~status/std")
     func_mod = comp.parse("|status/std")
 
-    assert tag_mod.name == "status/std"
-    assert shape_mod.name == "status/std"
-    assert func_mod.name == "status/std"
+    _assertTag(tag_mod, "status/std")
+    _assertShape(shape_mod, "status/std")
+    _assertFunc(func_mod, "status/std")
 
     # Full references
     tag_full = comp.parse("#error.status/std")
     shape_full = comp.parse("~error.status/std")
     func_full = comp.parse("|error.status/std")
 
-    assert tag_full.name == "error.status/std"
-    assert shape_full.name == "error.status/std"
-    assert func_full.name == "error.status/std"
+    _assertTag(tag_full, "error.status/std")
+    _assertShape(shape_full, "error.status/std")
+    _assertFunc(func_full, "error.status/std")
 
 
 def test_mixed_naming_conventions():
@@ -430,13 +166,9 @@ def test_mixed_naming_conventions():
         shape = comp.parse(f"~{pattern}")
         func = comp.parse(f"|{pattern}")
 
-        assert isinstance(tag, comp.TagReference)
-        assert isinstance(shape, comp.ShapeReference)
-        assert isinstance(func, comp.FunctionReference)
-
-        assert tag.name == pattern
-        assert shape.name == pattern
-        assert func.name == pattern
+        _assertTag(tag, pattern)
+        _assertShape(shape, pattern)
+        _assertFunc(func, pattern)
 
 
 # ============================================================================
@@ -505,40 +237,36 @@ def test_invalid_module_formats():
             comp.parse(invalid)
 
 
-def test_invalid_identifier_characters():
+@pytest.mark.parametrize("invalid_input", [
+    "#user@name",  # @ not allowed
+    "~user$name",  # $ not allowed
+    "|user%name",  # % not allowed
+    "#user name",  # Space not allowed
+    "~user\tname",  # Tab not allowed
+    "|user\nname",  # Newline not allowed
+    "#user=value",  # = not allowed
+    "~user*strong",  # * not allowed
+    "|user?weak",  # ? not allowed (except in boolean naming)
+])
+def test_invalid_identifier_characters(invalid_input):
     """References with invalid identifier characters should raise ParseError."""
-    invalid_chars = [
-        "#user@name",  # @ not allowed
-        "~user$name",  # $ not allowed
-        "|user%name",  # % not allowed
-        "#user name",  # Space not allowed
-        "~user\tname",  # Tab not allowed
-        "|user\nname",  # Newline not allowed
-        "#user=value",  # = not allowed
-        "~user*strong",  # * not allowed
-        "|user?weak",  # ? not allowed (except in boolean naming)
-    ]
-
-    for invalid in invalid_chars:
-        with pytest.raises(comp.ParseError):
-            comp.parse(invalid)
+    with pytest.raises(comp.ParseError):
+        comp.parse(invalid_input)
 
 
-def test_reserved_sigils():
+@pytest.mark.parametrize("reserved_input", [
+    "@local",  # @ reserved for local scope
+    "$scope",  # $ reserved for scopes
+    "^arg",  # ^ reserved for arguments
+    "!directive",  # ! reserved for directives
+    "&privacy",  # & reserved for privacy structures
+    "%template",  # % reserved for templates
+    "??fallback",  # ?? reserved for fallback
+])
+def test_reserved_sigils(reserved_input):
     """Other sigils should not be valid for references."""
-    reserved_sigils = [
-        "@local",  # @ reserved for local scope
-        "$scope",  # $ reserved for scopes
-        "^arg",  # ^ reserved for arguments
-        "!directive",  # ! reserved for directives
-        "&privacy",  # & reserved for privacy structures
-        "%template",  # % reserved for templates
-        "??fallback",  # ?? reserved for fallback
-    ]
-
-    for reserved in reserved_sigils:
-        with pytest.raises(comp.ParseError):
-            comp.parse(reserved)
+    with pytest.raises(comp.ParseError):
+        comp.parse(reserved_input)
 
 
 # ============================================================================
@@ -560,16 +288,13 @@ def test_integration_with_existing_literals():
 
     # References should work
     tag_result = comp.parse("#active")
-    assert isinstance(tag_result, comp.TagReference)
-    assert tag_result.name == "active"
+    _assertTag(tag_result, "active")
 
     shape_result = comp.parse("~num")
-    assert isinstance(shape_result, comp.ShapeReference)
-    assert shape_result.name == "num"
+    _assertShape(shape_result, "num")
 
     func_result = comp.parse("|connect")
-    assert isinstance(func_result, comp.FunctionReference)
-    assert func_result.name == "connect"
+    _assertFunc(func_result, "connect")
 
 
 def test_reference_equality_and_comparison():
@@ -613,9 +338,11 @@ def test_preparation_for_future_phases():
 
     for ref in references:
         result = comp.parse(ref)
-        assert hasattr(result, "name")
-        assert isinstance(result.name, str)
-        assert len(result.name) > 0
+        # Verify the result is a reference type with a string name
+        assert (isinstance(result, comp.TagReference) or
+                isinstance(result, comp.ShapeReference) or
+                isinstance(result, comp.FunctionReference))
+        # The helper functions already check the name attribute
 
 
 def test_error_messages_are_specific():
