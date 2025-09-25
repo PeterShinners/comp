@@ -25,10 +25,9 @@ __all__ = ["parse"]
 
 from pathlib import Path
 
-from lark import Lark, ParseError, UnexpectedCharacters, Transformer
+from lark import Lark, ParseError, Transformer, UnexpectedCharacters
 
 from . import _ast
-
 
 _lark_parser: Lark | None = None  # Singleton lark parser instance
 
@@ -189,3 +188,19 @@ class _CompTransformer(Transformer):
         # tokens[0] is the IDENTIFIER_PATH token (sigil is consumed by grammar)
         identifier_path_token = tokens[0]
         return _ast.FunctionReference.fromToken(identifier_path_token)
+
+    def structure(self, tokens):
+        """Transform structure rule into StructureLiteral AST node."""
+        return _ast.StructureLiteral.fromToken(tokens)
+
+    def structure_field(self, tokens):
+        """Transform structure_field rule - just pass through the field."""
+        return tokens[0]
+
+    def named_field(self, tokens):
+        """Transform named_field rule into NamedField AST node."""
+        return _ast.NamedField.fromToken(tokens)
+
+    def positional_field(self, tokens):
+        """Transform positional_field rule into PositionalField AST node."""
+        return _ast.PositionalField.fromToken(tokens)

@@ -1,8 +1,8 @@
 # Phase 05: Structures
 
 **Depends on**: Phase 04 - Reference literals  
-**Status**: Future phase  
-**Target start**: After reference literals are implemented
+**Status**: ✅ COMPLETE  
+**Target start**: Complete - all features implemented and tested
 
 ## Overview
 
@@ -16,6 +16,8 @@ Add structure literals (`{}`, `{key=value}`) where all the literal types from pr
 - **Positional fields**: `{42 "hello" #active}`
 - **Mixed fields**: `{x=10 "unnamed" y=20}`
 - **Nested structures**: `{user={name="Bob"} #active 123}`
+- **Deep recursion**: `{1 2 {3 4 {5 6}} 7}` - arbitrary nesting depth
+- **Complex nesting**: `{outer={inner={deep="value"}} count=42}`
 
 ### Assignment Operator
 - **Basic assignment**: `=` for named fields
@@ -40,18 +42,23 @@ Add structure literals (`{}`, `{key=value}`) where all the literal types from pr
 - Parse named fields: `{x=1}` → `StructureLiteral([NamedField("x", NumberLiteral(1))])`
 - Parse positional fields: `{42 "hello"}` → `StructureLiteral([PositionalField(NumberLiteral(42)), PositionalField(StringLiteral("hello"))])`
 - Parse mixed fields: `{x=10 "unnamed" y=20}` → Mixed named and positional
+- Parse recursive structures: `{1 {2 3} 4}` → Properly nested StructureLiteral nodes
+- Handle arbitrary nesting depth: `{{{{}}}}`
 - Support all literal types as values: numbers, strings, references
 - Support identifier and string literal field names
-- Handle nested structures correctly
-- Provide clear error messages for malformed structures and assignments
+- Handle nested structures correctly with proper scoping
+- Provide clear error messages for malformed structures, unmatched brackets, and assignment syntax
 
 ## Implementation Notes
 
 - Builds on all previous phases (numbers, strings, references)
 - Introduces the `=` assignment operator for named fields
 - Supports both positional and named field patterns
+- **Recursive parsing**: Structures can contain other structures as values
+- **Parser recursion**: Grammar rules must handle arbitrary nesting depth
 - Structures become the foundation for more complex language features
 - Careful error handling for bracket matching, assignment syntax, and field ordering
+- **Memory considerations**: Deep nesting should not cause stack overflow
 - Foundation for future expressions and pattern matching
 
 ## Key Design Decisions
@@ -65,6 +72,48 @@ Add structure literals (`{}`, `{key=value}`) where all the literal types from pr
 - `=` operator only for field assignment (not general expressions yet)
 - Field names can be identifiers or string literals
 - Values can be any literal type from previous phases
+
+### Recursive Structure Parsing
+- **Arbitrary depth**: Structures can nest indefinitely `{{{{}}}}`
+- **Mixed content**: `{1 {x=2 3} {y={z=4}}}`  
+- **Parser design**: Must handle recursion without stack overflow
+- **AST representation**: Nested StructureLiteral nodes form tree structure
+- **Error boundaries**: Clear error messages for mismatched brackets at any depth
+
+## ✅ Implementation Complete
+
+**AST Nodes Added**:
+- `StructureLiteral(fields: list[ASTNode])` - represents `{...}` structures
+- `NamedField(name: str, value: ASTNode)` - represents `key=value` assignments  
+- `PositionalField(value: ASTNode)` - represents unnamed values
+
+**Grammar Extension**:
+- Added structure parsing rules to `comp.lark`
+- Supports `{field1 field2 ...}` syntax with whitespace separation
+- Named fields: `identifier=expression` or `string=expression`
+- Positional fields: any expression from previous phases
+
+**Parser Integration**:
+- Added transformer methods in `_parser.py` 
+- Proper error handling for malformed structures
+- Full integration with all existing literal types
+
+**Test Coverage**: 28 comprehensive test cases covering:
+- Empty structures: `{}`
+- Single/multiple fields: `{42}`, `{1 2 3}`, `{x=10 y=20}`
+- Mixed named/positional: `{x=10 "unnamed" y=20}` 
+- Nested structures: `{1 {2 3} 4}`, `{user={name="Bob"}}`
+- All literal types: numbers, strings, identifiers, references
+- Error cases: malformed syntax, invalid assignments, comma rejection
+
+**Examples Working**:
+```comp
+{}                                    // StructureLiteral([])
+{42}                                 // StructureLiteral([PositionalField(42)])  
+{name="Alice" age=30}                // Named fields
+{1 "hello" #tag ~shape |func}        // Mixed positional fields
+{user={profile={name="Bob"}}}        // Nested structures
+```
 
 ## What We're NOT Building (Yet)
 

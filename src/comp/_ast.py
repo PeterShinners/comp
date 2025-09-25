@@ -13,6 +13,9 @@ __all__ = [
     "TagReference",
     "ShapeReference",
     "FunctionReference",
+    "StructureLiteral",
+    "NamedField",
+    "PositionalField",
     "ParseError",
 ]
 
@@ -206,3 +209,93 @@ class FunctionReference(ASTNode):
 
     def __hash__(self) -> int:
         return hash(self.name)
+
+
+class StructureLiteral(ASTNode):
+    """AST node representing a structure literal {...}."""
+
+    def __init__(self, fields: list[ASTNode]):
+        super().__init__()
+        self.fields = fields
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create StructureLiteral from a list of field tokens."""
+        # tokens is a list of NamedField and PositionalField nodes
+        return cls(tokens)
+
+    def __repr__(self) -> str:
+        return f"StructureLiteral({self.fields!r})"
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, StructureLiteral):
+            return False
+        return self.fields == other.fields
+
+    def __hash__(self) -> int:
+        return hash(tuple(self.fields))
+
+
+class NamedField(ASTNode):
+    """AST node representing a named field in a structure (key=value)."""
+
+    def __init__(self, name: str, value: ASTNode):
+        super().__init__()
+        self.name = name
+        self.value = value
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create NamedField from key and value tokens."""
+        # tokens[0] is the key (identifier or string), tokens[1] is the value
+        key = tokens[0]
+        value = tokens[1]
+
+        # Extract the name from the key AST node
+        if isinstance(key, Identifier):
+            name = key.name
+        elif isinstance(key, StringLiteral):
+            name = key.value
+        else:
+            # Import here to avoid circular imports
+            from . import ParseError
+            raise ParseError(f"Invalid field name type: {type(key)}")
+
+        return cls(name, value)
+
+    def __repr__(self) -> str:
+        return f"NamedField({self.name!r}, {self.value!r})"
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, NamedField):
+            return False
+        return self.name == other.name and self.value == other.value
+
+    def __hash__(self) -> int:
+        return hash((self.name, self.value))
+
+
+class PositionalField(ASTNode):
+    """AST node representing a positional field in a structure (value)."""
+
+    def __init__(self, value: ASTNode):
+        super().__init__()
+        self.value = value
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create PositionalField from value token."""
+        # tokens[0] is the value expression
+        value = tokens[0]
+        return cls(value)
+
+    def __repr__(self) -> str:
+        return f"PositionalField({self.value!r})"
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, PositionalField):
+            return False
+        return self.value == other.value
+
+    def __hash__(self) -> int:
+        return hash(self.value)

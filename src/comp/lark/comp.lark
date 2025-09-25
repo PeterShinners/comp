@@ -9,12 +9,24 @@
 %import identifiers (IDENTIFIER, identifier)
 %import references (TAG_REFERENCE, SHAPE_REFERENCE, FUNCTION_REFERENCE, tag_reference, shape_reference, function_reference)
 
-// Start rule: currently supports numbers, strings, identifiers, and references
+// Start rule: currently supports numbers, strings, identifiers, references, and structures
 start: expression_list
 
 expression_list: expression*
 
-expression: number | string | identifier | tag_reference | shape_reference | function_reference
+expression: number | string | identifier | tag_reference | shape_reference | function_reference | structure
+
+// Structure literal: {field1 field2 ...}
+structure: "{" structure_field* "}"
+
+// Structure fields can be either named (key=value) or positional (value)
+structure_field: named_field | positional_field
+
+// Named field: identifier=expression or string=expression
+named_field: (identifier | string) "=" expression
+
+// Positional field: just an expression
+positional_field: expression
 
 // Whitespace handling
 %import common.WS
