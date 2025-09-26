@@ -63,9 +63,7 @@ def test_valid_structures(input_str, length, description):
     result = comp.parse(input_str)
     assert isinstance(result, comp.StructureLiteral)
     assert result is not None, f"Failed to parse {description}: {input_str}"
-    assert len(result.fields) == length
-
-
+    assert len(result.operations) == length
 # Invalid structure literal test cases - should fail
 invalid_structure_cases = [
     # Malformed brackets
@@ -109,23 +107,37 @@ def test_invalid_structures(input_str, description):
 
 
 def test_contents():
-    """Test results for individual fields"""
+    """Test results for individual operations"""
     result = comp.parse('{max=3 "car" #true max={"cat"}}')
     assert isinstance(result, comp.StructureLiteral)
-    assert len(result.fields) == 4
+    assert len(result.operations) == 4
 
-    assert isinstance(result.fields[0], comp.NamedField)
-    assert result.fields[0].name == "max"
-    assert result.fields[0].value.value == 3
+    # First operation: max=3 (FieldTarget)
+    op0 = result.operations[0]
+    assert isinstance(op0, comp.StructureOperation)
+    assert isinstance(op0.target, comp.FieldTarget)
+    assert op0.target.name == "max"
+    assert op0.operator == "="
+    assert isinstance(op0.expression, comp.NumberLiteral)
+    assert op0.expression.value == 3
 
-    assert isinstance(result.fields[1], comp.PositionalField)
-    assert result.fields[1].value.value == "car"
+    # Second operation: "car" (positional - no specific target in our current unified model)
+    op1 = result.operations[1] 
+    assert isinstance(op1, comp.StructureOperation)
+    # This should be a positional expression - for now it's parsed as a regular expression
+    assert isinstance(op1.expression, comp.StringLiteral)
+    assert op1.expression.value == "car"
 
-    assert isinstance(result.fields[2], comp.PositionalField)
-    assert isinstance(result.fields[2].value, comp.TagReference)
-    assert result.fields[2].value.name == "true"
+    # Third operation: #true (positional TagReference)
+    op2 = result.operations[2]
+    assert isinstance(op2, comp.StructureOperation)
+    assert isinstance(op2.expression, comp.TagReference)
+    assert op2.expression.name == "true"
 
-    assert isinstance(result.fields[3], comp.NamedField)
-    assert result.fields[3].name == "max"
-    assert isinstance(result.fields[3].value, comp.StructureLiteral)
-    assert len(result.fields[3].value.fields) == 1
+    # Fourth operation: max={"cat"} (FieldTarget with nested structure)
+    op3 = result.operations[3]
+    assert isinstance(op3, comp.StructureOperation)
+    assert isinstance(op3.target, comp.FieldTarget)
+    assert op3.target.name == "max"
+    assert op3.operator == "="
+    assert isinstance(op3.expression, comp.StructureLiteral)

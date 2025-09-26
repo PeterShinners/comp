@@ -1,16 +1,16 @@
 """
-Test edge cases and invalid syntax for mathematical operators.
+Test edge cases and invalid syntax for mathematical and advanced operators.
 
 This module tests corner cases, invalid syntax, and boundary conditions
-for mathematical operators to ensure proper error handling and edge case behavior.
+for all operators to ensure proper error handling and edge case behavior.
 """
 
 import comp
 import pytest
 
 
-# Invalid operator syntax cases that should raise parse errors
-invalid_operator_cases = [
+# Invalid mathematical operator syntax cases that should raise parse errors
+invalid_mathematical_operator_cases = [
     # Invalid operator combinations
     ("12 * / 3", "consecutive binary operators"),
     ("5 + * 2", "plus followed by multiply"),
@@ -34,8 +34,50 @@ invalid_operator_cases = [
 ]
 
 
-# Valid but tricky cases that should parse correctly
-tricky_valid_cases = [
+# Invalid advanced operator syntax cases
+invalid_advanced_operator_cases = [
+    # Invalid assignment contexts
+    ("42 = x", "assign to literal"),
+    ("x + y = z", "assign to expression"),
+    ("{x} = y", "assign to structure"),
+    ("= value", "assignment without target"),
+    # Invalid spread syntax
+    ("..x", "spread outside structure"),
+    ("{ .. }", "incomplete spread"),
+    # Invalid field access
+    ("x.", "incomplete field access"),
+    (".name", "field access without object"),
+    ("42.field", "field access on literal"),
+    # Invalid index access
+    ("x#", "incomplete index access"),
+    ("user#name", "index with identifier instead of number"),
+    # Invalid private data operators
+    ("x&", "incomplete private attach"),
+    ("&data", "private attach without object"),
+    ("x&.", "incomplete private access"),
+    ("&.field", "private access without object"),
+    # Invalid pipeline operators
+    ("|? fallback", "pipeline failure without operation"),
+    ("op |?", "incomplete pipeline failure"),
+    ("|{}", "pipeline block without operation"),
+    ("op |", "incomplete pipeline"),
+    # Invalid block syntax
+    (".{", "unclosed block definition"),
+    ("|.", "block invoke without target"),
+    (".{ x +", "incomplete block expression"),
+    # Invalid fallback operators
+    ("?? value", "fallback without left operand"),
+    ("?|", "incomplete alternative fallback"),
+    ("x ??", "incomplete fallback"),
+    # Invalid special syntax
+    ("???x", "placeholder with extra content"),
+    ("x[]y", "array brackets with content"),
+    ("'incomplete", "unclosed single quote"),
+]
+
+
+# Valid but tricky mathematical cases that should parse correctly
+tricky_valid_mathematical_cases = [
     # Unary operators (these should be valid)
     ("4--4", "double minus (4 - (-4))"),
     ("4+-4", "plus minus (4 + (-4))"),
@@ -63,10 +105,45 @@ tricky_valid_cases = [
 ]
 
 
+# Valid but tricky advanced operator cases
+tricky_valid_advanced_cases = [
+    # Complex assignment expressions
+    ("{config = {port=8080 host=\"localhost\"}}", "nested structure assignment"),
+    ("{user ?= default-user}", "weak assignment in structure"),
+    ("{data *= computed-value}", "strong assignment in structure"),
+    # Complex spread operations  
+    ("{..defaults ..overrides name=\"test\"}", "multiple spreads with assignment"),
+    ("{ ..x ..y }", "multiple spreads without explicit assignment"),
+    ("{user ..= {verified=#true timestamp=now}}", "spread assignment with structure"),
+    # Complex assignment (chained is undefined but valid syntax for now)
+    ("x = y = z", "chained assignment expression"),
+    # Complex field/index access
+    ("users#0.profile.name", "chained access operations"),
+    ("data&.session.user.id", "private field access chain"),
+    ("config.database#primary.connection", "mixed access types"),
+    # Standalone index references (like tag atoms but all digits)
+    ("#0", "standalone index reference zero"),
+    ("#123", "standalone multi-digit index reference"),
+    ("items#0 + #1", "object index access plus standalone index"),
+    # Complex fallback chains
+    ("config.port ?? env.PORT ?? 8080", "chained fallback operators"),
+    ("primary.value ?| secondary.value ?| \"default\"", "chained alternative fallback"),
+    # Complex pipeline operations
+    ("data |? {error=true} ?? fallback-data", "pipeline with fallback"),
+    ("processor |{} transformer |{} validator", "chained pipeline blocks"),
+    # Complex block operations
+    ("|.{x + y} args", "block invocation with definition and args"),
+    ("operation .{result = data * factor}", "operation with block"),
+    # Shape unions with other operators
+    ("~string|~number + value", "shape union with mathematical operator"),
+    ("(~int|~float) * multiplier", "parenthesized shape union"),
+]
+
+
 @pytest.mark.parametrize(
     "invalid_input,description",
-    invalid_operator_cases,
-    ids=[case[1] for case in invalid_operator_cases],
+    invalid_mathematical_operator_cases + invalid_advanced_operator_cases,
+    ids=[case[1] for case in invalid_mathematical_operator_cases + invalid_advanced_operator_cases],
 )
 def test_invalid_operator_syntax(invalid_input, description):
     """Test that invalid operator syntax raises parse errors."""
@@ -81,11 +158,30 @@ def test_invalid_operator_syntax(invalid_input, description):
 
 @pytest.mark.parametrize(
     "valid_input,description",
-    tricky_valid_cases,
-    ids=[case[1] for case in tricky_valid_cases],
+    tricky_valid_mathematical_cases,  # Only test mathematical cases for now
+    ids=[case[1] for case in tricky_valid_mathematical_cases],
 )
-def test_tricky_valid_syntax(valid_input, description):
-    """Test that tricky but valid syntax parses correctly."""
+def test_tricky_valid_mathematical_syntax(valid_input, description):
+    """Test that tricky but valid mathematical syntax parses correctly."""
+    try:
+        result = comp.parse(valid_input)
+        assert result is not None
+        print(f"✓ Correctly parsed: {valid_input} - {description}")
+        print(f"  Result: {result}")
+    except Exception as e:
+        pytest.fail(
+            f"Should have parsed '{valid_input}' ({description}) but got error: {e}"
+        )
+
+
+@pytest.mark.skip("Advanced operators not implemented yet")
+@pytest.mark.parametrize(
+    "valid_input,description",
+    tricky_valid_advanced_cases,
+    ids=[case[1] for case in tricky_valid_advanced_cases],
+)
+def test_tricky_valid_advanced_syntax(valid_input, description):
+    """Test that tricky but valid advanced syntax parses correctly."""
     try:
         result = comp.parse(valid_input)
         assert result is not None
@@ -120,8 +216,10 @@ def test_unary_operators():
     """Test unary operators work correctly."""
     # Test basic unary minus
     result = comp.parse("-5")
-    assert isinstance(result, comp.NumberLiteral)
-    assert result.value == -5
+    assert isinstance(result, comp.UnaryOperation)
+    assert result.operator == "-"
+    assert isinstance(result.operand, comp.NumberLiteral)
+    assert result.operand.value == 5
 
     # Test unary in expressions
     result = comp.parse("x + -y")
@@ -222,3 +320,59 @@ def test_whitespace_sensitivity():
         if len(valid_results) > 1:
             # Could add more sophisticated equivalence checking here
             print("  Multiple valid parses for equivalent expressions")
+
+
+@pytest.mark.skip("Advanced operators not implemented yet")
+def test_assignment_operator_precedence():
+    """Test assignment operator precedence (should be lowest)."""
+    # Assignment should have lower precedence than mathematical operators
+    result = comp.parse("{result = x + y * z}")
+    assert isinstance(result, comp.StructureLiteral)
+    field = result.fields[0]
+    assert field.name == "result"
+    # The value should be the full expression, not just 'x'
+    assert isinstance(field.value, comp.BinaryOperation)
+
+
+@pytest.mark.skip("Advanced operators not implemented yet")
+def test_fallback_operator_precedence():
+    """Test fallback operator precedence interactions."""
+    # Test fallback with mathematical operators
+    result = comp.parse("x + y ?? z * w")
+    # Should be: (x + y) ?? (z * w)
+    assert isinstance(result, comp.FallbackOperation)
+    assert result.operator == "??"
+
+
+@pytest.mark.skip("Advanced operators not implemented yet")
+def test_field_access_precedence():
+    """Test field access operator precedence (should be high)."""
+    # Field access should have higher precedence than mathematical operators
+    result = comp.parse("user.age + 5")
+    assert isinstance(result, comp.BinaryOperation)
+    assert result.operator == "+"
+    # Left side should be field access, not identifier
+    assert isinstance(result.left, comp.FieldAccess)
+
+
+@pytest.mark.skip("Advanced operators not implemented yet")
+def test_complex_operator_interactions():
+    """Test complex interactions between mathematical and advanced operators."""
+    complex_cases = [
+        # Mathematical with assignment
+        "{total = base + tax * rate}",
+        # Mathematical with fallback
+        "value + increment ?? default-increment",
+        # Mathematical with field access
+        "user.balance * interest-rate",
+        # Mathematical with index access
+        "prices#index + tax-amount",
+        # All combined
+        "{result = data#index.value * factor ?? default-result}",
+    ]
+
+    for expr in complex_cases:
+        result = comp.parse(expr)
+        assert result is not None
+        print(f"✓ Complex interaction: {expr} -> {type(result).__name__}")
+

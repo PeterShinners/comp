@@ -5,7 +5,7 @@
 
 string: BASIC_STRING
 
-// Basic string with escape sequences
+// Basic string with escape sequences (double quotes only)
 BASIC_STRING: /"([^"\\]|\\.)*"/
 
 %import common.WS

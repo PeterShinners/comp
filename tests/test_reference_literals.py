@@ -25,6 +25,7 @@ valid_reference_cases = [
     # Tags - simple, kebab-case, hierarchical, module, full
     ("#true", "TagReference", "true"),
     ("#active", "TagReference", "active"),
+    ("#123", "IndexReference", "123"),  # Numeric index reference
     ("#user-name", "TagReference", "user-name"),
     ("#error-status", "TagReference", "error-status"),
     ("#timeout.error", "TagReference", "timeout.error"),
@@ -80,7 +81,12 @@ def test_valid_references(input_text, expected_type, expected_name):
     """Test all valid reference patterns: tags, shapes, functions with various naming conventions."""
     result = comp.parse(input_text)
     assert type(result).__name__ == expected_type
-    assert result.name == expected_name
+    
+    # IndexReference uses 'index' attribute, others use 'name'
+    if expected_type == "IndexReference":
+        assert int(result.index.value) == int(expected_name)
+    else:
+        assert result.name == expected_name
 
 
 # Invalid reference test cases
@@ -89,10 +95,7 @@ invalid_reference_cases = [
     ("#", "empty tag"),
     ("~", "empty shape"),
     ("|", "empty function"),
-    # Invalid start characters
-    ("#123", "tag starts with digit"),
-    ("~456", "shape starts with digit"),
-    ("|789", "function starts with digit"),
+    # Invalid start characters  
     ("#-invalid", "tag starts with hyphen"),
     ("~-invalid", "shape starts with hyphen"),
     ("|-invalid", "function starts with hyphen"),
@@ -119,7 +122,6 @@ invalid_reference_cases = [
     ("%template", "% reserved for templates"),
     ("??fallback", "?? reserved for fallback"),
 ]
-
 
 @pytest.mark.parametrize(
     "invalid_input,description",

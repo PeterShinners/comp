@@ -13,12 +13,13 @@ DESIGN GOALS:
 CURRENT CAPABILITIES:
 - Number literals (all formats)
 - String literals (with escape sequences)
-
-FUTURE CAPABILITIES:
-- Reference literals (#tag, ~shape, |function)
+- Mathematical expressions with proper precedence
+- Logical operators (&&, ||, !)
+- Comparison operators (==, !=, <, >, <=, >=)
+- Comments (;)
 - Structure literals ({field=value})
-- Expressions
-- Everything else
+- Advanced operators (fallback ??, pipe |, etc.)
+- All basic language constructs
 """
 
 __all__ = ["parse"]
@@ -29,7 +30,8 @@ from lark import Lark, ParseError, Transformer, UnexpectedCharacters
 
 from . import _ast
 
-_lark_parser: Lark | None = None  # Singleton lark parser instance
+# Global parser instance (singleton)
+_lark_parser: Lark | None = None
 
 
 def parse(text: str) -> _ast.ASTNode:
@@ -98,14 +100,6 @@ def parse(text: str) -> _ast.ASTNode:
         # Generic fallback
         raise _ast.ParseError(f"Syntax error: {e}") from e
 
-    # If list with single item, return that item
-    if isinstance(result, list):
-        if len(result) == 1:
-            result = result[0]
-        elif len(result) == 0:
-            raise _ast.ParseError("No valid expression found")
-        raise _ast.ParseError(f"Expected single expression, got {len(result)} items")
-
     return result
 
 
@@ -116,60 +110,88 @@ def _get_parser() -> Lark:
         return _lark_parser
 
     lark_path = Path(__file__).parent / "lark"
-    with (lark_path / "comp.lark").open() as f:
+    with (lark_path / "unified_expressions.lark").open() as f:
         grammar = f.read()
 
     # Set up parser with import paths and transformer
     _lark_parser = Lark(
         grammar,
-        start="start",
+        start="expression",
         parser="lalr",
         import_paths=[lark_path],
         transformer=_CompTransformer(),
     )
+
     return _lark_parser
 
 
 class _CompTransformer(Transformer):
     """
-    Transforms Lark parse trees into Comp AST nodes.
-
-    This follows Lark's transformer pattern where methods named after grammar
-    rules automatically receive the children of matching tree nodes.
+    Lark transformer to convert parse trees into AST nodes.
+    
+    This class contains methods for each grammar rule that should produce
+    an AST node. Method names correspond to the rule names in the grammar.
     """
 
-    def start(self, items):
-        """Transform the start rule - return single item if only one."""
-        if len(items) == 1:
-            return items[0]
-        return items
+    # Core transformer methods for unified grammar
+    def binary_operation(self, tokens):
+        """Transform binary_operation rule into BinaryOperation AST node."""
+        # For comparison operators, extract the actual operator string
+        if len(tokens) >= 3 and hasattr(tokens[1], 'data') and tokens[1].data == 'comp_op':
+            # Extract the actual operator from the comp_op tree
+            operator = str(tokens[1].children[0])
+        else:
+            # Regular operator
+            operator = str(tokens[1])
+        
+        return _ast.BinaryOperation(tokens[0], operator, tokens[2])
 
-    def expression_list(self, items):
-        """Transform list of expressions."""
-        # Filter out None values (empty matches)
-        filtered = [item for item in items if item is not None]
-        if len(filtered) == 1:
-            return filtered[0]
-        return filtered
+    def unary_operation(self, tokens):
+        """Transform unary_operation rule into UnaryOperation AST node."""
+        operator = str(tokens[0])
+        operand = tokens[1]
+        return _ast.UnaryOperation(operator, operand)
 
-    def expression(self, items):
-        """Transform expression rule - just pass through the contained expression."""
-        return items[0]
+    def comp_op(self, tokens):
+        """Transform comp_op rule - extract comparison operator."""
+        return tokens[0]
 
+    def atom(self, tokens):
+        """Transform atom rule."""
+        if len(tokens) == 3 and str(tokens[0]) == "(" and str(tokens[2]) == ")":
+            # Parenthesized expression: (expression)
+            return tokens[1]
+        else:
+            # Regular atom: pass through
+            return tokens[0]
+
+    # AST node creation methods
     def number(self, tokens):
         """Transform number rule into NumberLiteral AST node."""
+        # The numbers grammar imports create AST nodes, but sometimes raw tokens come through
         token = tokens[0]
-        return _ast.NumberLiteral.fromToken(token)
+        if isinstance(token, _ast.NumberLiteral):
+            return token
+        else:
+            return _ast.NumberLiteral.fromToken(token)
 
     def string(self, tokens):
         """Transform string rule into StringLiteral AST node."""
+        # The strings grammar imports create AST nodes, but sometimes raw tokens come through
         token = tokens[0]
-        return _ast.StringLiteral.fromToken(token)
+        if isinstance(token, _ast.StringLiteral):
+            return token
+        else:
+            return _ast.StringLiteral.fromToken(token)
 
     def identifier(self, tokens):
         """Transform identifier rule into Identifier AST node."""
+        # The identifiers grammar imports create AST nodes, but sometimes raw tokens come through
         token = tokens[0]
-        return _ast.Identifier(str(token))
+        if isinstance(token, _ast.Identifier):
+            return token
+        else:
+            return _ast.Identifier.fromToken(token)
 
     def tag_reference(self, tokens):
         """Transform tag_reference rule into TagReference AST node."""
@@ -189,97 +211,202 @@ class _CompTransformer(Transformer):
         identifier_path_token = tokens[0]
         return _ast.FunctionReference.fromToken(identifier_path_token)
 
+    # Advanced operations
+    def assignment_operation(self, tokens):
+        """Transform assignment_operation rule into AssignmentOperation AST node."""
+        target = tokens[0]
+        operator = tokens[1]
+        expression = tokens[2]
+        return _ast.AssignmentOperation(target, operator, expression)
+
+    def fallback_operation(self, tokens):
+        """Transform fallback_operation rule into FallbackOperation AST node.""" 
+        return _ast.FallbackOperation.fromToken(tokens)
+
+    def shape_union_operation(self, tokens):
+        """Transform shape_union_operation rule into ShapeUnionOperation AST node."""
+        return _ast.ShapeUnionOperation.fromToken(tokens)
+
+    def pipeline_failure_operation(self, tokens):
+        """Transform pipeline_failure_operation rule into PipelineFailureOperation AST node."""
+        return _ast.PipelineFailureOperation.fromToken(tokens)
+
+    def field_access_operation(self, tokens):
+        """Transform field_access_operation rule into FieldAccessOperation AST node."""
+        return _ast.FieldAccessOperation.fromToken(tokens)
+
+    def string_field_access_operation(self, tokens):
+        """Transform string field access (object."field") into FieldAccessOperation AST node."""
+        # tokens: [object, dot, string_literal]
+        object, _, string_literal = tokens
+        # Extract the actual string content from the StringLiteral
+        field_name = string_literal.value
+        return _ast.FieldAccessOperation(object, field_name)
+
+    def computed_field_access_operation(self, tokens):
+        """Transform computed field access (object.'expr') into FieldAccessOperation AST node."""
+        # tokens: [object, dot, quote, expression, quote]
+        object, _, _, expression, _ = tokens
+        # Store the computed expression for future evaluation
+        # For now, use a special field name format that preserves the expression
+        field_name = f"<computed:{expression}>"  # Better representation for debugging
+        return _ast.FieldAccessOperation(object, field_name)
+
+    def computed_expression(self, tokens):
+        """Transform bare computed expression ('expr') into the inner expression."""
+        # tokens: [quote, expression, quote] 
+        _, expression, _ = tokens
+        # For bare computed expressions, just return the inner expression
+        # The single quotes indicate it should be computed, but as a standalone
+        # expression it evaluates to its contents
+        return expression
+
+    def index_access_operation(self, tokens):
+        """Transform index_access_operation rule into IndexAccessOperation AST node."""
+        return _ast.IndexAccessOperation.fromToken(tokens)
+
+    def private_attach_operation(self, tokens):
+        """Transform private_attach_operation rule into PrivateAttachOperation AST node."""
+        return _ast.PrivateAttachOperation.fromToken(tokens)
+
+    def private_access_operation(self, tokens):
+        """Transform private_access_operation rule into PrivateAccessOperation AST node."""
+        return _ast.PrivateAccessOperation.fromToken(tokens)
+
+    def block_invoke_operation(self, tokens):
+        """Transform block_invoke_operation rule into BlockInvokeOperation AST node."""
+        return _ast.BlockInvokeOperation.fromToken(tokens)
+
+    # Structure handling
     def structure(self, tokens):
         """Transform structure rule into StructureLiteral AST node."""
-        return _ast.StructureLiteral.fromToken(tokens)
+        # Extract fields from the structure
+        fields = []
+        for token in tokens:
+            if isinstance(token, _ast.ASTNode):
+                fields.append(token)
+
+        return _ast.StructureLiteral(fields)
 
     def structure_field(self, tokens):
-        """Transform structure_field rule - just pass through the field."""
+        """Transform structure_field rule."""
         return tokens[0]
 
     def named_field(self, tokens):
         """Transform named_field rule into NamedField AST node."""
-        return _ast.NamedField.fromToken(tokens)
+        # tokens: [identifier, ASSIGN, expression]
+        key = tokens[0]
+        value = tokens[2]  # Skip the ASSIGN token
+        
+        key_name = key.name if isinstance(key, _ast.Identifier) else str(key)
+        return _ast.NamedField(key_name, value)
+
+    def scope_assignment(self, tokens):
+        """Transform scope_assignment rule into StructureOperation AST node."""
+        # tokens: [scope_target, assignment_op, expression]
+        target = tokens[0]
+        operator = str(tokens[1])
+        expression = tokens[2]
+        return _ast.StructureOperation(target, operator, expression)
+
+    def field_assignment(self, tokens):
+        """Transform field_assignment rule into StructureOperation AST node."""
+        # tokens: [field_target, assignment_op, expression]
+        target = tokens[0]
+        operator = str(tokens[1])
+        expression = tokens[2]
+        return _ast.StructureOperation(target, operator, expression)
+
+    def spread_operation(self, tokens):
+        """Transform spread_operation rule into StructureOperation AST node."""
+        # tokens: [SPREAD, expression]
+        target = _ast.SpreadTarget()
+        operator = ".."  # Spread operator
+        expression = tokens[1]  # Skip the SPREAD token
+        return _ast.StructureOperation(target, operator, expression)
+
+    def scope_target(self, tokens):
+        """Transform scope_target rule into ScopeTarget AST node."""
+        # Handle different patterns: @name, @name.path, $name, $name.path
+        scope_type = str(tokens[0])  # @ or $
+        name = tokens[1].name if isinstance(tokens[1], _ast.Identifier) else str(tokens[1])
+        
+        field_path = []
+        if len(tokens) > 3:  # Has DOT and field_path
+            field_path = tokens[3]  # field_path result
+            
+        return _ast.ScopeTarget(scope_type, name, field_path)
+
+    def field_target(self, tokens):
+        """Transform field_target rule into FieldTarget AST node."""
+        # Handle: identifier, identifier.field_path, string, or 'expression'
+        first_token = tokens[0]
+        
+        if isinstance(first_token, _ast.Identifier):
+            name = first_token.name
+        elif isinstance(first_token, _ast.StringLiteral):
+            name = first_token.value  # Use the string value as the field name
+        elif hasattr(first_token, 'type') and first_token.type == 'SINGLE_QUOTE':
+            # Handle 'expression' case: tokens are [SINGLE_QUOTE, expression, SINGLE_QUOTE]
+            expression = tokens[1]
+            name = f"<computed:{expression}>"  # Store computed expression representation
+        else:
+            name = str(first_token)
+        
+        field_path = []
+        if len(tokens) > 2 and not (hasattr(tokens[0], 'type') and tokens[0].type == 'SINGLE_QUOTE'):
+            # Has DOT and field_path (but not for 'expression' case)
+            field_path = tokens[2]  # field_path result
+            
+        return _ast.FieldTarget(name, field_path)
+
+    def field_path(self, tokens):
+        """Transform field_path rule into list of field names."""
+        # tokens: identifier (DOT identifier)*
+        path = []
+        for token in tokens:
+            if isinstance(token, _ast.Identifier):
+                path.append(token.name)
+            elif hasattr(token, 'value'):
+                path.append(token.value)
+            else:
+                path.append(str(token))
+        return path
+
+    def assignment_op(self, tokens):
+        """Transform assignment_op rule into operator string."""
+        return tokens[0]
 
     def positional_field(self, tokens):
-        """Transform positional_field rule into PositionalField AST node."""
-        return _ast.PositionalField.fromToken(tokens)
+        """Transform positional_field rule into StructureOperation AST node."""
+        # Positional field has no target and implicit "=" operator
+        return _ast.StructureOperation(None, "=", tokens[0])
 
-    def binary_operation(self, tokens):
-        """Transform binary_operation rule into BinaryOperation AST node."""
-        return _ast.BinaryOperation.fromToken(tokens)
+    def spread_field(self, tokens):
+        """Transform spread_field rule into SpreadField AST node."""
+        return _ast.SpreadField(tokens[1])  # Skip the SPREAD token
 
-    def unary_operation(self, tokens):
-        """Transform unary_operation rule into UnaryOperation AST node."""
-        return _ast.UnaryOperation.fromToken(tokens)
+    # Special constructs
+    def index_reference(self, tokens):
+        """Transform index_reference rule into IndexReference AST node."""
+        return _ast.IndexReference(tokens[1])  # Skip the HASH token
 
-    def math_expression(self, tokens):
-        """Transform math_expression rule - just pass through the expression."""
-        return tokens[0]
+    def block_definition(self, tokens):
+        """Transform block_definition rule into BlockDefinition AST node."""
+        return _ast.BlockDefinition(tokens[1])  # Skip BLOCK_START token
 
-    def atom(self, tokens):
-        """Transform atom rule - just pass through the atom."""
-        return tokens[0]
+    def placeholder(self, tokens):
+        """Transform placeholder rule into Placeholder AST node."""
+        return _ast.Placeholder()
 
-    # Mathematical operators transformer methods
-    def mathematical_operators__atom(self, tokens):
-        """Transform mathematical_operators__atom rule."""
-        return tokens[0]
+    def array_type(self, tokens):
+        """Transform array_type rule into ArrayType AST node."""
+        identifier = tokens[0]
+        return _ast.ArrayType(identifier)
 
-    def mathematical_operators__number(self, tokens):
-        """Transform mathematical_operators__number rule into NumberLiteral AST node."""
-        token = tokens[0]
-        return _ast.NumberLiteral.fromToken(token)
-
-    def mathematical_operators__string(self, tokens):
-        """Transform mathematical_operators__string rule into StringLiteral AST node."""
-        token = tokens[0]
-        return _ast.StringLiteral.fromToken(token)
-
-    def mathematical_operators__identifier(self, tokens):
-        """Transform mathematical_operators__identifier rule into Identifier AST node."""
-        token = tokens[0]
-        return _ast.Identifier(str(token))
-
-    def mathematical_operators__structure(self, tokens):
-        """Transform mathematical_operators__structure rule into StructureLiteral AST node."""
-        # tokens[0] is '{', tokens[-1] is '}', middle tokens are fields
-        # Filter out the brace tokens and keep only the field nodes
-        fields = [
-            token
-            for token in tokens[1:-1]
-            if hasattr(token, "__class__") and hasattr(token.__class__, "__module__")
-        ]
-        return _ast.StructureLiteral(fields)
-
-    def mathematical_operators__structure_field(self, tokens):
-        """Transform mathematical_operators__structure_field rule."""
-        return tokens[0]
-
-    def mathematical_operators__named_field(self, tokens):
-        """Transform mathematical_operators__named_field rule into NamedField AST node."""
-        # tokens[0] is the key (identifier or string), tokens[1] is EQUALS, tokens[2] is the value
-        # Skip the EQUALS token and pass just key and value
-        return _ast.NamedField.fromToken([tokens[0], tokens[2]])
-
-    def mathematical_operators__positional_field(self, tokens):
-        """Transform mathematical_operators__positional_field rule into PositionalField AST node."""
-        return _ast.PositionalField.fromToken(tokens)
-
-    def mathematical_operators__tag_reference(self, tokens):
-        """Transform mathematical_operators__tag_reference rule into TagReference AST node."""
-        # tokens[0] is the IDENTIFIER_PATH token (sigil is consumed by grammar)
-        identifier_path_token = tokens[0]
-        return _ast.TagReference.fromToken(identifier_path_token)
-
-    def mathematical_operators__shape_reference(self, tokens):
-        """Transform mathematical_operators__shape_reference rule into ShapeReference AST node."""
-        # tokens[0] is the IDENTIFIER_PATH token (sigil is consumed by grammar)
-        identifier_path_token = tokens[0]
-        return _ast.ShapeReference.fromToken(identifier_path_token)
-
-    def mathematical_operators__function_reference(self, tokens):
-        """Transform mathematical_operators__function_reference rule into FunctionReference AST node."""
-        # tokens[0] is the IDENTIFIER_PATH token (sigil is consumed by grammar)
-        identifier_path_token = tokens[0]
-        return _ast.FunctionReference.fromToken(identifier_path_token)
+    def field_name(self, tokens):
+        """Transform field_name rule into FieldName AST node."""
+        # tokens: [SINGLE_QUOTE, identifier, SINGLE_QUOTE]
+        identifier = tokens[1]
+        name = identifier.name if isinstance(identifier, _ast.Identifier) else str(identifier)
+        return _ast.FieldName(name)

@@ -19,7 +19,7 @@ Focused just on parsing the main language features into ast trees
 [X] 01-04. References - Parse function, string, and shape references
 [X] 01-05. Structures - Parse structures with fields, nested structures
 [X] 01-06. Mathematical Operators - Parse arithmetic, comparison, logical operators, parentheses
-[ ] 01-07. Advanced Operators - Parse assignment, structure, pipeline, block, trail operators
+[~] 01-07. Advanced Operators - Parse assignment, structure, pipeline, block operators
 [ ] 01-PP. Scopes and Assignments - Parse scope operators and references
 [ ] 01-PP. Pipeline - Parse statements and pipelines
 [ ] 01-PP. Tags Initial - Parse simple tag definitions (no values)

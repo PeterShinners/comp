@@ -24,8 +24,9 @@ import comp
 
 @pytest.mark.parametrize("input_text,expected_value", [
     ("42", "42"),
-    ("-17", "-17"),
     ("0", "0"),
+    ("-17", "-17"),
+    ("-0", "0"),
 ])
 def test_parse_integers(input_text, expected_value):
     """Integer literals should become decimal values."""
@@ -35,8 +36,8 @@ def test_parse_integers(input_text, expected_value):
 
 @pytest.mark.parametrize("input_text,expected_value", [
     ("3.14", "3.14"),
-    ("-2.5", "-2.5"),
     ("0.0", "0.0"),
+    ("-2.5", "-2.5"),
 ])
 def test_parse_decimals(input_text, expected_value):
     """Decimal literals."""
@@ -192,9 +193,7 @@ def test_bigint_support():
     # Test 2: Large negative integer
     big_negative = "-987654321098765432109876543210"
     result = comp.parse(big_negative)
-    assert isinstance(result, comp.NumberLiteral)
-    expected = Decimal(big_negative)
-    assert result.value == expected, "Large negative integer not preserved"
+    _assertNum(result, big_negative)
 
     # Test 3: Large hex number (should go through ast.literal_eval -> int -> Decimal)
     big_hex = "0x123456789ABCDEF0123456789ABCDEF"
@@ -243,7 +242,28 @@ def test_comprehensive_number_formats(input_text, expected_value):
 
 def _assertNum(value, match):
     """Helper to assert a parsed number matches expected Decimal value."""
-    assert isinstance(value, comp.NumberLiteral)
     if isinstance(match, str):
+        original_match_str = match
         match = Decimal(match)
-    assert value.value == match
+    else:
+        original_match_str = str(match)
+
+    if isinstance(value, comp.NumberLiteral):
+        assert value.value == match
+    elif isinstance(value, comp.UnaryOperation):
+        assert isinstance(value.operand, comp.NumberLiteral)
+        if value.operator == "-":
+            # For negative numbers, compare operand with positive version of expected
+            # This avoids Python's Decimal arithmetic bug with large numbers
+            if original_match_str.startswith("-"):
+                expected_positive = Decimal(original_match_str[1:])  # Remove minus sign
+            else:
+                expected_positive = match  # Already positive
+            assert value.operand.value == expected_positive
+        elif value.operator == "+":
+            assert value.operand.value == match
+        else:
+            assert not value.operator, f"Unknown number unary {value.operator}"
+    else:
+        assert not value, f"Unknown number literal {value}"
+

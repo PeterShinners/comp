@@ -9,6 +9,9 @@ Add parsing for all the advanced language-specific operators that make Comp uniq
 
 ## Planned Features
 
+- **Comments**: `;` single line comments
+
+
 ### Assignment Operators
 - **Basic assignment**: `=` for field assignment (already in structures)
 - **Weak assignment**: `?=` only assigns if field not already defined
@@ -35,12 +38,6 @@ Add parsing for all the advanced language-specific operators that make Comp uniq
 - **Block definition**: `.{}` for defining code blocks
 - **Block invoke**: `.|` for invoking/calling blocks
 
-### Trail Operators
-- **Trail literals**: `/path/segments/` for navigation paths
-- **Trail concatenation**: `/` for joining trail segments
-- **Trail assignment**: Various `/=` operations for trail-based updates
-- **Expression segments**: `'expression'` within trails for dynamic paths
-
 ### Special Operators
 - **Fallback**: `??` provides fallback values for failures/nil
 - **Alternative fallback**: `?|` alternative fallback operator
@@ -48,13 +45,21 @@ Add parsing for all the advanced language-specific operators that make Comp uniq
 - **Array brackets**: `[]` for array type definitions and sizes in shapes
 - **Single quotes**: `'expression'` converts expressions to field names
 
+## Deferred to Future Phase
+
+### Trail Operators (deferred due to complexity)
+- **Trail literals**: `/path/segments/` for navigation paths  
+- **Trail concatenation**: `/` for joining trail segments
+- **Trail assignment**: Various `/=` operations for trail-based updates
+- **Expression segments**: `'expression'` within trails for dynamic paths
+- **Note**: Deferred due to `/` conflict with division operator and complex expression segment parsing
+
 ## Success Criteria
 
 - Parse all advanced operator types into appropriate AST nodes
 - Integrate with mathematical operator precedence from Phase 01-06
-- Handle complex operator interactions (assignment with spread, trails with expressions)
+- Handle complex operator interactions (assignment with spread, blocks with structures)
 - Support all assignment operator variants with proper semantics
-- Parse trail literals and expression segments correctly
 - Parse block definitions and invocations
 - Error messages for invalid advanced operator usage
 - All existing parsing (literals, structures, mathematical operators) continues to work
@@ -62,9 +67,8 @@ Add parsing for all the advanced language-specific operators that make Comp uniq
 ## Implementation Notes
 
 - Extends the Lark grammar built in Phase 01-06 with advanced operator rules
-- Creates new AST node types for assignment, structure, pipeline, block, trail operators
+- Creates new AST node types for assignment, structure, pipeline, block operators
 - Integrates advanced operators into existing precedence system
-- Trail parsing requires handling of `/`, `'`, and `:` within trail contexts
 - Block parsing requires distinguishing `.{}` from structure literals `{}`
 - Focus on parsing correctness - actual evaluation happens in Chapter 2
 
@@ -118,11 +122,6 @@ result = block .|                   ; Block invoke
 result = risky-operation |? default-value
 data = process |{} transform
 
-; Trail operations and expression control
-data |get /users/profile/theme/         ; Trail navigation
-config |set /cache/'key'/timeout/ 30    ; Trail with expression segment
-path = /base/ / /extended/segments/     ; Trail concatenation
-
 ; Fallback and special operators
 port = config.port ?? env.PORT ?? 8080
 backup = primary ?| secondary  ; Alternative fallback
@@ -141,11 +140,13 @@ field-name = 'computed-key'     ; Single quotes for field names
 - **Multi-line comments**: Only single-line `;` comments
 - **Operator methods**: No custom operator definitions
 - **Inplace operators**: `+=`, `-=`, `/=`, `%=` deferred due to `*=` conflict with strong assignment
+- **Trail operators**: `/path/segments/`, trail concatenation, expression segments - deferred due to `/` division conflict
 - **Non-definition ! operators**: `!delete`, `!doc`, etc. wait for a future phase after `!func`, `!tag`, `!shape` parsing
 
 ## Future Phases
 
 - **Chapter 2**: Expression evaluation - make operators actually work
 - **Later phases**: Advanced assignment patterns, custom operators, inplace operators
+- **Trail operators phase**: Implement `/path/segments/`, trail concatenation, expression segments with proper `/` division disambiguation
 
-This phase completes the foundation for all operator parsing in Comp, enabling complex expressions that combine mathematical operations with language-specific features.
+This phase completes the foundation for most operator parsing in Comp, enabling complex expressions that combine mathematical operations with language-specific features. Trail operators are deferred to avoid the complex division operator conflicts.

@@ -46,6 +46,7 @@ def test_comparison_operators_parse():
 def test_logical_operators_parse():
     """Test logical operators && || !!"""
     result = comp.parse("!!active")
+    # !! should be parsed as single unary operation
     _assert_unary(result, "!!", "ident=active")
 
     result = comp.parse("x > 0 && y < 10")
@@ -60,6 +61,7 @@ def test_logical_operators_parse():
 
     result = comp.parse("!!error && (ready || force)")
     _assert_binary(result, "&&", None, None)
+    # !!error should be parsed as single unary operation
     _assert_unary(result.left, "!!", "ident=error")
     # _assert_binary(result.right, "||", "ident=ready", "ident=force")
 

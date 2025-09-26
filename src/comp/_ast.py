@@ -14,11 +14,44 @@ __all__ = [
     "ShapeReference",
     "FunctionReference",
     "StructureLiteral",
+    "StructureOperation",
     "NamedField",
     "PositionalField",
     "BinaryOperation",
     "UnaryOperation",
+    # Advanced operators
+    "AssignmentOperation",
+    "FallbackOperation",
+    "ShapeUnionOperation",
+    "PipelineFailureOperation",
+    "PipelineBlockOperation",
+    "FieldAccessOperation",
+    "IndexAccessOperation",
+    "IndexReference",
+    "PrivateAttachOperation",
+    "PrivateAccessOperation",
+    "BlockInvokeOperation",
+    "BlockDefinition",
+    "SpreadField",
+    "WeakNamedField",
+    "StrongNamedField",
+    "SpreadNamedField",
+    "WeakSpreadNamedField",
+    "StrongSpreadNamedField",
+    "Placeholder",
+    "ArrayType",
+    "FieldName",
+    "ScopeAssignment",
+    "FieldAssignment",
+    "ScopeTarget",
+    "FieldTarget",
     "ParseError",
+    # Aliases for test compatibility
+    "FieldAccess",
+    "ShapeUnion",
+    "PipelineFailure",
+    "IndexAccess",
+    "BlockInvoke",
 ]
 
 import ast
@@ -138,6 +171,11 @@ class Identifier(ASTNode):
     def __hash__(self) -> int:
         return hash(self.name)
 
+    @classmethod
+    def fromToken(cls, token):
+        """Create Identifier from a Lark token."""
+        return cls(str(token))
+
 
 class TagReference(ASTNode):
     """AST node representing a tag reference (#tag)."""
@@ -217,26 +255,58 @@ class FunctionReference(ASTNode):
 class StructureLiteral(ASTNode):
     """AST node representing a structure literal {...}."""
 
-    def __init__(self, fields: list[ASTNode]):
+    def __init__(self, operations: list["StructureOperation"]):
         super().__init__()
-        self.fields = fields
+        self.operations = operations
 
     @classmethod
     def fromToken(cls, tokens):
-        """Create StructureLiteral from a list of field tokens."""
-        # tokens is a list of NamedField and PositionalField nodes
+        """Create StructureLiteral from a list of operation tokens."""
         return cls(tokens)
 
     def __repr__(self) -> str:
-        return f"StructureLiteral({self.fields!r})"
+        return f"StructureLiteral({self.operations!r})"
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, StructureLiteral):
             return False
-        return self.fields == other.fields
+        return self.operations == other.operations
 
     def __hash__(self) -> int:
-        return hash(tuple(self.fields))
+        return hash(tuple(self.operations))
+
+
+class StructureOperation(ASTNode):
+    """AST node representing a single operation within a structure.
+
+    Each operation has:
+    - target: field/scope reference (or None for unnamed/positional)
+    - operator: assignment operator (=, *=, ?=, ..=)
+    - expression: any expression (literal, pipeline, etc.)
+    """
+
+    def __init__(self, target: ASTNode | None, operator: str, expression: ASTNode):
+        super().__init__()
+        self.target = target  # ScopeTarget, FieldTarget, or None for positional
+        self.operator = operator  # "=", "*=", "?=", "..="
+        self.expression = expression  # Any expression
+
+    def __repr__(self) -> str:
+        if self.target is None:
+            return f"StructureOperation(None, {self.operator!r}, {self.expression!r})"
+        return f"StructureOperation({self.target!r}, {self.operator!r}, {self.expression!r})"
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, StructureOperation):
+            return False
+        return (
+            self.target == other.target
+            and self.operator == other.operator
+            and self.expression == other.expression
+        )
+
+    def __hash__(self) -> int:
+        return hash((self.target, self.operator, self.expression))
 
 
 class NamedField(ASTNode):
@@ -357,3 +427,438 @@ class UnaryOperation(ASTNode):
 
     def __hash__(self) -> int:
         return hash((self.operator, self.operand))
+
+
+# Advanced Operators AST Nodes
+
+
+class AssignmentOperation(ASTNode):
+    """AST node representing an assignment operation (target = value)."""
+
+    def __init__(self, target: str, operator: str, value: ASTNode):
+        super().__init__()
+        self.target = target
+        self.operator = operator
+        self.value = value
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create AssignmentOperation from tokens: [target, operator, value]."""
+        target, operator, value = tokens
+        # Extract target name from identifier
+        target_name = target.name if isinstance(target, Identifier) else str(target)
+        return cls(target_name, str(operator), value)
+
+    def __repr__(self) -> str:
+        return (
+            f"AssignmentOperation({self.target!r}, {self.operator!r}, {self.value!r})"
+        )
+
+
+class FallbackOperation(ASTNode):
+    """AST node representing a fallback operation (left ?? right)."""
+
+    def __init__(self, left: ASTNode, operator: str, right: ASTNode):
+        super().__init__()
+        self.left = left
+        self.operator = operator
+        self.right = right
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create FallbackOperation from tokens: [left, operator, right]."""
+        left, operator, right = tokens
+        return cls(left, str(operator), right)
+
+    def __repr__(self) -> str:
+        return f"FallbackOperation({self.left!r}, {self.operator!r}, {self.right!r})"
+
+
+class ShapeUnionOperation(ASTNode):
+    """AST node representing a shape union operation (left | right)."""
+
+    def __init__(self, left: ASTNode, right: ASTNode):
+        super().__init__()
+        self.left = left
+        self.right = right
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create ShapeUnionOperation from tokens: [left, right]."""
+        left, _, right = tokens  # Middle token is the | operator
+        return cls(left, right)
+
+    def __repr__(self) -> str:
+        return f"ShapeUnionOperation({self.left!r}, {self.right!r})"
+
+
+class PipelineFailureOperation(ASTNode):
+    """AST node representing a pipeline failure operation (operation |? fallback)."""
+
+    def __init__(self, operation: ASTNode, fallback: ASTNode):
+        super().__init__()
+        self.operation = operation
+        self.fallback = fallback
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create PipelineFailureOperation from tokens."""
+        operation, _, fallback = tokens  # Middle token is |?
+        return cls(operation, fallback)
+
+    def __repr__(self) -> str:
+        return f"PipelineFailureOperation({self.operation!r}, {self.fallback!r})"
+
+
+class PipelineBlockOperation(ASTNode):
+    """AST node representing a pipeline block operation (process |{} transform)."""
+
+    def __init__(self, process: ASTNode, transform: ASTNode, block: ASTNode):
+        super().__init__()
+        self.process = process
+        self.transform = transform
+        self.block = block
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create PipelineBlockOperation from tokens."""
+        process, _, block, _, transform = tokens  # |{}, }
+        return cls(process, transform, block)
+
+    def __repr__(self) -> str:
+        return f"PipelineBlockOperation({self.process!r}, {self.transform!r}, {self.block!r})"
+
+
+class FieldAccessOperation(ASTNode):
+    """AST node representing a field access operation (object.field)."""
+
+    def __init__(self, object: ASTNode, field: str):
+        super().__init__()
+        self.object = object
+        self.field = field
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create FieldAccessOperation from tokens."""
+        object, _, field = tokens  # Middle token is .
+        field_name = field.name if isinstance(field, Identifier) else str(field)
+        return cls(object, field_name)
+
+    def __repr__(self) -> str:
+        return f"FieldAccessOperation({self.object!r}, {self.field!r})"
+
+
+class IndexAccessOperation(ASTNode):
+    """AST node representing an index access operation (object#index)."""
+
+    def __init__(self, object: ASTNode, index: ASTNode):
+        super().__init__()
+        self.object = object
+        self.index = index
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create IndexAccessOperation from tokens."""
+        if len(tokens) == 3:
+            # Old syntax: object # index
+            object, _, index = tokens  # Middle token is #
+        elif len(tokens) == 4:
+            # New dotted syntax: object . # index_number
+            object, _, _, index_token = tokens  # Middle tokens are . and #
+            # Convert INDEX_NUMBER token to NumberLiteral
+            from decimal import Decimal
+
+            index = NumberLiteral(Decimal(index_token.value))
+        else:
+            raise ValueError(
+                f"Unexpected token count for IndexAccessOperation: {len(tokens)}"
+            )
+        return cls(object, index)
+
+    def __repr__(self) -> str:
+        return f"IndexAccessOperation({self.object!r}, {self.index!r})"
+
+
+class IndexReference(ASTNode):
+    """AST node representing a standalone index reference (#1)."""
+
+    def __init__(self, index: ASTNode):
+        super().__init__()
+        self.index = index
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create IndexReference from tokens."""
+        _, index = tokens  # First token is #
+        return cls(index)
+
+    def __repr__(self) -> str:
+        return f"IndexReference({self.index!r})"
+
+
+class PrivateAttachOperation(ASTNode):
+    """AST node representing a private data attachment (object&{data})."""
+
+    def __init__(self, object: ASTNode, private_data: ASTNode):
+        super().__init__()
+        self.object = object
+        self.private_data = private_data
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create PrivateAttachOperation from tokens."""
+        object, _, private_data = tokens  # Middle token is &
+        return cls(object, private_data)
+
+    def __repr__(self) -> str:
+        return f"PrivateAttachOperation({self.object!r}, {self.private_data!r})"
+
+
+class PrivateAccessOperation(ASTNode):
+    """AST node representing a private field access (object&.field)."""
+
+    def __init__(self, object: ASTNode, field: str):
+        super().__init__()
+        self.object = object
+        self.field = field
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create PrivateAccessOperation from tokens."""
+        object, _, field = tokens  # Middle token is &.
+        field_name = field.name if isinstance(field, Identifier) else str(field)
+        return cls(object, field_name)
+
+    def __repr__(self) -> str:
+        return f"PrivateAccessOperation({self.object!r}, {self.field!r})"
+
+
+class BlockInvokeOperation(ASTNode):
+    """AST node representing a block invocation (|.block)."""
+
+    def __init__(self, block: ASTNode):
+        super().__init__()
+        self.block = block
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create BlockInvokeOperation from tokens."""
+        _, block = tokens  # First token is |.
+        return cls(block)
+
+    def __repr__(self) -> str:
+        return f"BlockInvokeOperation({self.block!r})"
+
+
+class BlockDefinition(ASTNode):
+    """AST node representing a block definition (.{expression})."""
+
+    def __init__(self, expression: ASTNode):
+        super().__init__()
+        self.expression = expression
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create BlockDefinition from tokens."""
+        _, expression, _ = tokens  # .{, expression, }
+        return cls(expression)
+
+    def __repr__(self) -> str:
+        return f"BlockDefinition({self.expression!r})"
+
+
+class SpreadField(ASTNode):
+    """AST node representing a spread field in a structure (..expression)."""
+
+    def __init__(self, expression: ASTNode):
+        super().__init__()
+        self.expression = expression
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create SpreadField from tokens."""
+        _, expression = tokens  # First token is ..
+        return cls(expression)
+
+    def __repr__(self) -> str:
+        return f"SpreadField({self.expression!r})"
+
+
+class WeakNamedField(NamedField):
+    """AST node representing a weak assignment named field (name ?= value)."""
+
+    def __init__(self, name: str, value: ASTNode):
+        super().__init__(name, value)
+        self.operator = "?="
+
+    def __repr__(self) -> str:
+        return f"WeakNamedField({self.name!r}, {self.value!r})"
+
+
+class StrongNamedField(NamedField):
+    """AST node representing a strong assignment named field (name *= value)."""
+
+    def __init__(self, name: str, value: ASTNode):
+        super().__init__(name, value)
+        self.operator = "*="
+
+    def __repr__(self) -> str:
+        return f"StrongNamedField({self.name!r}, {self.value!r})"
+
+
+class SpreadNamedField(NamedField):
+    """AST node representing a spread assignment named field (name ..= value)."""
+
+    def __init__(self, name: str, value: ASTNode):
+        super().__init__(name, value)
+        self.operator = "..="
+
+    def __repr__(self) -> str:
+        return f"SpreadNamedField({self.name!r}, {self.value!r})"
+
+
+class WeakSpreadNamedField(NamedField):
+    """AST node representing a weak spread assignment named field (name ?..= value)."""
+
+    def __init__(self, name: str, value: ASTNode):
+        super().__init__(name, value)
+        self.operator = "?..="
+
+    def __repr__(self) -> str:
+        return f"WeakSpreadNamedField({self.name!r}, {self.value!r})"
+
+
+class StrongSpreadNamedField(NamedField):
+    """AST node representing a strong spread assignment named field (name *..= value)."""
+
+    def __init__(self, name: str, value: ASTNode):
+        super().__init__(name, value)
+        self.operator = "*..="
+
+    def __repr__(self) -> str:
+        return f"StrongSpreadNamedField({self.name!r}, {self.value!r})"
+
+
+class Placeholder(ASTNode):
+    """AST node representing a placeholder operator (???)."""
+
+    def __init__(self):
+        super().__init__()
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create Placeholder from tokens."""
+        return cls()
+
+    def __repr__(self) -> str:
+        return "Placeholder()"
+
+
+class ArrayType(ASTNode):
+    """AST node representing an array type (base_type[])."""
+
+    def __init__(self, base_type: ASTNode):
+        super().__init__()
+        self.base_type = base_type
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create ArrayType from tokens."""
+        base_type, _, _ = tokens  # base_type, [, ]
+        return cls(base_type)
+
+    def __repr__(self) -> str:
+        return f"ArrayType({self.base_type!r})"
+
+
+class FieldName(ASTNode):
+    """AST node representing a field name expression ('name')."""
+
+    def __init__(self, name: str):
+        super().__init__()
+        self.name = name
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create FieldName from tokens."""
+        _, name, _ = tokens  # ', name, '
+        name_str = name.name if isinstance(name, Identifier) else str(name)
+        return cls(name_str)
+
+    def __repr__(self) -> str:
+        return f"FieldName({self.name!r})"
+
+
+class ScopeAssignment(ASTNode):
+    """AST node representing scope assignments (@local = expr, $out.field = expr)."""
+
+    def __init__(self, target: "ScopeTarget", operator: str, value: ASTNode):
+        super().__init__()
+        self.target = target
+        self.operator = operator
+        self.value = value
+
+    def __repr__(self) -> str:
+        return f"ScopeAssignment({self.target!r}, {self.operator!r}, {self.value!r})"
+
+
+class FieldAssignment(ASTNode):
+    """AST node representing field assignments (field = expr, field.nested = expr)."""
+
+    def __init__(self, target: "FieldTarget", operator: str, value: ASTNode):
+        super().__init__()
+        self.target = target
+        self.operator = operator
+        self.value = value
+
+    def __repr__(self) -> str:
+        return f"FieldAssignment({self.target!r}, {self.operator!r}, {self.value!r})"
+
+
+class ScopeTarget(ASTNode):
+    """AST node representing scope assignment targets (@local, $out.field)."""
+
+    def __init__(self, scope_type: str, name: str, field_path: list[str] | None = None):
+        super().__init__()
+        self.scope_type = scope_type  # "@" or "$"
+        self.name = name
+        self.field_path = field_path or []
+
+    def __repr__(self) -> str:
+        if self.field_path:
+            path = ".".join([self.name] + self.field_path)
+            return f"ScopeTarget({self.scope_type!r}, {path!r})"
+        return f"ScopeTarget({self.scope_type!r}, {self.name!r})"
+
+
+class SpreadTarget(ASTNode):
+    """AST node representing spread operation target (no specific field, spreads into structure)."""
+
+    def __init__(self):
+        super().__init__()
+
+    def __repr__(self) -> str:
+        return "SpreadTarget()"
+
+
+class FieldTarget(ASTNode):
+    """AST node representing field assignment targets (field, field.nested)."""
+
+    def __init__(self, name: str, field_path: list[str] | None = None):
+        super().__init__()
+        self.name = name
+        self.field_path = field_path or []
+
+    def __repr__(self) -> str:
+        if self.field_path:
+            path = ".".join([self.name] + self.field_path)
+            return f"FieldTarget({path!r})"
+        return f"FieldTarget({self.name!r})"
+
+
+# Aliases for test compatibility
+FieldAccess = FieldAccessOperation
+ShapeUnion = ShapeUnionOperation
+PipelineFailure = PipelineFailureOperation
+IndexAccess = IndexAccessOperation
+BlockInvoke = BlockInvokeOperation
