@@ -382,7 +382,7 @@ unnamed value in the argument list.
 
 Functions can be defined multiple times to describe working with different
 shapes of inputs. The function definitions must be unambiguous or the module
-will have a build-time error. The function definition can use `?=` weak or `*=`
+will have a build-time error. The function definition can use `=?` weak or `=*`
 strong assignment operators to break ambiguous ties.
 
 The functions use the shape matching logic to select the most specific
@@ -395,7 +395,7 @@ hierarchies and polymorphic dispatch mechanisms, see [Tag System](tag.md).
 
 ```comp
 !func |render ~point-2d = {"2D point"}
-!func |render ~point-2d *= {"2D improved"}  ; Strong assignment wins
+!func |render ~point-2d =* {"2D improved"}  ; Strong assignment wins
 !func |render ~point-3d = {"3D point"}
 
 ({x=5 y=10} |render)           ; "2D improved" - strong assignment wins

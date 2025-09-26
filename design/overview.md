@@ -208,7 +208,7 @@ No matter what kind of data you're working with—API respo;ses, database result
 
 ```comp
 user.name                ; Get the name field
-settings#0               ; First item in a list
+settings.#0               ; First item in a list
 config.'server-' + env   ; Computed field name
 data."Content-Type"      ; Field names with special characters
 ```

@@ -115,7 +115,7 @@ By default, imports coordinate through the main entry module. Libraries check if
 ; Behaves as: main /json/ ?? std /core/json/
 
 ; Force specific version with strong assignment
-!import /json *= std /core/json/    ; Always use standard library
+!import /json =* std /core/json/    ; Always use standard library
 
 ; In main module - becomes source for libraries
 !import /json = comp /git@github.com:fast/json.git/tag:/v2.0/

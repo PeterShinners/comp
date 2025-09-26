@@ -52,8 +52,8 @@ assigned.
 
 **Named Assignment** starts with a field name and `=`, assigning the pipeline
 result to a named field in the output structure. Conflicting field names
-override previous values, though this behavior can be modified with weak (`?=`)
-or strong (`*=`) assignment operators.
+override previous values, though this behavior can be modified with weak (`=?`)
+or strong (`=*`) assignment operators.
 
 **Unnamed Assignment** has no assignment target, adding the pipeline result as
 an unnamed field to the output structure. These unnamed fields maintain their

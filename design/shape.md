@@ -82,11 +82,11 @@ The morphing process follows these phases:
 
 ; Basic morphing
 ({example.com 443 #true} ~connection)
-; Result: {host=example.com port=443 secure?=#true}
+; Result: {host=example.com port=443 secure=?#true}
 
 ; Morphing with defaults
 ({host=prod.example.com} ~connection)
-; Result: {host=prod.example.com port=8080 secure?=#false}
+; Result: {host=prod.example.com port=8080 secure=?#false}
 ; port and secure? come from shape defaults
 
 ; Function parameters automatically morph
@@ -218,7 +218,7 @@ they can be used anywhere shape references are used.
 
 ; Usage
 ({verbose extra=data} ~process-flags)
-; Result: {verbose=#true debug=#false quiet?=#true extra=data}
+; Result: {verbose=#true debug=#false quiet=?#true extra=data}
 
 !func |process ^~process-flags = {
     (^verbose |when {#true} {

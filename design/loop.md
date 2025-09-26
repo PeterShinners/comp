@@ -35,7 +35,7 @@ data = source
     |map .{$in |transform}        ; Still lazy
     |sort-by .{name}              ; Still lazy
     
-data#0                            ; Evaluates first element only
+data.#0                            ; Evaluates first element only
 data |length                      ; Can use field introspection
 ```
 
@@ -48,7 +48,7 @@ Comp's lazy structures store computed values, allowing multiple operations on th
 results = items |filter .{valid} |map .{$in |expensive-transform}
 
 results |length      ; Works
-results#5            ; Works - might trigger computation
+results.#5            ; Works - might trigger computation
 results |sum         ; Still works - uses stored values
 results |average     ; Still works
 ```
@@ -347,7 +347,7 @@ results |has-any?  ; No evaluation needed
 **Partial evaluation** only computes what's needed:
 ```comp
 data = items |map .{$in |expensive} |filter .{valid}
-data#0  ; Only evaluates until first valid item found
+data.#0  ; Only evaluates until first valid item found
 ```
 
 **Chained operations** defer all computation:

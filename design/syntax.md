@@ -39,6 +39,7 @@ and between the operations a function or structure.
 
 **Mathematical operators:**
 - `+`, `-`, `*`, `/`, `%` - Arithmetic operations  
+- `+-` - Explicit subtraction (disambiguates from kebab-case identifiers)
 - `**` - Power/exponentiation
 - `==`, `!=` - Equality comparison
 - `<`, `<=`, `>`, `>=` - Ordering comparison
@@ -424,6 +425,27 @@ Allowed tokens (although not always preferred)
 * `content-accept`
 * `_parity_bit`
 * `用户名`
+
+### Kebab-Case and Arithmetic Disambiguation
+
+Comp's use of kebab case makes typical subtraction operators ambigious.
+
+Use of spacing, parenthesis, or a special `+-` operator can be used to
+invoke subtraction on number values. Be aware that the language will treat
+this as a regular subtraction, not as adding a the negative value. Since
+subtraction is only allowed on number types, there is no techinical difference.
+
+```comp
+; Kebab-case identifiers are single tokens
+user-name = Alice               ; Identifier: "user-name"
+api-key = secret-value          ; Two identifiers: "api-key" and "secret-value"  
+database-config = settings      ; Identifier: "database-config"
+
+; Subtraction requires disambiguation
+a - b                          ; Subtraction (spaced)
+a+-b                           ; Explicit subtraction (no spaces needed)
+(a)-(b)                        ; Clearly multiple tokens
+```
 
 ## Comments
 

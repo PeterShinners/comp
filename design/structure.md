@@ -35,18 +35,31 @@ user.'$idx'                 ; Variable value as field name
 coords = {10 20 30}          ; Three unnamed fields
 mixed = {x=5 10 y=15}        ; Mix of named and unnamed
 
-; Index access (no period before #)
-coords#0                     ; 10 - first unnamed field
-coords#1                     ; 20 - second unnamed field
-mixed#0                      ; 10 - first unnamed field
-#0                          ; From $in in pipeline
+; Index access (requires dot before #)
+coords.#0                    ; 10 - first unnamed field
+coords.#1                    ; 20 - second unnamed field
+mixed.#0                     ; 10 - first unnamed field
+#0                          ; From $in in pipeline (standalone reference)
+
+; Chained access patterns (currently supported)
+users.#1.name               ; Index then field access (requires parentheses: (users.#1).name)
+data.#0.#1                  ; Nested index access (requires parentheses: (data.#0).#1)
+config."servers".#0         ; String field then index access
+items."metadata"."created-at"  ; String field chaining
+obj.'computed'.value        ; Computed field then identifier field
+data."Big Day!".#2          ; String fields with spaces/punctuation
+
+; Complex chaining example (using parentheses for index access)
+(((data."Big Day!").#2).'field').'next'  ; Full chaining with mixed access types
 ```
 
 Field access distinguishes between:
-- `data.field` - Named field access
-- `data#0` - Positional index (numeric literals only)
+- `data.field` - Named field access (identifier)
+- `data.#0` - Positional index (numeric literals only) 
 - `data.'expr'` - Computed field name from expression
 - `data."string"` - String literal as field name
+
+The dotted syntax creates consistent, readable access chains. String and computed field access chain naturally, while index access currently requires parentheses for continued chaining (to be resolved in future iteration).
 
 ## Spread Operations and Structure Assembly
 

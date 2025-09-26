@@ -142,7 +142,7 @@ Common patterns emerge when working with Stores. These patterns provide structur
 ; Centralized application state with clear trails
 $mod.app-store = (|new/store {
     session = {}
-    ui = {theme=dark sidebar-open?=#true}
+    ui = {theme=dark sidebar-open=?#true}
     data = {}
 })
 
@@ -158,7 +158,7 @@ $mod.app-store = (|new/store {
         $in |update /revenue/daily/ {$in + total}
     }
     
-    {success?=#true order-id=id total=total}
+    {success=?#true order-id=id total=total}
 }
 
 ; Local state for UI components

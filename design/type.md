@@ -213,6 +213,7 @@ Arithmetic operators work exclusively with numbers, providing standard mathemati
 ; Basic arithmetic
 sum = a + b
 difference = a - b
+subtract = a +- b       ; Explicit subtraction (disambiguates from kebab-case)
 product = a * b
 quotient = a / b         ; Exact division, never truncates
 remainder = a % b        ; Modulo operation
