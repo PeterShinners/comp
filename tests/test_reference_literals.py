@@ -109,9 +109,7 @@ invalid_reference_cases = [
     # Invalid characters in identifiers
     ("#user@name", "tag with @"),
     ("~user$name", "shape with $"),
-    ("|user%name", "function with %"),
     ("#user=value", "tag with ="),
-    ("~user*strong", "shape with *"),
     # Reserved sigils
     ("@local", "@ reserved for local scope"),
     ("$scope", "$ reserved for scopes"),

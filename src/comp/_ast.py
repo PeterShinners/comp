@@ -16,6 +16,8 @@ __all__ = [
     "StructureLiteral",
     "NamedField",
     "PositionalField",
+    "BinaryOperation",
+    "UnaryOperation",
     "ParseError",
 ]
 
@@ -59,7 +61,8 @@ class NumberLiteral(ASTNode):
         """Create NumberLiteral from a Lark token."""
         try:
             # Handle based integers (0x, 0b, 0o) with ast.literal_eval
-            if token.type == "BASED":
+            # Check for both old and new token type names (with mathematical_operators prefix)
+            if token.type == "BASED" or token.type.endswith("__BASED"):
                 python_int = ast.literal_eval(str(token))
                 decimal_value = decimal.Decimal(python_int)
             else:  # DECIMAL types
@@ -257,8 +260,6 @@ class NamedField(ASTNode):
         elif isinstance(key, StringLiteral):
             name = key.value
         else:
-            # Import here to avoid circular imports
-            from . import ParseError
             raise ParseError(f"Invalid field name type: {type(key)}")
 
         return cls(name, value)
@@ -299,3 +300,60 @@ class PositionalField(ASTNode):
 
     def __hash__(self) -> int:
         return hash(self.value)
+
+
+class BinaryOperation(ASTNode):
+    """AST node representing a binary operation (left operator right)."""
+
+    def __init__(self, left: ASTNode, operator: str, right: ASTNode):
+        super().__init__()
+        self.left = left
+        self.operator = operator
+        self.right = right
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create BinaryOperation from tokens: [left, operator, right]."""
+        left, operator, right = tokens
+        return cls(left, str(operator), right)
+
+    def __repr__(self) -> str:
+        return f"BinaryOperation({self.left!r}, {self.operator!r}, {self.right!r})"
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, BinaryOperation):
+            return False
+        return (
+            self.left == other.left
+            and self.operator == other.operator
+            and self.right == other.right
+        )
+
+    def __hash__(self) -> int:
+        return hash((self.left, self.operator, self.right))
+
+
+class UnaryOperation(ASTNode):
+    """AST node representing a unary operation (operator operand)."""
+
+    def __init__(self, operator: str, operand: ASTNode):
+        super().__init__()
+        self.operator = operator
+        self.operand = operand
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create UnaryOperation from tokens: [operator, operand]."""
+        operator, operand = tokens
+        return cls(str(operator), operand)
+
+    def __repr__(self) -> str:
+        return f"UnaryOperation({self.operator!r}, {self.operand!r})"
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, UnaryOperation):
+            return False
+        return self.operator == other.operator and self.operand == other.operand
+
+    def __hash__(self) -> int:
+        return hash((self.operator, self.operand))

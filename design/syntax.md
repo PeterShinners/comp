@@ -37,6 +37,18 @@ and between the operations a function or structure.
 
 ## Operator Reference
 
+**Mathematical operators:**
+- `+`, `-`, `*`, `/`, `%` - Arithmetic operations  
+- `**` - Power/exponentiation
+- `==`, `!=` - Equality comparison
+- `<`, `<=`, `>`, `>=` - Ordering comparison
+
+**Logical operators (symmetric double-character design):**
+- `&&` - Logical AND (short-circuiting)
+- `||` - Logical OR (short-circuiting)  
+- `!!` - Logical NOT (boolean negation)
+- Note: All logical operators use double characters for consistency and clarity
+
 **Pipeline and function operators:**
 - `()` - Pipeline boundaries  
 - `|` - Function application

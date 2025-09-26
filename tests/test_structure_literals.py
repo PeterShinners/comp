@@ -75,7 +75,6 @@ invalid_structure_cases = [
     # Invalid assignment syntax
     ("{=42}", "assignment without name"),
     ("{name=}", "assignment without value"),
-    ("{x==42}", "double equals"),
     ("{x=y=42}", "chained assignment"),
     # Invalid field syntax
     ("{1,2}", "comma separators"),

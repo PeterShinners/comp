@@ -204,3 +204,82 @@ class _CompTransformer(Transformer):
     def positional_field(self, tokens):
         """Transform positional_field rule into PositionalField AST node."""
         return _ast.PositionalField.fromToken(tokens)
+
+    def binary_operation(self, tokens):
+        """Transform binary_operation rule into BinaryOperation AST node."""
+        return _ast.BinaryOperation.fromToken(tokens)
+
+    def unary_operation(self, tokens):
+        """Transform unary_operation rule into UnaryOperation AST node."""
+        return _ast.UnaryOperation.fromToken(tokens)
+
+    def math_expression(self, tokens):
+        """Transform math_expression rule - just pass through the expression."""
+        return tokens[0]
+
+    def atom(self, tokens):
+        """Transform atom rule - just pass through the atom."""
+        return tokens[0]
+
+    # Mathematical operators transformer methods
+    def mathematical_operators__atom(self, tokens):
+        """Transform mathematical_operators__atom rule."""
+        return tokens[0]
+
+    def mathematical_operators__number(self, tokens):
+        """Transform mathematical_operators__number rule into NumberLiteral AST node."""
+        token = tokens[0]
+        return _ast.NumberLiteral.fromToken(token)
+
+    def mathematical_operators__string(self, tokens):
+        """Transform mathematical_operators__string rule into StringLiteral AST node."""
+        token = tokens[0]
+        return _ast.StringLiteral.fromToken(token)
+
+    def mathematical_operators__identifier(self, tokens):
+        """Transform mathematical_operators__identifier rule into Identifier AST node."""
+        token = tokens[0]
+        return _ast.Identifier(str(token))
+
+    def mathematical_operators__structure(self, tokens):
+        """Transform mathematical_operators__structure rule into StructureLiteral AST node."""
+        # tokens[0] is '{', tokens[-1] is '}', middle tokens are fields
+        # Filter out the brace tokens and keep only the field nodes
+        fields = [
+            token
+            for token in tokens[1:-1]
+            if hasattr(token, "__class__") and hasattr(token.__class__, "__module__")
+        ]
+        return _ast.StructureLiteral(fields)
+
+    def mathematical_operators__structure_field(self, tokens):
+        """Transform mathematical_operators__structure_field rule."""
+        return tokens[0]
+
+    def mathematical_operators__named_field(self, tokens):
+        """Transform mathematical_operators__named_field rule into NamedField AST node."""
+        # tokens[0] is the key (identifier or string), tokens[1] is EQUALS, tokens[2] is the value
+        # Skip the EQUALS token and pass just key and value
+        return _ast.NamedField.fromToken([tokens[0], tokens[2]])
+
+    def mathematical_operators__positional_field(self, tokens):
+        """Transform mathematical_operators__positional_field rule into PositionalField AST node."""
+        return _ast.PositionalField.fromToken(tokens)
+
+    def mathematical_operators__tag_reference(self, tokens):
+        """Transform mathematical_operators__tag_reference rule into TagReference AST node."""
+        # tokens[0] is the IDENTIFIER_PATH token (sigil is consumed by grammar)
+        identifier_path_token = tokens[0]
+        return _ast.TagReference.fromToken(identifier_path_token)
+
+    def mathematical_operators__shape_reference(self, tokens):
+        """Transform mathematical_operators__shape_reference rule into ShapeReference AST node."""
+        # tokens[0] is the IDENTIFIER_PATH token (sigil is consumed by grammar)
+        identifier_path_token = tokens[0]
+        return _ast.ShapeReference.fromToken(identifier_path_token)
+
+    def mathematical_operators__function_reference(self, tokens):
+        """Transform mathematical_operators__function_reference rule into FunctionReference AST node."""
+        # tokens[0] is the IDENTIFIER_PATH token (sigil is consumed by grammar)
+        identifier_path_token = tokens[0]
+        return _ast.FunctionReference.fromToken(identifier_path_token)

@@ -47,6 +47,8 @@ Boolean operations use distinct operators that short-circuit evaluation:
 
 ```comp
 ; Logical operators (short-circuiting)
+; Design note: All logical operators use double-character syntax
+; for consistency and visual symmetry: &&, ||, !!
 a && b              ; AND - true when both true
 a || b              ; OR - true when either true
 !!a                 ; NOT - negates boolean

@@ -1,20 +1,26 @@
 // Comp Language Grammar - Main Entry Point
 //
 // This is the main grammar file that will grow to include the full Comp language.
-// Currently supports number and string literals as we build incrementally.
+// Currently supports number and string literals, identifiers, references, structures,
+// and mathematical operators.
 
 // Import grammars from separate files
 %import numbers (BASED, DECIMAL, number)
 %import strings (BASIC_STRING, string)
 %import identifiers (IDENTIFIER, identifier)
 %import references (TAG_REFERENCE, SHAPE_REFERENCE, FUNCTION_REFERENCE, tag_reference, shape_reference, function_reference)
+%import mathematical_operators (PLUS, MINUS, MULTIPLY, DIVIDE, MODULO, POWER, EQUAL_EQUAL, NOT_EQUAL, LESS_THAN, LESS_EQUAL, GREATER_THAN, GREATER_EQUAL, LOGICAL_AND, LOGICAL_OR, LOGICAL_NOT, LPAREN, RPAREN, math_expression, binary_operation, unary_operation)
 
-// Start rule: currently supports numbers, strings, identifiers, references, and structures
+// Start rule: now supports mathematical expressions
 start: expression_list
 
 expression_list: expression*
 
-expression: number | string | identifier | tag_reference | shape_reference | function_reference | structure
+// Expression now includes mathematical operations
+expression: math_expression
+
+// Define atom for mathematical operators (references primary expressions)
+atom: number | string | identifier | tag_reference | shape_reference | function_reference | structure
 
 // Structure literal: {field1 field2 ...}
 structure: "{" structure_field* "}"
@@ -22,7 +28,7 @@ structure: "{" structure_field* "}"
 // Structure fields can be either named (key=value) or positional (value)
 structure_field: named_field | positional_field
 
-// Named field: identifier=expression or string=expression
+// Named field: identifier=expression or string=expression  
 named_field: (identifier | string) "=" expression
 
 // Positional field: just an expression

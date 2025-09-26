@@ -1,28 +1,13 @@
-# Phase 01-06: Operators
+# Phase 01-07: Advanced Operators
 
 **Status**: Future phase  
-**Target start**: After structure literals are complete
+**Target start**: After mathematical operators are complete
 
 ## Overview
 
-Add parsing for all operator types that will be used in expressions and statements. This includes arithmetic operators, assignment operators, the spread operator, and comment syntax. This phase focuses purely on parsing operators into AST nodes - evaluation comes in Chapter 2.
+Add parsing for all the advanced language-specific operators that make Comp unique. This includes assignment operators, structure manipulation, pipeline operations, block syntax, trail navigation, and special operators. These operators build on the mathematical foundation from Phase 01-06.
 
 ## Planned Features
-
-### Arithmetic Operators
-- **Basic arithmetic**: `+`, `-`, `*`, `/`, `%` (modulo)
-- **Power operator**: `**` for exponentiation
-- **Unary operators**: `+42`, `-42` (positive/negative)
-- **Precedence handling**: Proper operator precedence in parsing
-- **Note**: No floor division (`//`) - users can do `(5 / 2) ->|floor` when needed
-
-### Comparison Operators
-- **Equality**: `==`, `!=` for value comparison
-- **Ordering**: `<`, `<=`, `>`, `>=` for numeric/string comparison
-
-### Logical Operators
-- **Boolean logic**: `&&` (and), `||` (or), `!` (not)
-- **Short-circuit evaluation**: Proper AST structure for lazy evaluation
 
 ### Assignment Operators
 - **Basic assignment**: `=` for field assignment (already in structures)
@@ -60,35 +45,32 @@ Add parsing for all operator types that will be used in expressions and statemen
 - **Fallback**: `??` provides fallback values for failures/nil
 - **Alternative fallback**: `?|` alternative fallback operator
 - **Placeholder**: `???` for unimplemented code (returns not-implemented failure)
-- **Parentheses**: `()` for grouping expressions and controlling precedence
 - **Array brackets**: `[]` for array type definitions and sizes in shapes
 - **Single quotes**: `'expression'` converts expressions to field names
 
-### Comments
-- **Line comments**: `;` single-line comments to end of line
-- **Documentation comments**: Special handling for doc comments (future)
-
 ## Success Criteria
 
-- Parse all operator types into appropriate AST nodes
-- Proper operator precedence in expression parsing
-- Handle unary vs binary operator disambiguation 
-- Parse comments and attach to relevant AST nodes where appropriate
-- Support operator combinations: `1 + 2 * 3` parses as `1 + (2 * 3)`
-- Error messages for invalid operator usage
-- All existing literal parsing continues to work
+- Parse all advanced operator types into appropriate AST nodes
+- Integrate with mathematical operator precedence from Phase 01-06
+- Handle complex operator interactions (assignment with spread, trails with expressions)
+- Support all assignment operator variants with proper semantics
+- Parse trail literals and expression segments correctly
+- Parse block definitions and invocations
+- Error messages for invalid advanced operator usage
+- All existing parsing (literals, structures, mathematical operators) continues to work
 
 ## Implementation Notes
 
-- Extends the Lark grammar with operator rules and precedence
-- Creates new AST node types for different operator categories
-- Implements precedence climbing or similar technique for expression parsing  
-- Comments may be attached as metadata to AST nodes or handled separately
+- Extends the Lark grammar built in Phase 01-06 with advanced operator rules
+- Creates new AST node types for assignment, structure, pipeline, block, trail operators
+- Integrates advanced operators into existing precedence system
+- Trail parsing requires handling of `/`, `'`, and `:` within trail contexts
+- Block parsing requires distinguishing `.{}` from structure literals `{}`
 - Focus on parsing correctness - actual evaluation happens in Chapter 2
 
 ## Key Design Decisions
 
-### Operator Precedence (following standard mathematical conventions)
+### Extended Operator Precedence (building on Phase 01-06)
 1. **Unary**: `+`, `-`, `!` (highest precedence)
 2. **Power**: `**` (right-associative)
 3. **Multiplicative**: `*`, `/`, `%`
@@ -101,43 +83,24 @@ Add parsing for all operator types that will be used in expressions and statemen
 10. **Fallback**: `??`, `?|`
 11. **Assignment**: `=`, `?=`, `*=`, `..=`, `?..=`, `*..=` (lowest precedence, right-associative)
 
-### Comment Handling
-- `;` starts a line comment that extends to end of line
-- Comments are parsed but may be stripped from AST or preserved as metadata
-- No multi-line comments in this phase (keep it simple)
-
 ### Spread Operator Context
 - `..expression` only valid in structure literals: `{..base extra=1}`
 - Creates SpreadField AST node similar to NamedField/PositionalField
 
+### Trail Syntax Rules
+- `/path/segments/` creates trail structure
+- `'expression'` within trails allows dynamic segments
+- `:` marks axis shifts for different navigation contexts
+
 ## Examples to Support
 
 ```comp
-; Arithmetic expressions
-result = 1 + 2 * 3        ; Should parse as 1 + (2 * 3)
-power = 2 ** 3 ** 2       ; Should parse as 2 ** (3 ** 2) (right-associative)
-
-; Comparison and logic  
-valid = x > 0 && y < 10
-ready = count != 0 || force == #true
-
-; Fallback and error handling
-port = config.port ?? env.PORT ?? 8080
-result = risky-operation |? default-value
-backup = primary ?| secondary  ; Alternative fallback
-temp = ???  ; Placeholder for unimplemented
-
 ; Assignment variations
 config ?= default-settings    ; Only if config not already set
 data *= validated-value       ; Strong assignment
 user ..= {verified=#true}     ; Append to structure
 prefs ?..= {theme="dark"}     ; Only add if theme not set
 state *..= new-state          ; Replace entirely
-
-; Shape unions and blocks
-!shape ~Result = ~success|~error    ; Union types
-block = .{ x + y }                  ; Block definition
-result = block .|                   ; Block invoke
 
 ; Structure operations
 user = {..defaults name="Alice" age=30}
@@ -146,18 +109,28 @@ first = items#0
 private-data = user&{session="abc123"}  ; Attach private data
 session = user&.session                 ; Access private field
 
+; Shape unions and blocks
+!shape ~Result = ~success|~error    ; Union types
+block = .{ x + y }                  ; Block definition
+result = block .|                   ; Block invoke
+
+; Pipeline operations
+result = risky-operation |? default-value
+data = process |{} transform
+
 ; Trail operations and expression control
 data |get /users/profile/theme/         ; Trail navigation
 config |set /cache/'key'/timeout/ 30    ; Trail with expression segment
 path = /base/ / /extended/segments/     ; Trail concatenation
-result = (1 + 2) * 3                    ; Parentheses for precedence
-tags #user[]                            ; Array type in shape
-field-name = 'computed-key'             ; Single quotes for field names
 
-; With comments
-count = items |length  ; Get the total count
-; This is a documentation comment
-result = process-data items
+; Fallback and special operators
+port = config.port ?? env.PORT ?? 8080
+backup = primary ?| secondary  ; Alternative fallback
+temp = ???  ; Placeholder for unimplemented
+
+; Array types and field naming
+tags #user[]                    ; Array type in shape
+field-name = 'computed-key'     ; Single quotes for field names
 ```
 
 ## What We're NOT Building (Yet)
@@ -173,6 +146,6 @@ result = process-data items
 ## Future Phases
 
 - **Chapter 2**: Expression evaluation - make operators actually work
-- **Later phases**: Advanced assignment patterns, custom operators
+- **Later phases**: Advanced assignment patterns, custom operators, inplace operators
 
-This phase establishes the foundation for all expression parsing while keeping evaluation for the next chapter.
+This phase completes the foundation for all operator parsing in Comp, enabling complex expressions that combine mathematical operations with language-specific features.
