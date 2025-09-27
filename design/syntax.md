@@ -54,6 +54,7 @@ and between the operations a function or structure.
 - `()` - Pipeline boundaries  
 - `|` - Function application
 - `|?` - Failure handling
+- `|<<` - Pipeline modifier (wrench operator)
 - `.{}` - Block delimiter
 
 **Assignment operators:**

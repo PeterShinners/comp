@@ -8,6 +8,8 @@ Comp uses pipelines to eliminate the nested function call spaghetti. The `|` lab
 
 Control flow and error handling work through functions that accept block arguments, providing a consistent approach that scales from simple transformations to complex workflows.
 
+Pipeline modifiers using the wrench operator (`|<<`) enable meta-operations that can inspect, transform, and optimize pipeline structure before execution. These modifiers can add capabilities like progress tracking, query optimization, or performance profiling without modifying the original business logic.
+
 Every statement gets fresh pipeline input through `$in`, which resets to the function's original input at each statement boundary. This enables natural parallel processing where multiple statements independently transform the same data—no variable juggling required.
 
 These principles combine to present code that reads linearly, while still accomodating practical
@@ -262,6 +264,33 @@ independently, and contributes to the final structure.
     {$in ..with-score ..with-category ..with-timestamp}
 }
 ```
+
+## Pipeline Modifiers: The Wrench Operator
+
+The wrench operator (`|<<`) enables pipeline meta-operations that inspect, transform, and optimize pipeline structure before execution. Unlike regular pipeline operations that transform data, wrench operations modify the pipeline itself, enabling powerful capabilities like progress tracking, query optimization, and performance instrumentation.
+
+Pipeline modifiers identify operations using shape-based patterns, leveraging the consistent naming conventions in standard library functions. Operations with `~iterable` inputs are recognized as iteration points, enabling automatic progress tracking or parallelization without additional metadata.
+
+```comp
+; Automatic progress tracking
+data |filter .{valid}
+     |map .{expensive-transform}
+     |<<progressbar    ; Analyzes pipeline, adds progress to all iterations
+
+; Database query optimization  
+db.users |filter .{active}
+         |map .{name email}
+         |<<push-to-sql    ; Converts to optimized SQL query
+
+; Development and profiling
+data |complex-pipeline
+     |<<debug           ; Logs data at each stage
+     |<<profile-time    ; Measures operation timing
+```
+
+The wrench operator transforms Comp from a pipeline language into a meta-pipeline language where the computation structure itself becomes malleable and optimizable. Multiple modifiers can be chained, creating sophisticated transformation and optimization chains.
+
+For comprehensive details on pipeline modifier implementation, shape-based operation detection, and the full system design, see the [Pipeline Modifier System Design](../docs/early/28-wrench.md).
 
 ## Blocks and Pipeline Context
 

@@ -10,6 +10,8 @@ Every function receives pipeline input and generates new output, while arguments
 
 Functions are references, not values—you can't stuff them in variables like JavaScript, but you can invoke them through pipelines and compose them with blocks. This design creates clear boundaries between code and data while enabling powerful composition patterns that feel natural to write.
 
+Functions return lazy structures that are backed by a pipeline of operations. The pipeline behind the structure can be accessed and modified. This is most often done with the (`|<<`) pipeline wrench operator which works with a function that takes the incoming pipeline description and generates a new pipeline description. This enabling meta-operations like progress tracking, query optimization, and performance profiling.
+
 At the core, function definitions and structure literals work identically—same parsing rules, same assignments, same operations. The difference is timing: structures evaluate immediately, functions become recipes for later execution. Functions come with a few extras, like pipeline inputs, documentation, and arguments.
 
 This unified approach means less syntax to learn and more consistent behavior. Whether you're building a simple data transformation or a complex polymorphic system, functions provide composable abstractions that scale naturally. For more details on structure operations and assignment patterns, see [Structures, Spreads, and Lazy Evaluation](structure.md).
@@ -334,6 +336,89 @@ handlers = {
 pipeline = .{$in |step1 |step2 |step3}
 final = (input |. pipeline |post-process)
 ```
+
+## Blocks as Partial Pipeline Fragments
+
+Blocks can be used to define partial pipeline fragments—sequences of connected operations that don't specify their input data. These pipeline fragments become reusable transformation chains that can be applied to different data sources or composed into larger processing workflows.
+
+Unlike complete pipelines that start with specific data, partial pipeline fragments begin with `$in` and chain operations from there. This creates portable transformation logic that can be shared, tested independently, and combined in flexible ways.
+
+```comp
+; Partial pipeline fragments for data processing
+@validation-chain = .{
+    $in |check-format
+        |validate-schema  
+        |sanitize-input
+}
+
+@enrichment-chain = .{
+    $in |lookup-metadata
+        |calculate-scores
+        |add-timestamps
+}
+
+@output-chain = .{
+    $in |format-results
+        |apply-templates
+        |compress-data
+}
+
+; Apply fragments to different data sources
+user-data = (raw-users |. @validation-chain |. @enrichment-chain)
+system-data = (raw-systems |. @validation-chain |. @output-chain)
+
+; Compose fragments into complete workflows
+@complete-workflow = .{
+    $in |. @validation-chain
+        |. @enrichment-chain  
+        |. @output-chain
+}
+
+; Use in function arguments for flexible behavior
+!func |process-data ~{data} ^{pipeline ~block} = {
+    $in |. ^pipeline |save-results
+}
+
+(user-records |process-data pipeline=@complete-workflow)
+```
+
+Partial pipeline fragments excel at creating reusable transformation logic. They enable separation of concerns where data validation, enrichment, and formatting can be defined independently and combined as needed. Functions can accept pipeline fragments as arguments, allowing callers to customize processing behavior while maintaining type safety through block shapes.
+
+This can also be done by defining regular functions in the module, but some situations are simplified by defining these on the fly, and passing these operations around as values.
+
+```comp
+; Library of reusable pipeline fragments
+@fragments = {
+    clean = .{$in |trim |normalize |remove-duplicates}
+    analyze = .{$in |extract-features |calculate-metrics}
+    secure = .{$in |encrypt-sensitive |hash-identifiers}
+    format = .{$in |apply-schema |compress |encode}
+}
+
+; Flexible composition for different use cases
+batch-job = .{
+    $in |. @fragments.clean
+        |. @fragments.analyze
+        |. @fragments.format
+}
+
+secure-batch = .{
+    $in |. @fragments.clean
+        |. @fragments.secure
+        |. @fragments.format
+}
+
+; Pipeline fragments can be modified by wrench operators too
+enhanced-workflow = .{
+    $in |. @fragments.clean
+        |<<progressbar           ; Add progress tracking
+        |. @fragments.analyze
+        |<<profile-time         ; Add timing profiling
+        |. @fragments.format
+}
+```
+
+This pattern transforms blocks from simple callbacks into powerful pipeline construction tools. By separating the definition of transformation logic from the data it operates on, partial pipeline fragments enable more modular, testable, and reusable code architectures.
 
 ## Argument Spreading and Presence-Check
 

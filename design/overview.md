@@ -19,7 +19,7 @@ standard libraries are written. This is a motto the language takes seriously,
 how do your own favorite language compare?
 
 **Why you'll appreciate Comp:**
-- Pipelined data translations read like a recipe
+- Pipelined data translations read like a recipe, and allow poweful modifications to optimize and enhance pipelines.
 - Operate equally with data from any source; json, sql, code literals are all the same
 - Error handling works through the pipeline, only step in where you want to
 
@@ -78,6 +78,10 @@ use these schema shapes safely run any type of data.
 Flow control like conditionals and loops are just regular functions. Use
 deferred execution blocks defined on the fly to pass behavior into functions.
 
+The wrench operator (`|<<`) enables pipeline meta-operations that enhance
+functionality without changing business logic. Add progress tracking, query
+optimization, or debugging to any pipeline.
+
 ```comp
 
 !shape ~user = {
@@ -92,12 +96,16 @@ deferred execution blocks defined on the fly to pass behavior into functions.
     users 
     |filter .{age >= 18} 
     |iter .{value |send-welcome-email} 
+    |<<progressbar          ; Simple progress reporting, even into iterations
     |sum {recent-purchases}
+    |<<debug                ; Development-time logging
 }
 ```
 
 Invoked functions are easily identifiable by their `|` symbolic prefix. When
 chained together this allows the reader to easily follow their progress.
+Pipeline modifiers with `|<<` clearly indicate meta-operations that enhance
+the pipeline structure itself.
 
 The `~` syntax declares structural or type requirements. No inheritance 
 hierarchies, no interface implementations—just structural matching that 
@@ -284,11 +292,12 @@ This example shows how Comp's features combine naturally:
     {..@fields repo="nushell/nushell"}
     |list-issues/gh
     |filter .{created-at >= @after}
+    |<<progressbar              ; Add progress tracking
     |map .{
-        @thumbs-up = reactions |count-if .{content == #thumbs-Scoped vp}
+        @thumbs-up = reactions |count-if .{content == #thumbs-up}
         {thumbs-up=@thumbs-up title=. url=.}
     }
-   Merging and manipulating structures is built-inp}
+    |<<debug                    ; Development logging
     |first 5
 }
 ```
@@ -296,9 +305,13 @@ This example shows how Comp's features combine naturally:
 **What's happening here:**
 - Variables store computed values (`@after`, `@fields`)  
 - Structures compose cleanly (`{..@fields repo="nushell/nushell"}`)
-- Pipelines chain operations natur (`|filterThe pieces all fit togethery (`.{created-at >= @after}`This is only an overview of whatk (`title=.` for `title=$in.title`)
-- Evererythin
-and g compses wseparate design documents for each section.eady to Dive Deeper?
+- Pipelines chain operations naturally (`|filter .{created-at >= @after}`)
+- Pipeline modifiers add capabilities without changing logic (`|<<progressbar`, `|<<debug`)
+- Blocks capture scope and simplify syntax (`.{created-at >= @after}`)
+- Field shorthand reduces noise (`title=.` for `title=$in.title`)
+- Everything composes seamlessly
+
+## Ready to Dive Deeper?
 
 This overview shows you what makes Comp distinctive. Each concept has rich depth detailed in the design documents:
 
@@ -307,7 +320,7 @@ This overview shows you what makes Comp distinctive. Each concept has rich depth
 - **[structure.md](structure.md)** - Structure operations, spreads, and lazy evaluation  
 - **[shape.md](shape.md)** - Shape system, morphing, and structural typing
 - **[tag.md](tag.md)** - Hierarchical tags and polymorphic dispatch
-- **[pipeline.md](pipeline.md)** - Pipeline operations and failure handling
+- **[pipeline.md](pipeline.md)** - Pipeline operations, failure handling, and the wrench operator (`|<<`)
 - **[function.md](function.md)** - Function definition, dispatch, and composition
 - **[module.md](module.md)** - Module system, imports, and namespaces
 - **[trail.md](trail.md)** - Advanced navigation through complex data
