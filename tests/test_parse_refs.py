@@ -17,8 +17,9 @@ PARSER EXPECTATIONS:
 AST NODES: TagReference(name), ShapeReference(name), FunctionReference(name)
 """
 
-import comp
 import pytest
+
+import comp
 
 # Valid reference test cases - comprehensive coverage
 valid_reference_cases = [
@@ -81,7 +82,7 @@ def test_valid_references(input_text, expected_type, expected_name):
     """Test all valid reference patterns: tags, shapes, functions with various naming conventions."""
     result = comp.parse(input_text)
     assert type(result).__name__ == expected_type
-    
+
     # IndexReference uses 'index' attribute, others use 'name'
     if expected_type == "IndexReference":
         assert int(result.index.value) == int(expected_name)
@@ -95,7 +96,7 @@ invalid_reference_cases = [
     ("#", "empty tag"),
     ("~", "empty shape"),
     ("|", "empty function"),
-    # Invalid start characters  
+    # Invalid start characters
     ("#-invalid", "tag starts with hyphen"),
     ("~-invalid", "shape starts with hyphen"),
     ("|-invalid", "function starts with hyphen"),
@@ -122,6 +123,7 @@ invalid_reference_cases = [
     ("%template", "% reserved for templates"),
     ("??fallback", "?? reserved for fallback"),
 ]
+
 
 @pytest.mark.parametrize(
     "invalid_input,description",

@@ -17,8 +17,8 @@ AST NODES: PipelineFailureOperation, PipelineModifierOperation,
 """
 
 import pytest
-import comp
 
+import comp
 
 # Test cases for the wrench operator (pipeline modifiers)
 wrench_operator_cases = [

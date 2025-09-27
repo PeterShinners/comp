@@ -68,6 +68,8 @@ def test_valid_structures(input_str, length, description):
     assert isinstance(result, comp.StructureLiteral)
     assert result is not None, f"Failed to parse {description}: {input_str}"
     assert len(result.operations) == length
+
+
 # Invalid structure literal test cases - should fail
 invalid_structure_cases = [
     # Malformed brackets
@@ -126,7 +128,7 @@ def test_contents():
     assert op0.expression.value == 3
 
     # Second operation: "car" (positional - no specific target in our current unified model)
-    op1 = result.operations[1] 
+    op1 = result.operations[1]
     assert isinstance(op1, comp.StructureOperation)
     # This should be a positional expression - for now it's parsed as a regular expression
     assert isinstance(op1.expression, comp.StringLiteral)
@@ -167,11 +169,21 @@ named_block_cases = [
 def test_named_block_operations(input_str, description):
     """Test that named block operations parse correctly."""
     result = comp.parse(input_str)
-    assert isinstance(result, comp.NamedBlockOperation), f"Expected NamedBlockOperation for {description}"
-    assert hasattr(result, 'name'), f"NamedBlockOperation missing 'name' attribute for {description}"
-    assert hasattr(result, 'block'), f"NamedBlockOperation missing 'block' attribute for {description}"
-    assert isinstance(result.name, comp.Identifier), f"Expected name to be Identifier for {description}"
-    assert isinstance(result.block, comp.BlockDefinition), f"Expected block to be BlockDefinition for {description}"
+    assert isinstance(result, comp.NamedBlockOperation), (
+        f"Expected NamedBlockOperation for {description}"
+    )
+    assert hasattr(result, "name"), (
+        f"NamedBlockOperation missing 'name' attribute for {description}"
+    )
+    assert hasattr(result, "block"), (
+        f"NamedBlockOperation missing 'block' attribute for {description}"
+    )
+    assert isinstance(result.name, comp.Identifier), (
+        f"Expected name to be Identifier for {description}"
+    )
+    assert isinstance(result.block, comp.BlockDefinition), (
+        f"Expected block to be BlockDefinition for {description}"
+    )
 
 
 def test_named_block_structure():
@@ -200,7 +212,7 @@ def test_named_block_vs_field_access():
     assert field_result.object.name == "name"
     assert field_result.field == "field"
 
-    # Named block operation  
+    # Named block operation
     block_result = comp.parse("name.{field}")
     assert isinstance(block_result, comp.NamedBlockOperation)
     assert block_result.name.name == "name"

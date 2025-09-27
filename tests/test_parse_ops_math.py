@@ -5,9 +5,9 @@ This module tests corner cases, invalid syntax, and boundary conditions
 for all operators to ensure proper error handling and edge case behavior.
 """
 
-import comp
 import pytest
 
+import comp
 
 # Invalid mathematical operator syntax cases that should raise parse errors
 invalid_mathematical_operator_cases = [

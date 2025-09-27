@@ -291,13 +291,6 @@ def _assert_pipeline_failure(node, operation, fallback):
     _check_value(node.fallback, fallback)
 
 
-def _assert_pipeline_block(node, process, transform):
-    """Helper to assert pipeline with block"""
-    assert isinstance(node, comp.PipelineBlock)
-    _check_value(node.process, process)
-    _check_value(node.transform, transform)
-
-
 def _assert_block_definition(node, expression):
     """Helper to assert block definition"""
     assert isinstance(node, comp.BlockDefinition)
