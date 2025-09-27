@@ -133,6 +133,7 @@ SINGLE_QUOTE: "'"
          | atom_expr DOT identifier -> field_access_operation
          | atom_expr DOT string -> string_field_access_operation  
          | atom_expr DOT SINGLE_QUOTE expression SINGLE_QUOTE -> computed_field_access_operation
+         | atom_expr DOT block_definition -> named_block_operation
          | atom_expr AMPERSAND atom -> private_attach_operation
          | atom_expr PRIVATE_ACCESS identifier -> private_access_operation
          | BLOCK_INVOKE identifier -> block_invoke_operation

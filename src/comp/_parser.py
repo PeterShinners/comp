@@ -277,6 +277,10 @@ class _CompTransformer(Transformer):
         """Transform block_invoke_operation rule into BlockInvokeOperation AST node."""
         return _ast.BlockInvokeOperation.fromToken(tokens)
 
+    def named_block_operation(self, tokens):
+        """Transform named_block_operation rule into NamedBlockOperation AST node."""
+        return _ast.NamedBlockOperation.fromToken(tokens)
+
     # Structure handling
     def structure(self, tokens):
         """Transform structure rule into StructureLiteral AST node."""

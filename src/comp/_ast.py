@@ -650,6 +650,24 @@ class BlockInvokeOperation(ASTNode):
         return f"BlockInvokeOperation({self.block!r})"
 
 
+class NamedBlockOperation(ASTNode):
+    """AST node representing a named block operation (name.{expression})."""
+
+    def __init__(self, name: ASTNode, block: ASTNode):
+        super().__init__()
+        self.name = name
+        self.block = block
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create NamedBlockOperation from tokens."""
+        name, _, block = tokens  # name DOT block_definition
+        return cls(name, block)
+
+    def __repr__(self) -> str:
+        return f"NamedBlockOperation({self.name!r}, {self.block!r})"
+
+
 class BlockDefinition(ASTNode):
     """AST node representing a block definition (.{expression})."""
 
