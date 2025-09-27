@@ -59,8 +59,8 @@ and between the operations a function or structure.
 
 **Assignment operators:**
 - `=` - Normal assignment
-- `*=` - Strong assignment (resists overwriting)  
-- `?=` - Weak assignment (only if undefined)
+- `=*` - Strong assignment (resists overwriting)  
+- `=?` - Weak assignment (only if undefined)
 
 **Spread operators:**
 - `..` - Normal spread

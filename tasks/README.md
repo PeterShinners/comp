@@ -20,43 +20,43 @@ Focused just on parsing the main language features into ast trees
 [X] 01-05. Structures - Parse structures with fields, nested structures
 [X] 01-06. Mathematical Operators - Parse arithmetic, comparison, logical operators, parentheses
 [X] 01-07. Advanced Operators - Parse assignment, structure, pipeline, block operators
-[ ] 01-PP. Scopes and Assignments - Parse scope operators and references
-[ ] 01-PP. Pipeline - Parse statements and pipelines
-[ ] 01-PP. Tags Initial - Parse simple tag definitions (no values)
+[ ] 01-08. Scopes and Assignments - Parse scope operators and references ($ctx, $mod, $in, $out, ^, @)
+[ ] 01-09. Pipeline Operations - Parse statements and pipelines (flat operation lists)
+[ ] 01-10. Tags Initial - Parse simple tag definitions (no values)
 [ ] 01-PP. Shapes - Parse shape definitions
 [ ] 01-PP. Function - Parse function definitions
 [ ] 01-PP. Tags Complete - Complete parsing of tags with values
 [ ] 01-PP. Non-definition Bang Operators - Parse !delete, !doc, etc.
 [ ] 01-PP. Blocks and Args - Parsing of blocks and definition and passing function args
 
-## CC. Values and Expressions
+## 02. Values and Expressions
 
 Initial runtime structures and data
 
-[ ] CC-PP. Evaluate numerical expression operators
-[ ] CC-PP. Implement scope referencing and overwriting
-[ ] CC-PP. Structure creation
-[ ] CC-PP. Structure operators
-[ ] CC-PP. Core builtin tag types
-[ ] CC-PP. Core builtin shapes
-[ ] CC-PP. Handful of builtin example functions
-[ ] CC-PP. Pipeline evaluation and failure propoagtion
+[ ] 02-PP. Evaluate numerical expression operators
+[ ] 02-PP. Implement scope referencing and overwriting
+[ ] 02-PP. Structure creation
+[ ] 02-PP. Structure operators
+[ ] 02-PP. Core builtin tag types
+[ ] 02-PP. Core builtin shapes
+[ ] 02-PP. Handful of builtin example functions
+[ ] 02-PP. Pipeline evaluation and failure propoagtion
 
-## CC. Language Definitions
+## 03. Language Definitions
 
 Allow creating the real object definitions for the language
 
-[ ] CC-PP. Tag definitions
-[ ] CC-PP. Shape Definitions and union shapes
-[ ] CC-PP. Function Definitions
-[ ] CC-PP. Placeholder operator ???
-[ ] CC-PP. Blocks
-[ ] CC-PP. Initial minimal conditional and iteration
-[ ] CC-PP. Streams
-[ ] CC-PP. Extended field name types, (numbers, tags)
-[ ] CC-PP. Shape matching and morphing
-[ ] CC-PP. String templates
-[ ] CC-PP. Pure functions
+[ ] 03-PP. Tag definitions
+[ ] 03-PP. Shape Definitions and union shapes
+[ ] 03-PP. Function Definitions
+[ ] 03-PP. Placeholder operator ???
+[ ] 03-PP. Blocks
+[ ] 03-PP. Initial minimal conditional and iteration
+[ ] 03-PP. Streams
+[ ] 03-PP. Extended field name types, (numbers, tags)
+[ ] 03-PP. Shape matching and morphing
+[ ] 03-PP. String templates
+[ ] 03-PP. Pure functions
 
 ## CC. Library Incubation
 

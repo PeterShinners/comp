@@ -69,7 +69,7 @@ When spreading multiple structures, fields are applied in source order. Named fi
 
 ```comp
 base = {x=1 y=2 mode=default}
-overlay = {y=3 z=4 mode*=fixed}
+overlay = {y=3 z=4 mode=*fixed}
 
 ; Basic spreading with conflicts
 merged = {..base ..overlay}
@@ -102,16 +102,16 @@ The spread operators work identically in all contexts - structure literals, func
 
 ## Assignment Operators and Field Manipulation
 
-Assignment in Comp creates new structures rather than modifying existing ones. The assignment operators control how conflicts are resolved when the same field is set multiple times. Normal assignment (`=`) overwrites, strong assignment (`*=`) creates persistent values, and weak assignment (`?=`) only sets undefined fields.
+Assignment in Comp creates new structures rather than modifying existing ones. The assignment operators control how conflicts are resolved when the same field is set multiple times. Normal assignment (`=`) overwrites, strong assignment (`=*`) resists overwriting, and weak assignment (`=?`) only sets undefined fields.
 
 Deep field assignment creates new nested structures at each level, preserving immutability throughout the hierarchy. The assignment target determines where the value goes - local variables with `$var`, output structure fields (no prefix), or namespace structures like `$ctx`.
 
 ```comp
 ; Field override behavior
 config = {
-    port *= 8080        ; Strong - resists override
+    port =* 8080        ; Strong - resists override
     host = localhost    ; Normal - can be overwritten
-    timeout ?= 30       ; Weak - only if undefined
+    timeout =? 30       ; Weak - only if undefined
     
     port = 3000        ; Ignored due to strong assignment
     host = 0.0.0.0     ; Overwrites normal assignment
@@ -164,7 +164,7 @@ Removing fields from structures requires creating new structures without those f
 
 ```comp
 ; Remove fields with !delete operator
-original = {x=1 y=2 z=3 temp=remove}
+original = {x=1 y=2 z=3 temp="remove"}
 cleaned = {..original !delete temp}
 ; Result: {x=1 y=2 z=3}
 
@@ -173,7 +173,7 @@ modified = {..base !delete field1 !delete field2}
 
 ; Remove fields via shape morphing
 !shape public-user = {name ~str email ~str}  ; No password field
-user = {name=Alice email=a@example.com password=secret}
+user = {name="Alice" email="a@example.com" password="secret"}
 public = user ~public-user  ; Result: {name=Alice email=a@example.com}
 
 ; Conditional field inclusion

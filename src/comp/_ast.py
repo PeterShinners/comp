@@ -286,14 +286,14 @@ class StructureOperation(ASTNode):
 
     Each operation has:
     - target: field/scope reference (or None for unnamed/positional)
-    - operator: assignment operator (=, *=, ?=, ..=)
+    - operator: assignment operator (=, =*, =?, ..=)
     - expression: any expression (literal, pipeline, etc.)
     """
 
     def __init__(self, target: ASTNode | None, operator: str, expression: ASTNode):
         super().__init__()
         self.target = target  # ScopeTarget, FieldTarget, or None for positional
-        self.operator = operator  # "=", "*=", "?=", "..="
+        self.operator = operator  # "=", "=*", "=?", "..="
         self.expression = expression  # Any expression
 
     @classmethod
@@ -734,22 +734,22 @@ class SpreadField(ASTNode):
 
 
 class WeakNamedField(NamedField):
-    """AST node representing a weak assignment named field (name ?= value)."""
+    """AST node representing a weak assignment named field (name =? value)."""
 
     def __init__(self, name: str, value: ASTNode):
         super().__init__(name, value)
-        self.operator = "?="
+        self.operator = "=?"
 
     def __repr__(self) -> str:
         return f"WeakNamedField({self.name!r}, {self.value!r})"
 
 
 class StrongNamedField(NamedField):
-    """AST node representing a strong assignment named field (name *= value)."""
+    """AST node representing a strong assignment named field (name =* value)."""
 
     def __init__(self, name: str, value: ASTNode):
         super().__init__(name, value)
-        self.operator = "*="
+        self.operator = "=*"
 
     def __repr__(self) -> str:
         return f"StrongNamedField({self.name!r}, {self.value!r})"
@@ -767,22 +767,22 @@ class SpreadNamedField(NamedField):
 
 
 class WeakSpreadNamedField(NamedField):
-    """AST node representing a weak spread assignment named field (name ?..= value)."""
+    """AST node representing a weak spread assignment named field (name ..=? value)."""
 
     def __init__(self, name: str, value: ASTNode):
         super().__init__(name, value)
-        self.operator = "?..="
+        self.operator = "..=?"
 
     def __repr__(self) -> str:
         return f"WeakSpreadNamedField({self.name!r}, {self.value!r})"
 
 
 class StrongSpreadNamedField(NamedField):
-    """AST node representing a strong spread assignment named field (name *..= value)."""
+    """AST node representing a strong spread assignment named field (name ..=* value)."""
 
     def __init__(self, name: str, value: ASTNode):
         super().__init__(name, value)
-        self.operator = "*..="
+        self.operator = "..=*"
 
     def __repr__(self) -> str:
         return f"StrongSpreadNamedField({self.name!r}, {self.value!r})"

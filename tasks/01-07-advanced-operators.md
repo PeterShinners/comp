@@ -14,12 +14,12 @@ Add parsing for all the advanced language-specific operators that make Comp uniq
 
 ### Assignment Operators
 - **Basic assignment**: `=` for field assignment (already in structures)
-- **Weak assignment**: `?=` only assigns if field not already defined
-- **Strong assignment**: `*=` force assignment, persists beyond current scope
+- **Weak assignment**: `=?` only assigns if field not already defined
+- **Strong assignment**: `=*` force assignment, resists overwriting in conflicts
 - **Spread assignment**: `..=` shorthand for `struct = {..struct value}`
-- **Weak spread assignment**: `?..=` only adds new fields, preserves existing
-- **Strong spread assignment**: `*..=` replaces structure entirely with merged result
-- **Note**: Skipping inplace operators (`+=`, `-=`, etc.) due to `*=` conflict - add in future phase
+- **Weak spread assignment**: `..=?` only adds new fields, preserves existing
+- **Strong spread assignment**: `..=*` replaces structure entirely with merged result
+- **Note**: Skipping inplace operators (`+=`, `-=`, etc.) due to conflict potential - add in future phase
 
 ### Structure Operators
 - **Spread operator**: `..` for structure spreading `{..base extra=value}`
@@ -85,7 +85,7 @@ Add parsing for all the advanced language-specific operators that make Comp uniq
 8. **Logical AND**: `&&`
 9. **Logical OR**: `||`
 10. **Fallback**: `??`, `?|`
-11. **Assignment**: `=`, `?=`, `*=`, `..=`, `?..=`, `*..=` (lowest precedence, right-associative)
+11. **Assignment**: `=`, `=?`, `=*`, `..=`, `..=?`, `..=*` (lowest precedence, right-associative)
 
 ### Spread Operator Context
 - `..expression` only valid in structure literals: `{..base extra=1}`
@@ -100,11 +100,11 @@ Add parsing for all the advanced language-specific operators that make Comp uniq
 
 ```comp
 ; Assignment variations
-config ?= default-settings    ; Only if config not already set
-data *= validated-value       ; Strong assignment
+config =? default-settings    ; Only if config not already set
+data =* validated-value       ; Strong assignment
 user ..= {verified=#true}     ; Append to structure
-prefs ?..= {theme="dark"}     ; Only add if theme not set
-state *..= new-state          ; Replace entirely
+prefs ..=? {theme="dark"}     ; Only add if theme not set
+state ..=* new-state          ; Replace entirely
 
 ; Structure operations
 user = {..defaults name="Alice" age=30}
@@ -139,7 +139,7 @@ field-name = 'computed-key'     ; Single quotes for field names
 - **Advanced operators**: Custom operators, operator overloading
 - **Multi-line comments**: Only single-line `;` comments
 - **Operator methods**: No custom operator definitions
-- **Inplace operators**: `+=`, `-=`, `/=`, `%=` deferred due to `*=` conflict with strong assignment
+- **Inplace operators**: `+=`, `-=`, `/=`, `%=` deferred to avoid conflicts with assignment operators
 - **Trail operators**: `/path/segments/`, trail concatenation, expression segments - deferred due to `/` division conflict
 - **Non-definition ! operators**: `!delete`, `!doc`, etc. wait for a future phase after `!func`, `!tag`, `!shape` parsing
 
