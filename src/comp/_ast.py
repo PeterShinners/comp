@@ -19,7 +19,6 @@ __all__ = [
     "PositionalField",
     "BinaryOperation",
     "UnaryOperation",
-    # Advanced operators
     "AssignmentOperation",
     "FallbackOperation",
     "ShapeUnionOperation",
@@ -48,13 +47,6 @@ __all__ = [
     "ScopeTarget",
     "FieldTarget",
     "ParseError",
-    # Aliases for test compatibility
-    "FieldAccess",
-    "ShapeUnion",
-    "PipelineFailure",
-    "PipelineModifier",
-    "IndexAccess",
-    "BlockInvoke",
 ]
 
 import ast
@@ -83,6 +75,16 @@ class ASTNode:
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(...)"
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """
+        Default fromToken implementation for simple AST nodes.
+
+        This base implementation works for classes with no constructor parameters
+        (other than self). Subclasses with parameters should override this method.
+        """
+        return cls()
 
 
 class NumberLiteral(ASTNode):
@@ -294,6 +296,17 @@ class StructureOperation(ASTNode):
         self.operator = operator  # "=", "*=", "?=", "..="
         self.expression = expression  # Any expression
 
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create StructureOperation from tokens: [target, operator, expression]."""
+        if len(tokens) == 3:
+            target, operator, expression = tokens
+            return cls(target, str(operator), expression)
+        else:
+            raise ValueError(
+                f"Expected 3 tokens for StructureOperation, got {len(tokens)}"
+            )
+
     def __repr__(self) -> str:
         if self.target is None:
             return f"StructureOperation(None, {self.operator!r}, {self.expression!r})"
@@ -430,9 +443,6 @@ class UnaryOperation(ASTNode):
 
     def __hash__(self) -> int:
         return hash((self.operator, self.operand))
-
-
-# Advanced Operators AST Nodes
 
 
 class AssignmentOperation(ASTNode):
@@ -837,6 +847,12 @@ class ScopeAssignment(ASTNode):
         self.operator = operator
         self.value = value
 
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create ScopeAssignment from tokens: [target, operator, value]."""
+        target, operator, value = tokens
+        return cls(target, str(operator), value)
+
     def __repr__(self) -> str:
         return f"ScopeAssignment({self.target!r}, {self.operator!r}, {self.value!r})"
 
@@ -850,6 +866,12 @@ class FieldAssignment(ASTNode):
         self.operator = operator
         self.value = value
 
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create FieldAssignment from tokens: [target, operator, value]."""
+        target, operator, value = tokens
+        return cls(target, str(operator), value)
+
     def __repr__(self) -> str:
         return f"FieldAssignment({self.target!r}, {self.operator!r}, {self.value!r})"
 
@@ -862,6 +884,18 @@ class ScopeTarget(ASTNode):
         self.scope_type = scope_type  # "@" or "$"
         self.name = name
         self.field_path = field_path or []
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create ScopeTarget from tokens: [scope_type, identifier, ...optional field_path]."""
+        scope_type = str(tokens[0])  # @ or $
+        name = tokens[1].name if hasattr(tokens[1], "name") else str(tokens[1])
+
+        field_path = []
+        if len(tokens) > 3:  # Has DOT and field_path
+            field_path = tokens[3]  # field_path result
+
+        return cls(scope_type, name, field_path)
 
     def __repr__(self) -> str:
         if self.field_path:
@@ -888,17 +922,33 @@ class FieldTarget(ASTNode):
         self.name = name
         self.field_path = field_path or []
 
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create FieldTarget from tokens: [identifier/string/'expr', ...optional field_path]."""
+        first_token = tokens[0]
+
+        if hasattr(first_token, "name"):  # Identifier
+            name = first_token.name
+        elif hasattr(first_token, "value"):  # StringLiteral
+            name = first_token.value
+        elif hasattr(first_token, "type") and first_token.type == "SINGLE_QUOTE":
+            # Handle 'expression' case: [SINGLE_QUOTE, expression, SINGLE_QUOTE]
+            expression = tokens[1]
+            name = f"<computed:{expression}>"
+        else:
+            name = str(first_token)
+
+        field_path = []
+        if len(tokens) > 2 and not (
+            hasattr(tokens[0], "type") and tokens[0].type == "SINGLE_QUOTE"
+        ):
+            # Has DOT and field_path (but not for 'expression' case)
+            field_path = tokens[2]  # field_path result
+
+        return cls(name, field_path)
+
     def __repr__(self) -> str:
         if self.field_path:
             path = ".".join([self.name] + self.field_path)
             return f"FieldTarget({path!r})"
         return f"FieldTarget({self.name!r})"
-
-
-# Aliases for test compatibility
-FieldAccess = FieldAccessOperation
-ShapeUnion = ShapeUnionOperation
-PipelineFailure = PipelineFailureOperation
-PipelineModifier = PipelineModifierOperation
-IndexAccess = IndexAccessOperation
-BlockInvoke = BlockInvokeOperation

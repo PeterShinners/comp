@@ -12,7 +12,7 @@ PARSER EXPECTATIONS:
 - comp.parse("data |<< modifier") → PipelineModifierOperation
 - comp.parse("name.{expr}") → NamedBlockOperation
 
-AST NODES: PipelineFailureOperation, PipelineModifierOperation, 
+AST NODES: PipelineFailureOperation, PipelineModifierOperation,
            NamedBlockOperation, BlockDefinition
 """
 
@@ -38,18 +38,20 @@ wrench_operator_cases = [
 def test_wrench_operator(input_str, description):
     """Test that wrench operator |<< parses correctly."""
     result = comp.parse(input_str)
-    
+
     # Should parse to a PipelineModifierOperation (might be nested)
     # Find the outermost PipelineModifierOperation
     current = result
-    while (hasattr(current, 'pipeline') and 
-           isinstance(current.pipeline, comp.PipelineModifierOperation)):
+    while hasattr(current, "pipeline") and isinstance(
+        current.pipeline, comp.PipelineModifierOperation
+    ):
         current = current.pipeline
-    
-    assert isinstance(result, comp.PipelineModifierOperation), \
+
+    assert isinstance(result, comp.PipelineModifierOperation), (
         f"Expected PipelineModifierOperation for {description}, got {type(result)}"
-    assert hasattr(result, 'pipeline'), f"Missing pipeline attribute for {description}"
-    assert hasattr(result, 'modifier'), f"Missing modifier attribute for {description}"
+    )
+    assert hasattr(result, "pipeline"), f"Missing pipeline attribute for {description}"
+    assert hasattr(result, "modifier"), f"Missing modifier attribute for {description}"
 
 
 def test_wrench_operator_structure():
@@ -68,7 +70,7 @@ def test_wrench_operator_structure():
     assert isinstance(result.pipeline, comp.PipelineModifierOperation)
     assert isinstance(result.modifier, comp.Identifier)
     assert result.modifier.name == "debug"
-    
+
     # Inner operation
     inner = result.pipeline
     assert isinstance(inner.pipeline, comp.Identifier)
@@ -83,7 +85,7 @@ def test_wrench_with_named_blocks():
     assert isinstance(result, comp.PipelineModifierOperation)
     assert isinstance(result.pipeline, comp.NamedBlockOperation)
     assert isinstance(result.modifier, comp.Identifier)
-    
+
     # Check the named block structure
     named_block = result.pipeline
     assert named_block.name.name == "handler"
@@ -98,7 +100,7 @@ def test_wrench_precedence():
     assert isinstance(result, comp.PipelineModifierOperation)
     assert isinstance(result.pipeline, comp.FieldAccessOperation)
     assert result.pipeline.field == "field"
-    
+
     # Should bind more tightly than fallback
     result = comp.parse("data |<< mod ?? fallback")
     assert isinstance(result, comp.FallbackOperation)
@@ -121,7 +123,7 @@ def test_complex_pipeline_combinations():
     # This should parse as a complex pipeline with multiple operations
     test_expr = "data |filter .{valid} |<< progressbar"
     result = comp.parse(test_expr)
-    
+
     assert isinstance(result, comp.PipelineModifierOperation)
     # The pipeline part should be a shape union (|filter creates a ShapeUnionOperation)
     assert isinstance(result.pipeline, comp.ShapeUnionOperation)

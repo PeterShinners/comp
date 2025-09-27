@@ -18,7 +18,7 @@ CURRENT CAPABILITIES:
 - Comparison operators (==, !=, <, >, <=, >=)
 - Comments (;)
 - Structure literals ({field=value})
-- Advanced operators (fallback ??, pipe |, etc.)
+- Pipeline operators (fallback ??, pipe |, etc.)
 - All basic language constructs
 """
 
@@ -34,7 +34,7 @@ from . import _ast
 _lark_parser: Lark | None = None
 
 
-def parse(text: str) -> _ast.ASTNode:
+def parse(text: str) -> list | _ast.ASTNode:
     """
     Parse a single Comp expression from text.
 
@@ -110,7 +110,7 @@ def _get_parser() -> Lark:
         return _lark_parser
 
     lark_path = Path(__file__).parent / "lark"
-    with (lark_path / "unified_expressions.lark").open() as f:
+    with (lark_path / "comp.lark").open() as f:
         grammar = f.read()
 
     # Set up parser with import paths and transformer
@@ -128,7 +128,7 @@ def _get_parser() -> Lark:
 class _CompTransformer(Transformer):
     """
     Lark transformer to convert parse trees into AST nodes.
-    
+
     This class contains methods for each grammar rule that should produce
     an AST node. Method names correspond to the rule names in the grammar.
     """
@@ -137,20 +137,23 @@ class _CompTransformer(Transformer):
     def binary_operation(self, tokens):
         """Transform binary_operation rule into BinaryOperation AST node."""
         # For comparison operators, extract the actual operator string
-        if len(tokens) >= 3 and hasattr(tokens[1], 'data') and tokens[1].data == 'comp_op':
+        if (
+            len(tokens) >= 3
+            and hasattr(tokens[1], "data")
+            and tokens[1].data == "comp_op"
+        ):
             # Extract the actual operator from the comp_op tree
             operator = str(tokens[1].children[0])
+            # Rebuild tokens with the extracted operator for fromToken
+            normalized_tokens = [tokens[0], operator, tokens[2]]
+            return _ast.BinaryOperation.fromToken(normalized_tokens)
         else:
-            # Regular operator
-            operator = str(tokens[1])
-        
-        return _ast.BinaryOperation(tokens[0], operator, tokens[2])
+            # Regular operator - can use fromToken directly
+            return _ast.BinaryOperation.fromToken(tokens)
 
     def unary_operation(self, tokens):
         """Transform unary_operation rule into UnaryOperation AST node."""
-        operator = str(tokens[0])
-        operand = tokens[1]
-        return _ast.UnaryOperation(operator, operand)
+        return _ast.UnaryOperation.fromToken(tokens)
 
     def comp_op(self, tokens):
         """Transform comp_op rule - extract comparison operator."""
@@ -211,7 +214,6 @@ class _CompTransformer(Transformer):
         identifier_path_token = tokens[0]
         return _ast.FunctionReference.fromToken(identifier_path_token)
 
-    # Advanced operations
     def assignment_operation(self, tokens):
         """Transform assignment_operation rule into AssignmentOperation AST node."""
         target = tokens[0]
@@ -220,7 +222,7 @@ class _CompTransformer(Transformer):
         return _ast.AssignmentOperation(target, operator, expression)
 
     def fallback_operation(self, tokens):
-        """Transform fallback_operation rule into FallbackOperation AST node.""" 
+        """Transform fallback_operation rule into FallbackOperation AST node."""
         return _ast.FallbackOperation.fromToken(tokens)
 
     def shape_union_operation(self, tokens):
@@ -258,7 +260,7 @@ class _CompTransformer(Transformer):
 
     def computed_expression(self, tokens):
         """Transform bare computed expression ('expr') into the inner expression."""
-        # tokens: [quote, expression, quote] 
+        # tokens: [quote, expression, quote]
         _, expression, _ = tokens
         # For bare computed expressions, just return the inner expression
         # The single quotes indicate it should be computed, but as a standalone
@@ -288,7 +290,7 @@ class _CompTransformer(Transformer):
         expression = tokens[2]  # Skip BLOCK_START and get expression
         # Create a BlockDefinition wrapper for the expression
         block = _ast.BlockDefinition(expression)
-        return _ast.NamedBlockOperation(name, block)
+        return _ast.NamedBlockOperation.fromToken([name, None, block])  # Use None for DOT placeholder
 
     # Structure handling
     def structure(self, tokens):
@@ -299,7 +301,7 @@ class _CompTransformer(Transformer):
             if isinstance(token, _ast.ASTNode):
                 fields.append(token)
 
-        return _ast.StructureLiteral(fields)
+        return _ast.StructureLiteral.fromToken(fields)
 
     def structure_field(self, tokens):
         """Transform structure_field rule."""
@@ -310,68 +312,31 @@ class _CompTransformer(Transformer):
         # tokens: [identifier, ASSIGN, expression]
         key = tokens[0]
         value = tokens[2]  # Skip the ASSIGN token
-        
-        key_name = key.name if isinstance(key, _ast.Identifier) else str(key)
-        return _ast.NamedField(key_name, value)
+        return _ast.NamedField.fromToken([key, value])
 
     def scope_assignment(self, tokens):
         """Transform scope_assignment rule into StructureOperation AST node."""
-        # tokens: [scope_target, assignment_op, expression]
-        target = tokens[0]
-        operator = str(tokens[1])
-        expression = tokens[2]
-        return _ast.StructureOperation(target, operator, expression)
+        return _ast.StructureOperation.fromToken(tokens)
 
     def field_assignment(self, tokens):
         """Transform field_assignment rule into StructureOperation AST node."""
-        # tokens: [field_target, assignment_op, expression]
-        target = tokens[0]
-        operator = str(tokens[1])
-        expression = tokens[2]
-        return _ast.StructureOperation(target, operator, expression)
+        return _ast.StructureOperation.fromToken(tokens)
 
     def spread_operation(self, tokens):
         """Transform spread_operation rule into StructureOperation AST node."""
         # tokens: [SPREAD, expression]
-        target = _ast.SpreadTarget()
+        target = _ast.SpreadTarget.fromToken([])  # Use fromToken for consistency
         operator = ".."  # Spread operator
         expression = tokens[1]  # Skip the SPREAD token
-        return _ast.StructureOperation(target, operator, expression)
+        return _ast.StructureOperation.fromToken([target, operator, expression])
 
     def scope_target(self, tokens):
         """Transform scope_target rule into ScopeTarget AST node."""
-        # Handle different patterns: @name, @name.path, $name, $name.path
-        scope_type = str(tokens[0])  # @ or $
-        name = tokens[1].name if isinstance(tokens[1], _ast.Identifier) else str(tokens[1])
-        
-        field_path = []
-        if len(tokens) > 3:  # Has DOT and field_path
-            field_path = tokens[3]  # field_path result
-            
-        return _ast.ScopeTarget(scope_type, name, field_path)
+        return _ast.ScopeTarget.fromToken(tokens)
 
     def field_target(self, tokens):
         """Transform field_target rule into FieldTarget AST node."""
-        # Handle: identifier, identifier.field_path, string, or 'expression'
-        first_token = tokens[0]
-        
-        if isinstance(first_token, _ast.Identifier):
-            name = first_token.name
-        elif isinstance(first_token, _ast.StringLiteral):
-            name = first_token.value  # Use the string value as the field name
-        elif hasattr(first_token, 'type') and first_token.type == 'SINGLE_QUOTE':
-            # Handle 'expression' case: tokens are [SINGLE_QUOTE, expression, SINGLE_QUOTE]
-            expression = tokens[1]
-            name = f"<computed:{expression}>"  # Store computed expression representation
-        else:
-            name = str(first_token)
-        
-        field_path = []
-        if len(tokens) > 2 and not (hasattr(tokens[0], 'type') and tokens[0].type == 'SINGLE_QUOTE'):
-            # Has DOT and field_path (but not for 'expression' case)
-            field_path = tokens[2]  # field_path result
-            
-        return _ast.FieldTarget(name, field_path)
+        return _ast.FieldTarget.fromToken(tokens)
 
     def field_path(self, tokens):
         """Transform field_path rule into list of field names."""
@@ -380,7 +345,7 @@ class _CompTransformer(Transformer):
         for token in tokens:
             if isinstance(token, _ast.Identifier):
                 path.append(token.name)
-            elif hasattr(token, 'value'):
+            elif hasattr(token, "value"):
                 path.append(token.value)
             else:
                 path.append(str(token))
@@ -393,33 +358,29 @@ class _CompTransformer(Transformer):
     def positional_field(self, tokens):
         """Transform positional_field rule into StructureOperation AST node."""
         # Positional field has no target and implicit "=" operator
-        return _ast.StructureOperation(None, "=", tokens[0])
+        return _ast.StructureOperation.fromToken([None, "=", tokens[0]])
 
     def spread_field(self, tokens):
         """Transform spread_field rule into SpreadField AST node."""
-        return _ast.SpreadField(tokens[1])  # Skip the SPREAD token
+        return _ast.SpreadField.fromToken(tokens)
 
     # Special constructs
     def index_reference(self, tokens):
         """Transform index_reference rule into IndexReference AST node."""
-        return _ast.IndexReference(tokens[1])  # Skip the HASH token
+        return _ast.IndexReference.fromToken(tokens)
 
     def block_definition(self, tokens):
         """Transform block_definition rule into BlockDefinition AST node."""
-        return _ast.BlockDefinition(tokens[1])  # Skip BLOCK_START token
+        return _ast.BlockDefinition.fromToken(tokens)
 
     def placeholder(self, tokens):
         """Transform placeholder rule into Placeholder AST node."""
-        return _ast.Placeholder()
+        return _ast.Placeholder.fromToken(tokens)
 
     def array_type(self, tokens):
         """Transform array_type rule into ArrayType AST node."""
-        identifier = tokens[0]
-        return _ast.ArrayType(identifier)
+        return _ast.ArrayType.fromToken(tokens)
 
     def field_name(self, tokens):
         """Transform field_name rule into FieldName AST node."""
-        # tokens: [SINGLE_QUOTE, identifier, SINGLE_QUOTE]
-        identifier = tokens[1]
-        name = identifier.name if isinstance(identifier, _ast.Identifier) else str(identifier)
-        return _ast.FieldName(name)
+        return _ast.FieldName.fromToken(tokens)

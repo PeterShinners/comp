@@ -1,6 +1,6 @@
-"""Tests for Advanced Operators
+"""Tests for Operators
 
-Tests advanced language-specific operators including assignment, structure manipulation,
+Tests language-specific operators including assignment, structure manipulation,
 pipeline operations, block syntax, and special operators. def test_complex_advanced_expressions():
 """
 
@@ -167,7 +167,7 @@ def test_comments_parse():
 
 
 def test_advanced_operator_precedence():
-    """Test advanced operator precedence integration"""
+    """Test operator precedence integration"""
     # Assignment has lower precedence than mathematical operators
     result = comp.parse("{result = x + y * z}")
     _assert_structure_with_named_field(result, "result", None)
@@ -182,7 +182,7 @@ def test_advanced_operator_precedence():
 
 
 def test_complex_advanced_expressions():
-    """Test complex expressions combining advanced operators"""
+    """Test complex expressions combining operators"""
     # Structure with individual operations (multi-op structures need more work)
     result = comp.parse("{..base}")
     assert isinstance(result, comp.StructureLiteral)
@@ -226,7 +226,7 @@ def _assert_structure_with_named_field(node, field_name, field_value, operator="
 
     # Check the value if specified
     if field_value is not None:
-        _check_value(matching_op.expression, field_value, "field value ")
+        _check_value(matching_op.expression, field_value)
 
 
 def _assert_named_field(field, name, value, operator="="):
@@ -236,21 +236,21 @@ def _assert_named_field(field, name, value, operator="="):
     assert field.target.name == name
     assert field.operator == operator
     if value is not None:
-        _check_value(field.expression, value, "field value ")
+        _check_value(field.expression, value)
 
 
 def _assert_field_access(node, object_ref, field_name):
     """Helper to assert field access operation"""
-    assert isinstance(node, comp.FieldAccess)
-    _check_value(node.object, object_ref, "object ")
+    assert isinstance(node, comp.FieldAccessOperation)
+    _check_value(node.object, object_ref)
     assert node.field == field_name
 
 
 def _assert_index_access(node, object_ref, index):
     """Helper to assert index access operation"""
-    assert isinstance(node, comp.IndexAccess)
-    _check_value(node.object, object_ref, "object ")
-    _check_value(node.index, index, "index ")
+    assert isinstance(node, comp.IndexAccessOperation)
+    _check_value(node.object, object_ref)
+    _check_value(node.index, index)
 
 
 def _assert_index_reference(node, index):
@@ -263,21 +263,21 @@ def _assert_index_reference(node, index):
 def _assert_private_attach(node, object_ref, private_data):
     """Helper to assert private data attachment"""
     assert isinstance(node, comp.PrivateAttachOperation)
-    _check_value(node.object, object_ref, "object ")
+    _check_value(node.object, object_ref)
     if private_data is not None:
-        _check_value(node.private_data, private_data, "private data ")
+        _check_value(node.private_data, private_data)
 
 
 def _assert_private_access(node, object_ref, field_name):
     """Helper to assert private field access"""
     assert isinstance(node, comp.PrivateAccessOperation)
-    _check_value(node.object, object_ref, "object ")
+    _check_value(node.object, object_ref)
     assert node.field == field_name
 
 
 def _assert_shape_union(node, left_shape, right_shape):
     """Helper to assert shape union operation"""
-    assert isinstance(node, comp.ShapeUnion)
+    assert isinstance(node, comp.ShapeUnionOperation)
     if left_shape is not None:
         _check_shape_ref(node.left, left_shape)
     if right_shape is not None:
@@ -286,44 +286,44 @@ def _assert_shape_union(node, left_shape, right_shape):
 
 def _assert_pipeline_failure(node, operation, fallback):
     """Helper to assert pipeline failure handling"""
-    assert isinstance(node, comp.PipelineFailure)
-    _check_value(node.operation, operation, "operation ")
-    _check_value(node.fallback, fallback, "fallback ")
+    assert isinstance(node, comp.PipelineFailureOperation)
+    _check_value(node.operation, operation)
+    _check_value(node.fallback, fallback)
 
 
 def _assert_pipeline_block(node, process, transform):
     """Helper to assert pipeline with block"""
     assert isinstance(node, comp.PipelineBlock)
-    _check_value(node.process, process, "process ")
-    _check_value(node.transform, transform, "transform ")
+    _check_value(node.process, process)
+    _check_value(node.transform, transform)
 
 
 def _assert_block_definition(node, expression):
     """Helper to assert block definition"""
     assert isinstance(node, comp.BlockDefinition)
     if expression is not None:
-        _check_value(node.expression, expression, "expression ")
+        _check_value(node.expression, expression)
 
 
 def _assert_block_invoke(node, block_ref):
     """Helper to assert block invocation"""
-    assert isinstance(node, comp.BlockInvoke)
-    _check_value(node.block, block_ref, "block ")
+    assert isinstance(node, comp.BlockInvokeOperation)
+    _check_value(node.block, block_ref)
 
 
 def _assert_fallback(node, operator, left, right):
     """Helper to assert fallback operation"""
     assert isinstance(node, comp.FallbackOperation)
     assert node.operator == operator
-    _check_value(node.left, left, "left ")
-    _check_value(node.right, right, "right ")
+    _check_value(node.left, left)
+    _check_value(node.right, right)
 
 
 def _assert_failure(node, operator, operand):
     """Helper to assert pipeline failure operation"""
     assert isinstance(node, comp.PipelineFailureOperation)
     # |? takes the fallback expression as its single value
-    _check_value(node.fallback, operand, "")
+    _check_value(node.fallback, operand)
 
 
 def _assert_placeholder(node):
@@ -334,7 +334,7 @@ def _assert_placeholder(node):
 def _assert_array_type(node, base_type):
     """Helper to assert array type operation"""
     assert isinstance(node, comp.ArrayType)
-    _check_value(node.base_type, base_type, "base type ")
+    _check_value(node.base_type, base_type)
 
 
 def _assert_field_name(node, name):
@@ -347,8 +347,8 @@ def _assert_binary(node, operator, left, right):
     """Helper to assert a BinaryOperation node structure"""
     assert isinstance(node, comp.BinaryOperation)
     assert node.operator == operator
-    _check_value(node.left, left, "left ")
-    _check_value(node.right, right, "right ")
+    _check_value(node.left, left)
+    _check_value(node.right, right)
 
 
 def _assert_number(node, value):
@@ -357,7 +357,7 @@ def _assert_number(node, value):
     assert node.value == value
 
 
-def _check_value(operand, expected, side):
+def _check_value(operand, expected):
     """Check for literal or identifier value, or None to ignore"""
     if expected is None:
         return

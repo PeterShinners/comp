@@ -190,7 +190,7 @@ def test_bigint_support():
         f"Large integer not preserved: {result.value} != {expected}"
     )
 
-    # Test 2: Large negative integer
+    # Test 2: Large negative integer (this is beyond 28 digits, beyond default Decimal precision)
     big_negative = "-987654321098765432109876543210"
     result = comp.parse(big_negative)
     _assertNum(result, big_negative)
@@ -254,7 +254,8 @@ def _assertNum(value, match):
         assert isinstance(value.operand, comp.NumberLiteral)
         if value.operator == "-":
             # For negative numbers, compare operand with positive version of expected
-            # This avoids Python's Decimal arithmetic bug with large numbers
+            # Python's decimal defaults to 28 digits precision, which one of
+            # our tests goes beyond
             if original_match_str.startswith("-"):
                 expected_positive = Decimal(original_match_str[1:])  # Remove minus sign
             else:

@@ -1,5 +1,5 @@
 """
-Test edge cases and invalid syntax for mathematical and advanced operators.
+Test edge cases and invalid syntax for operators.
 
 This module tests corner cases, invalid syntax, and boundary conditions
 for all operators to ensure proper error handling and edge case behavior.
@@ -34,7 +34,7 @@ invalid_mathematical_operator_cases = [
 ]
 
 
-# Invalid advanced operator syntax cases
+# Invalid operator syntax cases
 invalid_advanced_operator_cases = [
     # Invalid assignment contexts
     ("42 = x", "assign to literal"),
@@ -107,7 +107,7 @@ tricky_valid_mathematical_cases = [
 ]
 
 
-# Valid but tricky advanced operator cases
+# Valid but tricky operator cases
 tricky_valid_advanced_cases = [
     # Complex assignment expressions
     ('{config = {port=8080 host="localhost"}}', "nested structure assignment"),
@@ -186,7 +186,7 @@ def test_tricky_valid_mathematical_syntax(valid_input, description):
     ids=[case[1] for case in tricky_valid_advanced_cases],
 )
 def test_tricky_valid_advanced_syntax(valid_input, description):
-    """Test that tricky but valid advanced syntax parses correctly."""
+    """Test that tricky but valid syntax parses correctly."""
 
     # Skip cases that are known to be broken (not yet implemented)
     broken_cases = [
@@ -374,7 +374,7 @@ def test_field_access_precedence():
 
 
 def test_complex_operator_interactions():
-    """Test complex interactions between mathematical and advanced operators."""
+    """Test complex interactions between mathematical and operators."""
     complex_cases = [
         # Mathematical with assignment
         ("{total = base + tax * rate}", comp.StructureLiteral),
@@ -383,9 +383,9 @@ def test_complex_operator_interactions():
         # Mathematical with field access
         ("user.balance * interest-rate", comp.BinaryOperation),
         # Skip index access for now as it's not fully implemented
-        # ("prices#index + tax-amount", comp.BinaryOperation),
+        ("prices.'#index' + tax-amount", comp.BinaryOperation),
         # Skip complex combined case with index access
-        # ("{result = data#index.value * factor ?? default-result}", comp.StructureLiteral),
+        ("{result = data.#3.value * factor ?? default-result}", comp.StructureLiteral),
     ]
 
     for expr, expected_type in complex_cases:
