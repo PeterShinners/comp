@@ -49,6 +49,7 @@ PRIVATE_ACCESS: "&."
 PIPE: "|"
 PIPELINE_FAILURE: "|?"
 PIPELINE_BLOCK_START: "|{"
+PIPELINE_MODIFIER: "|<<"
 BLOCK_START: ".{"
 BLOCK_INVOKE: "|."
 FALLBACK: "??"
@@ -87,6 +88,7 @@ SINGLE_QUOTE: "'"
 ?pipe_expr: or_expr
          | pipe_expr PIPE or_expr -> shape_union_operation
          | pipe_expr PIPELINE_FAILURE or_expr -> pipeline_failure_operation
+         | pipe_expr PIPELINE_MODIFIER or_expr -> pipeline_modifier_operation
 
 // Logical OR (like Python)
 ?or_expr: and_expr
@@ -133,7 +135,7 @@ SINGLE_QUOTE: "'"
          | atom_expr DOT identifier -> field_access_operation
          | atom_expr DOT string -> string_field_access_operation  
          | atom_expr DOT SINGLE_QUOTE expression SINGLE_QUOTE -> computed_field_access_operation
-         | atom_expr DOT block_definition -> named_block_operation
+         | atom_expr BLOCK_START expression RBRACE -> named_block_operation
          | atom_expr AMPERSAND atom -> private_attach_operation
          | atom_expr PRIVATE_ACCESS identifier -> private_access_operation
          | BLOCK_INVOKE identifier -> block_invoke_operation

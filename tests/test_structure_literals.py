@@ -7,16 +7,20 @@ SPECIFICATION:
 - Nested structures: {1 {2 3} 4}, {user={name="Bob"}}
 - All literal types: numbers, strings, references as values/keys
 - Assignment operator: = for named fields
+- Named block operations: name.{expression} as shorthand
 
 PARSER EXPECTATIONS:
 - comp.parse("{}") → StructureLiteral([])
 - comp.parse("{42}") → StructureLiteral([PositionalField(NumberLiteral(42))])
 - comp.parse("{x=1}") → StructureLiteral([NamedField("x", NumberLiteral(1))])
+- comp.parse("name.{5}") → NamedBlockOperation(name, BlockDefinition(5))
 
-AST NODES: StructureLiteral(fields), NamedField(name, value), PositionalField(value)
+AST NODES: StructureLiteral(fields), NamedField(name, value), PositionalField(value),
+           NamedBlockOperation(name, block), BlockDefinition(expression)
 
-NOTE: This phase requires implementing StructureLiteral, NamedField, and PositionalField
-AST nodes, plus extending the grammar to handle structure syntax.
+NOTE: This phase requires implementing StructureLiteral, NamedField, PositionalField,
+NamedBlockOperation, and BlockDefinition AST nodes, plus extending the grammar to handle
+structure syntax and named block operations.
 """
 
 import pytest
@@ -141,3 +145,64 @@ def test_contents():
     assert op3.target.name == "max"
     assert op3.operator == "="
     assert isinstance(op3.expression, comp.StructureLiteral)
+
+
+# Named Block Operation tests
+named_block_cases = [
+    ("name.{5}", "simple named block with number"),
+    ("handler.{42 + 10}", "named block with expression"),
+    ("processor.{user}", "named block with identifier"),
+    ('formatter.{"hello"}', "named block with string"),
+    ("func.{#true}", "named block with tag reference"),
+    ("transform.{~str}", "named block with shape reference"),
+    ("pipeline.{|process}", "named block with function reference"),
+]
+
+
+@pytest.mark.parametrize(
+    "input_str,description",
+    named_block_cases,
+    ids=[case[1] for case in named_block_cases],
+)
+def test_named_block_operations(input_str, description):
+    """Test that named block operations parse correctly."""
+    result = comp.parse(input_str)
+    assert isinstance(result, comp.NamedBlockOperation), f"Expected NamedBlockOperation for {description}"
+    assert hasattr(result, 'name'), f"NamedBlockOperation missing 'name' attribute for {description}"
+    assert hasattr(result, 'block'), f"NamedBlockOperation missing 'block' attribute for {description}"
+    assert isinstance(result.name, comp.Identifier), f"Expected name to be Identifier for {description}"
+    assert isinstance(result.block, comp.BlockDefinition), f"Expected block to be BlockDefinition for {description}"
+
+
+def test_named_block_structure():
+    """Test the internal structure of named block operations."""
+    # Test simple case
+    result = comp.parse("handler.{42}")
+    assert isinstance(result, comp.NamedBlockOperation)
+    assert result.name.name == "handler"
+    assert isinstance(result.block.expression, comp.NumberLiteral)
+    assert result.block.expression.value == 42
+
+    # Test with complex expression
+    result = comp.parse("processor.{10 + 5}")
+    assert isinstance(result, comp.NamedBlockOperation)
+    assert result.name.name == "processor"
+    assert isinstance(result.block.expression, comp.BinaryOperation)
+    assert result.block.expression.operator == "+"
+
+
+# Test that named blocks are different from regular field access
+def test_named_block_vs_field_access():
+    """Test that named blocks are distinguished from regular field access."""
+    # Regular field access
+    field_result = comp.parse("name.field")
+    assert isinstance(field_result, comp.FieldAccessOperation)
+    assert field_result.object.name == "name"
+    assert field_result.field == "field"
+
+    # Named block operation  
+    block_result = comp.parse("name.{field}")
+    assert isinstance(block_result, comp.NamedBlockOperation)
+    assert block_result.name.name == "name"
+    assert isinstance(block_result.block.expression, comp.Identifier)
+    assert block_result.block.expression.name == "field"

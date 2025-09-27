@@ -231,6 +231,10 @@ class _CompTransformer(Transformer):
         """Transform pipeline_failure_operation rule into PipelineFailureOperation AST node."""
         return _ast.PipelineFailureOperation.fromToken(tokens)
 
+    def pipeline_modifier_operation(self, tokens):
+        """Transform pipeline_modifier_operation rule into PipelineModifierOperation AST node."""
+        return _ast.PipelineModifierOperation.fromToken(tokens)
+
     def field_access_operation(self, tokens):
         """Transform field_access_operation rule into FieldAccessOperation AST node."""
         return _ast.FieldAccessOperation.fromToken(tokens)
@@ -279,7 +283,12 @@ class _CompTransformer(Transformer):
 
     def named_block_operation(self, tokens):
         """Transform named_block_operation rule into NamedBlockOperation AST node."""
-        return _ast.NamedBlockOperation.fromToken(tokens)
+        # tokens: [name, BLOCK_START, expression, RBRACE]
+        name = tokens[0]
+        expression = tokens[2]  # Skip BLOCK_START and get expression
+        # Create a BlockDefinition wrapper for the expression
+        block = _ast.BlockDefinition(expression)
+        return _ast.NamedBlockOperation(name, block)
 
     # Structure handling
     def structure(self, tokens):

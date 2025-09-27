@@ -25,12 +25,14 @@ __all__ = [
     "ShapeUnionOperation",
     "PipelineFailureOperation",
     "PipelineBlockOperation",
+    "PipelineModifierOperation",
     "FieldAccessOperation",
     "IndexAccessOperation",
     "IndexReference",
     "PrivateAttachOperation",
     "PrivateAccessOperation",
     "BlockInvokeOperation",
+    "NamedBlockOperation",
     "BlockDefinition",
     "SpreadField",
     "WeakNamedField",
@@ -50,6 +52,7 @@ __all__ = [
     "FieldAccess",
     "ShapeUnion",
     "PipelineFailure",
+    "PipelineModifier",
     "IndexAccess",
     "BlockInvoke",
 ]
@@ -510,6 +513,24 @@ class PipelineFailureOperation(ASTNode):
         return f"PipelineFailureOperation({self.operation!r}, {self.fallback!r})"
 
 
+class PipelineModifierOperation(ASTNode):
+    """AST node representing a pipeline modifier operation (pipeline |<< modifier)."""
+
+    def __init__(self, pipeline: ASTNode, modifier: ASTNode):
+        super().__init__()
+        self.pipeline = pipeline
+        self.modifier = modifier
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create PipelineModifierOperation from tokens."""
+        pipeline, _, modifier = tokens  # Middle token is |<<
+        return cls(pipeline, modifier)
+
+    def __repr__(self) -> str:
+        return f"PipelineModifierOperation({self.pipeline!r}, {self.modifier!r})"
+
+
 class PipelineBlockOperation(ASTNode):
     """AST node representing a pipeline block operation (process |{} transform)."""
 
@@ -878,5 +899,6 @@ class FieldTarget(ASTNode):
 FieldAccess = FieldAccessOperation
 ShapeUnion = ShapeUnionOperation
 PipelineFailure = PipelineFailureOperation
+PipelineModifier = PipelineModifierOperation
 IndexAccess = IndexAccessOperation
 BlockInvoke = BlockInvokeOperation
