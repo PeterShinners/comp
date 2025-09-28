@@ -80,3 +80,162 @@ def test_binary_parsing(field, left, right):
     assert result.left.object.value == left
     assert result.right.object.value == right
 
+
+@pytest.mark.parametrize("assignment,scope_type,scope_name,field_path,operator,value_type", [
+    # Basic scope assignments
+    ("$ctx=42", "$", "ctx", None, "=", comp.NumberLiteral),
+    ("$mod={one=1}", "$", "mod", None, "=", comp.StructureLiteral),
+    ("@local=value", "@", "local", None, "=", comp.Identifier),
+    ("^timeout=30", "^", "timeout", None, "=", comp.NumberLiteral),
+
+    # Scope field assignments
+    ('$ctx.field=5', "$", "ctx", "field", "=", comp.NumberLiteral),
+    ("$mod.config.port=8080", "$", "mod", "config.port", "=", comp.NumberLiteral),
+    ("@temp.result=\"done\"", "@", "temp", "temp.result", "=", comp.StringLiteral),
+    ("^user.name=\"alice\"", "^", "user", "user.name", "=", comp.StringLiteral),
+
+    # Deep nested assignments
+    ("$ctx.database.connection.pool=10", "$", "ctx", "database.connection.pool", "=", comp.NumberLiteral),
+    ("@cache.user.profile.id=123", "@", "cache", "cache.user.profile.id", "=", comp.NumberLiteral),
+
+    # Different assignment operators
+    ("$ctx.setting=?default", "$", "ctx", "setting", "=?", comp.Identifier),
+    ("$mod.global=*persistent", "$", "mod", "global", "=*", comp.Identifier),
+    ("@temp=?fallback", "@", "temp", None, "=?", comp.Identifier),
+    ("^args.timeout=*required", "^", "args", "args.timeout", "=*", comp.Identifier),
+])
+def test_scope_assignments(assignment, scope_type, scope_name, field_path, operator, value_type):
+    """Test parsing of scope assignments at top level"""
+    result = comp.parse(assignment)
+    assert isinstance(result, comp.AssignmentOperation)
+
+    # Check target - should be FieldAccessOperation
+    assert isinstance(result.target, comp.FieldAccessOperation)
+    
+    # Check operator
+    assert result.operator.value == operator
+    
+    # Check value type - handle FieldAccessOperation wrapping
+    if value_type == comp.Identifier and isinstance(result.value, comp.FieldAccessOperation):
+        # Bare identifier becomes FieldAccessOperation(None, [Identifier])
+        assert result.value.object is None
+        assert len(result.value.fields) == 1
+        assert isinstance(result.value.fields[0], comp.Identifier)
+    else:
+        assert isinstance(result.value, value_type)
+    
+    # Check scope structure
+    if scope_type in ["$", "@", "^"]:
+        # Should have a Scope as object
+        assert isinstance(result.target.object, comp.Scope)
+        expected_scope_value = f"{scope_type}{scope_name}" if scope_type == "$" else scope_type
+        assert result.target.object.value == expected_scope_value
+        
+        # Check fields (for field paths like ctx.field)
+        if field_path:
+            assert len(result.target.fields) > 0
+            # First field should be the actual field name
+            assert isinstance(result.target.fields[0], comp.Identifier)
+        else:
+            # Direct scope assignment like $ctx=value should have scope name as field
+            if scope_type == "$":
+                # For $ctx=value, we expect no fields (the scope object contains the full $ctx)
+                assert len(result.target.fields) == 0
+            else:
+                # For @local=value, ^timeout=value, we expect the name as a field
+                assert len(result.target.fields) == 1
+                assert isinstance(result.target.fields[0], comp.Identifier)
+                assert result.target.fields[0].name == scope_name
+
+
+@pytest.mark.parametrize("assignment,target_name,field_path,operator,value_type", [
+    # Simple field assignments
+    ("one=1", "one", [], "=", comp.NumberLiteral),
+    ("field=\"text\"", "field", [], "=", comp.StringLiteral),
+
+    # Nested field assignments
+    ("one.two=2", "one", ["two"], "=", comp.NumberLiteral),
+    ("field.nested.deep=value", "field", ["nested", ".", "deep"], "=", comp.Identifier),
+    ("config.database.timeout=30", "config", ["database", ".", "timeout"], "=", comp.NumberLiteral),
+
+    # Different assignment operators on fields
+    ("setting=?default", "setting", [], "=?", comp.Identifier),
+    ("config=*override", "config", [], "=*", comp.Identifier),
+    ("field.nested=?fallback", "field", ["nested"], "=?", comp.Identifier),
+])
+def test_field_assignments(assignment, target_name, field_path, operator, value_type):
+    """Test parsing of nested field assignments at top level"""
+    result = comp.parse(assignment)
+    assert isinstance(result, comp.AssignmentOperation)
+
+    # Check target - should be FieldAccessOperation
+    assert isinstance(result.target, comp.FieldAccessOperation)
+    assert result.target.object is None  # Bare field access has no object
+    
+    # Check operator
+    assert result.operator.value == operator
+    
+    # Check value type - handle FieldAccessOperation wrapping
+    if value_type == comp.Identifier and isinstance(result.value, comp.FieldAccessOperation):
+        # Bare identifier becomes FieldAccessOperation(None, [Identifier])
+        assert result.value.object is None
+        assert len(result.value.fields) == 1
+        assert isinstance(result.value.fields[0], comp.Identifier)
+    else:
+        assert isinstance(result.value, value_type)
+    
+    # Check field structure
+    assert len(result.target.fields) >= 1
+    assert isinstance(result.target.fields[0], comp.Identifier)
+    assert result.target.fields[0].name == target_name
+    
+    # Check nested field path
+    if len(field_path) > 0:
+        # For nested paths like one.two, we should have the base identifier plus additional fields
+        # The flattened structure removes dots, so "config.database.timeout" becomes
+        # [Identifier('config'), Identifier('database'), Identifier('timeout')] 
+        expected_field_count = len([f for f in field_path if f != "."])  # Count non-dot fields
+        assert len(result.target.fields) == expected_field_count + 1  # +1 for base identifier
+        
+        # Check the additional fields (skip the base identifier at index 0)
+        field_index = 1
+        for expected_field in field_path:
+            if expected_field != ".":  # Skip dots in the path representation
+                assert isinstance(result.target.fields[field_index], comp.Identifier)
+                assert result.target.fields[field_index].name == expected_field
+                field_index += 1
+
+
+@pytest.mark.parametrize("assignment,description", [
+    # Mixed scope and field assignments in structures (single assignments only - no commas)
+    ("{$ctx.session = token}", "scope field assignment in structure"),
+    
+    # Complex nested structures with assignments
+    ("{$ctx.database = {host=\"localhost\" port=5432}}", "nested structure assignment to scope"),
+    ("{user.profile = {name=\"alice\" verified=#true}}", "nested structure assignment to field"),
+])
+def test_assignment_in_structures(assignment, description):
+    """Test that assignments work correctly within structure literals"""
+    result = comp.parse(assignment)
+    assert isinstance(result, comp.StructureLiteral)
+    assert len(result.operations) > 0
+
+    # At least one operation should be an assignment operation
+    has_assignment = any(isinstance(op, comp.StructureOperation) for op in result.operations)
+    assert has_assignment, f"No assignment found in: {description}"
+
+
+def test_scope_assignment_vs_reference():
+    """Test that scope assignments and references are parsed differently"""
+    # Reference - should be FieldAccessOperation
+    ref_result = comp.parse("$ctx.session")
+    assert isinstance(ref_result, comp.FieldAccessOperation)
+    assert isinstance(ref_result.object, comp.Scope)
+    
+    # Assignment - should be AssignmentOperation
+    assign_result = comp.parse("$ctx.session = token")
+    assert isinstance(assign_result, comp.AssignmentOperation)
+    assert isinstance(assign_result.target, comp.FieldAccessOperation)
+    assert isinstance(assign_result.target.object, comp.Scope)
+    assert assign_result.operator.value == "="
+

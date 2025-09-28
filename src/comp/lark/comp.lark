@@ -88,9 +88,9 @@ SINGLE_QUOTE: "'"
 
 // Assignment operators (lowest precedence)
 ?assignment_expr: fallback_expr
-               | identifier ASSIGN assignment_expr -> assignment_operation
-               | identifier WEAK_ASSIGN assignment_expr -> assignment_operation
-               | identifier STRONG_ASSIGN assignment_expr -> assignment_operation
+               | atom_expr ASSIGN assignment_expr -> assignment_operation
+               | atom_expr WEAK_ASSIGN assignment_expr -> assignment_operation
+               | atom_expr STRONG_ASSIGN assignment_expr -> assignment_operation
 
 // Fallback operators (??)
 ?fallback_expr: pipe_expr
@@ -159,7 +159,7 @@ SINGLE_QUOTE: "'"
 // Atoms (primary expressions - highest precedence)
 ?atom: number 
      | string 
-     | identifier 
+     | identifier -> field_access_operation
      | tag_reference 
      | shape_reference 
      | function_reference
@@ -206,8 +206,12 @@ positional_field: fallback_expr
 // Assignment targets
 scope_target: AT identifier                           // @local
             | AT identifier DOT field_path            // @local.nested.field
+            | AT                                      // @ (bare at scope)
             | DOLLAR identifier                       // $out
             | DOLLAR identifier DOT field_path        // $out.nested.field
+            | CARET identifier                        // ^timeout
+            | CARET identifier DOT field_path         // ^timeout.nested.field
+            | CARET                                   // ^ (bare caret scope)
 
 field_target: identifier                              // field
             | identifier DOT field_path               // field.nested.path

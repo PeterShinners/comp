@@ -110,8 +110,18 @@ def _check_value(operand, expected, side):
         return
     if isinstance(expected, str) and expected.startswith("ident="):
         expected_name = expected[6:]  # Remove "ident=" prefix
-        assert isinstance(operand, comp.Identifier)
-        assert operand.name == expected_name
+        # Handle both FieldAccessOperation (for standalone identifiers) and raw Identifier (for sub-parts)
+        if isinstance(operand, comp.FieldAccessOperation):
+            # Standalone identifier as FieldAccessOperation
+            assert operand.object is None
+            assert len(operand.fields) == 1
+            assert isinstance(operand.fields[0], comp.Identifier)
+            assert operand.fields[0].name == expected_name
+        elif isinstance(operand, comp.Identifier):
+            # Raw identifier in some constructs
+            assert operand.name == expected_name
+        else:
+            raise AssertionError(f"Expected identifier-like value, got {type(operand)}")
     else:
         operand_value = operand.value  # type: ignore
         assert operand_value == expected

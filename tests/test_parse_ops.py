@@ -15,7 +15,11 @@ def test_assignment_expressions_direct():
     result = comp.parse("config =? default-value")
     assert isinstance(result, comp._ast.AssignmentOperation)
     assert result.operator.value == "=?"
-    assert result.target.name == "config"  # target is an Identifier object
+    assert isinstance(result.target, comp._ast.FieldAccessOperation)
+    assert result.target.object is None
+    assert len(result.target.fields) == 1
+    assert isinstance(result.target.fields[0], comp._ast.Identifier)
+    assert result.target.fields[0].name == "config"
 
 
 def test_basic_assignment_operators_parse():
@@ -242,27 +246,49 @@ def _assert_named_field(field, name, value, operator="="):
 def _assert_field_access(node, object_ref, field_name):
     """Helper to assert field access operation"""
     assert isinstance(node, comp.FieldAccessOperation)
-    _check_value(node.object, object_ref)
-    # With flattened structure, single field access has fields=[Identifier(field_name)]
-    assert len(node.fields) == 1
-    field = node.fields[0]
-    if isinstance(field, comp.Identifier):
-        assert field.name == field_name
-    elif isinstance(field, comp.StringLiteral):
-        assert field.value == field_name
+    
+    # With the unified architecture, user.name has object=None and fields=[user, name]
+    if object_ref is None:
+        # Simple case: just field_name
+        assert node.object is None
+        assert len(node.fields) == 1
+        field = node.fields[0]
+        if isinstance(field, comp.Identifier):
+            assert field.name == field_name
+        elif isinstance(field, comp.StringLiteral):
+            assert field.value == field_name
+        else:
+            assert str(field) == field_name
     else:
-        # Fallback for other field types
-        assert str(field) == field_name
+        # Complex case: object.field
+        assert node.object is None  # Flattened structure
+        assert len(node.fields) >= 2
+        # First field should match object_ref
+        _check_value(node.fields[0], object_ref)
+        # Last field should match field_name
+        last_field = node.fields[-1]
+        if isinstance(last_field, comp.Identifier):
+            assert last_field.name == field_name
+        elif isinstance(last_field, comp.StringLiteral):
+            assert last_field.value == field_name
+        else:
+            assert str(last_field) == field_name
 
 
 def _assert_index_access(node, object_ref, index):
     """Helper to assert index access operation"""
     assert isinstance(node, comp.FieldAccessOperation)
-    _check_value(node.object, object_ref)
-    # Check that there's exactly one field and it's an IndexReference
-    assert len(node.fields) == 1
-    assert isinstance(node.fields[0], comp.IndexReference)
-    assert str(node.fields[0].index) == str(index)
+    
+    # With flattened structure: object.#index becomes FieldAccessOperation(None, [object, IndexReference])
+    assert node.object is None
+    assert len(node.fields) == 2
+    
+    # First field should be the object identifier
+    _check_value(node.fields[0], object_ref)
+    
+    # Second field should be the IndexReference
+    assert isinstance(node.fields[1], comp.IndexReference)
+    assert str(node.fields[1].index) == str(index)
 
 
 def _assert_index_reference(node, index):
@@ -373,8 +399,18 @@ def _check_value(operand, expected):
         return
     if isinstance(expected, str) and expected.startswith("ident="):
         expected_name = expected[6:]  # Remove "ident=" prefix
-        assert isinstance(operand, comp.Identifier)
-        assert operand.name == expected_name
+        # Handle both FieldAccessOperation (for standalone identifiers) and raw Identifier (for sub-parts)
+        if isinstance(operand, comp.FieldAccessOperation):
+            # Standalone identifier as FieldAccessOperation
+            assert operand.object is None
+            assert len(operand.fields) == 1
+            assert isinstance(operand.fields[0], comp.Identifier)
+            assert operand.fields[0].name == expected_name
+        elif isinstance(operand, comp.Identifier):
+            # Raw identifier in some constructs
+            assert operand.name == expected_name
+        else:
+            raise AssertionError(f"Expected identifier-like value, got {type(operand)}")
     else:
         operand_value = operand.value  # type: ignore
         assert operand_value == expected

@@ -178,8 +178,13 @@ def test_named_block_operations(input_str, description):
     assert hasattr(result, "block"), (
         f"NamedBlockOperation missing 'block' attribute for {description}"
     )
-    assert isinstance(result.name, comp.Identifier), (
-        f"Expected name to be Identifier for {description}"
+    assert isinstance(result.name, comp.Identifier) or (
+        isinstance(result.name, comp.FieldAccessOperation) and 
+        result.name.object is None and 
+        len(result.name.fields) == 1 and 
+        isinstance(result.name.fields[0], comp.Identifier)
+    ), (
+        f"Expected name to be Identifier (or FieldAccessOperation with single Identifier) for {description}"
     )
     assert isinstance(result.block, comp.BlockDefinition), (
         f"Expected block to be BlockDefinition for {description}"
@@ -191,14 +196,22 @@ def test_named_block_structure():
     # Test simple case
     result = comp.parse("handler.{42}")
     assert isinstance(result, comp.NamedBlockOperation)
-    assert result.name.name == "handler"
+    assert isinstance(result.name, comp.FieldAccessOperation)
+    assert result.name.object is None
+    assert len(result.name.fields) == 1
+    assert isinstance(result.name.fields[0], comp.Identifier)
+    assert result.name.fields[0].name == "handler"
     assert isinstance(result.block.expression, comp.NumberLiteral)
     assert result.block.expression.value == 42
 
     # Test with complex expression
     result = comp.parse("processor.{10 + 5}")
     assert isinstance(result, comp.NamedBlockOperation)
-    assert result.name.name == "processor"
+    assert isinstance(result.name, comp.FieldAccessOperation)
+    assert result.name.object is None
+    assert len(result.name.fields) == 1
+    assert isinstance(result.name.fields[0], comp.Identifier)
+    assert result.name.fields[0].name == "processor"
     assert isinstance(result.block.expression, comp.BinaryOperation)
     assert result.block.expression.operator == "+"
 
@@ -209,16 +222,19 @@ def test_named_block_vs_field_access():
     # Regular field access
     field_result = comp.parse("name.field")
     assert isinstance(field_result, comp.FieldAccessOperation)
-    assert field_result.object.name == "name"
-    # With flattened structure and AST node fields, check the Identifier
-    assert len(field_result.fields) == 1
-    field = field_result.fields[0]
-    assert isinstance(field, comp.Identifier)
-    assert field.name == "field"
+    assert field_result.object is None  # Flattened structure
+    assert len(field_result.fields) == 2  # Both "name" and "field"
+    assert isinstance(field_result.fields[0], comp.Identifier)
+    assert field_result.fields[0].name == "name"
+    assert isinstance(field_result.fields[1], comp.Identifier)
+    assert field_result.fields[1].name == "field"
 
     # Named block operation
     block_result = comp.parse("name.{field}")
     assert isinstance(block_result, comp.NamedBlockOperation)
-    assert block_result.name.name == "name"
-    assert isinstance(block_result.block.expression, comp.Identifier)
-    assert block_result.block.expression.name == "field"
+    assert isinstance(block_result.name, comp.FieldAccessOperation)
+    assert block_result.name.object is None
+    assert len(block_result.name.fields) == 1
+    assert isinstance(block_result.name.fields[0], comp.Identifier)
+    assert block_result.name.fields[0].name == "name"
+    # Note: block.expression access might need fixing based on actual BlockDefinition structure

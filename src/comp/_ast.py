@@ -593,7 +593,7 @@ class PipelineBlockOperation(ASTNode):
 class FieldAccessOperation(ASTNode):
     """AST node representing a field access operation (object.field.field2.field3)."""
 
-    def __init__(self, object: ASTNode, *fields: ASTNode):
+    def __init__(self, object: ASTNode | None, *fields: ASTNode):
         super().__init__()
         self.object = object
         # Support both single field and multiple fields
@@ -645,9 +645,11 @@ class FieldAccessOperation(ASTNode):
             raise ValueError(f"Unknown scope token type: {scope_token.type}")
 
     @classmethod
+    @classmethod
     def fromFieldTokens(cls, tokens):
         """Create FieldAccessOperation from field_access_operation tokens."""
         # This handles all field access types:
+        # - identifier (bare identifier -> FieldAccessOperation(None, identifier))
         # - object.identifier
         # - object.string
         # - object.'computed'
@@ -656,6 +658,12 @@ class FieldAccessOperation(ASTNode):
         # - ^identifier (scope field access)
         # - @#number (scope index access)
         # - ^#number (scope index access)
+
+        # Handle bare identifier (tokens are: [identifier])
+        if len(tokens) == 1 and not hasattr(tokens[0], 'type'):
+            # bare identifier -> FieldAccessOperation(None, identifier)
+            identifier = tokens[0]
+            return cls(None, identifier)
 
         # Handle scope field/index access without dots (tokens are: [AT/CARET, identifier/HASH, INDEX_NUMBER?])
         if len(tokens) >= 2 and hasattr(tokens[0], 'type'):

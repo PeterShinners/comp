@@ -20,6 +20,21 @@ import pytest
 
 import comp
 
+
+def _check_identifier(node, expected_name=None):
+    """Helper to check if a node is an identifier, handling FieldAccessOperation wrapping."""
+    if isinstance(node, comp.Identifier):
+        if expected_name is not None:
+            assert node.name == expected_name
+        return True
+    elif isinstance(node, comp.FieldAccessOperation):
+        # Bare identifier becomes FieldAccessOperation(None, [Identifier])
+        if node.object is None and len(node.fields) == 1 and isinstance(node.fields[0], comp.Identifier):
+            if expected_name is not None:
+                assert node.fields[0].name == expected_name
+            return True
+    return False
+
 # Test cases for the wrench operator (pipeline modifiers)
 wrench_operator_cases = [
     ("data |<< progressbar", "basic pipeline modifier"),
@@ -59,24 +74,19 @@ def test_wrench_operator_structure():
     # Simple case
     result = comp.parse("data |<< progressbar")
     assert isinstance(result, comp.PipelineModifierOperation)
-    assert isinstance(result.pipeline, comp.Identifier)
-    assert result.pipeline.name == "data"
-    assert isinstance(result.modifier, comp.Identifier)
-    assert result.modifier.name == "progressbar"
+    assert _check_identifier(result.pipeline, "data")
+    assert _check_identifier(result.modifier, "progressbar")
 
     # Chained case - should be left-associative
     result = comp.parse("data |<< optimize |<< debug")
     assert isinstance(result, comp.PipelineModifierOperation)
     assert isinstance(result.pipeline, comp.PipelineModifierOperation)
-    assert isinstance(result.modifier, comp.Identifier)
-    assert result.modifier.name == "debug"
+    assert _check_identifier(result.modifier, "debug")
 
     # Inner operation
     inner = result.pipeline
-    assert isinstance(inner.pipeline, comp.Identifier)
-    assert inner.pipeline.name == "data"
-    assert isinstance(inner.modifier, comp.Identifier)
-    assert inner.modifier.name == "optimize"
+    assert _check_identifier(inner.pipeline, "data")
+    assert _check_identifier(inner.modifier, "optimize")
 
 
 def test_wrench_with_named_blocks():
@@ -84,13 +94,13 @@ def test_wrench_with_named_blocks():
     result = comp.parse("handler.{process} |<< progressbar")
     assert isinstance(result, comp.PipelineModifierOperation)
     assert isinstance(result.pipeline, comp.NamedBlockOperation)
-    assert isinstance(result.modifier, comp.Identifier)
+    assert _check_identifier(result.modifier, "progressbar")
 
     # Check the named block structure
     named_block = result.pipeline
-    assert named_block.name.name == "handler"
-    assert isinstance(named_block.block.expression, comp.Identifier)
-    assert named_block.block.expression.name == "process"
+    assert _check_identifier(named_block.name, "handler")
+    assert isinstance(named_block.block, comp.BlockDefinition)
+    assert _check_identifier(named_block.block.expression, "process")
 
 
 def test_wrench_precedence():
@@ -99,15 +109,17 @@ def test_wrench_precedence():
     result = comp.parse("obj.field |<< modifier")
     assert isinstance(result, comp.PipelineModifierOperation)
     assert isinstance(result.pipeline, comp.FieldAccessOperation)
-    assert len(result.pipeline.fields) == 1
+    assert len(result.pipeline.fields) == 2  # obj and field in flattened structure
     assert isinstance(result.pipeline.fields[0], comp.Identifier)
-    assert result.pipeline.fields[0].name == "field"
+    assert result.pipeline.fields[0].name == "obj"
+    assert isinstance(result.pipeline.fields[1], comp.Identifier)
+    assert result.pipeline.fields[1].name == "field"
 
     # Should bind more tightly than fallback
     result = comp.parse("data |<< mod ?? fallback")
     assert isinstance(result, comp.FallbackOperation)
     assert isinstance(result.left, comp.PipelineModifierOperation)
-    assert result.left.modifier.name == "mod"
+    assert _check_identifier(result.left.modifier, "mod")
 
 
 # Integration tests with existing pipeline operations
@@ -129,7 +141,7 @@ def test_complex_pipeline_combinations():
     assert isinstance(result, comp.PipelineModifierOperation)
     # The pipeline part should be a shape union (|filter creates a ShapeUnionOperation)
     assert isinstance(result.pipeline, comp.ShapeUnionOperation)
-    assert result.modifier.name == "progressbar"
+    assert _check_identifier(result.modifier, "progressbar")
 
 
 # Error cases

@@ -19,8 +19,11 @@ import comp
 def test_identifiers(identifier):
     """Test valid identifier."""
     result = comp.parse(identifier)
-    assert isinstance(result, comp.Identifier)
-    assert result.name == identifier
+    assert isinstance(result, comp.FieldAccessOperation)
+    assert result.object is None
+    assert len(result.fields) == 1
+    assert isinstance(result.fields[0], comp.Identifier)
+    assert result.fields[0].name == identifier
 
 
 @pytest.mark.parametrize("identifier", [
@@ -36,8 +39,11 @@ def test_identifiers(identifier):
 def test_unicode_identifiers(identifier):
     """Unicode identifiers following UAX #31."""
     result = comp.parse(identifier)
-    assert isinstance(result, comp.Identifier)
-    assert result.name == identifier
+    assert isinstance(result, comp.FieldAccessOperation)
+    assert result.object is None
+    assert len(result.fields) == 1
+    assert isinstance(result.fields[0], comp.Identifier)
+    assert result.fields[0].name == identifier
 
 
 @pytest.mark.parametrize("invalid_input", [

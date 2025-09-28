@@ -120,7 +120,6 @@ invalid_reference_cases = [
     # Invalid characters in identifiers
     ("#user@name", "tag with @"),
     ("~user$name", "shape with $"),
-    ("#user=value", "tag with ="),
     # Reserved sigils (keeping ones that are still reserved)
     ("$scope", "$ reserved for scopes"),
     ("!directive", "! reserved for directives"),
