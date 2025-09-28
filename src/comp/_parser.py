@@ -10,6 +10,18 @@ DESIGN GOALS:
 - Extensible for all future language features
 - Single parser instance for efficiency
 
+ARCHITECTURAL STRATEGY:
+The parser acts as "glue" that understands how to route different grammar patterns
+to the appropriate AST node factories, but stays out of the processing business itself.
+
+- TRANSFORMER METHODS: Minimal routing logic that calls AST factory methods
+- AST NODE FACTORIES: Heavy lifting (validation, token processing, construction)
+- SEPARATION OF CONCERNS: Parser handles coordination, AST nodes handle processing
+- CONSISTENT PATTERN: All complex parsing logic uses factory methods (fromToken, fromScopeTokens, etc.)
+
+This keeps the parser focused on grammar-to-AST mapping while co-locating
+processing logic with the data structures it creates.
+
 CURRENT CAPABILITIES:
 - Number literals (all formats)
 - String literals (with escape sequences)
@@ -19,6 +31,8 @@ CURRENT CAPABILITIES:
 - Comments (;)
 - Structure literals ({field=value})
 - Pipeline operators (fallback ??, pipe |, etc.)
+- Scope references ($ctx, @local, ^timeout)
+- Field access operations (dot notation, scope field access)
 - All basic language constructs
 """
 
@@ -129,8 +143,22 @@ class _CompTransformer(Transformer):
     """
     Lark transformer to convert parse trees into AST nodes.
 
-    This class contains methods for each grammar rule that should produce
-    an AST node. Method names correspond to the rule names in the grammar.
+    ARCHITECTURAL PRINCIPLE:
+    This transformer acts as "glue" that routes grammar patterns to appropriate
+    AST node factory methods. It should stay out of the processing business itself.
+
+    TRANSFORMER METHODS SHOULD:
+    - Be minimal (ideally 1-2 lines)
+    - Route tokens to AST factory methods (fromToken, fromScopeTokens, etc.)
+    - Handle simple token extraction/normalization only
+    - NOT contain complex validation, parsing logic, or construction
+
+    HEAVY LIFTING SHOULD BE IN:
+    - AST node factory methods (@classmethod def fromToken, etc.)
+    - This keeps processing logic co-located with data structures
+    - Makes testing easier and responsibilities clearer
+
+    Method names correspond to the rule names in the grammar.
     """
 
     # Core transformer methods for unified grammar
@@ -214,6 +242,16 @@ class _CompTransformer(Transformer):
         identifier_path_token = tokens[0]
         return _ast.FunctionReference.fromToken(identifier_path_token)
 
+    def scope_reference(self, tokens):
+        """Transform scope_reference rule into appropriate scope AST node.
+
+        EXAMPLE OF ARCHITECTURAL PATTERN:
+        - Parser method is minimal - just routes to AST factory
+        - All complex logic (validation, scope checking, construction) is in
+          FieldAccessOperation.fromScopeTokens() where it belongs
+        """
+        return _ast.FieldAccessOperation.fromScopeTokens(tokens)
+
     def assignment_operation(self, tokens):
         """Transform assignment_operation rule into AssignmentOperation AST node."""
         target = tokens[0]
@@ -238,25 +276,14 @@ class _CompTransformer(Transformer):
         return _ast.PipelineModifierOperation.fromToken(tokens)
 
     def field_access_operation(self, tokens):
-        """Transform field_access_operation rule into FieldAccessOperation AST node."""
-        return _ast.FieldAccessOperation.fromToken(tokens)
+        """Transform field_access_operation rule into FieldAccessOperation AST node.
 
-    def string_field_access_operation(self, tokens):
-        """Transform string field access (object."field") into FieldAccessOperation AST node."""
-        # tokens: [object, dot, string_literal]
-        object, _, string_literal = tokens
-        # Extract the actual string content from the StringLiteral
-        field_name = string_literal.value
-        return _ast.FieldAccessOperation(object, field_name)
-
-    def computed_field_access_operation(self, tokens):
-        """Transform computed field access (object.'expr') into FieldAccessOperation AST node."""
-        # tokens: [object, dot, quote, expression, quote]
-        object, _, _, expression, _ = tokens
-        # Store the computed expression for future evaluation
-        # For now, use a special field name format that preserves the expression
-        field_name = f"<computed:{expression}>"  # Better representation for debugging
-        return _ast.FieldAccessOperation(object, field_name)
+        ARCHITECTURAL PATTERN:
+        - Complex token parsing (dots, scopes, indexes, computed fields) delegated
+          to FieldAccessOperation.fromFieldTokens() factory method
+        - Parser stays focused on grammar-to-factory routing
+        """
+        return _ast.FieldAccessOperation.fromFieldTokens(tokens)
 
     def computed_expression(self, tokens):
         """Transform bare computed expression ('expr') into the inner expression."""
@@ -266,10 +293,6 @@ class _CompTransformer(Transformer):
         # The single quotes indicate it should be computed, but as a standalone
         # expression it evaluates to its contents
         return expression
-
-    def index_access_operation(self, tokens):
-        """Transform index_access_operation rule into IndexAccessOperation AST node."""
-        return _ast.IndexAccessOperation.fromToken(tokens)
 
     def private_attach_operation(self, tokens):
         """Transform private_attach_operation rule into PrivateAttachOperation AST node."""
@@ -366,8 +389,11 @@ class _CompTransformer(Transformer):
 
     # Special constructs
     def index_reference(self, tokens):
-        """Transform index_reference rule into IndexReference AST node."""
-        return _ast.IndexReference.fromToken(tokens)
+        """Transform index_reference rule into FieldAccessOperation with IndexReference."""
+        # Create the IndexReference from the tokens
+        index_ref = _ast.IndexReference.fromToken(tokens)
+        # Wrap it in a FieldAccessOperation with Placeholder object and IndexReference in fields
+        return _ast.FieldAccessOperation(_ast.Placeholder(), index_ref)
 
     def block_definition(self, tokens):
         """Transform block_definition rule into BlockDefinition AST node."""

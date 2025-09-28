@@ -26,7 +26,7 @@ valid_reference_cases = [
     # Tags - simple, kebab-case, hierarchical, module, full
     ("#true", "TagReference", "true"),
     ("#active", "TagReference", "active"),
-    ("#123", "IndexReference", "123"),  # Numeric index reference
+    ("#123", "FieldAccessOperation", "123"),  # Numeric index reference (now wrapped in FieldAccessOperation)
     ("#user-name", "TagReference", "user-name"),
     ("#error-status", "TagReference", "error-status"),
     ("#timeout.error", "TagReference", "timeout.error"),
@@ -83,8 +83,15 @@ def test_valid_references(input_text, expected_type, expected_name):
     result = comp.parse(input_text)
     assert type(result).__name__ == expected_type
 
+    # Special handling for FieldAccessOperation containing IndexReference
+    if expected_type == "FieldAccessOperation" and input_text.startswith("#"):
+        # This should be a FieldAccessOperation with Placeholder object and IndexReference field
+        assert isinstance(result.object, comp.Placeholder)
+        assert len(result.fields) == 1
+        assert isinstance(result.fields[0], comp.IndexReference)
+        assert result.fields[0].index.value == expected_name
     # IndexReference uses 'index' attribute, others use 'name'
-    if expected_type == "IndexReference":
+    elif expected_type == "IndexReference":
         assert int(result.index.value) == int(expected_name)
     else:
         assert result.name == expected_name
@@ -114,10 +121,8 @@ invalid_reference_cases = [
     ("#user@name", "tag with @"),
     ("~user$name", "shape with $"),
     ("#user=value", "tag with ="),
-    # Reserved sigils
-    ("@local", "@ reserved for local scope"),
+    # Reserved sigils (keeping ones that are still reserved)
     ("$scope", "$ reserved for scopes"),
-    ("^arg", "^ reserved for arguments"),
     ("!directive", "! reserved for directives"),
     ("&privacy", "& reserved for privacy"),
     ("%template", "% reserved for templates"),

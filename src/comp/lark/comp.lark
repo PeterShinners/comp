@@ -68,6 +68,7 @@ PLACEHOLDER: "???"
 // Scope operators
 AT: "@"
 DOLLAR: "$"
+CARET: "^"
 
 // === STRUCTURAL TOKENS ===
 LBRACE: "{"
@@ -142,13 +143,17 @@ SINGLE_QUOTE: "'"
 
 // Atom expressions (member access, indexing, calls)
 ?atom_expr: atom
-         | atom_expr DOT HASH INDEX_NUMBER -> index_access_operation
+         | atom_expr DOT HASH INDEX_NUMBER -> field_access_operation
          | atom_expr DOT identifier -> field_access_operation
-         | atom_expr DOT string -> string_field_access_operation  
-         | atom_expr DOT SINGLE_QUOTE expression SINGLE_QUOTE -> computed_field_access_operation
+         | atom_expr DOT string -> field_access_operation  
+         | atom_expr DOT SINGLE_QUOTE expression SINGLE_QUOTE -> field_access_operation
          | atom_expr BLOCK_START expression RBRACE -> named_block_operation
          | atom_expr AMPERSAND atom -> private_attach_operation
          | atom_expr PRIVATE_ACCESS identifier -> private_access_operation
+         | AT identifier -> field_access_operation          // @local-counter
+         | CARET identifier -> field_access_operation       // ^timeout
+         | AT HASH INDEX_NUMBER -> field_access_operation   // @#4
+         | CARET HASH INDEX_NUMBER -> field_access_operation // ^#4
          | BLOCK_INVOKE identifier -> block_invoke_operation
 
 // Atoms (primary expressions - highest precedence)
@@ -158,6 +163,7 @@ SINGLE_QUOTE: "'"
      | tag_reference 
      | shape_reference 
      | function_reference
+     | scope_reference
      | index_reference
      | structure
      | block_definition
@@ -171,6 +177,11 @@ SINGLE_QUOTE: "'"
 
 // Index references: #0, #1, #42
 index_reference: HASH INDEX_NUMBER
+
+// Scope references: $ctx, @, ^, etc. 
+scope_reference: DOLLAR identifier                           // $ctx, $mod, $in, $out, $arg (validated in transformer)
+               | AT                                           // @ (standalone only)
+               | CARET                                        // ^ (standalone only)
 
 // Computed expressions: 'expression' - single-quoted expressions that evaluate to values
 computed_expression: SINGLE_QUOTE expression SINGLE_QUOTE

@@ -99,7 +99,9 @@ def test_wrench_precedence():
     result = comp.parse("obj.field |<< modifier")
     assert isinstance(result, comp.PipelineModifierOperation)
     assert isinstance(result.pipeline, comp.FieldAccessOperation)
-    assert result.pipeline.field == "field"
+    assert len(result.pipeline.fields) == 1
+    assert isinstance(result.pipeline.fields[0], comp.Identifier)
+    assert result.pipeline.fields[0].name == "field"
 
     # Should bind more tightly than fallback
     result = comp.parse("data |<< mod ?? fallback")

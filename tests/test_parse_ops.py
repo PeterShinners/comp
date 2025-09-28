@@ -243,21 +243,37 @@ def _assert_field_access(node, object_ref, field_name):
     """Helper to assert field access operation"""
     assert isinstance(node, comp.FieldAccessOperation)
     _check_value(node.object, object_ref)
-    assert node.field == field_name
+    # With flattened structure, single field access has fields=[Identifier(field_name)]
+    assert len(node.fields) == 1
+    field = node.fields[0]
+    if isinstance(field, comp.Identifier):
+        assert field.name == field_name
+    elif isinstance(field, comp.StringLiteral):
+        assert field.value == field_name
+    else:
+        # Fallback for other field types
+        assert str(field) == field_name
 
 
 def _assert_index_access(node, object_ref, index):
     """Helper to assert index access operation"""
-    assert isinstance(node, comp.IndexAccessOperation)
+    assert isinstance(node, comp.FieldAccessOperation)
     _check_value(node.object, object_ref)
-    _check_value(node.index, index)
+    # Check that there's exactly one field and it's an IndexReference
+    assert len(node.fields) == 1
+    assert isinstance(node.fields[0], comp.IndexReference)
+    assert str(node.fields[0].index) == str(index)
 
 
 def _assert_index_reference(node, index):
     """Helper to assert standalone index reference (like #1)"""
-    assert isinstance(node, comp.IndexReference)
-    # node.index is a Token('INDEX_NUMBER', '1'), extract the value
-    assert node.index.value == str(index)
+    assert isinstance(node, comp.FieldAccessOperation)
+    # Should have Placeholder object and single IndexReference field
+    assert isinstance(node.object, comp.Placeholder)
+    assert len(node.fields) == 1
+    assert isinstance(node.fields[0], comp.IndexReference)
+    # node.fields[0].index is a Token('INDEX_NUMBER', '1'), extract the value
+    assert node.fields[0].index.value == str(index)
 
 
 def _assert_private_attach(node, object_ref, private_data):
@@ -272,6 +288,7 @@ def _assert_private_access(node, object_ref, field_name):
     """Helper to assert private field access"""
     assert isinstance(node, comp.PrivateAccessOperation)
     _check_value(node.object, object_ref)
+    # Note: PrivateAccessOperation still uses .field (not changed)
     assert node.field == field_name
 
 

@@ -26,7 +26,6 @@ __all__ = [
     "PipelineBlockOperation",
     "PipelineModifierOperation",
     "FieldAccessOperation",
-    "IndexAccessOperation",
     "IndexReference",
     "PrivateAttachOperation",
     "PrivateAccessOperation",
@@ -42,6 +41,8 @@ __all__ = [
     "Placeholder",
     "ArrayType",
     "FieldName",
+    "ComputedFieldName",
+    "Scope",
     "ScopeAssignment",
     "FieldAssignment",
     "ScopeTarget",
@@ -85,6 +86,35 @@ class ASTNode:
         (other than self). Subclasses with parameters should override this method.
         """
         return cls()
+
+    def printTree(self, indent=0, name=""):
+        """Print recursive tree for ast nodes"""
+        if name:
+            name += " = "
+        fields = []
+        childs = []
+        for attr, value in self.__dict__.items():
+            # Skip line and column since they're always empty for now
+            if attr in ('line', 'column'):
+                continue
+
+            if isinstance(value, ASTNode):
+                childs.append((attr, value))
+            elif isinstance(value, list):
+                # Handle lists - check if they contain AST nodes
+                if value and isinstance(value[0], ASTNode):
+                    # Lists of AST nodes - each item gets its own line
+                    for i, item in enumerate(value):
+                        childs.append((f"{attr}[{i}]", item))
+                else:
+                    # Lists of non-AST nodes - show as field
+                    fields.append(f"{attr}={value!r}")
+            else:
+                fields.append(f"{attr}={value!r}")
+        name = ""  # temporarily cleaner
+        print(f"{'  '*indent}{name}{self.__class__.__name__}  {' '.join(fields)}")
+        for child_name, child in childs:
+            child.printTree(indent + 1, child_name)
 
 
 class NumberLiteral(ASTNode):
@@ -561,53 +591,130 @@ class PipelineBlockOperation(ASTNode):
 
 
 class FieldAccessOperation(ASTNode):
-    """AST node representing a field access operation (object.field)."""
+    """AST node representing a field access operation (object.field.field2.field3)."""
 
-    def __init__(self, object: ASTNode, field: str):
+    def __init__(self, object: ASTNode, *fields: ASTNode):
         super().__init__()
         self.object = object
-        self.field = field
+        # Support both single field and multiple fields
+        if len(fields) == 1 and isinstance(fields[0], (list, tuple)):
+            # Handle case where fields are passed as a single list/tuple
+            self.fields = list(fields[0])
+        else:
+            # Handle case where fields are passed as individual arguments
+            self.fields = list(fields)
 
     @classmethod
     def fromToken(cls, tokens):
         """Create FieldAccessOperation from tokens."""
         object, _, field = tokens  # Middle token is .
-        field_name = field.name if isinstance(field, Identifier) else str(field)
-        return cls(object, field_name)
-
-    def __repr__(self) -> str:
-        return f"FieldAccessOperation({self.object!r}, {self.field!r})"
-
-
-class IndexAccessOperation(ASTNode):
-    """AST node representing an index access operation (object#index)."""
-
-    def __init__(self, object: ASTNode, index: ASTNode):
-        super().__init__()
-        self.object = object
-        self.index = index
+        # Keep field as AST node (Identifier, StringLiteral, etc.)
+        return cls(object, field)
 
     @classmethod
-    def fromToken(cls, tokens):
-        """Create IndexAccessOperation from tokens."""
-        if len(tokens) == 3:
-            # Old syntax: object # index
-            object, _, index = tokens  # Middle token is #
-        elif len(tokens) == 4:
-            # New dotted syntax: object . # index_number
-            object, _, _, index_token = tokens  # Middle tokens are . and #
-            # Convert INDEX_NUMBER token to NumberLiteral
-            from decimal import Decimal
+    def fromScopeTokens(cls, tokens):
+        """Create FieldAccessOperation from scope_reference tokens."""
+        # tokens can be: [DOLLAR, identifier] or [AT] or [CARET]
+        scope_token = tokens[0]
 
-            index = NumberLiteral(Decimal(index_token.value))
+        if scope_token.type == "DOLLAR":
+            # $ctx, $mod, etc. -> FieldAccessOperation with Scope('$ctx')
+            identifier = tokens[1] if len(tokens) > 1 else None
+            if identifier:
+                # Validate scope name
+                scope_name = identifier.name if hasattr(identifier, 'name') else str(identifier)
+                valid_scopes = {'ctx', 'mod', 'in', 'out', 'arg'}
+                if scope_name not in valid_scopes:
+                    from . import ParseError
+                    raise ParseError(f"Invalid scope name '${scope_name}'. Valid scopes: {', '.join('$' + s for s in valid_scopes)}")
+
+                full_scope_name = f"${scope_name}"
+                return cls(Scope(full_scope_name))
+            else:
+                raise ValueError("DOLLAR scope requires a scope name")
+
+        elif scope_token.type == "AT":
+            # @ -> FieldAccessOperation with Scope('@')
+            return cls(Scope("@"))
+
+        elif scope_token.type == "CARET":
+            # ^ -> FieldAccessOperation with Scope('^')
+            return cls(Scope("^"))
+
         else:
-            raise ValueError(
-                f"Unexpected token count for IndexAccessOperation: {len(tokens)}"
-            )
-        return cls(object, index)
+            raise ValueError(f"Unknown scope token type: {scope_token.type}")
+
+    @classmethod
+    def fromFieldTokens(cls, tokens):
+        """Create FieldAccessOperation from field_access_operation tokens."""
+        # This handles all field access types:
+        # - object.identifier
+        # - object.string
+        # - object.'computed'
+        # - object.#number
+        # - @identifier (scope field access)
+        # - ^identifier (scope field access)
+        # - @#number (scope index access)
+        # - ^#number (scope index access)
+
+        # Handle scope field/index access without dots (tokens are: [AT/CARET, identifier/HASH, INDEX_NUMBER?])
+        if len(tokens) >= 2 and hasattr(tokens[0], 'type'):
+            if tokens[0].type == "AT":
+                if len(tokens) == 2:
+                    # @identifier -> FieldAccessOperation(Scope('@'), identifier)
+                    identifier = tokens[1]
+                    return cls(Scope("@"), identifier)
+                elif len(tokens) == 3 and tokens[1].type == "HASH":
+                    # @#number -> FieldAccessOperation(Scope('@'), IndexReference(number))
+                    index_number = tokens[2]
+                    index_ref = IndexReference(index_number.value)
+                    return cls(Scope("@"), index_ref)
+            elif tokens[0].type == "CARET":
+                if len(tokens) == 2:
+                    # ^identifier -> FieldAccessOperation(Scope('^'), identifier)
+                    identifier = tokens[1]
+                    return cls(Scope("^"), identifier)
+                elif len(tokens) == 3 and tokens[1].type == "HASH":
+                    # ^#number -> FieldAccessOperation(Scope('^'), IndexReference(number))
+                    index_number = tokens[2]
+                    index_ref = IndexReference(index_number.value)
+                    return cls(Scope("^"), index_ref)
+
+        # Handle normal dot-based field access (tokens are: [object, DOT, field...])
+        object = tokens[0]
+        # Skip the DOT token (tokens[1])
+
+        # Determine field type based on remaining tokens
+        if len(tokens) == 3:
+            # Simple cases: object.field or object.string
+            field = tokens[2]
+        elif len(tokens) == 4 and tokens[2].type == "HASH":
+            # Index access: object.#number
+            # tokens = [object, DOT, HASH, INDEX_NUMBER]
+            index_number = tokens[3]
+            field = IndexReference(index_number.value)
+        elif len(tokens) == 5 and tokens[2].type == "SINGLE_QUOTE":
+            # Computed field: object.'expression'
+            # tokens = [object, DOT, SINGLE_QUOTE, expression, SINGLE_QUOTE]
+            expression = tokens[3]
+            field = ComputedFieldName(expression)
+        else:
+            raise ValueError(f"Unexpected field access tokens: {tokens}")
+
+        # Check if object is already a FieldAccessOperation - if so, extend it
+        if isinstance(object, cls):
+            # Flatten: instead of nesting, extend the existing fields list
+            return cls(object.object, *(object.fields + [field]))
+        else:
+            # First field access on this object
+            return cls(object, field)
 
     def __repr__(self) -> str:
-        return f"IndexAccessOperation({self.object!r}, {self.index!r})"
+        if len(self.fields) == 1:
+            return f"FieldAccessOperation({self.object!r}, {self.fields[0]!r})"
+        else:
+            fields_repr = ", ".join(f"{field!r}" for field in self.fields)
+            return f"FieldAccessOperation({self.object!r}, {fields_repr})"
 
 
 class IndexReference(ASTNode):
@@ -836,6 +943,28 @@ class FieldName(ASTNode):
 
     def __repr__(self) -> str:
         return f"FieldName({self.name!r})"
+
+
+class ComputedFieldName(ASTNode):
+    """AST node representing a computed field name expression ('expression')."""
+
+    def __init__(self, expression: ASTNode):
+        super().__init__()
+        self.expression = expression
+
+    def __repr__(self) -> str:
+        return f"ComputedFieldName({self.expression!r})"
+
+
+class Scope(ASTNode):
+    """AST node representing a scope reference ($ctx, @local, ^timeout, etc.)."""
+
+    def __init__(self, value: str):
+        super().__init__()
+        self.value = value
+
+    def __repr__(self) -> str:
+        return f"Scope({self.value!r})"
 
 
 class ScopeAssignment(ASTNode):

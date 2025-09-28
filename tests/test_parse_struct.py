@@ -210,7 +210,11 @@ def test_named_block_vs_field_access():
     field_result = comp.parse("name.field")
     assert isinstance(field_result, comp.FieldAccessOperation)
     assert field_result.object.name == "name"
-    assert field_result.field == "field"
+    # With flattened structure and AST node fields, check the Identifier
+    assert len(field_result.fields) == 1
+    field = field_result.fields[0]
+    assert isinstance(field, comp.Identifier)
+    assert field.name == "field"
 
     # Named block operation
     block_result = comp.parse("name.{field}")
