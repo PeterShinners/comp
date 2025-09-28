@@ -98,7 +98,7 @@ SINGLE_QUOTE: "'"
 
 // Pipeline operators (|, |?, |<<)
 ?pipe_expr: or_expr
-         | pipe_expr PIPE or_expr -> shape_union_operation
+         | pipe_expr PIPE or_expr -> pipeline_operation
          | pipe_expr PIPELINE_FAILURE or_expr -> pipeline_failure_operation
          | pipe_expr PIPELINE_MODIFIER or_expr -> pipeline_modifier_operation
          | pipe_expr PIPELINE_BLOCK_START structure_field* RBRACE -> pipeline_struct_operation
@@ -153,7 +153,6 @@ SINGLE_QUOTE: "'"
          | atom_expr DOT identifier -> field_access_operation
          | atom_expr DOT string -> field_access_operation  
          | atom_expr DOT SINGLE_QUOTE expression SINGLE_QUOTE -> field_access_operation
-         | atom_expr BLOCK_START expression RBRACE -> named_block_operation
          | atom_expr AMPERSAND atom -> private_attach_operation
          | atom_expr PRIVATE_ACCESS identifier -> private_access_operation
          | AT identifier -> field_access_operation          // @local-counter
@@ -176,7 +175,6 @@ SINGLE_QUOTE: "'"
      | scope_reference
      | index_reference
      | structure
-     | block_definition
      | placeholder
      | array_type
      | field_name
@@ -205,7 +203,7 @@ structure_field: scope_assignment | field_assignment | spread_operation | positi
 scope_assignment: scope_target assignment_op fallback_expr
 
 // Field assignments: identifier = expr, identifier.nested.field = expr
-field_assignment: field_target assignment_op fallback_expr  
+field_assignment: field_target assignment_op fallback_expr+  
 
 // Spread operations: ..expression (spreads the expression into the structure)
 spread_operation: SPREAD expression
@@ -232,9 +230,6 @@ field_path: identifier (DOT identifier)*
 
 // Assignment operators
 assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPREAD_ASSIGN | STRONG_SPREAD_ASSIGN
-
-// Block definitions: .{expression}
-block_definition: BLOCK_START expression RBRACE
 
 // Placeholders: ???
 placeholder: PLACEHOLDER

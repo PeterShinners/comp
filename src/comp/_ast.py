@@ -33,8 +33,6 @@ __all__ = [
     "PrivateAttachOperation",
     "PrivateAccessOperation",
     "BlockInvokeOperation",
-    "NamedBlockOperation",
-    "BlockDefinition",
     "SpreadField",
     "WeakNamedField",
     "StrongNamedField",
@@ -827,6 +825,17 @@ class FieldAccessOperation(ASTNode):
         else:
             raise ValueError(f"Unexpected field access tokens: {tokens}")
 
+        # SPECIAL CASE: Check for block assignment pattern (name.{...})
+        # If field is a StructureLiteral, convert to AssignmentOperation with '.{}' operator
+        if isinstance(field, StructureLiteral):
+            if len(field.operations) == 0:
+                # Empty structure: name.{} -> AssignmentOperation with empty StructureLiteral
+                pipeline_value = PipelineOperation([field])
+                return AssignmentOperation(object, ".{}", pipeline_value)
+            # For multi-field structures or named fields, treat as regular AssignmentOperation
+            pipeline_value = PipelineOperation([field])
+            return AssignmentOperation(object, ".{}", pipeline_value)
+
         # Check if object is already a FieldAccessOperation - if so, extend it
         if isinstance(object, cls):
             # Flatten: instead of nesting, extend the existing fields list
@@ -934,41 +943,6 @@ class BlockInvokeOperation(ASTNode):
 
     def __repr__(self) -> str:
         return f"BlockInvokeOperation({self.block!r})"
-
-
-class NamedBlockOperation(ASTNode):
-    """AST node representing a named block operation (name.{expression})."""
-
-    def __init__(self, name: ASTNode, block: ASTNode):
-        super().__init__()
-        self.name = name
-        self.block = block
-
-    @classmethod
-    def fromToken(cls, tokens):
-        """Create NamedBlockOperation from tokens."""
-        name, _, block = tokens  # name DOT block_definition
-        return cls(name, block)
-
-    def __repr__(self) -> str:
-        return f"NamedBlockOperation({self.name!r}, {self.block!r})"
-
-
-class BlockDefinition(ASTNode):
-    """AST node representing a block definition (.{expression})."""
-
-    def __init__(self, expression: ASTNode):
-        super().__init__()
-        self.expression = expression
-
-    @classmethod
-    def fromToken(cls, tokens):
-        """Create BlockDefinition from tokens."""
-        _, expression, _ = tokens  # .{, expression, }
-        return cls(expression)
-
-    def __repr__(self) -> str:
-        return f"BlockDefinition({self.expression!r})"
 
 
 class SpreadField(ASTNode):
