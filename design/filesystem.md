@@ -66,7 +66,7 @@ Directory listings return rich metadata without extra syscalls:
 ```comp
 ; Entry structure: {name type size modified permissions ...}
 @entries = (@dir |list)
-@files = (@entries |filter .{type == #file})
+@files = (@entries |filter :{type == #file})
 ```
 
 ## Permission Model

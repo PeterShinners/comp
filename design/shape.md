@@ -125,10 +125,10 @@ data ?~? shape          ; Can morph weakly?
 
 ```comp
 !shape ~predicate = ~block{value ~num}
-@test = .{value > 10} ~predicate
+@test = :{value > 10} ~predicate
 
-{value=5 extra="data"} |.@test  ; FAILS - extra field not allowed
-{value=5} |.@test               ; Works - exact match
+{value=5 extra="data"} |:@test  ; FAILS - extra field not allowed
+{value=5} |:@test               ; Works - exact match
 ```
 
 This distinction ensures blocks have predictable inputs while functions remain flexible for evolution and extension.
@@ -194,7 +194,7 @@ Blocks can be typed through shape definitions that specify their expected input 
 }
 ```
 
-When blocks are typed, they become invocable with the `|.` operator and enforce their input shape through morphing. For detailed coverage of streams, block invocation patterns, and iterator functions, see [Iteration and Streams](loop.md).
+When blocks are typed, they become invocable with the `|:` operator and enforce their input shape through morphing. For detailed coverage of streams, block invocation patterns, and iterator functions, see [Iteration and Streams](loop.md).
 
 ## Presence-Check Fields
 
@@ -359,16 +359,16 @@ Handling](pipeline.md).
 
 !func |handle-request ~{request} = {
     $in |match
-        .{$in ~? get-request} .{
+        :{$in ~? get-request} :{
             $in ~get-request |fetch-resource
         }
-        .{$in ~? post-request} .{
+        :{$in ~? post-request} :{
             $in ~post-request |create-resource
         }
-        .{$in ~? delete-request} .{
+        :{$in ~? delete-request} :{
             $in ~delete-request |delete-resource
         }
-        .{#true} .{
+        :{#true} :{
             {#http.fail status=405 message=Method not allowed}
         }
 }

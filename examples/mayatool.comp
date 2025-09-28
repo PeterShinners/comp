@@ -16,7 +16,7 @@
 	@transaction = !transact $maya-scene/maya
 	@selection = !transact $restore-selection/maya
 
-	(|selection/maya |map .{
+	(|selection/maya |map :{
 		@obj = $in
 		@parent = @obj |get-parent/maya  ; top level parents get a special "root" path
 
@@ -28,7 +28,7 @@
 		|parent/maya @parent
 
 		@target = (|if (^parent-type == #parent) @parent @obj)
-		if @target.exists? .{
+		if @target.exists? :{
 			{@target transform} |parent-constraint/maya |delete/maya ; delete is void
 		}
 
@@ -52,7 +52,7 @@
 	@group = parent |create-node #group/node name="bubbles"
 
 	; Generate bubble specifications
-	$out = {1 ^count} |range/iter .{
+	$out = {1 ^count} |range/iter :{
 		name = %"bubble_${$in}"
 		radius = (^radius-range |uniform/random)
 		position = {
@@ -62,7 +62,7 @@
 		}	
 	}
 	; Create and position bubbles
-	|map .{
+	|map :{
 		(@group |polySphere/maya name=name radius=radius)#0
 		|move/maya position
 	}

@@ -94,8 +94,8 @@ optimization, or debugging to any pipeline.
 
 !func |count_adult_purchases ~{users~user[]} = {
     users 
-    |filter .{age >= 18} 
-    |iter .{value |send-welcome-email} 
+    |filter :{age >= 18} 
+    |iter :{value |send-welcome-email} 
     |<<progressbar          ; Simple progress reporting, even into iterations
     |sum {recent-purchases}
     |<<debug                ; Development-time logging
@@ -141,8 +141,8 @@ problem = #maintenance.error
 
 ; Use them for dispatch
 ($in |handle-request
-    '#timeout.error.status' .{|retry-with-backoff}
-    '#error.status' .{(|log-error) (|use-fallback)}
+    '#timeout.error.status' :{|retry-with-backoff}
+    '#error.status' :{(|log-error) (|use-fallback)}
 )
 ```
 
@@ -291,10 +291,10 @@ This example shows how Comp's features combine naturally:
     
     {..@fields repo="nushell/nushell"}
     |list-issues/gh
-    |filter .{created-at >= @after}
+    |filter :{created-at >= @after}
     |<<progressbar              ; Add progress tracking
-    |map .{
-        @thumbs-up = reactions |count-if .{content == #thumbs-up}
+    |map :{
+        @thumbs-up = reactions |count-if :{content == #thumbs-up}
         {thumbs-up=@thumbs-up title=. url=.}
     }
     |<<debug                    ; Development logging
@@ -305,9 +305,9 @@ This example shows how Comp's features combine naturally:
 **What's happening here:**
 - Variables store computed values (`@after`, `@fields`)  
 - Structures compose cleanly (`{..@fields repo="nushell/nushell"}`)
-- Pipelines chain operations naturally (`|filter .{created-at >= @after}`)
+- Pipelines chain operations naturally (`|filter :{created-at >= @after}`)
 - Pipeline modifiers add capabilities without changing logic (`|<<progressbar`, `|<<debug`)
-- Blocks capture scope and simplify syntax (`.{created-at >= @after}`)
+- Blocks capture scope and simplify syntax (`:{created-at >= @after}`)
 - Field shorthand reduces noise (`title=.` for `title=$in.title`)
 - Everything composes seamlessly
 

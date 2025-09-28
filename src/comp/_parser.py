@@ -38,6 +38,7 @@ CURRENT CAPABILITIES:
 
 __all__ = ["parse"]
 
+import decimal
 from pathlib import Path
 
 from lark import Lark, ParseError, Transformer, UnexpectedCharacters
@@ -46,6 +47,112 @@ from . import _ast
 
 # Global parser instance (singleton)
 _lark_parser: Lark | None = None
+
+
+def _post_process_ast(node):
+    """Post-process AST to handle pipeline conversions and argument collection."""
+    if isinstance(node, _ast.AssignmentOperation):
+        # Process assignment values for pipelines
+        processed_pipeline = _post_process_ast(node.pipeline)
+        if processed_pipeline != node.pipeline:
+            return _ast.AssignmentOperation(node.target, node.operator, processed_pipeline)
+
+    elif isinstance(node, _ast.PipelineOperation):
+        # Process pipeline stages recursively
+        processed_stages = [_post_process_ast(stage) for stage in node.stages]
+        if processed_stages != node.stages:
+            return _ast.PipelineOperation(processed_stages)
+
+    elif isinstance(node, _ast.StructureLiteral):
+        # Process structure operations (this calls our existing argument collection)
+        processed_ops = _collect_function_arguments_global(node.operations)
+        if processed_ops != node.operations:
+            return _ast.StructureLiteral(processed_ops)
+
+    # Recursively process other node types
+    elif hasattr(node, '__dict__'):
+        changed = False
+        new_attrs = {}
+        for attr_name, attr_value in node.__dict__.items():
+            if isinstance(attr_value, _ast.ASTNode):
+                processed_attr = _post_process_ast(attr_value)
+                new_attrs[attr_name] = processed_attr
+                if processed_attr != attr_value:
+                    changed = True
+            elif isinstance(attr_value, list):
+                processed_list = [_post_process_ast(item) if isinstance(item, _ast.ASTNode) else item for item in attr_value]
+                new_attrs[attr_name] = processed_list
+                if processed_list != attr_value:
+                    changed = True
+            else:
+                new_attrs[attr_name] = attr_value
+
+        if changed:
+            # Create new instance with processed attributes
+            new_node = type(node).__new__(type(node))
+            for attr_name, attr_value in new_attrs.items():
+                setattr(new_node, attr_name, attr_value)
+            return new_node
+
+    return node
+
+
+def _collect_function_arguments_global(fields):
+    """Global version of function argument collection (extracted from structure logic)."""
+    if not fields:
+        return fields
+
+    processed = []
+    i = 0
+
+    while i < len(fields):
+        field = fields[i]
+
+        # Check if this is a positional field containing a pipeline with function call
+        if (isinstance(field, _ast.StructureOperation) and
+            field.target is None and
+            field.operator == "=" and
+            isinstance(field.expression, _ast.PipelineOperation)):
+
+            pipeline = field.expression
+            # Check if last stage is a PipelineFunctionOperation without arguments
+            if (len(pipeline.stages) >= 2 and
+                isinstance(pipeline.stages[-1], _ast.PipelineFunctionOperation) and
+                pipeline.stages[-1].args is None):
+
+                # Collect subsequent positional fields as arguments
+                function_op = pipeline.stages[-1]
+                args = []
+                j = i + 1
+
+                # Collect following positional fields as arguments
+                while (j < len(fields) and
+                       isinstance(fields[j], _ast.StructureOperation) and
+                       fields[j].target is None and
+                       fields[j].operator == "="):
+                    args.append(fields[j].expression)
+                    j += 1
+
+                # If we collected arguments, create a StructureLiteral to hold them
+                if args:
+                    # Convert arguments to StructureOperations (positional fields)
+                    arg_operations = []
+                    for arg in args:
+                        arg_op = _ast.StructureOperation(None, "=", arg)
+                        arg_operations.append(arg_op)
+
+                    # Create new StructureLiteral containing the arguments
+                    args_struct = _ast.StructureLiteral(arg_operations)
+                    function_op.args = args_struct
+                    processed.append(field)  # Add the modified field
+                    i = j  # Skip the collected arguments
+                    continue
+
+        # No argument collection needed, add field as-is
+        processed.append(field)
+        i += 1
+
+    return processed
 
 
 def parse(text: str) -> list | _ast.ASTNode:
@@ -79,6 +186,10 @@ def parse(text: str) -> list | _ast.ASTNode:
     try:
         result = parser.parse(text)
         assert isinstance(result, list | _ast.ASTNode)
+
+        # Post-process the AST to handle pipeline conversions
+        result = _post_process_ast(result)
+
     except (ParseError, UnexpectedCharacters) as e:
         # Try to provide more user-friendly error messages for common cases
         error_msg = str(e)
@@ -242,38 +353,227 @@ class _CompTransformer(Transformer):
         identifier_path_token = tokens[0]
         return _ast.FunctionReference.fromToken(identifier_path_token)
 
-    def scope_reference(self, tokens):
-        """Transform scope_reference rule into appropriate scope AST node.
 
-        EXAMPLE OF ARCHITECTURAL PATTERN:
-        - Parser method is minimal - just routes to AST factory
-        - All complex logic (validation, scope checking, construction) is in
-          FieldAccessOperation.fromScopeTokens() where it belongs
-        """
-        return _ast.FieldAccessOperation.fromScopeTokens(tokens)
 
     def assignment_operation(self, tokens):
         """Transform assignment_operation rule into AssignmentOperation AST node."""
-        target = tokens[0]
-        operator = tokens[1]
-        expression = tokens[2]
-        return _ast.AssignmentOperation(target, operator, expression)
+        return _ast.AssignmentOperation.fromToken(tokens)
 
     def fallback_operation(self, tokens):
         """Transform fallback_operation rule into FallbackOperation AST node."""
         return _ast.FallbackOperation.fromToken(tokens)
 
-    def shape_union_operation(self, tokens):
-        """Transform shape_union_operation rule into ShapeUnionOperation AST node."""
-        return _ast.ShapeUnionOperation.fromToken(tokens)
+    def pipeline_operation(self, tokens):
+        """Transform pipeline_operation rule into PipelineOperation AST node."""
+        # tokens: [left, PIPE, right] - create pipeline from left and right
+        left, _, right = tokens
+
+        # Convert right side to PipelineFunctionOperation if it's a simple identifier
+        if isinstance(right, _ast.FieldAccessOperation) and right.object is None and len(right.fields) == 1:
+            if isinstance(right.fields[0], _ast.Identifier):
+                func_name = right.fields[0].name
+                function_ref = _ast.FunctionReference(func_name)
+                right = _ast.PipelineFunctionOperation.fromFunctionReference(function_ref)
+
+        # Flatten nested pipelines to create a single pipeline with all stages
+        if isinstance(left, _ast.PipelineOperation):
+            # Extend existing pipeline with the new stage
+            stages = left.stages + [right]
+            return _ast.PipelineOperation(stages)
+        else:
+            # Create new pipeline with left and right as stages
+            return _ast.PipelineOperation([left, right])
+
+    def pipeline_function_call_operation(self, tokens):
+        """Transform pipeline_function_call_operation rule into PipelineOperation with function call."""
+        # tokens: [left, PIPE, identifier, arg1, arg2, ...]
+        left = tokens[0]
+        # Skip the PIPE token (tokens[1])
+        func_name = tokens[2]  # The identifier
+        arguments = tokens[3:]  # All the function arguments
+
+        # Create function reference
+        function_ref = _ast.FunctionReference(func_name.name)
+
+        # Create arguments structure from the argument list
+        if arguments:
+            # Convert function arguments to StructureLiteral with proper StructureOperations
+            structure_ops = self._ensure_structure_operations(arguments)
+            args_structure = _ast.StructureLiteral(structure_ops)
+            func_operation = _ast.PipelineFunctionOperation(function_ref, args_structure)
+        else:
+            func_operation = _ast.PipelineFunctionOperation.fromFunctionReference(function_ref)
+
+        # Flatten nested pipelines to create a single pipeline with all stages
+        if isinstance(left, _ast.PipelineOperation):
+            # Extend existing pipeline with the function call stage
+            stages = left.stages + [func_operation]
+            return _ast.PipelineOperation(stages)
+        else:
+            # Create new pipeline with left and function call as stages
+            return _ast.PipelineOperation([left, func_operation])
+
+    def function_field_assignment(self, tokens):
+        """Transform function_field_assignment rule into StructureOperation AST node."""
+        # This is similar to field_assignment but for function arguments
+        return _ast.StructureOperation.fromToken(tokens)
+
+    def function_argument(self, tokens):
+        """Transform function_argument rule into appropriate AST node."""
+        if len(tokens) == 1:
+            # Simple expression argument
+            return tokens[0]
+        else:
+            # Field assignment argument - delegate to function_field_assignment
+            return _ast.StructureOperation.fromToken(tokens)
+
+    def _ensure_structure_operations(self, items):
+        """Convert a list of items to StructureOperations, wrapping raw expressions as needed."""
+        operations = []
+        for item in items:
+            if isinstance(item, _ast.StructureOperation):
+                # Already a StructureOperation
+                operations.append(item)
+            else:
+                # Raw expression - convert to StructureOperation with no field name
+                operations.append(_ast.StructureOperation(None, '=', item))
+        return operations
 
     def pipeline_failure_operation(self, tokens):
-        """Transform pipeline_failure_operation rule into PipelineFailureOperation AST node."""
-        return _ast.PipelineFailureOperation.fromToken(tokens)
+        """Transform pipeline_failure_operation rule into extended PipelineOperation."""
+        # tokens: [left, PIPELINE_FAILURE, right]
+        left, _, right = tokens
+
+        # Create a PipelineFailureOperation stage with a placeholder operation
+        # We'll use the right (fallback) value as both operation and fallback for now
+        fallback_stage = _ast.PipelineFailureOperation(right, right)
+
+        # If left is already a pipeline, extend it with the fallback stage
+        if isinstance(left, _ast.PipelineOperation):
+            stages = left.stages + [fallback_stage]
+            return _ast.PipelineOperation(stages)
+        else:
+            # Create new pipeline with left as first stage and fallback as second
+            return _ast.PipelineOperation([left, fallback_stage])
 
     def pipeline_modifier_operation(self, tokens):
         """Transform pipeline_modifier_operation rule into PipelineModifierOperation AST node."""
         return _ast.PipelineModifierOperation.fromToken(tokens)
+
+    def pipeline_block_operation(self, tokens):
+        """Transform pipeline_block_operation rule into PipelineBlockOperation AST node."""
+        return _ast.PipelineBlockOperation.fromToken(tokens)
+
+    def pipeline_struct_operation(self, tokens):
+        """Transform pipeline_struct_operation rule into pipeline stage operation."""
+        expression = tokens[0]
+        # Skip the |{ token and get the structure fields (exclude closing })
+        structure_fields = tokens[2:-1]
+
+        # Create a structure literal as the pipeline stage
+        # Use StructureLiteral instead of PipelineStructOperation for the stage
+        structure_ops = self._ensure_structure_operations(structure_fields)
+        struct_literal = _ast.StructureLiteral(structure_ops)
+
+        # If expression is already a pipeline, extend it with this stage
+        if hasattr(expression, 'stages'):
+            new_stages = expression.stages + [struct_literal]
+            return _ast.PipelineOperation(new_stages)
+        else:
+            # Create new pipeline with expression as first stage and struct as second
+            return _ast.PipelineOperation([expression, struct_literal])
+
+    def pipeline_block_invoke_operation(self, tokens):
+        """Transform pipeline_block_invoke_operation rule into PipelineBlockInvokeOperation AST node."""
+        expression = tokens[0]
+        # Skip the |: token and get the target tokens
+        target_tokens = tokens[2:]
+
+        # Transform the target using existing field access logic
+        if len(target_tokens) == 1:
+            # Simple identifier: |:block
+            target = _ast.FieldAccessOperation(None, target_tokens[0])
+        elif len(target_tokens) == 2:
+            # @ identifier or ^ identifier: |:@scope or |:^scope
+            if target_tokens[0].type == "AT":
+                target = _ast.FieldAccessOperation(_ast.Scope("@"), target_tokens[1])
+            elif target_tokens[0].type == "CARET":
+                target = _ast.FieldAccessOperation(_ast.Scope("^"), target_tokens[1])
+            else:
+                target = _ast.FieldAccessOperation(None, target_tokens[0])
+        elif len(target_tokens) == 3:
+            # @ # number or ^ # number: |:@#4 or |:^#2
+            if target_tokens[0].type == "AT":
+                number_value = int(target_tokens[2].value) if hasattr(target_tokens[2], 'value') else int(str(target_tokens[2]))
+                number_node = _ast.NumberLiteral(decimal.Decimal(number_value))
+                index_ref = _ast.IndexReference(number_node)
+                target = _ast.FieldAccessOperation(_ast.Scope("@"), index_ref)
+            elif target_tokens[0].type == "CARET":
+                number_value = int(target_tokens[2].value) if hasattr(target_tokens[2], 'value') else int(str(target_tokens[2]))
+                number_node = _ast.NumberLiteral(decimal.Decimal(number_value))
+                index_ref = _ast.IndexReference(number_node)
+                target = _ast.FieldAccessOperation(_ast.Scope("^"), index_ref)
+            else:
+                target = _ast.FieldAccessOperation(None, target_tokens[0])
+        else:
+            target = _ast.FieldAccessOperation(None, target_tokens[0])
+
+        # Create a PipelineBlockInvokeOperation stage with the target
+        block_invoke_stage = _ast.PipelineBlockInvokeOperation(target, target)  # Use target for both operation and target for now
+
+        # If expression is already a pipeline, extend it with the block invoke stage
+        if isinstance(expression, _ast.PipelineOperation):
+            stages = expression.stages + [block_invoke_stage]
+            return _ast.PipelineOperation(stages)
+        else:
+            # Create new pipeline with expression as first stage and block invoke as second
+            return _ast.PipelineOperation([expression, block_invoke_stage])
+
+    def pipeline_block_invoke_literal(self, tokens):
+        """Transform pipeline_block_invoke_literal rule into PipelineBlockInvokeOperation with block literal."""
+        expression = tokens[0]
+        # Skip the |: and :{ tokens and get structure fields (exclude the final RBRACE)
+        structure_fields = [t for t in tokens[3:-1] if not isinstance(t, str)]
+
+        # Create the block literal
+        block_literal = _ast.BlockLiteral(structure_fields)
+
+        # Create a PipelineBlockInvokeOperation stage with the block literal
+        block_invoke_stage = _ast.PipelineBlockInvokeOperation(block_literal, block_literal)
+
+        # If expression is already a pipeline, extend it with the block invoke stage
+        if isinstance(expression, _ast.PipelineOperation):
+            stages = expression.stages + [block_invoke_stage]
+            return _ast.PipelineOperation(stages)
+        else:
+            # Create new pipeline with expression as first stage and block invoke as second
+            return _ast.PipelineOperation([expression, block_invoke_stage])
+
+    # === STANDALONE PIPELINE OPERATIONS ===
+
+    def standalone_block_invoke_operation(self, tokens):
+        """Transform standalone_block_invoke_operation rule into StandaloneBlockInvokeOperation AST node."""
+        # tokens: [BLOCK_INVOKE, qualified_identifier]
+        target = tokens[1]  # Skip the |: token
+        return _ast.StandaloneBlockInvokeOperation(target)
+
+    def standalone_failure_operation(self, tokens):
+        """Transform standalone_failure_operation rule into StandaloneFailureOperation AST node."""
+        # tokens: [PIPELINE_FAILURE, or_expr]
+        fallback = tokens[1]  # Skip the |? token
+        return _ast.StandaloneFailureOperation(fallback)
+
+    def standalone_modifier_operation(self, tokens):
+        """Transform standalone_modifier_operation rule into StandaloneModifierOperation AST node."""
+        # tokens: [PIPELINE_MODIFIER, or_expr]
+        modifier = tokens[1]  # Skip the |<< token
+        return _ast.StandaloneModifierOperation(modifier)
+
+    def standalone_struct_operation(self, tokens):
+        """Transform standalone_struct_operation rule into StandaloneStructOperation AST node."""
+        # tokens: [PIPELINE_BLOCK_START, structure_field*, RBRACE]
+        structure_fields = tokens[1:-1]  # Skip |{ and } tokens
+        return _ast.StandaloneStructOperation(structure_fields)
 
     def field_access_operation(self, tokens):
         """Transform field_access_operation rule into FieldAccessOperation AST node.
@@ -284,6 +584,38 @@ class _CompTransformer(Transformer):
         - Parser stays focused on grammar-to-factory routing
         """
         return _ast.FieldAccessOperation.fromFieldTokens(tokens)
+
+    def field_reference(self, tokens):
+        """Transform field_reference rule into proper field chain."""
+        # Handle different field_reference patterns:
+        # - identifier -> single identifier
+        # - identifier DOT field_path -> FieldAccessOperation with field chain
+        # - string -> string literal
+        # - field_name -> field name
+        # - computed_field_name -> computed field name
+        # - index_reference -> index reference
+
+        if len(tokens) == 1:
+            # Simple case: single identifier/string/etc
+            return tokens[0]
+        elif len(tokens) == 3:
+            # Complex case: identifier DOT field_path
+            base_identifier = tokens[0]  # identifier
+            # tokens[1] is DOT
+            field_path = tokens[2]  # field_path (list of identifiers)
+
+            # Build complete field chain: [base_identifier] + field_path
+            all_fields = [base_identifier] + field_path
+            return _ast.FieldAccessOperation(None, all_fields)
+        else:
+            # Fallback: return first token
+            return tokens[0]
+
+    def computed_field_name(self, tokens):
+        """Transform computed_field_name ('expr') into ComputedFieldName AST node."""
+        # tokens: [quote, expression, quote]
+        _, expression, _ = tokens
+        return _ast.ComputedFieldName(expression)
 
     def computed_expression(self, tokens):
         """Transform bare computed expression ('expr') into the inner expression."""
@@ -302,18 +634,7 @@ class _CompTransformer(Transformer):
         """Transform private_access_operation rule into PrivateAccessOperation AST node."""
         return _ast.PrivateAccessOperation.fromToken(tokens)
 
-    def block_invoke_operation(self, tokens):
-        """Transform block_invoke_operation rule into BlockInvokeOperation AST node."""
-        return _ast.BlockInvokeOperation.fromToken(tokens)
 
-    def named_block_operation(self, tokens):
-        """Transform named_block_operation rule into NamedBlockOperation AST node."""
-        # tokens: [name, BLOCK_START, expression, RBRACE]
-        name = tokens[0]
-        expression = tokens[2]  # Skip BLOCK_START and get expression
-        # Create a BlockDefinition wrapper for the expression
-        block = _ast.BlockDefinition(expression)
-        return _ast.NamedBlockOperation.fromToken([name, None, block])  # Use None for DOT placeholder
 
     # Structure handling
     def structure(self, tokens):
@@ -324,7 +645,121 @@ class _CompTransformer(Transformer):
             if isinstance(token, _ast.ASTNode):
                 fields.append(token)
 
-        return _ast.StructureLiteral.fromToken(fields)
+        # Post-process to collect function arguments
+        processed_fields = self._collect_function_arguments(fields)
+
+        # Ensure all fields are StructureOperations
+        structure_ops = self._ensure_structure_operations(processed_fields)
+        return _ast.StructureLiteral(structure_ops)
+
+    def block(self, tokens):
+        """Transform block rule into BlockLiteral AST node."""
+        # Extract fields from the block (same logic as structure but returns BlockLiteral)
+        fields = []
+        for token in tokens:
+            if isinstance(token, _ast.ASTNode):
+                fields.append(token)
+
+        # Post-process to collect function arguments
+        processed_fields = self._collect_function_arguments(fields)
+
+        # Ensure all fields are StructureOperations
+        structure_ops = self._ensure_structure_operations(processed_fields)
+        return _ast.BlockLiteral(structure_ops)
+
+    def block_literal(self, tokens):
+        """Transform block_literal rule into BlockLiteral AST node."""
+        # Extract fields from the block
+        fields = []
+        for token in tokens:
+            if isinstance(token, _ast.ASTNode):
+                fields.append(token)
+
+        # Post-process to collect function arguments
+        processed_fields = self._collect_function_arguments(fields)
+
+        # Ensure all fields are StructureOperations
+        structure_ops = self._ensure_structure_operations(processed_fields)
+        return _ast.BlockLiteral(structure_ops)
+
+    def named_block_literal(self, tokens):
+        """Transform named_block_literal rule into StructureOperation with BlockLiteral."""
+        # First token is the target identifier, rest are the block contents
+        target = tokens[0]
+        fields = tokens[1:]
+
+        # Create the BlockLiteral from the fields
+        block_fields = []
+        for token in fields:
+            if isinstance(token, _ast.ASTNode):
+                block_fields.append(token)
+
+        # Post-process to collect function arguments
+        processed_fields = self._collect_function_arguments(block_fields)
+
+        # Ensure all fields are StructureOperations
+        structure_ops = self._ensure_structure_operations(processed_fields)
+        block_literal = _ast.BlockLiteral(structure_ops)
+
+        # Wrap in StructureOperation
+        return _ast.StructureOperation(target, '=', block_literal)
+
+    def _collect_function_arguments(self, fields):
+        """Collect positional arguments for pipeline functions in structure operations."""
+        if not fields:
+            return fields
+
+        processed = []
+        i = 0
+
+        while i < len(fields):
+            field = fields[i]
+
+            # Check if this is a positional field containing a pipeline with function call
+            if (isinstance(field, _ast.StructureOperation) and
+                field.target is None and
+                field.operator == "=" and
+                isinstance(field.expression, _ast.PipelineOperation)):
+
+                pipeline = field.expression
+                # Check if last stage is a PipelineFunctionOperation without arguments
+                if (len(pipeline.stages) >= 2 and
+                    isinstance(pipeline.stages[-1], _ast.PipelineFunctionOperation) and
+                    pipeline.stages[-1].args is None):
+
+                    # Collect subsequent positional fields as arguments
+                    function_op = pipeline.stages[-1]
+                    args = []
+                    j = i + 1
+
+                    # Collect following positional fields as arguments
+                    while (j < len(fields) and
+                           isinstance(fields[j], _ast.StructureOperation) and
+                           fields[j].target is None and
+                           fields[j].operator == "="):
+                        args.append(fields[j].expression)
+                        j += 1
+
+                    # If we collected arguments, create a StructureLiteral to hold them
+                    if args:
+                        # Convert arguments to StructureOperations (positional fields)
+                        arg_operations = []
+                        for arg in args:
+                            arg_op = _ast.StructureOperation(None, "=", arg)
+                            arg_operations.append(arg_op)
+
+                        # Create new StructureLiteral containing the arguments
+                        args_struct = _ast.StructureLiteral(arg_operations)
+                        function_op.args = args_struct
+                        processed.append(field)  # Add the modified field
+                        i = j  # Skip the collected arguments
+                        continue
+
+            # No argument collection needed, add field as-is
+            processed.append(field)
+            i += 1
+
+        return processed
 
     def structure_field(self, tokens):
         """Transform structure_field rule."""
@@ -337,13 +772,159 @@ class _CompTransformer(Transformer):
         value = tokens[2]  # Skip the ASSIGN token
         return _ast.NamedField.fromToken([key, value])
 
+    def assignment_field(self, tokens):
+        """Transform assignment_field rule into StructureOperation AST node."""
+        # tokens: [qualified_identifier, assignment_op, *expressions]
+
+        # Convert the target to appropriate type for structure operations
+        raw_target = tokens[0]
+        operator = str(tokens[1])
+
+        # Convert FieldAccessOperation to FieldTarget for structure contexts
+        if isinstance(raw_target, _ast.FieldAccessOperation):
+            if raw_target.object is None and len(raw_target.fields) == 1:
+                # Simple field reference like "x" -> convert to FieldTarget
+                field = raw_target.fields[0]
+                if isinstance(field, _ast.Identifier):
+                    target = _ast.FieldTarget(field.name)
+                else:
+                    # For more complex field types, keep the original structure
+                    target = raw_target
+            elif raw_target.object is None and len(raw_target.fields) > 1:
+                # Dotted field reference like "x.y.z" -> convert to FieldTarget with path
+                first_field = raw_target.fields[0]
+                if isinstance(first_field, _ast.Identifier):
+                    field_path = []
+                    for field in raw_target.fields[1:]:
+                        if isinstance(field, _ast.Identifier):
+                            field_path.append(field.name)
+                        else:
+                            # Complex field path, keep original
+                            target = raw_target
+                            break
+                    else:
+                        target = _ast.FieldTarget(first_field.name, field_path)
+                else:
+                    target = raw_target
+            else:
+                target = raw_target
+        else:
+            target = raw_target
+
+        if len(tokens) == 3:
+            # Single expression - create StructureOperation directly
+            expression = tokens[2]
+            # Convert ShapeUnionOperation to PipelineOperation like AssignmentOperation does
+            if isinstance(expression, _ast.ShapeUnionOperation):
+                expression = _ast.PipelineOperation.fromValue(expression)
+            return _ast.StructureOperation(target, operator, expression)
+        else:
+            # Multiple expressions - create a pipeline with arguments
+            target = tokens[0]
+            operator = str(tokens[1])
+            expressions = tokens[2:]
+
+            # If first expression is a pipeline and we have more expressions,
+            # collect them as arguments
+            if len(expressions) >= 2:
+                first_expr = expressions[0]
+                remaining_exprs = expressions[1:]
+
+                # Check if first expression is a pipeline that can take arguments
+                if isinstance(first_expr, _ast.PipelineOperation) and len(first_expr.stages) >= 2:
+                    last_stage = first_expr.stages[-1]
+                    if isinstance(last_stage, _ast.FieldAccessOperation) and last_stage.object is None:
+                        # Convert the last FieldAccessOperation to PipelineFunctionOperation with args
+                        field = last_stage.fields[0] if last_stage.fields else None
+                        func_name = field.name if isinstance(field, _ast.Identifier) else "unknown"
+                        function_ref = _ast.FunctionReference(func_name)
+
+                        # Create arguments structure from remaining expressions
+                        arg_operations = []
+                        for expr in remaining_exprs:
+                            arg_op = _ast.StructureOperation(None, "=", expr)
+                            arg_operations.append(arg_op)
+
+                        args_struct = _ast.StructureLiteral(arg_operations)
+                        func_with_args = _ast.PipelineFunctionOperation(function_ref, args_struct)
+
+                        # Create new pipeline with the function that has arguments
+                        new_stages = first_expr.stages[:-1] + [func_with_args]
+                        combined_pipeline = _ast.PipelineOperation(new_stages)
+
+                        return _ast.StructureOperation(target, operator, combined_pipeline)
+
+                # Fallback: create a shape union chain for post-processing to handle
+                combined_expr = expressions[0]
+                for expr in expressions[1:]:
+                    combined_expr = _ast.ShapeUnionOperation(combined_expr, expr)
+
+                return _ast.StructureOperation(target, operator, combined_expr)
+            else:
+                # Single additional expression - wrap in shape union for consistency
+                expr = expressions[0]
+                return _ast.StructureOperation(target, operator, expr)
+
+    def qualified_identifier(self, tokens):
+        """Transform qualified_identifier rule by returning the single target."""
+        # tokens: [qualified_identifier] (either scope_identifier or field_identifier)
+        return tokens[0]
+
     def scope_assignment(self, tokens):
         """Transform scope_assignment rule into StructureOperation AST node."""
         return _ast.StructureOperation.fromToken(tokens)
 
     def field_assignment(self, tokens):
         """Transform field_assignment rule into StructureOperation AST node."""
-        return _ast.StructureOperation.fromToken(tokens)
+        # tokens: [field_identifier, assignment_op, *expressions]
+        if len(tokens) == 3:
+            # Single expression - use existing logic
+            return _ast.StructureOperation.fromToken(tokens)
+        else:
+            # Multiple expressions - create a pipeline with arguments
+            target = tokens[0]
+            operator = str(tokens[1])
+            expressions = tokens[2:]
+
+            # If first expression is a pipeline and we have more expressions,
+            # collect them as arguments
+            if len(expressions) >= 2:
+                first_expr = expressions[0]
+                remaining_exprs = expressions[1:]
+
+                # Check if first expression is a pipeline that can take arguments
+                if isinstance(first_expr, _ast.PipelineOperation) and len(first_expr.stages) >= 2:
+                    last_stage = first_expr.stages[-1]
+                    if isinstance(last_stage, _ast.FieldAccessOperation) and last_stage.object is None:
+                        # Convert the last FieldAccessOperation to PipelineFunctionOperation with args
+                        field = last_stage.fields[0] if last_stage.fields else None
+                        func_name = field.name if isinstance(field, _ast.Identifier) else "unknown"
+                        function_ref = _ast.FunctionReference(func_name)
+
+                        # Create arguments structure from remaining expressions
+                        arg_operations = []
+                        for expr in remaining_exprs:
+                            arg_op = _ast.StructureOperation(None, "=", expr)
+                            arg_operations.append(arg_op)
+
+                        args_struct = _ast.StructureLiteral(arg_operations)
+                        func_with_args = _ast.PipelineFunctionOperation(function_ref, args_struct)
+
+                        # Create new pipeline with the function that has arguments
+                        new_stages = first_expr.stages[:-1] + [func_with_args]
+                        combined_pipeline = _ast.PipelineOperation(new_stages)
+
+                        return _ast.StructureOperation(target, operator, combined_pipeline)
+
+                # Fallback: create a shape union chain for post-processing to handle
+                combined_expr = expressions[0]
+                for expr in expressions[1:]:
+                    combined_expr = _ast.ShapeUnionOperation(combined_expr, expr)
+
+                return _ast.StructureOperation(target, operator, combined_expr)
+            else:
+                # Single expression case (shouldn't happen with + in grammar, but safety)
+                return _ast.StructureOperation(target, operator, expressions[0])
 
     def spread_operation(self, tokens):
         """Transform spread_operation rule into StructureOperation AST node."""
@@ -353,25 +934,87 @@ class _CompTransformer(Transformer):
         expression = tokens[1]  # Skip the SPREAD token
         return _ast.StructureOperation.fromToken([target, operator, expression])
 
-    def scope_target(self, tokens):
-        """Transform scope_target rule into ScopeTarget AST node."""
-        return _ast.ScopeTarget.fromToken(tokens)
+    def scope_identifier(self, tokens):
+        """Transform scope_identifier rule into FieldAccessOperation AST node."""
+        # tokens: [scope_symbol, field_reference] or [scope_symbol, identifier] or [scope_symbol]
+        scope_symbol = tokens[0]
 
-    def field_target(self, tokens):
-        """Transform field_target rule into FieldTarget AST node."""
-        return _ast.FieldTarget.fromToken(tokens)
+        if len(tokens) == 1:
+            # Bare scope like @ or ^
+            return _ast.FieldAccessOperation(_ast.Scope(str(scope_symbol)))
+
+        # Check if this is a DOLLAR identifier case (special handling)
+        if str(scope_symbol) == "$":
+            if len(tokens) == 2:
+                # DOLLAR identifier case: $mod, $out, etc.
+                identifier = tokens[1]
+                if hasattr(identifier, 'name'):
+                    scope_name = f"${identifier.name}"
+                else:
+                    scope_name = f"${identifier}"
+                return _ast.FieldAccessOperation(_ast.Scope(scope_name))
+            elif len(tokens) == 4:
+                # DOLLAR identifier DOT field_reference case: $mod.export.field
+                identifier = tokens[1]
+                # tokens[2] is DOT
+                field_ref = tokens[3]
+
+                # Create scope with $identifier format
+                if hasattr(identifier, 'name'):
+                    scope_name = f"${identifier.name}"
+                else:
+                    scope_name = f"${identifier}"
+                scope_obj = _ast.Scope(scope_name)
+
+                # Handle field_reference
+                if isinstance(field_ref, _ast.FieldAccessOperation):
+                    return _ast.FieldAccessOperation(scope_obj, *field_ref.fields)
+                else:
+                    return _ast.FieldAccessOperation(scope_obj, field_ref)
+
+        # Has field_reference (complex case)
+        field_ref = tokens[1]
+
+        # Create scope object
+        scope_obj = _ast.Scope(str(scope_symbol))
+
+        # If field_ref is already a FieldAccessOperation, extract its fields
+        if isinstance(field_ref, _ast.FieldAccessOperation):
+            # Combine scope with the field access chain
+            return _ast.FieldAccessOperation(scope_obj, *field_ref.fields)
+        else:
+            # Simple field reference
+            return _ast.FieldAccessOperation(scope_obj, field_ref)
+
+    def field_identifier(self, tokens):
+        """Transform field_identifier rule into FieldAccessOperation AST node."""
+        # tokens: [field_reference]
+        field_ref = tokens[0]
+
+        # If field_ref is already a FieldAccessOperation, return it as-is
+        if isinstance(field_ref, _ast.FieldAccessOperation):
+            return field_ref
+        else:
+            # Simple field reference - wrap in FieldAccessOperation
+            return _ast.FieldAccessOperation(None, field_ref)
 
     def field_path(self, tokens):
-        """Transform field_path rule into list of field names."""
+        """Transform field_path rule into list of field identifiers."""
         # tokens: identifier (DOT identifier)*
+        # Keep identifiers as AST nodes, not strings
         path = []
         for token in tokens:
             if isinstance(token, _ast.Identifier):
-                path.append(token.name)
+                path.append(token)  # Keep as Identifier node
+            elif hasattr(token, "type") and token.type == "DOT":
+                # Skip DOT tokens
+                continue
             elif hasattr(token, "value"):
-                path.append(token.value)
+                # Convert other token types to Identifiers
+                path.append(_ast.Identifier(token.value))
             else:
-                path.append(str(token))
+                # Convert string tokens to Identifiers
+                path.append(_ast.Identifier(str(token)))
         return path
 
     def assignment_op(self, tokens):
@@ -392,12 +1035,8 @@ class _CompTransformer(Transformer):
         """Transform index_reference rule into FieldAccessOperation with IndexReference."""
         # Create the IndexReference from the tokens
         index_ref = _ast.IndexReference.fromToken(tokens)
-        # Wrap it in a FieldAccessOperation with Placeholder object and IndexReference in fields
-        return _ast.FieldAccessOperation(_ast.Placeholder(), index_ref)
-
-    def block_definition(self, tokens):
-        """Transform block_definition rule into BlockDefinition AST node."""
-        return _ast.BlockDefinition.fromToken(tokens)
+        # Wrap it in a FieldAccessOperation with None object and IndexReference in fields
+        return _ast.FieldAccessOperation(None, index_ref)
 
     def placeholder(self, tokens):
         """Transform placeholder rule into Placeholder AST node."""
@@ -410,3 +1049,66 @@ class _CompTransformer(Transformer):
     def field_name(self, tokens):
         """Transform field_name rule into FieldName AST node."""
         return _ast.FieldName.fromToken(tokens)
+
+
+# === DEBUG UTILITIES ===
+
+def debug_parse(expression):
+    """
+    Debug utility: Reload Lark parser, parse expression, and pretty print the raw Lark tree.
+
+    This bypasses AST transformation to show the raw grammar structure,
+    useful for debugging grammar issues at the Lark level.
+
+    Args:
+        expression (str): The expression to parse
+
+    Returns:
+        lark.Tree: The raw Lark parse tree, or None if parsing failed
+    """
+    from pathlib import Path
+    from lark import Lark
+
+    # Read and combine grammar files fresh each time
+    grammar_dir = Path(__file__).parent / "lark"
+
+    # Read main grammar
+    with open(grammar_dir / "comp.lark") as f:
+        comp_grammar = f.read()
+
+    # Create fresh parser
+    parser = Lark(
+        comp_grammar,
+        parser='lalr',
+        start='expression',
+        keep_all_tokens=True,
+        maybe_placeholders=False
+    )
+
+    print(f"Parsing: {expression}")
+    print("=" * 60)
+
+    try:
+        tree = parser.parse(expression)
+        _pretty_print_lark_tree(tree)
+        return tree
+    except Exception as e:
+        print(f"Parse error: {e}")
+        return None
+
+
+def _pretty_print_lark_tree(tree, indent=0):
+    """Pretty print a Lark tree in a readable hierarchical format."""
+    spaces = "  " * indent
+
+    if hasattr(tree, 'data'):
+        # This is a Tree node
+        print(f"{spaces}{tree.data}")
+        for child in tree.children:
+            _pretty_print_lark_tree(child, indent + 1)
+    else:
+        # This is a Token
+        if hasattr(tree, 'type'):
+            print(f"{spaces}[{tree.type}] '{tree.value}'")
+        else:
+            print(f"{spaces}'{tree}'")

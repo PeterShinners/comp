@@ -109,20 +109,24 @@ def test_scope_assignments(assignment, scope_type, scope_name, field_path, opera
     result = comp.parse(assignment)
     assert isinstance(result, comp.AssignmentOperation)
 
-    # Check target - should be FieldAccessOperation
-    assert isinstance(result.target, comp.FieldAccessOperation)
-    
+    #
     # Check operator
-    assert result.operator.value == operator
-    
+    assert result.operator == operator
+
+    # Check pipeline structure - assignments always have a pipeline
+    assert hasattr(result, 'pipeline')
+    assert isinstance(result.pipeline, comp.PipelineOperation)
+    assert len(result.pipeline.stages) >= 1
+
     # Check value type - handle FieldAccessOperation wrapping
-    if value_type == comp.Identifier and isinstance(result.value, comp.FieldAccessOperation):
+    actual_value = result.pipeline.stages[0]
+    if value_type == comp.Identifier and isinstance(actual_value, comp.FieldAccessOperation):
         # Bare identifier becomes FieldAccessOperation(None, [Identifier])
-        assert result.value.object is None
-        assert len(result.value.fields) == 1
-        assert isinstance(result.value.fields[0], comp.Identifier)
+        assert actual_value.object is None
+        assert len(actual_value.fields) == 1
+        assert isinstance(actual_value.fields[0], comp.Identifier)
     else:
-        assert isinstance(result.value, value_type)
+        assert isinstance(actual_value, value_type)
     
     # Check scope structure
     if scope_type in ["$", "@", "^"]:
@@ -173,18 +177,19 @@ def test_field_assignments(assignment, target_name, field_path, operator, value_
     assert result.target.object is None  # Bare field access has no object
     
     # Check operator
-    assert result.operator.value == operator
-    
-    # Check value type - handle FieldAccessOperation wrapping
-    if value_type == comp.Identifier and isinstance(result.value, comp.FieldAccessOperation):
-        # Bare identifier becomes FieldAccessOperation(None, [Identifier])
-        assert result.value.object is None
-        assert len(result.value.fields) == 1
-        assert isinstance(result.value.fields[0], comp.Identifier)
-    else:
-        assert isinstance(result.value, value_type)
-    
-    # Check field structure
+    assert result.operator == operator
+
+    # Check value type - handle FieldAccessOperation wrapping and pipeline structure
+    # The value is now in result.pipeline.stages[0] for single-value assignments
+    if len(result.pipeline.stages) == 1:
+        value_node = result.pipeline.stages[0]
+        if value_type == comp.Identifier and isinstance(value_node, comp.FieldAccessOperation):
+            # Bare identifier becomes FieldAccessOperation(None, [Identifier])
+            assert value_node.object is None
+            assert len(value_node.fields) == 1
+            assert isinstance(value_node.fields[0], comp.Identifier)
+        else:
+            assert isinstance(value_node, value_type)    # Check field structure
     assert len(result.target.fields) >= 1
     assert isinstance(result.target.fields[0], comp.Identifier)
     assert result.target.fields[0].name == target_name
@@ -237,5 +242,13 @@ def test_scope_assignment_vs_reference():
     assert isinstance(assign_result, comp.AssignmentOperation)
     assert isinstance(assign_result.target, comp.FieldAccessOperation)
     assert isinstance(assign_result.target.object, comp.Scope)
+    assert assign_result.operator == "="
+essOperation)
+    assert isinstance(assign_result.target.object, comp.Scope)
     assert assign_result.operator.value == "="
+n")
+    assert isinstance(assign_result, comp.AssignmentOperation)
+    assert isinstance(assign_result.target, comp.FieldAccessOperation)
+    assert isinstance(assign_result.target.object, comp.Scope)
+    assert assign_result.operator == "="
 

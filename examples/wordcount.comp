@@ -1,7 +1,7 @@
 ; Comp version
 !main = {
   @words = (|stdin |read-lines/io |map |split |flatten)
-  @most = (@words |tally |max-field value |.key)
+  @most = (@words |tally |max-field value |:key)
   @most |tap {%"The most frequent word is '${$in}'" |print}
 }
 

@@ -1,53 +1,34 @@
 """
-AST node definitions and exceptions for Comp language.
+AST node definitions for Comp language - Clean Redesign
 
-This module defines the Abstract Syntax Tree nodes used to represent parsed Comp code.
-Currently supports number and string literals, identifiers, and reference literals.
+This module defines a simplified Abstract Syntax Tree for the Comp language.
+Focuses on clean, consistent naming and minimal complexity.
+
+Design principles:
+- Clear, consistent naming (no abbreviations or legacy terminology) 
+- Minimal node types (combine similar concepts)
+- Simple construction (no complex factory methods)
+- Consistent structure across all nodes
 """
 
 __all__ = [
-    "ASTNode",
-    "NumberLiteral",
-    "StringLiteral",
-    "Identifier",
-    "TagReference",
-    "ShapeReference",
-    "FunctionReference",
-    "StructureLiteral",
-    "StructureOperation",
-    "NamedField",
-    "PositionalField",
-    "BinaryOperation",
-    "UnaryOperation",
-    "AssignmentOperation",
-    "FallbackOperation",
-    "ShapeUnionOperation",
-    "PipelineFailureOperation",
-    "PipelineBlockOperation",
-    "PipelineModifierOperation",
-    "FieldAccessOperation",
-    "IndexReference",
-    "PrivateAttachOperation",
-    "PrivateAccessOperation",
-    "BlockInvokeOperation",
-    "NamedBlockOperation",
-    "BlockDefinition",
-    "SpreadField",
-    "WeakNamedField",
-    "StrongNamedField",
-    "SpreadNamedField",
-    "WeakSpreadNamedField",
-    "StrongSpreadNamedField",
-    "Placeholder",
-    "ArrayType",
-    "FieldName",
-    "ComputedFieldName",
-    "Scope",
-    "ScopeAssignment",
-    "FieldAssignment",
-    "ScopeTarget",
-    "FieldTarget",
     "ParseError",
+    "ASTNode", 
+    "Number",
+    "String", 
+    "Identifier",
+    "TagRef",
+    "ShapeRef", 
+    "FunctionRef",
+    "Structure",
+    "Block",
+    "Pipeline", 
+    "BinaryOp",
+    "UnaryOp",
+    "FieldAccess",
+    "Scope",
+    "Placeholder",
+    "FieldName",
 ]
 
 import ast
@@ -56,104 +37,46 @@ from typing import Any
 
 
 class ParseError(Exception):
-    """Raised when parsing fails due to invalid syntax."""
+    """Exception raised for parsing errors."""
 
-    def __init__(
-        self, message: str, line: int | None = None, column: int | None = None
-    ):
-        super().__init__(message)
-        self.line = line
-        self.column = column
+    def __init__(self, message: str, position: int = None):
+        self.message = message
+        self.position = position
+        super().__init__(f"Parse error: {message}")
 
 
 class ASTNode:
-    """Base class for all AST nodes."""
+    """Base class for all AST nodes.
+    
+    Simple design with minimal magic - just stores attributes and provides
+    standard __repr__ and __eq__ implementations.
+    """
 
-    def __init__(self):
-        # Location information for error reporting (future)
-        self.line: int | None = None
-        self.column: int | None = None
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(...)"
-
-    @classmethod
-    def fromToken(cls, tokens):
-        """
-        Default fromToken implementation for simple AST nodes.
-
-        This base implementation works for classes with no constructor parameters
-        (other than self). Subclasses with parameters should override this method.
-        """
-        return cls()
-
-    def printTree(self, indent=0, name=""):
-        """Print recursive tree for ast nodes"""
-        if name:
-            name += " = "
-        fields = []
-        childs = []
-        for attr, value in self.__dict__.items():
-            # Skip line and column since they're always empty for now
-            if attr in ('line', 'column'):
-                continue
-
-            if isinstance(value, ASTNode):
-                childs.append((attr, value))
-            elif isinstance(value, list):
-                # Handle lists - check if they contain AST nodes
-                if value and isinstance(value[0], ASTNode):
-                    # Lists of AST nodes - each item gets its own line
-                    for i, item in enumerate(value):
-                        childs.append((f"{attr}[{i}]", item))
+    def __repr__(self):
+        attrs = []
+        for key, value in self.__dict__.items():
+            if not key.startswith("_"):
+                if isinstance(value, str):
+                    attrs.append(f'{key}="{value}"')
                 else:
-                    # Lists of non-AST nodes - show as field
-                    fields.append(f"{attr}={value!r}")
-            else:
-                fields.append(f"{attr}={value!r}")
-        name = ""  # temporarily cleaner
-        print(f"{'  '*indent}{name}{self.__class__.__name__}  {' '.join(fields)}")
-        for child_name, child in childs:
-            child.printTree(indent + 1, child_name)
+                    attrs.append(f"{key}={value}")
+        return f"{self.__class__.__name__}({', '.join(attrs)})"
+
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) and self.__dict__ == other.__dict__
 
 
-class NumberLiteral(ASTNode):
-    """AST node representing a number literal."""
-
-    def __init__(self, value: decimal.Decimal):
-        super().__init__()
+# Literals and basic values
+class Number(ASTNode):
+    """Numeric literal (integer, decimal, float)."""
+    
+    def __init__(self, value: decimal.Decimal | int | float, raw: str = None):
         self.value = value
-
-    @classmethod
-    def fromToken(cls, token):
-        """Create NumberLiteral from a Lark token."""
-        try:
-            # Handle based integers (0x, 0b, 0o) with ast.literal_eval
-            # Check for both old and new token type names (with mathematical_operators prefix)
-            if token.type == "BASED" or token.type.endswith("__BASED"):
-                python_int = ast.literal_eval(str(token))
-                decimal_value = decimal.Decimal(python_int)
-            else:  # DECIMAL types
-                decimal_value = decimal.Decimal(str(token))
-
-            return cls(decimal_value)
-
-        except SyntaxError as err:
-            # Pass through literal_eval's better error messages
-            raise ParseError(f"Invalid number: {err.args[0]}") from err
-        except (decimal.InvalidOperation, ValueError) as err:
-            raise ParseError(f"Invalid number syntax: {token}") from err
-
-    def __repr__(self) -> str:
-        return f"NumberLiteral({self.value})"
-
-    def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, NumberLiteral):
-            return False
-        return self.value == other.value
-
-    def __hash__(self) -> int:
-        return hash(self.value)
+        self.raw = raw
 
 
 class StringLiteral(ASTNode):
@@ -311,6 +234,30 @@ class StructureLiteral(ASTNode):
         return hash(tuple(self.operations))
 
 
+class BlockLiteral(ASTNode):
+    """AST node representing a block literal :{...}."""
+
+    def __init__(self, operations: list["StructureOperation"]):
+        super().__init__()
+        self.operations = operations
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create BlockLiteral from a list of operation tokens."""
+        return cls(tokens)
+
+    def __repr__(self) -> str:
+        return f"BlockLiteral({self.operations!r})"
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, BlockLiteral):
+            return False
+        return self.operations == other.operations
+
+    def __hash__(self) -> int:
+        return hash(tuple(self.operations))
+
+
 class StructureOperation(ASTNode):
     """AST node representing a single operation within a structure.
 
@@ -331,6 +278,9 @@ class StructureOperation(ASTNode):
         """Create StructureOperation from tokens: [target, operator, expression]."""
         if len(tokens) == 3:
             target, operator, expression = tokens
+            # Convert ShapeUnionOperation to PipelineOperation like AssignmentOperation does
+            if isinstance(expression, ShapeUnionOperation):
+                expression = PipelineOperation.fromValue(expression)
             return cls(target, str(operator), expression)
         else:
             raise ValueError(
@@ -475,26 +425,81 @@ class UnaryOperation(ASTNode):
         return hash((self.operator, self.operand))
 
 
-class AssignmentOperation(ASTNode):
-    """AST node representing an assignment operation (target = value)."""
+class PipelineOperation(ASTNode):
+    """AST node representing a pipeline of operations."""
 
-    def __init__(self, target: str, operator: str, value: ASTNode):
+    def __init__(self, stages: list[ASTNode]):
+        super().__init__()
+        self.stages = stages
+
+    @classmethod
+    def fromValue(cls, value: ASTNode):
+        """Create a pipeline from a single value (pipeline-of-one)."""
+        if isinstance(value, PipelineOperation):
+            # If already a pipeline, return it as-is
+            return value
+        elif isinstance(value, ShapeUnionOperation):
+            # Convert nested ShapeUnionOperation to flat pipeline stages
+            stages = cls._flatten_shape_union(value)
+            return cls(stages)
+        else:
+            # Single value becomes a pipeline-of-one
+            return cls([value])
+
+    @classmethod
+    def _flatten_shape_union(cls, shape_union: 'ShapeUnionOperation') -> list[ASTNode]:
+        """Flatten nested ShapeUnionOperation into a list of pipeline stages."""
+        stages = []
+
+        def collect_stages(node):
+            if isinstance(node, ShapeUnionOperation):
+                collect_stages(node.left)
+                collect_stages(node.right)
+            else:
+                stages.append(node)
+
+        collect_stages(shape_union)
+
+        # Convert simple identifiers to pipeline function operations (except the first stage)
+        # The first stage is the data source, subsequent stages are function calls
+        converted_stages = []
+        for i, stage in enumerate(stages):
+            if i > 0 and isinstance(stage, FieldAccessOperation) and stage.object is None and len(stage.fields) == 1 and isinstance(stage.fields[0], Identifier):
+                # Convert simple identifier FieldAccessOperation to PipelineFunctionOperation
+                function_name = stage.fields[0].name
+                function_ref = FunctionReference(function_name)
+                converted_stages.append(PipelineFunctionOperation.fromFunctionReference(function_ref))
+            else:
+                converted_stages.append(stage)
+
+        return converted_stages
+
+    def __repr__(self) -> str:
+        return f"PipelineOperation({self.stages!r})"
+
+
+class AssignmentOperation(ASTNode):
+    """AST node representing an assignment operation (target = pipeline)."""
+
+    def __init__(self, target: ASTNode, operator: str, pipeline: PipelineOperation):
         super().__init__()
         self.target = target
         self.operator = operator
-        self.value = value
+        self.pipeline = pipeline
 
     @classmethod
     def fromToken(cls, tokens):
         """Create AssignmentOperation from tokens: [target, operator, value]."""
         target, operator, value = tokens
-        # Extract target name from identifier
-        target_name = target.name if isinstance(target, Identifier) else str(target)
-        return cls(target_name, str(operator), value)
+        # Convert operator token to string
+        operator_str = str(operator) if hasattr(operator, 'value') else str(operator)
+        # Convert value to pipeline
+        pipeline = PipelineOperation.fromValue(value)
+        return cls(target, operator_str, pipeline)
 
     def __repr__(self) -> str:
         return (
-            f"AssignmentOperation({self.target!r}, {self.operator!r}, {self.value!r})"
+            f"AssignmentOperation({self.target!r}, {self.operator!r}, {self.pipeline!r})"
         )
 
 
@@ -590,6 +595,138 @@ class PipelineBlockOperation(ASTNode):
         return f"PipelineBlockOperation({self.process!r}, {self.transform!r}, {self.block!r})"
 
 
+class PipelineStructOperation(ASTNode):
+    """AST node representing a pipeline struct operation: data |{field=value}."""
+
+    def __init__(self, expression: ASTNode, structure_fields: list[ASTNode]):
+        super().__init__()
+        self.expression = expression
+        self.structure_fields = structure_fields
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create PipelineStructOperation from tokens."""
+        # tokens: [expression, |{, field1, field2, ..., }]
+        expression = tokens[0]
+        structure_fields = tokens[2:-1]  # Skip |{ and }
+        return cls(expression, structure_fields)
+
+    def __repr__(self) -> str:
+        return f"PipelineStructOperation({self.expression!r}, {self.structure_fields!r})"
+
+
+class PipelineBlockInvokeOperation(ASTNode):
+    """AST node representing a pipeline block invoke operation: data |:@block."""
+
+    def __init__(self, expression: ASTNode, target: ASTNode):
+        super().__init__()
+        self.expression = expression
+        self.target = target  # This will always be a FieldAccessOperation
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create PipelineBlockInvokeOperation from tokens."""
+        # This is now called directly from the parser with (expression, target)
+        expression, target = tokens
+        return cls(expression, target)
+
+    def __repr__(self) -> str:
+        return f"PipelineBlockInvokeOperation({self.expression!r}, {self.target!r})"
+
+
+class PipelineFunctionOperation(ASTNode):
+    """AST node representing a pipeline function call: data |function or data |function{args}."""
+
+    def __init__(self, function_reference: FunctionReference, args: ASTNode | None = None):
+        super().__init__()
+        self.function_reference = function_reference
+        self.args = args  # Will be None for now, can be StructureLiteral later
+
+    @classmethod
+    def fromFunctionReference(cls, function_reference: FunctionReference):
+        """Create PipelineFunctionOperation from a FunctionReference (no args)."""
+        return cls(function_reference, None)
+
+    def __repr__(self) -> str:
+        if self.args is None:
+            return f"PipelineFunctionOperation({self.function_reference!r})"
+        else:
+            return f"PipelineFunctionOperation({self.function_reference!r}, {self.args!r})"
+
+
+# === STANDALONE PIPELINE OPERATIONS ===
+# These are pipeline operations that don't require a left-hand side expression
+
+
+class StandaloneBlockInvokeOperation(ASTNode):
+    """AST node representing a standalone block invoke operation: |:block."""
+
+    def __init__(self, target: ASTNode):
+        super().__init__()
+        self.target = target
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create StandaloneBlockInvokeOperation from tokens."""
+        target = tokens[0]  # Just the target, no |: token
+        return cls(target)
+
+    def __repr__(self) -> str:
+        return f"StandaloneBlockInvokeOperation({self.target!r})"
+
+
+class StandaloneFailureOperation(ASTNode):
+    """AST node representing a standalone failure operation: |?fallback."""
+
+    def __init__(self, fallback: ASTNode):
+        super().__init__()
+        self.fallback = fallback
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create StandaloneFailureOperation from tokens."""
+        fallback = tokens[0]  # Just the fallback, no |? token
+        return cls(fallback)
+
+    def __repr__(self) -> str:
+        return f"StandaloneFailureOperation({self.fallback!r})"
+
+
+class StandaloneModifierOperation(ASTNode):
+    """AST node representing a standalone modifier operation: |<<modifier."""
+
+    def __init__(self, modifier: ASTNode):
+        super().__init__()
+        self.modifier = modifier
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create StandaloneModifierOperation from tokens."""
+        modifier = tokens[0]  # Just the modifier, no |<< token
+        return cls(modifier)
+
+    def __repr__(self) -> str:
+        return f"StandaloneModifierOperation({self.modifier!r})"
+
+
+class StandaloneStructOperation(ASTNode):
+    """AST node representing a standalone struct operation: |{field=value}."""
+
+    def __init__(self, structure_fields: list[ASTNode]):
+        super().__init__()
+        self.structure_fields = structure_fields
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create StandaloneStructOperation from tokens."""
+        # tokens: [field1, field2, ..., field_n] (no |{ } tokens)
+        structure_fields = tokens
+        return cls(structure_fields)
+
+    def __repr__(self) -> str:
+        return f"StandaloneStructOperation({self.structure_fields!r})"
+
+
 class FieldAccessOperation(ASTNode):
     """AST node representing a field access operation (object.field.field2.field3)."""
 
@@ -665,7 +802,7 @@ class FieldAccessOperation(ASTNode):
             identifier = tokens[0]
             return cls(None, identifier)
 
-        # Handle scope field/index access without dots (tokens are: [AT/CARET, identifier/HASH, INDEX_NUMBER?])
+        # Handle scope field/index access (tokens are: [AT/CARET, identifier/HASH, ...])
         if len(tokens) >= 2 and hasattr(tokens[0], 'type'):
             if tokens[0].type == "AT":
                 if len(tokens) == 2:
@@ -677,6 +814,19 @@ class FieldAccessOperation(ASTNode):
                     index_number = tokens[2]
                     index_ref = IndexReference(index_number.value)
                     return cls(Scope("@"), index_ref)
+                elif len(tokens) >= 4 and tokens[2].type == "DOT":
+                    # @identifier.field_path -> FieldAccessOperation(Scope('@'), identifier, ...field_path)
+                    identifier = tokens[1]
+                    field_path = tokens[3]  # This should be the field_path list from grammar
+
+                    # Convert field_path (list of identifiers) to individual fields
+                    if isinstance(field_path, list):
+                        fields = [identifier] + field_path
+                    else:
+                        fields = [identifier, field_path]
+
+                    return cls(Scope("@"), *fields)
+
             elif tokens[0].type == "CARET":
                 if len(tokens) == 2:
                     # ^identifier -> FieldAccessOperation(Scope('^'), identifier)
@@ -687,6 +837,35 @@ class FieldAccessOperation(ASTNode):
                     index_number = tokens[2]
                     index_ref = IndexReference(index_number.value)
                     return cls(Scope("^"), index_ref)
+                elif len(tokens) >= 4 and tokens[2].type == "DOT":
+                    # ^identifier.field_path -> FieldAccessOperation(Scope('^'), identifier, ...field_path)
+                    identifier = tokens[1]
+                    field_path = tokens[3]  # This should be the field_path list from grammar
+
+                    # Convert field_path (list of identifiers) to individual fields
+                    if isinstance(field_path, list):
+                        fields = [identifier] + field_path
+                    else:
+                        fields = [identifier, field_path]
+
+                    return cls(Scope("^"), *fields)
+
+            elif tokens[0].type == "DOLLAR":
+                if len(tokens) >= 4 and tokens[2].type == "DOT":
+                    # $identifier.field_path -> FieldAccessOperation(Scope('$identifier'), ...field_path)
+                    identifier = tokens[1]
+                    field_path = tokens[3]  # This should be the field_path list from grammar
+
+                    # Convert field_path (list of identifiers) to individual fields
+                    if isinstance(field_path, list):
+                        fields = field_path
+                    else:
+                        fields = [field_path]
+
+                    # Create scope with $identifier format - extract name from Identifier AST node
+                    identifier_name = identifier.name if hasattr(identifier, 'name') else str(identifier)
+                    scope_name = f"${identifier_name}"
+                    return cls(Scope(scope_name), *fields)
 
         # Handle normal dot-based field access (tokens are: [object, DOT, field...])
         object = tokens[0]
@@ -696,6 +875,13 @@ class FieldAccessOperation(ASTNode):
         if len(tokens) == 3:
             # Simple cases: object.field or object.string
             field = tokens[2]
+
+            # UNWRAP: If field is a simple FieldAccessOperation with no object, extract the identifier
+            if isinstance(field, FieldAccessOperation) and field.object is None and len(field.fields) == 1:
+                field = field.fields[0]
+            elif isinstance(field, FieldAccessOperation) and isinstance(field.object, Placeholder) and len(field.fields) == 1:
+                field = field.fields[0]
+
         elif len(tokens) == 4 and tokens[2].type == "HASH":
             # Index access: object.#number
             # tokens = [object, DOT, HASH, INDEX_NUMBER]
@@ -708,6 +894,17 @@ class FieldAccessOperation(ASTNode):
             field = ComputedFieldName(expression)
         else:
             raise ValueError(f"Unexpected field access tokens: {tokens}")
+
+        # SPECIAL CASE: Check for block assignment pattern (name:{...})
+        # If field is a StructureLiteral, convert to AssignmentOperation with ':{}' operator
+        if isinstance(field, StructureLiteral):
+            if len(field.operations) == 0:
+                # Empty structure: name:{} -> AssignmentOperation with empty StructureLiteral
+                pipeline_value = PipelineOperation([field])
+                return AssignmentOperation(object, ":{}", pipeline_value)
+            # For multi-field structures or named fields, treat as regular AssignmentOperation
+            pipeline_value = PipelineOperation([field])
+            return AssignmentOperation(object, ":{}", pipeline_value)
 
         # Check if object is already a FieldAccessOperation - if so, extend it
         if isinstance(object, cls):
@@ -780,7 +977,7 @@ class PrivateAccessOperation(ASTNode):
 
 
 class BlockInvokeOperation(ASTNode):
-    """AST node representing a block invocation (|.block)."""
+    """AST node representing a block invocation (|:block)."""
 
     def __init__(self, block: ASTNode):
         super().__init__()
@@ -789,46 +986,33 @@ class BlockInvokeOperation(ASTNode):
     @classmethod
     def fromToken(cls, tokens):
         """Create BlockInvokeOperation from tokens."""
-        _, block = tokens  # First token is |.
-        return cls(block)
+        # Handle different patterns:
+        # |: identifier -> 2 tokens
+        # |: @ identifier -> 3 tokens
+        # |: ^ identifier -> 3 tokens
+        # |: @ # number -> 4 tokens
+        # |: ^ # number -> 4 tokens
+        if len(tokens) == 2:
+            _, block = tokens  # |: identifier
+            return cls(block)
+        elif len(tokens) == 3:
+            # |: @ identifier or |: ^ identifier
+            target = tokens[2]
+            # Create a field access operation for the scoped target
+            return cls(FieldAccessOperation(None, target))
+        elif len(tokens) == 4:
+            # |: @ # number or |: ^ # number
+            target = tokens[3]
+            # Create an index reference for the scoped indexed target
+            index_value = int(target.value) if hasattr(target, 'value') else int(str(target))
+            number_node = NumberLiteral(decimal.Decimal(index_value))
+            return cls(FieldAccessOperation(None, IndexReference(number_node)))
+        else:
+            # Fallback to first available target
+            return cls(tokens[1])
 
     def __repr__(self) -> str:
         return f"BlockInvokeOperation({self.block!r})"
-
-
-class NamedBlockOperation(ASTNode):
-    """AST node representing a named block operation (name.{expression})."""
-
-    def __init__(self, name: ASTNode, block: ASTNode):
-        super().__init__()
-        self.name = name
-        self.block = block
-
-    @classmethod
-    def fromToken(cls, tokens):
-        """Create NamedBlockOperation from tokens."""
-        name, _, block = tokens  # name DOT block_definition
-        return cls(name, block)
-
-    def __repr__(self) -> str:
-        return f"NamedBlockOperation({self.name!r}, {self.block!r})"
-
-
-class BlockDefinition(ASTNode):
-    """AST node representing a block definition (.{expression})."""
-
-    def __init__(self, expression: ASTNode):
-        super().__init__()
-        self.expression = expression
-
-    @classmethod
-    def fromToken(cls, tokens):
-        """Create BlockDefinition from tokens."""
-        _, expression, _ = tokens  # .{, expression, }
-        return cls(expression)
-
-    def __repr__(self) -> str:
-        return f"BlockDefinition({self.expression!r})"
 
 
 class SpreadField(ASTNode):
@@ -1024,13 +1208,40 @@ class ScopeTarget(ASTNode):
 
     @classmethod
     def fromToken(cls, tokens):
-        """Create ScopeTarget from tokens: [scope_type, identifier, ...optional field_path]."""
-        scope_type = str(tokens[0])  # @ or $
-        name = tokens[1].name if hasattr(tokens[1], "name") else str(tokens[1])
+        """Create ScopeTarget from tokens: [scope_type, field_reference] or [scope_type] for bare scopes."""
+        scope_type = str(tokens[0])  # @ or $ or ^
 
-        field_path = []
-        if len(tokens) > 3:  # Has DOT and field_path
-            field_path = tokens[3]  # field_path result
+        if len(tokens) == 1:
+            # Bare scope: @ or ^ or $
+            return cls(scope_type, "", [])
+
+        # Has field_reference: extract name and field_path from field_reference
+        field_ref = tokens[1]
+
+        # Handle different field_reference types
+        if hasattr(field_ref, 'name'):  # Identifier or similar
+            name = str(field_ref.name)
+            field_path = []
+        elif hasattr(field_ref, 'value'):  # StringLiteral
+            name = str(field_ref.value)
+            field_path = []
+        elif hasattr(field_ref, 'fields') and hasattr(field_ref, 'object'):
+            # FieldAccessOperation: extract name and path
+            if field_ref.object is None and field_ref.fields:
+                # Flattened field access: extract name and path
+                first_field = field_ref.fields[0]
+                if hasattr(first_field, 'name'):
+                    name = str(first_field.name)
+                    field_path = [str(f.name) for f in field_ref.fields[1:] if hasattr(f, 'name')]
+                else:
+                    name = str(first_field)
+                    field_path = []
+            else:
+                name = str(field_ref)
+                field_path = []
+        else:
+            name = str(field_ref)
+            field_path = []
 
         return cls(scope_type, name, field_path)
 

@@ -81,7 +81,7 @@ Stores naturally integrate with the trail system for flexible path-based access.
 
 ; Bulk operations with trail patterns
 @store |select /users/*/active/       ; Get all active flags
-@store |update-all /prices/*/ .{$in * 1.1}  ; Increase all prices
+@store |update-all /prices/*/ :{$in * 1.1}  ; Increase all prices
 
 ```
 
@@ -93,7 +93,7 @@ Stores support transactions for coordinating multiple mutations that should succ
 ; Transaction with multiple operations using trails
 @store |transaction {
     $in |set /users/123/ user-data
-    $in |update /stats/user-count/ .{$in + 1}
+    $in |update /stats/user-count/ :{$in + 1}
     $in |delete /cache/temp/
 }
 ; All operations succeed or all rollback
@@ -102,8 +102,8 @@ Stores support transactions for coordinating multiple mutations that should succ
 @store |transaction {
     @current = $in |get /balance/
     $in |if {@current >= amount} {
-        $in |update /balance/ .{$in - amount}
-        $in |set /transactions/'id'/ .{amount from=balance}
+        $in |update /balance/ :{$in - amount}
+        $in |set /transactions/'id'/ :{amount from=balance}
     } {
         #insufficient-funds.fail
     }

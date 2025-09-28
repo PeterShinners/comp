@@ -1,0 +1,249 @@
+// Comp Language Grammar - Main Entry Point
+//
+// Main expression grammar following Python's precedence model with Comp-specific extensions
+//
+// ORGANIZATION:
+// - literals.lark: All literal types (numbers, strings, identifiers, references)  
+// - comp.lark: Main expression grammar with operators and constructs (this file)
+//
+// DESIGN PRINCIPLES:
+// - Clean separation between literals and expressions
+// - Organized by precedence (lowest to highest)
+// - Clear sections for operators, constructs, and future extensions
+// - Minimal duplication, maximum clarity
+
+// Import all literal types
+%import literals (number, string, identifier, tag_reference, shape_reference, function_reference, INDEX_NUMBER)
+
+// === COMMENTS ===
+COMMENT: /;[^\r\n]*/
+
+%ignore COMMENT
+%ignore /\s+/
+
+// === OPERATORS ===
+// Mathematical operators
+PLUS: "+"
+MINUS: "-"
+SUBTRACT: "+-"  // Disambiguation for subtraction vs kebab-case identifiers
+MULTIPLY: "*"
+DIVIDE: "/"
+MODULO: "%"
+POWER: "**"
+EQUAL_EQUAL: "=="
+NOT_EQUAL: "!="
+LESS_THAN: "<"
+LESS_EQUAL: "<="
+GREATER_THAN: ">"
+GREATER_EQUAL: ">="
+LOGICAL_AND: "&&"
+LOGICAL_OR: "||"
+LOGICAL_NOT: "!!"
+
+// Assignment operators
+ASSIGN: "="
+STRONG_ASSIGN: "=*"
+WEAK_ASSIGN: "=?"
+SPREAD_ASSIGN: "..="
+STRONG_SPREAD_ASSIGN: "..=*"
+WEAK_SPREAD_ASSIGN: "..=?"
+
+// Pipeline operators
+PIPE: "|"
+PIPELINE_FAILURE: "|?"
+PIPELINE_BLOCK_START: "|{"
+PIPELINE_MODIFIER: "|<<"
+BLOCK_INVOKE: "|:"
+
+// Structure operators
+DOT: "."
+HASH: "#"
+SPREAD: ".."
+AMPERSAND: "&"
+PRIVATE_ACCESS: "&."
+FALLBACK: "??"
+PLACEHOLDER: "???"
+COLON_BLOCK_START: ":{"
+
+// Scope operators
+AT: "@"
+DOLLAR: "$"
+CARET: "^"
+
+// === STRUCTURAL TOKENS ===
+LBRACE: "{"
+RBRACE: "}"
+LBRACKET: "["
+RBRACKET: "]"
+LPAREN: "("
+RPAREN: ")"
+SINGLE_QUOTE: "'"
+
+// === EXPRESSION HIERARCHY ===
+// Follows Python's precedence model with Comp-specific extensions
+// Lower precedence = higher in the hierarchy
+
+// Top level: expressions (can be assignments or regular expressions)
+?expression: assignment_expr
+
+// Assignment expressions: identifier = expression OR fallback_expr
+?assignment_expr: fallback_expr
+                | qualified_identifier assignment_op fallback_expr -> assignment_operation
+
+// Fallback operators (??)
+?fallback_expr: pipe_expr
+             | fallback_expr FALLBACK pipe_expr -> fallback_operation
+
+// Pipeline operators (|, |?, |<<)
+?pipe_expr: or_expr
+         | pipe_expr PIPE identifier function_argument+ -> pipeline_function_call_operation  // data |func arg1 name=value
+         | pipe_expr PIPE or_expr -> pipeline_operation
+         | pipe_expr PIPELINE_FAILURE or_expr -> pipeline_failure_operation
+         | pipe_expr PIPELINE_MODIFIER or_expr -> pipeline_modifier_operation
+         | pipe_expr PIPELINE_BLOCK_START structure_field* RBRACE -> pipeline_struct_operation
+         | pipe_expr BLOCK_INVOKE qualified_identifier -> pipeline_block_invoke_operation
+         | pipe_expr BLOCK_INVOKE COLON_BLOCK_START structure_field* RBRACE -> pipeline_block_invoke_literal
+         | standalone_pipeline
+
+// Standalone pipeline operations (can appear without left-hand side)
+?standalone_pipeline: BLOCK_INVOKE qualified_identifier -> standalone_block_invoke_operation
+                   | PIPELINE_FAILURE or_expr -> standalone_failure_operation
+                   | PIPELINE_MODIFIER or_expr -> standalone_modifier_operation
+                   | PIPELINE_BLOCK_START structure_field* RBRACE -> standalone_struct_operation
+
+// Logical OR (||)
+?or_expr: and_expr
+        | or_expr LOGICAL_OR and_expr -> binary_operation
+
+// Logical AND (&&)
+?and_expr: not_expr
+         | and_expr LOGICAL_AND not_expr -> binary_operation
+
+// Logical NOT (!!)
+?not_expr: comparison
+         | LOGICAL_NOT not_expr -> unary_operation
+
+// Comparison operators (==, !=, <, >, <=, >=)
+?comparison: arith_expr
+           | comparison comp_op arith_expr -> binary_operation
+
+!comp_op: EQUAL_EQUAL | NOT_EQUAL | LESS_THAN | LESS_EQUAL | GREATER_THAN | GREATER_EQUAL
+
+// Arithmetic expressions (+, -, +-)
+?arith_expr: term
+           | arith_expr PLUS term -> binary_operation
+           | arith_expr MINUS term -> binary_operation
+           | arith_expr SUBTRACT term -> binary_operation
+
+// Terms (*, /, %)
+?term: factor
+     | term MULTIPLY factor -> binary_operation
+     | term DIVIDE factor -> binary_operation
+     | term MODULO factor -> binary_operation
+
+// Factors (unary +/-, **)
+?factor: power
+       | PLUS factor -> unary_operation
+       | MINUS factor -> unary_operation
+
+// Power (**) - right-associative
+?power: atom_expr
+      | atom_expr POWER factor -> binary_operation
+
+// Atom expressions (member access, indexing, calls)
+?atom_expr: atom
+         | atom_expr DOT field_identifier -> field_access_operation
+         | atom_expr AMPERSAND atom -> private_attach_operation
+         | atom_expr PRIVATE_ACCESS identifier -> private_access_operation
+         | scope_identifier -> field_access_operation
+
+// Atoms (primary expressions - highest precedence)
+?atom: number 
+     | string 
+     | identifier -> field_access_operation
+     | tag_reference 
+     | shape_reference 
+     | function_reference
+     | structure
+     | block
+     | placeholder
+     | array_type
+     | index_reference
+     | field_name
+     | LPAREN expression RPAREN
+
+// === COMP-SPECIFIC CONSTRUCTS ===
+
+// Index references: #0, #1, #42
+index_reference: HASH INDEX_NUMBER
+
+// Computed expressions: 'expression' - single-quoted expressions that evaluate to values
+computed_field_name: SINGLE_QUOTE expression SINGLE_QUOTE
+
+// Structures: {field=value, positional, ..spread}
+structure: LBRACE structure_field* RBRACE
+
+// Blocks: :{field=value, positional, ..spread}
+block: COLON_BLOCK_START structure_field* RBRACE
+
+structure_field: spread_operation | assignment_field | positional_field
+
+// Combined assignment rule that handles both scope and field assignments
+assignment_field: qualified_identifier assignment_op fallback_expr
+
+qualified_identifier: scope_identifier | field_identifier  
+
+// Spread operations: ..expression (spreads the expression into the structure)
+spread_operation: SPREAD expression
+
+// Positional fields: just expressions (implied positional assignment, excludes assignments)
+positional_field: fallback_expr
+
+// Function arguments: for pipeline function calls with arguments (data |func arg1 name=value)
+// Only allow field assignments, block literals, and non-identifier literals (no bare identifiers that could be pipe targets)  
+function_argument: function_field_assignment | block | number | string | tag_reference | shape_reference
+
+// Function field assignment: named parameters in pipeline function calls (name=value)
+// Uses or_expr to prevent pipelines within function arguments (avoid ambiguity)
+function_field_assignment: field_identifier assignment_op or_expr
+
+// Scope identifier: unified rule for scoped access patterns (used in both expressions and assignments)
+scope_identifier: AT field_identifier                  // @local, @#1, @"field", @'computed'
+                | AT field_path                        // @local.nested.field, @cat.dog
+                | AT                                  // @ (bare at scope)
+                | DOLLAR identifier                   // $out
+                | DOLLAR identifier DOT field_identifier // $out.nested.field, $#1
+                | CARET field_identifier               // ^timeout, ^#1, ^"field", ^'computed'
+                | CARET field_path                     // ^timeout.nested.field, ^arg.setting
+                | CARET                               // ^ (bare caret scope)
+
+// Field identifier: unified rule for any field identifier pattern  
+field_identifier: identifier                           // field
+               | string                               // "string-field-name"
+               | field_name                           // 'quoted-identifier'
+               | computed_field_name                  // 'computed-expression'
+               | index_reference                      // #1, #42 (indexed fields)
+
+field_path: identifier DOT identifier (DOT identifier)*
+
+// Assignment operators
+assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPREAD_ASSIGN | STRONG_SPREAD_ASSIGN
+
+// Placeholders: ???
+placeholder: PLACEHOLDER
+
+// Array types: identifier[]
+array_type: identifier LBRACKET RBRACKET
+
+// Field names: 'identifier' - quoted field names for meta-programming
+field_name: SINGLE_QUOTE identifier SINGLE_QUOTE
+
+// === FUTURE EXTENSIONS ===
+// Reserved space for upcoming language features:
+// - Pattern matching constructs
+// - Module/import expressions  
+// - Unit type annotations
+// - Generic type parameters
+// - Trait/protocol definitions
+// - Async/await expressions
+// - Resource/capability tokens

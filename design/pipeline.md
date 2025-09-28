@@ -273,13 +273,13 @@ Pipeline modifiers identify operations using shape-based patterns, leveraging th
 
 ```comp
 ; Automatic progress tracking
-data |filter .{valid}
-     |map .{expensive-transform}
+data |filter :{valid}
+     |map :{expensive-transform}
      |<<progressbar    ; Analyzes pipeline, adds progress to all iterations
 
 ; Database query optimization  
-db.users |filter .{active}
-         |map .{name email}
+db.users |filter :{active}
+         |map :{name email}
          |<<push-to-sql    ; Converts to optimized SQL query
 
 ; Development and profiling

@@ -32,8 +32,8 @@
 			{#textinput 
 				text = @s.input 
 				placeholder = "What needs doing?"
-				on-change.{..@s input = value}
-				on-submit.{..@s 
+				on-change:{..@s input = value}
+				on-submit:{..@s 
 					input = "" 
 					todos = [..@s.todos {@s.input |{title = $in}}]
 				}
@@ -42,7 +42,7 @@
 		; Show filtered todos
 		@s.todos 
 		|filter {
-			@filter-values = @s.filter |get-children/tag |.1  ; Get the boolean array
+			@filter-values = @s.filter |get-children/tag |:1  ; Get the boolean array
 			complete |in @filter-values
 		}
 		|map |todo-item
@@ -54,7 +54,7 @@
 				{#button 
 					text = value.0 
 					variant = @variant
-					on-click.{..@s filter = tag}
+					on-click:{..@s filter = tag}
 				}
 			}
 		}
@@ -68,7 +68,7 @@
 		; Completed check
 		{#checkbox 
 			checked = ^todo.complete
-			on-change.{
+			on-change:{
 				@new = {title = ^todo.title complete = !!^todo.complete}
 				..@s todos={@s.todos |replace {title = ^todo.title} @new}
 			}

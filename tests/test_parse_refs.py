@@ -85,8 +85,8 @@ def test_valid_references(input_text, expected_type, expected_name):
 
     # Special handling for FieldAccessOperation containing IndexReference
     if expected_type == "FieldAccessOperation" and input_text.startswith("#"):
-        # This should be a FieldAccessOperation with Placeholder object and IndexReference field
-        assert isinstance(result.object, comp.Placeholder)
+        # This should be a FieldAccessOperation with None object and IndexReference field
+        assert result.object is None
         assert len(result.fields) == 1
         assert isinstance(result.fields[0], comp.IndexReference)
         assert result.fields[0].index.value == expected_name
@@ -110,7 +110,7 @@ invalid_reference_cases = [
     # Invalid hierarchy
     ("#.invalid", "tag starts with dot"),
     ("~invalid.", "shape ends with dot"),
-    ("|..double", "function double dots"),
+    ("|:.double", "function double dots"),
     ("#invalid..dot", "tag double dots in middle"),
     # Invalid module syntax
     ("#/empty", "tag missing identifier before slash"),
@@ -121,7 +121,6 @@ invalid_reference_cases = [
     ("#user@name", "tag with @"),
     ("~user$name", "shape with $"),
     # Reserved sigils (keeping ones that are still reserved)
-    ("$scope", "$ reserved for scopes"),
     ("!directive", "! reserved for directives"),
     ("&privacy", "& reserved for privacy"),
     ("%template", "% reserved for templates"),

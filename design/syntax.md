@@ -55,7 +55,7 @@ and between the operations a function or structure.
 - `|` - Function application
 - `|?` - Failure handling
 - `|<<` - Pipeline modifier (wrench operator)
-- `.{}` - Block delimiter
+- `:{}` - Block delimiter
 
 **Assignment operators:**
 - `=` - Normal assignment
@@ -160,11 +160,11 @@ morphed to match the function's shape definition. It cannot be overwritten.
 ; Example showing $in scope reset
 data = {name="Alice" age=30}
 
-result = data |process .{
+result = data |process :{
     ; Here, $in = {name="Alice" age=30}
     name = $in.name
     
-    profile = .{
+    profile = :{
         ; $in resets here! Now $in = {} (empty structure being built)
         ; To access original data, must use explicit reference
         display-name = data.name  ; Not $in.name!
@@ -189,7 +189,7 @@ The `$out` scope can be directly modified to build output structures incremental
     $out ..= (^name |calculate-permissions)
     
     ; Conditional additions
-    (^age >= 18) |if .{
+    (^age >= 18) |if :{
         $out.can-vote = #true
     }
 }
@@ -212,7 +212,7 @@ This scope is intended to be overwritten regularly.
 !func |example = {
     @counter = 0
     
-    result = data |process .{
+    result = data |process :{
         @counter = @counter + 1  ; Modifies function-level @counter
         value = @counter * 2
     }
