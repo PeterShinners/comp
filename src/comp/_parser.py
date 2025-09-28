@@ -405,8 +405,9 @@ class _CompTransformer(Transformer):
 
         # Create arguments structure from the argument list
         if arguments:
-            # Convert function arguments to StructureLiteral
-            args_structure = _ast.StructureLiteral(arguments)
+            # Convert function arguments to StructureLiteral with proper StructureOperations
+            structure_ops = self._ensure_structure_operations(arguments)
+            args_structure = _ast.StructureLiteral(structure_ops)
             func_operation = _ast.PipelineFunctionOperation(function_ref, args_structure)
         else:
             func_operation = _ast.PipelineFunctionOperation.fromFunctionReference(function_ref)
@@ -433,6 +434,18 @@ class _CompTransformer(Transformer):
         else:
             # Field assignment argument - delegate to function_field_assignment
             return _ast.StructureOperation.fromToken(tokens)
+
+    def _ensure_structure_operations(self, items):
+        """Convert a list of items to StructureOperations, wrapping raw expressions as needed."""
+        operations = []
+        for item in items:
+            if isinstance(item, _ast.StructureOperation):
+                # Already a StructureOperation
+                operations.append(item)
+            else:
+                # Raw expression - convert to StructureOperation with no field name
+                operations.append(_ast.StructureOperation(None, '=', item))
+        return operations
 
     def pipeline_failure_operation(self, tokens):
         """Transform pipeline_failure_operation rule into extended PipelineOperation."""
@@ -467,7 +480,8 @@ class _CompTransformer(Transformer):
 
         # Create a structure literal as the pipeline stage
         # Use StructureLiteral instead of PipelineStructOperation for the stage
-        struct_literal = _ast.StructureLiteral(structure_fields)
+        structure_ops = self._ensure_structure_operations(structure_fields)
+        struct_literal = _ast.StructureLiteral(structure_ops)
 
         # If expression is already a pipeline, extend it with this stage
         if hasattr(expression, 'stages'):
@@ -533,6 +547,17 @@ class _CompTransformer(Transformer):
         """
         return _ast.FieldAccessOperation.fromFieldTokens(tokens)
 
+    def field_reference(self, tokens):
+        """Transform field_reference rule by returning the single field reference."""
+        # tokens: [field_reference] (identifier, string, field_name, or computed_field_name)
+        return tokens[0]
+
+    def computed_field_name(self, tokens):
+        """Transform computed_field_name ('expr') into ComputedFieldName AST node."""
+        # tokens: [quote, expression, quote]
+        _, expression, _ = tokens
+        return _ast.ComputedFieldName(expression)
+
     def computed_expression(self, tokens):
         """Transform bare computed expression ('expr') into the inner expression."""
         # tokens: [quote, expression, quote]
@@ -565,7 +590,10 @@ class _CompTransformer(Transformer):
 
         # Post-process to collect function arguments
         processed_fields = self._collect_function_arguments(fields)
-        return _ast.StructureLiteral.fromToken(processed_fields)
+        
+        # Ensure all fields are StructureOperations
+        structure_ops = self._ensure_structure_operations(processed_fields)
+        return _ast.StructureLiteral(structure_ops)
     
     def _collect_function_arguments(self, fields):
         """Collect positional arguments for pipeline functions in structure operations."""
@@ -634,6 +662,64 @@ class _CompTransformer(Transformer):
         key = tokens[0]
         value = tokens[2]  # Skip the ASSIGN token
         return _ast.NamedField.fromToken([key, value])
+
+    def assignment_field(self, tokens):
+        """Transform assignment_field rule into StructureOperation AST node."""
+        # tokens: [assignment_target, assignment_op, *expressions]
+        if len(tokens) == 3:
+            # Single expression - use existing logic
+            return _ast.StructureOperation.fromToken(tokens)
+        else:
+            # Multiple expressions - create a pipeline with arguments
+            target = tokens[0]
+            operator = str(tokens[1])
+            expressions = tokens[2:]
+            
+            # If first expression is a pipeline and we have more expressions,
+            # collect them as arguments
+            if len(expressions) >= 2:
+                first_expr = expressions[0]
+                remaining_exprs = expressions[1:]
+                
+                # Check if first expression is a pipeline that can take arguments
+                if isinstance(first_expr, _ast.PipelineOperation) and len(first_expr.stages) >= 2:
+                    last_stage = first_expr.stages[-1]
+                    if isinstance(last_stage, _ast.FieldAccessOperation) and last_stage.object is None:
+                        # Convert the last FieldAccessOperation to PipelineFunctionOperation with args
+                        field = last_stage.fields[0] if last_stage.fields else None
+                        func_name = field.name if isinstance(field, _ast.Identifier) else "unknown"
+                        function_ref = _ast.FunctionReference(func_name)
+                        
+                        # Create arguments structure from remaining expressions
+                        arg_operations = []
+                        for expr in remaining_exprs:
+                            arg_op = _ast.StructureOperation(None, "=", expr)
+                            arg_operations.append(arg_op)
+                        
+                        args_struct = _ast.StructureLiteral(arg_operations)
+                        func_with_args = _ast.PipelineFunctionOperation(function_ref, args_struct)
+                        
+                        # Create new pipeline with the function that has arguments
+                        new_stages = first_expr.stages[:-1] + [func_with_args]
+                        combined_pipeline = _ast.PipelineOperation(new_stages)
+                        
+                        return _ast.StructureOperation(target, operator, combined_pipeline)
+                
+                # Fallback: create a shape union chain for post-processing to handle
+                combined_expr = expressions[0]
+                for expr in expressions[1:]:
+                    combined_expr = _ast.ShapeUnionOperation(combined_expr, expr)
+                
+                return _ast.StructureOperation(target, operator, combined_expr)
+            else:
+                # Single additional expression - wrap in shape union for consistency
+                expr = expressions[0]
+                return _ast.StructureOperation(target, operator, expr)
+
+    def assignment_target(self, tokens):
+        """Transform assignment_target rule by returning the single target."""
+        # tokens: [target] (either scope_target or field_target)
+        return tokens[0]
 
     def scope_assignment(self, tokens):
         """Transform scope_assignment rule into StructureOperation AST node."""

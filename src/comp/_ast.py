@@ -781,7 +781,7 @@ class FieldAccessOperation(ASTNode):
             identifier = tokens[0]
             return cls(None, identifier)
 
-        # Handle scope field/index access without dots (tokens are: [AT/CARET, identifier/HASH, INDEX_NUMBER?])
+        # Handle scope field/index access (tokens are: [AT/CARET, identifier/HASH, ...])
         if len(tokens) >= 2 and hasattr(tokens[0], 'type'):
             if tokens[0].type == "AT":
                 if len(tokens) == 2:
@@ -793,6 +793,19 @@ class FieldAccessOperation(ASTNode):
                     index_number = tokens[2]
                     index_ref = IndexReference(index_number.value)
                     return cls(Scope("@"), index_ref)
+                elif len(tokens) >= 4 and tokens[2].type == "DOT":
+                    # @identifier.field_path -> FieldAccessOperation(Scope('@'), identifier, ...field_path)
+                    identifier = tokens[1]
+                    field_path = tokens[3]  # This should be the field_path list from grammar
+                    
+                    # Convert field_path (list of identifiers) to individual fields
+                    if isinstance(field_path, list):
+                        fields = [identifier] + field_path
+                    else:
+                        fields = [identifier, field_path]
+                    
+                    return cls(Scope("@"), *fields)
+                    
             elif tokens[0].type == "CARET":
                 if len(tokens) == 2:
                     # ^identifier -> FieldAccessOperation(Scope('^'), identifier)
@@ -803,6 +816,34 @@ class FieldAccessOperation(ASTNode):
                     index_number = tokens[2]
                     index_ref = IndexReference(index_number.value)
                     return cls(Scope("^"), index_ref)
+                elif len(tokens) >= 4 and tokens[2].type == "DOT":
+                    # ^identifier.field_path -> FieldAccessOperation(Scope('^'), identifier, ...field_path)
+                    identifier = tokens[1]
+                    field_path = tokens[3]  # This should be the field_path list from grammar
+                    
+                    # Convert field_path (list of identifiers) to individual fields
+                    if isinstance(field_path, list):
+                        fields = [identifier] + field_path
+                    else:
+                        fields = [identifier, field_path]
+                    
+                    return cls(Scope("^"), *fields)
+                    
+            elif tokens[0].type == "DOLLAR":
+                if len(tokens) >= 4 and tokens[2].type == "DOT":
+                    # $identifier.field_path -> FieldAccessOperation(Scope('$identifier'), ...field_path)
+                    identifier = tokens[1]
+                    field_path = tokens[3]  # This should be the field_path list from grammar
+                    
+                    # Convert field_path (list of identifiers) to individual fields
+                    if isinstance(field_path, list):
+                        fields = field_path
+                    else:
+                        fields = [field_path]
+                    
+                    # Create scope with $identifier format
+                    scope_name = f"${identifier}"
+                    return cls(Scope(scope_name), *fields)
 
         # Handle normal dot-based field access (tokens are: [object, DOT, field...])
         object = tokens[0]
@@ -1138,13 +1179,40 @@ class ScopeTarget(ASTNode):
 
     @classmethod
     def fromToken(cls, tokens):
-        """Create ScopeTarget from tokens: [scope_type, identifier, ...optional field_path]."""
-        scope_type = str(tokens[0])  # @ or $
-        name = tokens[1].name if hasattr(tokens[1], "name") else str(tokens[1])
-
-        field_path = []
-        if len(tokens) > 3:  # Has DOT and field_path
-            field_path = tokens[3]  # field_path result
+        """Create ScopeTarget from tokens: [scope_type, field_reference] or [scope_type] for bare scopes."""
+        scope_type = str(tokens[0])  # @ or $ or ^
+        
+        if len(tokens) == 1:
+            # Bare scope: @ or ^ or $
+            return cls(scope_type, "", [])
+        
+        # Has field_reference: extract name and field_path from field_reference
+        field_ref = tokens[1]
+        
+        # Handle different field_reference types
+        if hasattr(field_ref, 'name'):  # Identifier or similar
+            name = str(field_ref.name)
+            field_path = []
+        elif hasattr(field_ref, 'value'):  # StringLiteral
+            name = str(field_ref.value)
+            field_path = []
+        elif hasattr(field_ref, 'fields') and hasattr(field_ref, 'object'):
+            # FieldAccessOperation: extract name and path
+            if field_ref.object is None and field_ref.fields:
+                # Flattened field access: extract name and path
+                first_field = field_ref.fields[0]
+                if hasattr(first_field, 'name'):
+                    name = str(first_field.name)
+                    field_path = [str(f.name) for f in field_ref.fields[1:] if hasattr(f, 'name')]
+                else:
+                    name = str(first_field)
+                    field_path = []
+            else:
+                name = str(field_ref)
+                field_path = []
+        else:
+            name = str(field_ref)
+            field_path = []
 
         return cls(scope_type, name, field_path)
 

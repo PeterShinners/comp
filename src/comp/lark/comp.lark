@@ -86,11 +86,8 @@ SINGLE_QUOTE: "'"
 // Top level: expressions (assignments only in specific contexts)
 ?expression: assignment_expr
 
-// Assignment operators (lowest precedence)
+// Assignment expressions (only in specific contexts, not general expressions)  
 ?assignment_expr: fallback_expr
-               | atom_expr ASSIGN assignment_expr -> assignment_operation
-               | atom_expr WEAK_ASSIGN assignment_expr -> assignment_operation
-               | atom_expr STRONG_ASSIGN assignment_expr -> assignment_operation
 
 // Fallback operators (??)
 ?fallback_expr: pipe_expr
@@ -106,8 +103,8 @@ SINGLE_QUOTE: "'"
          | pipe_expr BLOCK_INVOKE identifier -> pipeline_block_invoke_operation
          | pipe_expr BLOCK_INVOKE AT identifier -> pipeline_block_invoke_operation
          | pipe_expr BLOCK_INVOKE CARET identifier -> pipeline_block_invoke_operation
-         | pipe_expr BLOCK_INVOKE AT HASH INDEX_NUMBER -> pipeline_block_invoke_operation
-         | pipe_expr BLOCK_INVOKE CARET HASH INDEX_NUMBER -> pipeline_block_invoke_operation
+         | pipe_expr BLOCK_INVOKE AT index_reference -> pipeline_block_invoke_operation
+         | pipe_expr BLOCK_INVOKE CARET index_reference -> pipeline_block_invoke_operation
 
 // Logical OR (||)
 ?or_expr: and_expr
@@ -150,7 +147,7 @@ SINGLE_QUOTE: "'"
 
 // Atom expressions (member access, indexing, calls)
 ?atom_expr: atom
-         | atom_expr DOT HASH INDEX_NUMBER -> field_access_operation
+         | atom_expr DOT index_reference -> field_access_operation
          | atom_expr DOT identifier -> field_access_operation
          | atom_expr DOT string -> field_access_operation  
          | atom_expr DOT SINGLE_QUOTE expression SINGLE_QUOTE -> field_access_operation
@@ -158,13 +155,16 @@ SINGLE_QUOTE: "'"
          | atom_expr PRIVATE_ACCESS identifier -> private_access_operation
          | AT identifier -> field_access_operation          // @local-counter
          | CARET identifier -> field_access_operation       // ^timeout
-         | AT HASH INDEX_NUMBER -> field_access_operation   // @#4
-         | CARET HASH INDEX_NUMBER -> field_access_operation // ^#4
+         | DOLLAR identifier DOT field_path -> field_access_operation // $mod.child
+         | AT identifier DOT field_path -> field_access_operation    // @ctx.child
+         | CARET identifier DOT field_path -> field_access_operation  // ^ctx.child
+         | AT index_reference -> field_access_operation   // @#4
+         | CARET index_reference -> field_access_operation // ^#4
          | BLOCK_INVOKE identifier -> block_invoke_operation
          | BLOCK_INVOKE AT identifier -> block_invoke_operation
          | BLOCK_INVOKE CARET identifier -> block_invoke_operation
-         | BLOCK_INVOKE AT HASH INDEX_NUMBER -> block_invoke_operation
-         | BLOCK_INVOKE CARET HASH INDEX_NUMBER -> block_invoke_operation
+         | BLOCK_INVOKE AT index_reference -> block_invoke_operation
+         | BLOCK_INVOKE CARET index_reference -> block_invoke_operation
 
 // Atoms (primary expressions - highest precedence)
 ?atom: number 
@@ -178,8 +178,7 @@ SINGLE_QUOTE: "'"
      | structure
      | placeholder
      | array_type
-     | field_name
-     | computed_expression
+     | computed_field_name
      | LPAREN expression RPAREN
 
 // === COMP-SPECIFIC CONSTRUCTS ===
@@ -193,23 +192,22 @@ scope_reference: DOLLAR identifier                           // $ctx, $mod, $in,
                | CARET                                        // ^ (standalone only)
 
 // Computed expressions: 'expression' - single-quoted expressions that evaluate to values
-computed_expression: SINGLE_QUOTE expression SINGLE_QUOTE
+computed_field_name: SINGLE_QUOTE expression SINGLE_QUOTE
 
 // Structures: {field=value, positional, ..spread}
 structure: LBRACE structure_field* RBRACE
 
-structure_field: scope_assignment | field_assignment | spread_operation | positional_field
+structure_field: spread_operation | assignment_field | positional_field
 
-// Scope assignments: @local = expr, $out.field = expr, etc.
-scope_assignment: scope_target assignment_op fallback_expr
+// Combined assignment rule that handles both scope and field assignments
+assignment_field: assignment_target assignment_op fallback_expr
 
-// Field assignments: identifier = expr, identifier.nested.field = expr
-field_assignment: field_target assignment_op fallback_expr+  
+assignment_target: scope_target | field_target  
 
 // Spread operations: ..expression (spreads the expression into the structure)
 spread_operation: SPREAD expression
 
-// Positional fields: just expressions (implied positional assignment, excludes top-level assignment)
+// Positional fields: just expressions (implied positional assignment, excludes assignments)
 positional_field: fallback_expr
 
 // Function arguments: only allow field assignments and non-identifier literals (no bare identifiers that could be pipe targets)  
@@ -219,19 +217,22 @@ function_argument: function_field_assignment | number | string | tag_reference |
 function_field_assignment: field_target assignment_op or_expr
 
 // Assignment targets
-scope_target: AT identifier                           // @local
-            | AT identifier DOT field_path            // @local.nested.field
+scope_target: AT field_reference                      // @local, @local.nested.field, @#1, @"field", @'computed'
             | AT                                      // @ (bare at scope)
-            | DOLLAR identifier                       // $out
-            | DOLLAR identifier DOT field_path        // $out.nested.field
-            | CARET identifier                        // ^timeout
-            | CARET identifier DOT field_path         // ^timeout.nested.field
+            | DOLLAR identifier                       // $out, $out.nested.field, $#1
+            | DOLLAR identifier DOT field_reference   // $out, $out.nested.field, $#1
+            | CARET field_reference                   // ^timeout, ^timeout.nested.field, ^#1
             | CARET                                   // ^ (bare caret scope)
 
-field_target: identifier                              // field
-            | identifier DOT field_path               // field.nested.path
-            | string                                  // "string-field-name"
-            | SINGLE_QUOTE expression SINGLE_QUOTE    // 'computed-field-name'
+// Field reference: unified rule for any field reference pattern
+field_reference: identifier                           // field
+               | identifier DOT field_path             // field.nested.path  
+               | string                               // "string-field-name"
+               | field_name                           // 'quoted-identifier'
+               | computed_field_name                  // 'computed-expression'
+               | index_reference                      // #1, #42 (indexed fields)
+
+field_target: field_reference
 
 field_path: identifier (DOT identifier)*
 
