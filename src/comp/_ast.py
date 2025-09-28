@@ -841,8 +841,9 @@ class FieldAccessOperation(ASTNode):
                     else:
                         fields = [field_path]
                     
-                    # Create scope with $identifier format
-                    scope_name = f"${identifier}"
+                    # Create scope with $identifier format - extract name from Identifier AST node
+                    identifier_name = identifier.name if hasattr(identifier, 'name') else str(identifier)
+                    scope_name = f"${identifier_name}"
                     return cls(Scope(scope_name), *fields)
 
         # Handle normal dot-based field access (tokens are: [object, DOT, field...])

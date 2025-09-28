@@ -353,15 +353,7 @@ class _CompTransformer(Transformer):
         identifier_path_token = tokens[0]
         return _ast.FunctionReference.fromToken(identifier_path_token)
 
-    def scope_reference(self, tokens):
-        """Transform scope_reference rule into appropriate scope AST node.
 
-        EXAMPLE OF ARCHITECTURAL PATTERN:
-        - Parser method is minimal - just routes to AST factory
-        - All complex logic (validation, scope checking, construction) is in
-          FieldAccessOperation.fromScopeTokens() where it belongs
-        """
-        return _ast.FieldAccessOperation.fromScopeTokens(tokens)
 
     def assignment_operation(self, tokens):
         """Transform assignment_operation rule into AssignmentOperation AST node."""
@@ -548,9 +540,30 @@ class _CompTransformer(Transformer):
         return _ast.FieldAccessOperation.fromFieldTokens(tokens)
 
     def field_reference(self, tokens):
-        """Transform field_reference rule by returning the single field reference."""
-        # tokens: [field_reference] (identifier, string, field_name, or computed_field_name)
-        return tokens[0]
+        """Transform field_reference rule into proper field chain."""
+        # Handle different field_reference patterns:
+        # - identifier -> single identifier
+        # - identifier DOT field_path -> FieldAccessOperation with field chain
+        # - string -> string literal
+        # - field_name -> field name
+        # - computed_field_name -> computed field name
+        # - index_reference -> index reference
+        
+        if len(tokens) == 1:
+            # Simple case: single identifier/string/etc
+            return tokens[0]
+        elif len(tokens) == 3:
+            # Complex case: identifier DOT field_path
+            base_identifier = tokens[0]  # identifier
+            # tokens[1] is DOT
+            field_path = tokens[2]  # field_path (list of identifiers)
+            
+            # Build complete field chain: [base_identifier] + field_path
+            all_fields = [base_identifier] + field_path
+            return _ast.FieldAccessOperation(None, all_fields)
+        else:
+            # Fallback: return first token
+            return tokens[0]
 
     def computed_field_name(self, tokens):
         """Transform computed_field_name ('expr') into ComputedFieldName AST node."""
@@ -575,9 +588,7 @@ class _CompTransformer(Transformer):
         """Transform private_access_operation rule into PrivateAccessOperation AST node."""
         return _ast.PrivateAccessOperation.fromToken(tokens)
 
-    def block_invoke_operation(self, tokens):
-        """Transform block_invoke_operation rule into BlockInvokeOperation AST node."""
-        return _ast.BlockInvokeOperation.fromToken(tokens)
+
 
     # Structure handling
     def structure(self, tokens):
@@ -665,7 +676,7 @@ class _CompTransformer(Transformer):
 
     def assignment_field(self, tokens):
         """Transform assignment_field rule into StructureOperation AST node."""
-        # tokens: [assignment_target, assignment_op, *expressions]
+        # tokens: [qualified_identifier, assignment_op, *expressions]
         if len(tokens) == 3:
             # Single expression - use existing logic
             return _ast.StructureOperation.fromToken(tokens)
@@ -716,9 +727,9 @@ class _CompTransformer(Transformer):
                 expr = expressions[0]
                 return _ast.StructureOperation(target, operator, expr)
 
-    def assignment_target(self, tokens):
-        """Transform assignment_target rule by returning the single target."""
-        # tokens: [target] (either scope_target or field_target)
+    def qualified_identifier(self, tokens):
+        """Transform qualified_identifier rule by returning the single target."""
+        # tokens: [qualified_identifier] (either scope_identifier or field_identifier)
         return tokens[0]
 
     def scope_assignment(self, tokens):
@@ -727,7 +738,7 @@ class _CompTransformer(Transformer):
 
     def field_assignment(self, tokens):
         """Transform field_assignment rule into StructureOperation AST node."""
-        # tokens: [field_target, assignment_op, *expressions]
+        # tokens: [field_identifier, assignment_op, *expressions]
         if len(tokens) == 3:
             # Single expression - use existing logic
             return _ast.StructureOperation.fromToken(tokens)
@@ -785,25 +796,87 @@ class _CompTransformer(Transformer):
         expression = tokens[1]  # Skip the SPREAD token
         return _ast.StructureOperation.fromToken([target, operator, expression])
 
-    def scope_target(self, tokens):
-        """Transform scope_target rule into ScopeTarget AST node."""
-        return _ast.ScopeTarget.fromToken(tokens)
+    def scope_identifier(self, tokens):
+        """Transform scope_identifier rule into FieldAccessOperation AST node."""
+        # tokens: [scope_symbol, field_reference] or [scope_symbol, identifier] or [scope_symbol]
+        scope_symbol = tokens[0]
 
-    def field_target(self, tokens):
-        """Transform field_target rule into FieldTarget AST node."""
-        return _ast.FieldTarget.fromToken(tokens)
+        if len(tokens) == 1:
+            # Bare scope like @ or ^
+            return _ast.FieldAccessOperation(_ast.Scope(str(scope_symbol)))
+
+        # Check if this is a DOLLAR identifier case (special handling)
+        if str(scope_symbol) == "$":
+            if len(tokens) == 2:
+                # DOLLAR identifier case: $mod, $out, etc.
+                identifier = tokens[1]
+                if hasattr(identifier, 'name'):
+                    scope_name = f"${identifier.name}"
+                else:
+                    scope_name = f"${identifier}"
+                return _ast.FieldAccessOperation(_ast.Scope(scope_name))
+            elif len(tokens) == 4:
+                # DOLLAR identifier DOT field_reference case: $mod.export.field
+                identifier = tokens[1]
+                # tokens[2] is DOT
+                field_ref = tokens[3]
+                
+                # Create scope with $identifier format
+                if hasattr(identifier, 'name'):
+                    scope_name = f"${identifier.name}"
+                else:
+                    scope_name = f"${identifier}"
+                scope_obj = _ast.Scope(scope_name)
+                
+                # Handle field_reference
+                if isinstance(field_ref, _ast.FieldAccessOperation):
+                    return _ast.FieldAccessOperation(scope_obj, *field_ref.fields)
+                else:
+                    return _ast.FieldAccessOperation(scope_obj, field_ref)
+
+        # Has field_reference (complex case)
+        field_ref = tokens[1]
+
+        # Create scope object
+        scope_obj = _ast.Scope(str(scope_symbol))
+
+        # If field_ref is already a FieldAccessOperation, extract its fields
+        if isinstance(field_ref, _ast.FieldAccessOperation):
+            # Combine scope with the field access chain
+            return _ast.FieldAccessOperation(scope_obj, *field_ref.fields)
+        else:
+            # Simple field reference
+            return _ast.FieldAccessOperation(scope_obj, field_ref)
+
+    def field_identifier(self, tokens):
+        """Transform field_identifier rule into FieldAccessOperation AST node."""
+        # tokens: [field_reference]
+        field_ref = tokens[0]
+
+        # If field_ref is already a FieldAccessOperation, return it as-is
+        if isinstance(field_ref, _ast.FieldAccessOperation):
+            return field_ref
+        else:
+            # Simple field reference - wrap in FieldAccessOperation
+            return _ast.FieldAccessOperation(None, field_ref)
 
     def field_path(self, tokens):
-        """Transform field_path rule into list of field names."""
+        """Transform field_path rule into list of field identifiers."""
         # tokens: identifier (DOT identifier)*
+        # Keep identifiers as AST nodes, not strings
         path = []
         for token in tokens:
             if isinstance(token, _ast.Identifier):
-                path.append(token.name)
+                path.append(token)  # Keep as Identifier node
+            elif hasattr(token, "type") and token.type == "DOT":
+                # Skip DOT tokens
+                continue
             elif hasattr(token, "value"):
-                path.append(token.value)
+                # Convert other token types to Identifiers
+                path.append(_ast.Identifier(token.value))
             else:
-                path.append(str(token))
+                # Convert string tokens to Identifiers
+                path.append(_ast.Identifier(str(token)))
         return path
 
     def assignment_op(self, tokens):

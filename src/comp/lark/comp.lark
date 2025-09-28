@@ -95,16 +95,12 @@ SINGLE_QUOTE: "'"
 
 // Pipeline operators (|, |?, |<<)
 ?pipe_expr: or_expr
-         | pipe_expr PIPE identifier function_argument+ -> pipeline_function_call_operation  
+         | pipe_expr PIPE identifier function_argument+ -> pipeline_function_call_operation  // data |func arg1 name=value
          | pipe_expr PIPE or_expr -> pipeline_operation
          | pipe_expr PIPELINE_FAILURE or_expr -> pipeline_failure_operation
          | pipe_expr PIPELINE_MODIFIER or_expr -> pipeline_modifier_operation
          | pipe_expr PIPELINE_BLOCK_START structure_field* RBRACE -> pipeline_struct_operation
-         | pipe_expr BLOCK_INVOKE identifier -> pipeline_block_invoke_operation
-         | pipe_expr BLOCK_INVOKE AT identifier -> pipeline_block_invoke_operation
-         | pipe_expr BLOCK_INVOKE CARET identifier -> pipeline_block_invoke_operation
-         | pipe_expr BLOCK_INVOKE AT index_reference -> pipeline_block_invoke_operation
-         | pipe_expr BLOCK_INVOKE CARET index_reference -> pipeline_block_invoke_operation
+         | pipe_expr BLOCK_INVOKE qualified_identifier -> pipeline_block_invoke_operation
 
 // Logical OR (||)
 ?or_expr: and_expr
@@ -147,24 +143,10 @@ SINGLE_QUOTE: "'"
 
 // Atom expressions (member access, indexing, calls)
 ?atom_expr: atom
-         | atom_expr DOT index_reference -> field_access_operation
-         | atom_expr DOT identifier -> field_access_operation
-         | atom_expr DOT string -> field_access_operation  
-         | atom_expr DOT SINGLE_QUOTE expression SINGLE_QUOTE -> field_access_operation
+         | atom_expr DOT field_identifier -> field_access_operation
          | atom_expr AMPERSAND atom -> private_attach_operation
          | atom_expr PRIVATE_ACCESS identifier -> private_access_operation
-         | AT identifier -> field_access_operation          // @local-counter
-         | CARET identifier -> field_access_operation       // ^timeout
-         | DOLLAR identifier DOT field_path -> field_access_operation // $mod.child
-         | AT identifier DOT field_path -> field_access_operation    // @ctx.child
-         | CARET identifier DOT field_path -> field_access_operation  // ^ctx.child
-         | AT index_reference -> field_access_operation   // @#4
-         | CARET index_reference -> field_access_operation // ^#4
-         | BLOCK_INVOKE identifier -> block_invoke_operation
-         | BLOCK_INVOKE AT identifier -> block_invoke_operation
-         | BLOCK_INVOKE CARET identifier -> block_invoke_operation
-         | BLOCK_INVOKE AT index_reference -> block_invoke_operation
-         | BLOCK_INVOKE CARET index_reference -> block_invoke_operation
+         | scope_identifier -> field_access_operation
 
 // Atoms (primary expressions - highest precedence)
 ?atom: number 
@@ -173,23 +155,15 @@ SINGLE_QUOTE: "'"
      | tag_reference 
      | shape_reference 
      | function_reference
-     | scope_reference
-     | index_reference
      | structure
      | placeholder
      | array_type
-     | computed_field_name
      | LPAREN expression RPAREN
 
 // === COMP-SPECIFIC CONSTRUCTS ===
 
 // Index references: #0, #1, #42
 index_reference: HASH INDEX_NUMBER
-
-// Scope references: $ctx, @, ^, etc. 
-scope_reference: DOLLAR identifier                           // $ctx, $mod, $in, $out, $arg (validated in transformer)
-               | AT                                           // @ (standalone only)
-               | CARET                                        // ^ (standalone only)
 
 // Computed expressions: 'expression' - single-quoted expressions that evaluate to values
 computed_field_name: SINGLE_QUOTE expression SINGLE_QUOTE
@@ -200,9 +174,9 @@ structure: LBRACE structure_field* RBRACE
 structure_field: spread_operation | assignment_field | positional_field
 
 // Combined assignment rule that handles both scope and field assignments
-assignment_field: assignment_target assignment_op fallback_expr
+assignment_field: qualified_identifier assignment_op fallback_expr
 
-assignment_target: scope_target | field_target  
+qualified_identifier: scope_identifier | field_identifier  
 
 // Spread operations: ..expression (spreads the expression into the structure)
 spread_operation: SPREAD expression
@@ -210,29 +184,28 @@ spread_operation: SPREAD expression
 // Positional fields: just expressions (implied positional assignment, excludes assignments)
 positional_field: fallback_expr
 
-// Function arguments: only allow field assignments and non-identifier literals (no bare identifiers that could be pipe targets)  
+// Function arguments: for pipeline function calls with arguments (data |func arg1 name=value)
+// Only allow field assignments and non-identifier literals (no bare identifiers that could be pipe targets)  
 function_argument: function_field_assignment | number | string | tag_reference | shape_reference
 
-// Function field assignment: identifier = expr (but no pipelines in expr)  
-function_field_assignment: field_target assignment_op or_expr
+// Function field assignment: named parameters in pipeline function calls (name=value)
+// Uses or_expr to prevent pipelines within function arguments (avoid ambiguity)
+function_field_assignment: field_identifier assignment_op or_expr
 
-// Assignment targets
-scope_target: AT field_reference                      // @local, @local.nested.field, @#1, @"field", @'computed'
-            | AT                                      // @ (bare at scope)
-            | DOLLAR identifier                       // $out, $out.nested.field, $#1
-            | DOLLAR identifier DOT field_reference   // $out, $out.nested.field, $#1
-            | CARET field_reference                   // ^timeout, ^timeout.nested.field, ^#1
-            | CARET                                   // ^ (bare caret scope)
+// Scope identifier: unified rule for scoped access patterns (used in both expressions and assignments)
+scope_identifier: AT field_identifier                  // @local, @local.nested.field, @#1, @"field", @'computed'
+                | AT                                  // @ (bare at scope)
+                | DOLLAR identifier                   // $out
+                | DOLLAR identifier DOT field_identifier // $out.nested.field, $#1
+                | CARET field_identifier               // ^timeout, ^timeout.nested.field, ^#1
+                | CARET                               // ^ (bare caret scope)
 
-// Field reference: unified rule for any field reference pattern
-field_reference: identifier                           // field
-               | identifier DOT field_path             // field.nested.path  
+// Field identifier: unified rule for any field identifier pattern  
+field_identifier: identifier                           // field
                | string                               // "string-field-name"
                | field_name                           // 'quoted-identifier'
                | computed_field_name                  // 'computed-expression'
                | index_reference                      // #1, #42 (indexed fields)
-
-field_target: field_reference
 
 field_path: identifier (DOT identifier)*
 
