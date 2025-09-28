@@ -375,11 +375,81 @@ class _CompTransformer(Transformer):
         """Transform pipeline_operation rule into PipelineOperation AST node."""
         # tokens: [left, PIPE, right] - create pipeline from left and right
         left, _, right = tokens
-        return _ast.PipelineOperation([left, right])
+        
+        # Convert right side to PipelineFunctionOperation if it's a simple identifier
+        if isinstance(right, _ast.FieldAccessOperation) and right.object is None and len(right.fields) == 1:
+            if isinstance(right.fields[0], _ast.Identifier):
+                func_name = right.fields[0].name
+                function_ref = _ast.FunctionReference(func_name)
+                right = _ast.PipelineFunctionOperation.fromFunctionReference(function_ref)
+        
+        # Flatten nested pipelines to create a single pipeline with all stages
+        if isinstance(left, _ast.PipelineOperation):
+            # Extend existing pipeline with the new stage
+            stages = left.stages + [right]
+            return _ast.PipelineOperation(stages)
+        else:
+            # Create new pipeline with left and right as stages
+            return _ast.PipelineOperation([left, right])
+
+    def pipeline_function_call_operation(self, tokens):
+        """Transform pipeline_function_call_operation rule into PipelineOperation with function call."""
+        # tokens: [left, PIPE, identifier, arg1, arg2, ...]
+        left = tokens[0]
+        # Skip the PIPE token (tokens[1])
+        func_name = tokens[2]  # The identifier
+        arguments = tokens[3:]  # All the function arguments
+
+        # Create function reference
+        function_ref = _ast.FunctionReference(func_name.name)
+
+        # Create arguments structure from the argument list
+        if arguments:
+            # Convert function arguments to StructureLiteral
+            args_structure = _ast.StructureLiteral(arguments)
+            func_operation = _ast.PipelineFunctionOperation(function_ref, args_structure)
+        else:
+            func_operation = _ast.PipelineFunctionOperation.fromFunctionReference(function_ref)
+
+        # Flatten nested pipelines to create a single pipeline with all stages
+        if isinstance(left, _ast.PipelineOperation):
+            # Extend existing pipeline with the function call stage
+            stages = left.stages + [func_operation]
+            return _ast.PipelineOperation(stages)
+        else:
+            # Create new pipeline with left and function call as stages
+            return _ast.PipelineOperation([left, func_operation])
+
+    def function_field_assignment(self, tokens):
+        """Transform function_field_assignment rule into StructureOperation AST node."""
+        # This is similar to field_assignment but for function arguments
+        return _ast.StructureOperation.fromToken(tokens)
+
+    def function_argument(self, tokens):
+        """Transform function_argument rule into appropriate AST node."""
+        if len(tokens) == 1:
+            # Simple expression argument
+            return tokens[0]
+        else:
+            # Field assignment argument - delegate to function_field_assignment
+            return _ast.StructureOperation.fromToken(tokens)
 
     def pipeline_failure_operation(self, tokens):
-        """Transform pipeline_failure_operation rule into PipelineFailureOperation AST node."""
-        return _ast.PipelineFailureOperation.fromToken(tokens)
+        """Transform pipeline_failure_operation rule into extended PipelineOperation."""
+        # tokens: [left, PIPELINE_FAILURE, right]
+        left, _, right = tokens
+        
+        # Create a PipelineFailureOperation stage with a placeholder operation
+        # We'll use the right (fallback) value as both operation and fallback for now
+        fallback_stage = _ast.PipelineFailureOperation(right, right)
+        
+        # If left is already a pipeline, extend it with the fallback stage
+        if isinstance(left, _ast.PipelineOperation):
+            stages = left.stages + [fallback_stage]
+            return _ast.PipelineOperation(stages)
+        else:
+            # Create new pipeline with left as first stage and fallback as second
+            return _ast.PipelineOperation([left, fallback_stage])
 
     def pipeline_modifier_operation(self, tokens):
         """Transform pipeline_modifier_operation rule into PipelineModifierOperation AST node."""
@@ -390,8 +460,22 @@ class _CompTransformer(Transformer):
         return _ast.PipelineBlockOperation.fromToken(tokens)
 
     def pipeline_struct_operation(self, tokens):
-        """Transform pipeline_struct_operation rule into PipelineStructOperation AST node."""
-        return _ast.PipelineStructOperation.fromToken(tokens)
+        """Transform pipeline_struct_operation rule into pipeline stage operation."""
+        expression = tokens[0]
+        # Skip the |{ token and get the structure fields (exclude closing })
+        structure_fields = tokens[2:-1]
+
+        # Create a structure literal as the pipeline stage
+        # Use StructureLiteral instead of PipelineStructOperation for the stage
+        struct_literal = _ast.StructureLiteral(structure_fields)
+
+        # If expression is already a pipeline, extend it with this stage
+        if hasattr(expression, 'stages'):
+            new_stages = expression.stages + [struct_literal]
+            return _ast.PipelineOperation(new_stages)
+        else:
+            # Create new pipeline with expression as first stage and struct as second
+            return _ast.PipelineOperation([expression, struct_literal])
 
     def pipeline_block_invoke_operation(self, tokens):
         """Transform pipeline_block_invoke_operation rule into PipelineBlockInvokeOperation AST node."""
@@ -428,7 +512,16 @@ class _CompTransformer(Transformer):
         else:
             target = _ast.FieldAccessOperation(None, target_tokens[0])
             
-        return _ast.PipelineBlockInvokeOperation(expression, target)
+        # Create a PipelineBlockInvokeOperation stage with the target
+        block_invoke_stage = _ast.PipelineBlockInvokeOperation(target, target)  # Use target for both operation and target for now
+        
+        # If expression is already a pipeline, extend it with the block invoke stage
+        if isinstance(expression, _ast.PipelineOperation):
+            stages = expression.stages + [block_invoke_stage]
+            return _ast.PipelineOperation(stages)
+        else:
+            # Create new pipeline with expression as first stage and block invoke as second
+            return _ast.PipelineOperation([expression, block_invoke_stage])
 
     def field_access_operation(self, tokens):
         """Transform field_access_operation rule into FieldAccessOperation AST node.

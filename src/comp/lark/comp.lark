@@ -98,6 +98,7 @@ SINGLE_QUOTE: "'"
 
 // Pipeline operators (|, |?, |<<)
 ?pipe_expr: or_expr
+         | pipe_expr PIPE identifier function_argument+ -> pipeline_function_call_operation  
          | pipe_expr PIPE or_expr -> pipeline_operation
          | pipe_expr PIPELINE_FAILURE or_expr -> pipeline_failure_operation
          | pipe_expr PIPELINE_MODIFIER or_expr -> pipeline_modifier_operation
@@ -210,6 +211,12 @@ spread_operation: SPREAD expression
 
 // Positional fields: just expressions (implied positional assignment, excludes top-level assignment)
 positional_field: fallback_expr
+
+// Function arguments: only allow field assignments and non-identifier literals (no bare identifiers that could be pipe targets)  
+function_argument: function_field_assignment | number | string | tag_reference | shape_reference
+
+// Function field assignment: identifier = expr (but no pipelines in expr)  
+function_field_assignment: field_target assignment_op or_expr
 
 // Assignment targets
 scope_target: AT identifier                           // @local
