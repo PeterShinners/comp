@@ -14,7 +14,7 @@ def test_assignment_expressions_direct():
     # Test direct weak assignment
     result = comp.parse("config =? default-value")
     assert isinstance(result, comp._ast.AssignmentOperation)
-    assert result.operator.value == "=?"
+    assert result.operator == "=?"
     assert isinstance(result.target, comp._ast.FieldAccessOperation)
     assert result.target.object is None
     assert len(result.target.fields) == 1

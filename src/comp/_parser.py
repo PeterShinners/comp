@@ -38,6 +38,7 @@ CURRENT CAPABILITIES:
 
 __all__ = ["parse"]
 
+import decimal
 from pathlib import Path
 
 from lark import Lark, ParseError, Transformer, UnexpectedCharacters
@@ -254,10 +255,7 @@ class _CompTransformer(Transformer):
 
     def assignment_operation(self, tokens):
         """Transform assignment_operation rule into AssignmentOperation AST node."""
-        target = tokens[0]
-        operator = tokens[1]
-        expression = tokens[2]
-        return _ast.AssignmentOperation(target, operator, expression)
+        return _ast.AssignmentOperation.fromToken(tokens)
 
     def fallback_operation(self, tokens):
         """Transform fallback_operation rule into FallbackOperation AST node."""
@@ -274,6 +272,51 @@ class _CompTransformer(Transformer):
     def pipeline_modifier_operation(self, tokens):
         """Transform pipeline_modifier_operation rule into PipelineModifierOperation AST node."""
         return _ast.PipelineModifierOperation.fromToken(tokens)
+
+    def pipeline_block_operation(self, tokens):
+        """Transform pipeline_block_operation rule into PipelineBlockOperation AST node."""
+        return _ast.PipelineBlockOperation.fromToken(tokens)
+
+    def pipeline_struct_operation(self, tokens):
+        """Transform pipeline_struct_operation rule into PipelineStructOperation AST node."""
+        return _ast.PipelineStructOperation.fromToken(tokens)
+
+    def pipeline_block_invoke_operation(self, tokens):
+        """Transform pipeline_block_invoke_operation rule into PipelineBlockInvokeOperation AST node."""
+        expression = tokens[0]
+        # Skip the |. token and get the target tokens
+        target_tokens = tokens[2:]
+
+        # Transform the target using existing field access logic
+        if len(target_tokens) == 1:
+            # Simple identifier: |.block
+            target = _ast.FieldAccessOperation(None, target_tokens[0])
+        elif len(target_tokens) == 2:
+            # @ identifier or ^ identifier: |.@scope or |.^scope
+            if target_tokens[0].type == "AT":
+                target = _ast.FieldAccessOperation(_ast.Scope("@"), target_tokens[1])
+            elif target_tokens[0].type == "CARET":
+                target = _ast.FieldAccessOperation(_ast.Scope("^"), target_tokens[1])
+            else:
+                target = _ast.FieldAccessOperation(None, target_tokens[0])
+        elif len(target_tokens) == 3:
+            # @ # number or ^ # number: |.@#4 or |.^#2
+            if target_tokens[0].type == "AT":
+                number_value = int(target_tokens[2].value) if hasattr(target_tokens[2], 'value') else int(str(target_tokens[2]))
+                number_node = _ast.NumberLiteral(decimal.Decimal(number_value))
+                index_ref = _ast.IndexReference(number_node)
+                target = _ast.FieldAccessOperation(_ast.Scope("@"), index_ref)
+            elif target_tokens[0].type == "CARET":
+                number_value = int(target_tokens[2].value) if hasattr(target_tokens[2], 'value') else int(str(target_tokens[2]))
+                number_node = _ast.NumberLiteral(decimal.Decimal(number_value))
+                index_ref = _ast.IndexReference(number_node)
+                target = _ast.FieldAccessOperation(_ast.Scope("^"), index_ref)
+            else:
+                target = _ast.FieldAccessOperation(None, target_tokens[0])
+        else:
+            target = _ast.FieldAccessOperation(None, target_tokens[0])
+            
+        return _ast.PipelineBlockInvokeOperation(expression, target)
 
     def field_access_operation(self, tokens):
         """Transform field_access_operation rule into FieldAccessOperation AST node.

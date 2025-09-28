@@ -25,6 +25,9 @@ __all__ = [
     "PipelineFailureOperation",
     "PipelineBlockOperation",
     "PipelineModifierOperation",
+    "PipelineStructOperation",
+    "PipelineBlockInvokeOperation",
+    "PipelineFunctionOperation",
     "FieldAccessOperation",
     "IndexReference",
     "PrivateAttachOperation",
@@ -47,6 +50,7 @@ __all__ = [
     "FieldAssignment",
     "ScopeTarget",
     "FieldTarget",
+    "PipelineOperation",
     "ParseError",
 ]
 
@@ -331,6 +335,9 @@ class StructureOperation(ASTNode):
         """Create StructureOperation from tokens: [target, operator, expression]."""
         if len(tokens) == 3:
             target, operator, expression = tokens
+            # Convert ShapeUnionOperation to PipelineOperation like AssignmentOperation does
+            if isinstance(expression, ShapeUnionOperation):
+                expression = PipelineOperation.fromValue(expression)
             return cls(target, str(operator), expression)
         else:
             raise ValueError(
@@ -475,26 +482,78 @@ class UnaryOperation(ASTNode):
         return hash((self.operator, self.operand))
 
 
-class AssignmentOperation(ASTNode):
-    """AST node representing an assignment operation (target = value)."""
+class PipelineOperation(ASTNode):
+    """AST node representing a pipeline of operations."""
 
-    def __init__(self, target: str, operator: str, value: ASTNode):
+    def __init__(self, stages: list[ASTNode]):
+        super().__init__()
+        self.stages = stages
+
+    @classmethod
+    def fromValue(cls, value: ASTNode):
+        """Create a pipeline from a single value (pipeline-of-one)."""
+        if isinstance(value, ShapeUnionOperation):
+            # Convert nested ShapeUnionOperation to flat pipeline stages
+            stages = cls._flatten_shape_union(value)
+            return cls(stages)
+        else:
+            # Single value becomes a pipeline-of-one
+            return cls([value])
+
+    @classmethod
+    def _flatten_shape_union(cls, shape_union: 'ShapeUnionOperation') -> list[ASTNode]:
+        """Flatten nested ShapeUnionOperation into a list of pipeline stages."""
+        stages = []
+        
+        def collect_stages(node):
+            if isinstance(node, ShapeUnionOperation):
+                collect_stages(node.left)
+                collect_stages(node.right)
+            else:
+                stages.append(node)
+        
+        collect_stages(shape_union)
+        
+        # Convert simple identifiers to pipeline function operations (except the first stage)
+        # The first stage is the data source, subsequent stages are function calls
+        converted_stages = []
+        for i, stage in enumerate(stages):
+            if i > 0 and isinstance(stage, FieldAccessOperation) and stage.object is None and len(stage.fields) == 1 and isinstance(stage.fields[0], Identifier):
+                # Convert simple identifier FieldAccessOperation to PipelineFunctionOperation
+                function_name = stage.fields[0].name
+                function_ref = FunctionReference(function_name)
+                converted_stages.append(PipelineFunctionOperation.fromFunctionReference(function_ref))
+            else:
+                converted_stages.append(stage)
+        
+        return converted_stages
+
+    def __repr__(self) -> str:
+        return f"PipelineOperation({self.stages!r})"
+
+
+class AssignmentOperation(ASTNode):
+    """AST node representing an assignment operation (target = pipeline)."""
+
+    def __init__(self, target: ASTNode, operator: str, pipeline: PipelineOperation):
         super().__init__()
         self.target = target
         self.operator = operator
-        self.value = value
+        self.pipeline = pipeline
 
     @classmethod
     def fromToken(cls, tokens):
         """Create AssignmentOperation from tokens: [target, operator, value]."""
         target, operator, value = tokens
-        # Extract target name from identifier
-        target_name = target.name if isinstance(target, Identifier) else str(target)
-        return cls(target_name, str(operator), value)
+        # Convert operator token to string
+        operator_str = str(operator) if hasattr(operator, 'value') else str(operator)
+        # Convert value to pipeline
+        pipeline = PipelineOperation.fromValue(value)
+        return cls(target, operator_str, pipeline)
 
     def __repr__(self) -> str:
         return (
-            f"AssignmentOperation({self.target!r}, {self.operator!r}, {self.value!r})"
+            f"AssignmentOperation({self.target!r}, {self.operator!r}, {self.pipeline!r})"
         )
 
 
@@ -588,6 +647,65 @@ class PipelineBlockOperation(ASTNode):
 
     def __repr__(self) -> str:
         return f"PipelineBlockOperation({self.process!r}, {self.transform!r}, {self.block!r})"
+
+
+class PipelineStructOperation(ASTNode):
+    """AST node representing a pipeline struct operation: data |{field=value}."""
+
+    def __init__(self, expression: ASTNode, structure_fields: list[ASTNode]):
+        super().__init__()
+        self.expression = expression
+        self.structure_fields = structure_fields
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create PipelineStructOperation from tokens."""
+        # tokens: [expression, |{, field1, field2, ..., }]
+        expression = tokens[0]
+        structure_fields = tokens[2:-1]  # Skip |{ and }
+        return cls(expression, structure_fields)
+
+    def __repr__(self) -> str:
+        return f"PipelineStructOperation({self.expression!r}, {self.structure_fields!r})"
+
+
+class PipelineBlockInvokeOperation(ASTNode):
+    """AST node representing a pipeline block invoke operation: data |.@block."""
+
+    def __init__(self, expression: ASTNode, target: ASTNode):
+        super().__init__()
+        self.expression = expression
+        self.target = target  # This will always be a FieldAccessOperation
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create PipelineBlockInvokeOperation from tokens."""
+        # This is now called directly from the parser with (expression, target)
+        expression, target = tokens
+        return cls(expression, target)
+
+    def __repr__(self) -> str:
+        return f"PipelineBlockInvokeOperation({self.expression!r}, {self.target!r})"
+
+
+class PipelineFunctionOperation(ASTNode):
+    """AST node representing a pipeline function call: data |function or data |function{args}."""
+
+    def __init__(self, function_reference: FunctionReference, args: ASTNode | None = None):
+        super().__init__()
+        self.function_reference = function_reference
+        self.args = args  # Will be None for now, can be StructureLiteral later
+
+    @classmethod
+    def fromFunctionReference(cls, function_reference: FunctionReference):
+        """Create PipelineFunctionOperation from a FunctionReference (no args)."""
+        return cls(function_reference, None)
+
+    def __repr__(self) -> str:
+        if self.args is None:
+            return f"PipelineFunctionOperation({self.function_reference!r})"
+        else:
+            return f"PipelineFunctionOperation({self.function_reference!r}, {self.args!r})"
 
 
 class FieldAccessOperation(ASTNode):
@@ -789,8 +907,30 @@ class BlockInvokeOperation(ASTNode):
     @classmethod
     def fromToken(cls, tokens):
         """Create BlockInvokeOperation from tokens."""
-        _, block = tokens  # First token is |.
-        return cls(block)
+        # Handle different patterns:
+        # |. identifier -> 2 tokens
+        # |. @ identifier -> 3 tokens
+        # |. ^ identifier -> 3 tokens
+        # |. @ # number -> 4 tokens
+        # |. ^ # number -> 4 tokens
+        if len(tokens) == 2:
+            _, block = tokens  # |. identifier
+            return cls(block)
+        elif len(tokens) == 3:
+            # |. @ identifier or |. ^ identifier
+            target = tokens[2]
+            # Create a field access operation for the scoped target
+            return cls(FieldAccessOperation(None, target))
+        elif len(tokens) == 4:
+            # |. @ # number or |. ^ # number
+            target = tokens[3]
+            # Create an index reference for the scoped indexed target
+            index_value = int(target.value) if hasattr(target, 'value') else int(str(target))
+            number_node = NumberLiteral(decimal.Decimal(index_value))
+            return cls(FieldAccessOperation(None, IndexReference(number_node)))
+        else:
+            # Fallback to first available target
+            return cls(tokens[1])
 
     def __repr__(self) -> str:
         return f"BlockInvokeOperation({self.block!r})"

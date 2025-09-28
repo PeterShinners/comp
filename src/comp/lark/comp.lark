@@ -101,6 +101,12 @@ SINGLE_QUOTE: "'"
          | pipe_expr PIPE or_expr -> shape_union_operation
          | pipe_expr PIPELINE_FAILURE or_expr -> pipeline_failure_operation
          | pipe_expr PIPELINE_MODIFIER or_expr -> pipeline_modifier_operation
+         | pipe_expr PIPELINE_BLOCK_START structure_field* RBRACE -> pipeline_struct_operation
+         | pipe_expr BLOCK_INVOKE identifier -> pipeline_block_invoke_operation
+         | pipe_expr BLOCK_INVOKE AT identifier -> pipeline_block_invoke_operation
+         | pipe_expr BLOCK_INVOKE CARET identifier -> pipeline_block_invoke_operation
+         | pipe_expr BLOCK_INVOKE AT HASH INDEX_NUMBER -> pipeline_block_invoke_operation
+         | pipe_expr BLOCK_INVOKE CARET HASH INDEX_NUMBER -> pipeline_block_invoke_operation
 
 // Logical OR (||)
 ?or_expr: and_expr
@@ -155,6 +161,10 @@ SINGLE_QUOTE: "'"
          | AT HASH INDEX_NUMBER -> field_access_operation   // @#4
          | CARET HASH INDEX_NUMBER -> field_access_operation // ^#4
          | BLOCK_INVOKE identifier -> block_invoke_operation
+         | BLOCK_INVOKE AT identifier -> block_invoke_operation
+         | BLOCK_INVOKE CARET identifier -> block_invoke_operation
+         | BLOCK_INVOKE AT HASH INDEX_NUMBER -> block_invoke_operation
+         | BLOCK_INVOKE CARET HASH INDEX_NUMBER -> block_invoke_operation
 
 // Atoms (primary expressions - highest precedence)
 ?atom: number 
