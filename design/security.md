@@ -200,9 +200,9 @@ The simplified model enables clear security patterns:
     validated = (untrusted |validate-input)
     
     ; Only access resources after validation
-    validated |if .{$in} .{
+    validated |if :{$in} :{
         $in |process-with-resources
-    } .{
+    } :{
         {#invalid-input.fail}
     }
 }

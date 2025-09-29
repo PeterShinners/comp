@@ -109,14 +109,14 @@ results it wants to become its value.
 !func |filter-items 
     ~{items[]} 
     ^{threshold ~num = 0} = {
-    items |filter .{$in > ^threshold}
+    items |filter :{$in > ^threshold}
 }
 
 !func |process-order ~order-data ^process-config = {
     ; Implementation focuses on logic, not type declarations
-    validated = ^validate? |if .{#true} 
-        .{order |validate}
-        .{order}
+    validated = ^validate? |if :{#true} 
+        :{order |validate}
+        :{order}
     
     processed = validated |apply-priority ^priority
 }
@@ -213,7 +213,7 @@ The `!pure` decorator creates hard enforcement—these functions literally canno
 ```comp
 !pure
 !func |fibonacci ~{n ~num} = {
-    ($in |if .{$in <= 1} .{$in} .{
+    ($in |if :{$in <= 1} :{$in} :{
         @a = ($in - 1 |fibonacci)
         @b = ($in - 2 |fibonacci)
         @a + @b
@@ -238,7 +238,7 @@ The `!pure` decorator creates hard enforcement—these functions literally canno
 
 Blocks are deferred structure definitions that serve as powerful callbacks and control flow mechanisms. They solve the common problem of passing behavior to functions without the complexity of function pointers or the verbosity of interface implementations.
 
-Blocks exist in two states: ephemeral blocks (raw `.{...}` syntax) that cannot be invoked directly, and callable blocks that have been typed with an input shape. Functions that expect blocks can also accept simple values, which are automatically wrapped in trivial blocks for convenience—write less, express more.
+Blocks exist in two states: ephemeral blocks (raw `:{...}` syntax) that cannot be invoked directly, and callable blocks that have been typed with an input shape. Functions that expect blocks can also accept simple values, which are automatically wrapped in trivial blocks for convenience—write less, express more.
 
 Blocks are defined in arguments to functions like a regular structure with a `.`
 dot prefix. Functions that expect block arguments can also accept simple values,
@@ -253,28 +253,28 @@ passed as named argument they use the dotted prefix instead of an equal sign.
 For simple values passed to named block parameters, use regular named argument
 syntax without the dot prefix.
 
-Ephemeral blocks are created with `.{...}` syntax but cannot be invoked until they are typed. When passed to function arguments, they are automatically morphed to match the expected block input shape. This provides type safety while allowing flexible block definitions.
+Ephemeral blocks are created with `:{...}` syntax but cannot be invoked until they are typed. When passed to function arguments, they are automatically morphed to match the expected block input shape. This provides type safety while allowing flexible block definitions.
 
 Block arguments are determined by the function's arg shape definition. When the
-parser encounters `.{}` in argument position, it creates a deferred block.
+parser encounters `:{}`, it creates a deferred block.
 Blocks capture their definition context, allowing them to reference local
 variables and scope values through the `$` (variables) and `^` (arguments)
 prefixes. Simple values passed to block arguments are automatically wrapped in
 blocks that return the value.
 
-Functions invoke blocks using the `|.` operator, which executes the block with
+Functions invoke blocks using the `|:` operator, which executes the block with
 the current pipeline value as input. Block parameters in function argument
 shapes can specify the expected input shape using `~block{shape}` syntax.
 
 ```comp
 !func |with-retry ~{operation} ^{on-error ~block{~str}} = {
     @attempts = 0
-    ($in |while .{@attempts < 3} .{
-        @result = ($in |operation |? .{
+    ($in |while :{@attempts < 3} :{
+        @result = ($in |operation |? :{
             @attempts = @attempts + 1
             @error-msg = %"Attempt ${@attempts} failed"
-            (@error-msg |. ^on-error)  ; Invoke block with string input
-            ($in |if .{@attempts >= 3} .{$in} .{#skip})
+            (@error-msg |: ^on-error)  ; Invoke block with string input
+            ($in |if :{@attempts >= 3} :{$in} :{#skip})
         })
     })
     @result
@@ -285,15 +285,15 @@ shapes can specify the expected input shape using `~block{shape}` syntax.
     validate ~block{~item} 
     callback ~block{~num ~num}
 } = {
-    @processed = (items |map .{$in |. ^transform})
-    @valid = (@processed |filter .{$in |. ^validate})
+    @processed = (items |map :{$in |: ^transform})
+    @valid = (@processed |filter :{$in |: ^validate})
     @count = (@valid |count)
     @total = (@valid |sum {amount})
-    ({@count @total} |. ^callback)  ; Invoke with two numbers
+    ({@count @total} |: ^callback)  ; Invoke with two numbers
 }
 
 ; Usage with explicit blocks
-(data |with-retry on-error.{error-msg |log})
+(data |with-retry on-error:{error-msg |log})
 
 ; Usage with simple values - automatically wrapped
 @style = (|if complete "strikethrough" "normal")
@@ -301,40 +301,43 @@ shapes can specify the expected input shape using `~block{shape}` syntax.
 
 ; Named block arguments can use simple values too
 (items |process-items 
-    transform.{$in |enhance |normalize}  ; explicit block
+    transform:{$in |enhance |normalize}  ; explicit block
     validate=#true                       ; simple value for block parameter
-    callback.{@count @total |summarize}) ; explicit block with two inputs
+    callback:{@count @total |summarize}) ; explicit block with two inputs
 
 ; Mixed usage in conditionals
-(|prepare-data .{|called-unnamed-block} named.{|called-named-block})
+(|prepare-data :{|called-unnamed-block} named:{|called-named-block})
 (|prepare-data simple-value named=simple-named-value)
 
 ; Complex control flow with mixed block styles
 (items |process-batch 
-    transform.{$in |enhance |normalize}
-    validate.{score > threshold}
+    transform:{$in |enhance |normalize}
+    validate:{score > threshold}
     on-success="completed")  ; Simple string wrapped automatically
 ```
 
 ## Block Invocation
 
-Blocks can be invoked using the `|.` operator, which executes the block with the current pipeline value as input. This is how functions internally invoke their block arguments, but it's also available as a general pipeline operator for any block value.
+Blocks can be invoked using the `|:` operator, which executes the block with the current pipeline value as input. This is how functions internally invoke their block arguments, but it's also available as a general pipeline operator for any block value.
 
 ```comp
 ; Block stored in variable
-@validator = .{$in |check-format |validate-rules}
-result = (data |. @validator)  ; Invoke the block
+@validator = :{$in |check-format |validate-rules}
+result = (data |: @validator)  ; Invoke the block
+
+; Block literals can be invoked directly
+result = (data |: :{$in |transform |validate})
 
 ; Block in structure
 handlers = {
-    process = .{$in |transform |save}
-    validate = .{$in.email |check-email}
+    process = :{$in |transform |save}
+    validate = :{$in.email |check-email}
 }
-(user |. handlers.validate)  ; Invoke validation block
+(user |: handlers.validate)  ; Invoke validation block
 
 ; Chaining block invocations
-pipeline = .{$in |step1 |step2 |step3}
-final = (input |. pipeline |post-process)
+pipeline = :{$in |step1 |step2 |step3}
+final = (input |: pipeline |post-process)
 ```
 
 ## Blocks as Partial Pipeline Fragments
@@ -345,38 +348,38 @@ Unlike complete pipelines that start with specific data, partial pipeline fragme
 
 ```comp
 ; Partial pipeline fragments for data processing
-@validation-chain = .{
+@validation-chain = :{
     $in |check-format
         |validate-schema  
         |sanitize-input
 }
 
-@enrichment-chain = .{
+@enrichment-chain = :{
     $in |lookup-metadata
         |calculate-scores
         |add-timestamps
 }
 
-@output-chain = .{
+@output-chain = :{
     $in |format-results
         |apply-templates
         |compress-data
 }
 
 ; Apply fragments to different data sources
-user-data = (raw-users |. @validation-chain |. @enrichment-chain)
-system-data = (raw-systems |. @validation-chain |. @output-chain)
+user-data = (raw-users |: @validation-chain |: @enrichment-chain)
+system-data = (raw-systems |: @validation-chain |: @output-chain)
 
 ; Compose fragments into complete workflows
-@complete-workflow = .{
-    $in |. @validation-chain
-        |. @enrichment-chain  
-        |. @output-chain
+@complete-workflow = :{
+    $in |: @validation-chain
+        |: @enrichment-chain  
+        |: @output-chain
 }
 
 ; Use in function arguments for flexible behavior
 !func |process-data ~{data} ^{pipeline ~block} = {
-    $in |. ^pipeline |save-results
+    $in |: ^pipeline |save-results
 }
 
 (user-records |process-data pipeline=@complete-workflow)
@@ -389,32 +392,32 @@ This can also be done by defining regular functions in the module, but some situ
 ```comp
 ; Library of reusable pipeline fragments
 @fragments = {
-    clean = .{$in |trim |normalize |remove-duplicates}
-    analyze = .{$in |extract-features |calculate-metrics}
-    secure = .{$in |encrypt-sensitive |hash-identifiers}
-    format = .{$in |apply-schema |compress |encode}
+    clean = :{$in |trim |normalize |remove-duplicates}
+    analyze = :{$in |extract-features |calculate-metrics}
+    secure = :{$in |encrypt-sensitive |hash-identifiers}
+    format = :{$in |apply-schema |compress |encode}
 }
 
 ; Flexible composition for different use cases
-batch-job = .{
-    $in |. @fragments.clean
-        |. @fragments.analyze
-        |. @fragments.format
+batch-job = :{
+    $in |: @fragments.clean
+        |: @fragments.analyze
+        |: @fragments.format
 }
 
-secure-batch = .{
-    $in |. @fragments.clean
-        |. @fragments.secure
-        |. @fragments.format
+secure-batch = :{
+    $in |: @fragments.clean
+        |: @fragments.secure
+        |: @fragments.format
 }
 
 ; Pipeline fragments can be modified by wrench operators too
-enhanced-workflow = .{
-    $in |. @fragments.clean
+enhanced-workflow = :{
+    $in |: @fragments.clean
         |<<progressbar           ; Add progress tracking
-        |. @fragments.analyze
+        |: @fragments.analyze
         |<<profile-time         ; Add timing profiling
-        |. @fragments.format
+        |: @fragments.format
 }
 ```
 
@@ -441,7 +444,7 @@ unnamed value in the argument list.
 }
 
 !func |process ^process-args = {
-    (^verbose |when .{#true} .{
+    (^verbose |when :{#true} :{
         (|log "Verbose mode enabled")
     })
     ; ^rest contains unmatched fields
@@ -600,9 +603,9 @@ The security model is refreshingly honest: instead of pretending to offer fine-g
     validated = (untrusted-input |validate-pure)
     
     ; Then use resources if valid
-    validated |if .{$in} .{
+    validated |if :{$in} :{
         $in |save-to-disk
-    } .{
+    } :{
         {#invalid.fail}
     }
 }

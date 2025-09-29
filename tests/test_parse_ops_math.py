@@ -77,10 +77,10 @@ invalid_advanced_operator_cases = [
     ("|{}", "pipeline block without operation"),
     ("op |", "incomplete pipeline"),
     # Invalid block syntax
-    (".{", "unclosed block definition"),
-    ("|.", "block invoke without target"),
-    (".{ x +", "incomplete block expression"),
-    ("|.{x + y} args", "inline block definition with args - not supported"),
+    (":{", "unclosed block definition"),
+    ("|:", "block invoke without target"),
+    (":{ x +", "incomplete block expression"),
+    ("|:{x + y} args", "inline block definition with args - not supported"),
     # Invalid fallback operators
     ("?? value", "fallback without left operand"),
     ("|?", "incomplete alternative fallback"),
@@ -148,8 +148,8 @@ tricky_valid_advanced_cases = [
     # Complex pipeline operations
     ("data |? {error=true} ?? fallback-data", "pipeline with fallback"),
     # Simple block operations that should work
-    (".{x + y}", "block definition"),
-    ("|.processor", "block invoke operation"),
+    (":{x + y}", "block definition"),
+    ("|:processor", "block invoke operation"),
     # Shape unions with other operators
     ("~string|~number + value", "shape union with mathematical operator"),
     ("(~int|~float) * multiplier", "parenthesized shape union"),

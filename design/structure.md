@@ -82,7 +82,7 @@ locked = {!..base y=99}
 ; Weak spread for defaults
 config = {
     port = 8080
-    ?..{port=3000 host=localhost timeout=30}
+    ?.:{port=3000 host=localhost timeout=30}
 }
 ; Result: {port=8080 host=localhost timeout=30}
 
@@ -94,7 +94,7 @@ custom = {..~config-shape port=3000}
 cleaned = {..original !delete temp-field !delete old-field}
 
 ; Unnamed fields accumulate
-arrays = {..{1 2} ..{3 4}}
+arrays = {.:{1 2} .:{3 4}}
 ; Result: {1 2 3 4}
 ```
 

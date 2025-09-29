@@ -31,9 +31,9 @@ result.expensive                  ; NOW it computes and stores
 
 ; Pipeline operations automatically optimize
 data = source 
-    |filter .{score > 100}       ; Returns lazy structure
-    |map .{$in |transform}        ; Still lazy
-    |sort-by .{name}              ; Still lazy
+    |filter :{score > 100}       ; Returns lazy structure
+    |map :{$in |transform}        ; Still lazy
+    |sort-by :{name}              ; Still lazy
     
 data.#0                            ; Evaluates first element only
 data |length                      ; Can use field introspection
@@ -45,7 +45,7 @@ Comp's lazy structures store computed values, allowing multiple operations on th
 
 ```comp
 ; Process once, use many times
-results = items |filter .{valid} |map .{$in |expensive-transform}
+results = items |filter :{valid} |map :{$in |expensive-transform}
 
 results |length      ; Works
 results.#5            ; Works - might trigger computation
@@ -78,14 +78,14 @@ Iteration functions transform or consume sequences by applying blocks to element
 
 ```comp
 ; Basic iteration over structures
-{1 2 3} |map .{$in * 2}         ; Returns lazy {2 4 6}
-{1 2 3} |filter .{$in > 1}      ; Returns lazy {2 3}
-{1 2 3} |each .{$in |print}     ; Side effects, returns {}
+{1 2 3} |map :{$in * 2}         ; Returns lazy {2 4 6}
+{1 2 3} |filter :{$in > 1}      ; Returns lazy {2 3}
+{1 2 3} |each :{$in |print}     ; Side effects, returns {}
 
 ; Control flow in iteration blocks
-items |map .{
-    $in < 0 |if .{#skip} .{$in * 2}  ; Skip negative values
-    $in > 100 |if .{#break} .{$in}   ; Stop at values over 100
+items |map :{
+    $in < 0 |if :{#skip} :{$in * 2}  ; Skip negative values
+    $in > 100 |if :{#break} :{$in}   ; Stop at values over 100
 }
 ```
 
@@ -112,7 +112,7 @@ Streams are blocks that maintain internal state and generate values when invoked
     @current = ^start - 1
     
     ; Return block that generates values
-    $out = .{
+    $out = :{
         @current = @current + 1
         @current
     }
@@ -120,8 +120,8 @@ Streams are blocks that maintain internal state and generate values when invoked
 
 ; Usage
 @counts = (|counter start=10)
-value1 = |.@counts    ; 10
-value2 = |.@counts    ; 11
+value1 = |:@counts    ; 10
+value2 = |:@counts    ; 11
 ```
 
 ### Stream Protocol
@@ -148,15 +148,15 @@ Functions use loose morphing (extra fields ignored), while blocks use strict mor
 !func |stateful-stream = &{
     @state = 0
     
-    $out = .{value ~num?} {
+    $out = :{value ~num?} {
         @state = value ?? @state + 1
         @state
     }
 }
 
 @stream = (|stateful-stream)
-|.@stream           ; 1 (default increment)
-10 |.@stream        ; 10 (explicit value)
+|:@stream           ; 1 (default increment)
+10 |:@stream        ; 10 (explicit value)
 ```
 
 ## Core Iterator Functions
@@ -172,8 +172,8 @@ Transforms each element through a block, returning a lazy structure.
 }
 
 ; Usage
-{1 2 3} |map .{$in * 2}        ; Lazy {2 4 6}
-@stream |map .{$in |enhance}   ; Transformed stream
+{1 2 3} |map :{$in * 2}        ; Lazy {2 4 6}
+@stream |map :{$in |enhance}   ; Transformed stream
 ```
 
 ### |filter
@@ -185,8 +185,8 @@ Selects elements matching a predicate, returning a lazy structure.
 }
 
 ; Usage
-{1 2 3 4 5} |filter .{$in % 2 == 0}  ; Lazy {2 4}
-@stream |filter .{score > threshold}  ; Filtered stream
+{1 2 3 4 5} |filter :{$in % 2 == 0}  ; Lazy {2 4}
+@stream |filter :{score > threshold}  ; Filtered stream
 ```
 
 ### |take
@@ -212,8 +212,8 @@ Reduces a sequence to a single value using an accumulator.
 }
 
 ; Usage
-{1 2 3} |fold 0 .{accumulator + element}  ; 6
-@stream |take 100 |fold {} .{..accumulator element}  ; Collect stream
+{1 2 3} |fold 0 :{accumulator + element}  ; 6
+@stream |take 100 |fold {} :{..accumulator element}  ; Collect stream
 ```
 
 ### |each
@@ -225,8 +225,8 @@ Executes a block for each element, primarily for side effects.
 }
 
 ; Usage
-{1 2 3} |each .{$in |print}
-@stream |take 10 |each .{$in |process}
+{1 2 3} |each :{$in |print}
+@stream |take 10 |each :{$in |process}
 ```
 
 ### |range
@@ -249,7 +249,7 @@ Creates an infinite counting stream.
 !func |counter ^{start ~num = 0 step ~num = 1} = &{
     @current = ^start - step
     
-    $out = .{
+    $out = :{
         @current = @current + step
         @current
     }
@@ -284,8 +284,8 @@ Checks if a sequence contains any elements without forcing evaluation.
 
 ; Usage
 results |has-any? |if
-    .{results |process}
-    .{#no-results}
+    :{results |process}
+    :{#no-results}
 ```
 
 ## Stream Patterns
@@ -299,18 +299,18 @@ Streams can defer expensive initialization until first use:
     @file = #nil
     @done = #false
     
-    $out = .{
-        @file == #nil |when .{
+    $out = :{
+        @file == #nil |when :{
             @file = ^path |open/file
         }
         
-        @done |if .{#break} .{
+        @done |if :{#break} :{
             @line = @file |read-line
-            @line == #eof |if .{
+            @line == #eof |if :{
                 @done = #true
                 @file |close
                 #break
-            } .{@line}
+            } :{@line}
         }
     }
 }
@@ -328,8 +328,8 @@ $ctx.random = (123 |seed/random)
 !func |create-values ^{count ~num} = {
     @rng = $ctx.random ?? (|default-random)
     
-    (1 |range ^count) |map .{
-        |.@rng |uniform {0 1}
+    (1 |range ^count) |map :{
+        |:@rng |uniform {0 1}
     }
 }
 ```
@@ -346,23 +346,23 @@ results |has-any?  ; No evaluation needed
 
 **Partial evaluation** only computes what's needed:
 ```comp
-data = items |map .{$in |expensive} |filter .{valid}
+data = items |map :{$in |expensive} |filter :{valid}
 data.#0  ; Only evaluates until first valid item found
 ```
 
 **Chained operations** defer all computation:
 ```comp
 result = source
-    |filter .{test1}
-    |map .{transform}
-    |filter .{test2}
-    |sort-by .{field}
+    |filter :{test1}
+    |map :{transform}
+    |filter :{test2}
+    |sort-by :{field}
 ; Nothing computed until result is accessed
 ```
 
 **Deferred computation** prevents redundant computation:
 ```comp
-expensive = data |map .{$in |complex-calculation}
+expensive = data |map :{$in |complex-calculation}
 expensive |sum      ; Computes all values
 expensive |average  ; Uses stored values
 ```

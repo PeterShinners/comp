@@ -109,14 +109,14 @@ def test_pipeline_operators_parse():
 def test_block_operators_parse():
     """Test block definition and invocation operators"""
     # Block definition - currently not implemented in grammar
-    # TODO: Implement block definitions (.{...})
-    # result = comp.parse(".{x + y}")
+    # TODO: Implement block definitions (:{...})
+    # result = comp.parse(":{x + y}")
     # _assert_block_definition(result, None)  # Contains expression inside
 
     # Standalone block invocation is not allowed - must be part of pipeline
-    # Block invocation only works in pipeline context: data |.processor
+    # Block invocation only works in pipeline context: data |:processor
     try:
-        comp.parse("|.block")
+        comp.parse("|:block")
         raise AssertionError("Standalone block invoke should fail")
     except comp.ParseError:
         pass  # Expected - standalone block invoke is invalid
@@ -206,7 +206,7 @@ def test_complex_advanced_expressions():
     _assert_fallback(result, "??", None, "ident=final-default")
 
     # Block with field access
-    result = comp.parse('.{user.name + " " + user.surname}')
+    result = comp.parse(':{user.name + " " + user.surname}')
     _assert_block_definition(result, None)
 
 

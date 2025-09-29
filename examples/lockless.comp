@@ -30,7 +30,7 @@
 	|push data = "third"
 	
 	; Pop them back
-	(|forever .{
+	(|forever :{
 		@stack = @stack |pop 
 		|tap {|% "Popped: ${head.data}" |print}
 		?> #field.fail {#break}  ; Stop gracefully when empty

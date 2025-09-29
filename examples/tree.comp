@@ -8,7 +8,7 @@
 
 !main = {
 	; Build tree from values using fold
-	@tree = {5 3 8 1 7 9} |fold-into .{|insert}
+	@tree = {5 3 8 1 7 9} |fold-into :{|insert}
 
 	; Test finding values
 	@seven? = {tree=@tree value=7} |contains  ; true
@@ -22,9 +22,9 @@
 }
 
 !func |insert ~{tree ~tree value ~num} = {
-	|if .{value < tree.value}
-		.{..tree left=({tree=tree.left value=value} |insert)}
-		.{..tree right=({tree=tree.right value=value} |insert)}
+	|if :{value < tree.value}
+		:{..tree left=({tree=tree.left value=value} |insert)}
+		:{..tree right=({tree=tree.right value=value} |insert)}
 }
 
 
@@ -35,8 +35,8 @@
 
 !func |contains ~{tree ~tree value ~num} = {
 	tree.value |match
-		'$in < value' .{{tree=tree.left value=value} |contains}
-		'$in > value' .{{tree=tree.right value=value} |contains}
+		'$in < value' :{{tree=tree.left value=value} |contains}
+		'$in > value' :{{tree=tree.right value=value} |contains}
 		else=#true
 }
 

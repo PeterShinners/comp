@@ -7,13 +7,13 @@ SPECIFICATION:
 - Nested structures: {1 {2 3} 4}, {user={name="Bob"}}
 - All literal types: numbers, strings, references as values/keys
 - Assignment operator: = for named fields
-- Named block operations: name.{expression} as shorthand
+- Named block operations: name:{expression} as shorthand
 
 PARSER EXPECTATIONS:
 - comp.parse("{}") → StructureLiteral([])
 - comp.parse("{42}") → StructureLiteral([PositionalField(NumberLiteral(42))])
 - comp.parse("{x=1}") → StructureLiteral([NamedField("x", NumberLiteral(1))])
-- comp.parse("name.{5}") → NamedBlockOperation(name, BlockDefinition(5))
+- comp.parse("name:{5}") → NamedBlockOperation(name, BlockDefinition(5))
 
 AST NODES: StructureLiteral(fields), NamedField(name, value), PositionalField(value),
            NamedBlockOperation(name, block), BlockDefinition(expression)
@@ -151,13 +151,13 @@ def test_contents():
 
 # Named Block Operation tests
 named_block_cases = [
-    ("name.{5}", "simple named block with number"),
-    ("handler.{42 + 10}", "named block with expression"),
-    ("processor.{user}", "named block with identifier"),
-    ('formatter.{"hello"}', "named block with string"),
-    ("func.{#true}", "named block with tag reference"),
-    ("transform.{~str}", "named block with shape reference"),
-    ("pipeline.{|process}", "named block with function reference"),
+    ("name:{5}", "simple named block with number"),
+    ("handler:{42 + 10}", "named block with expression"),
+    ("processor:{user}", "named block with identifier"),
+    ('formatter:{"hello"}', "named block with string"),
+    ("func:{#true}", "named block with tag reference"),
+    ("transform:{~str}", "named block with shape reference"),
+    ("pipeline:{|process}", "named block with function reference"),
 ]
 
 
@@ -194,7 +194,7 @@ def test_named_block_operations(input_str, description):
 def test_named_block_structure():
     """Test the internal structure of named block operations."""
     # Test simple case
-    result = comp.parse("handler.{42}")
+    result = comp.parse("handler:{42}")
     assert isinstance(result, comp.NamedBlockOperation)
     assert isinstance(result.name, comp.FieldAccessOperation)
     assert result.name.object is None
@@ -205,7 +205,7 @@ def test_named_block_structure():
     assert result.block.expression.value == 42
 
     # Test with complex expression
-    result = comp.parse("processor.{10 + 5}")
+    result = comp.parse("processor:{10 + 5}")
     assert isinstance(result, comp.NamedBlockOperation)
     assert isinstance(result.name, comp.FieldAccessOperation)
     assert result.name.object is None
@@ -230,7 +230,7 @@ def test_named_block_vs_field_access():
     assert field_result.fields[1].name == "field"
 
     # Named block operation
-    block_result = comp.parse("name.{field}")
+    block_result = comp.parse("name:{field}")
     assert isinstance(block_result, comp.NamedBlockOperation)
     assert isinstance(block_result.name, comp.FieldAccessOperation)
     assert block_result.name.object is None

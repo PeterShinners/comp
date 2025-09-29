@@ -53,7 +53,7 @@ PIPE: "|"
 PIPELINE_FAILURE: "|?"
 PIPELINE_BLOCK_START: "|{"
 PIPELINE_MODIFIER: "|<<"
-BLOCK_INVOKE: "|."
+BLOCK_INVOKE: "|:"
 
 // Structure operators
 DOT: "."
@@ -61,9 +61,9 @@ HASH: "#"
 SPREAD: ".."
 AMPERSAND: "&"
 PRIVATE_ACCESS: "&."
-BLOCK_START: ".{"
 FALLBACK: "??"
 PLACEHOLDER: "???"
+COLON_BLOCK_START: ":{"
 
 // Scope operators
 AT: "@"
@@ -101,6 +101,7 @@ SINGLE_QUOTE: "'"
          | pipe_expr PIPELINE_MODIFIER or_expr -> pipeline_modifier_operation
          | pipe_expr PIPELINE_BLOCK_START structure_field* RBRACE -> pipeline_struct_operation
          | pipe_expr BLOCK_INVOKE qualified_identifier -> pipeline_block_invoke_operation
+         | pipe_expr BLOCK_INVOKE COLON_BLOCK_START structure_field* RBRACE -> pipeline_block_invoke_literal
 
 // Logical OR (||)
 ?or_expr: and_expr
@@ -156,6 +157,7 @@ SINGLE_QUOTE: "'"
      | shape_reference 
      | function_reference
      | structure
+     | block
      | placeholder
      | array_type
      | LPAREN expression RPAREN
@@ -171,6 +173,9 @@ computed_field_name: SINGLE_QUOTE expression SINGLE_QUOTE
 // Structures: {field=value, positional, ..spread}
 structure: LBRACE structure_field* RBRACE
 
+// Blocks: :{field=value, positional, ..spread}
+block: COLON_BLOCK_START structure_field* RBRACE
+
 structure_field: spread_operation | assignment_field | positional_field
 
 // Combined assignment rule that handles both scope and field assignments
@@ -185,19 +190,21 @@ spread_operation: SPREAD expression
 positional_field: fallback_expr
 
 // Function arguments: for pipeline function calls with arguments (data |func arg1 name=value)
-// Only allow field assignments and non-identifier literals (no bare identifiers that could be pipe targets)  
-function_argument: function_field_assignment | number | string | tag_reference | shape_reference
+// Only allow field assignments, block literals, and non-identifier literals (no bare identifiers that could be pipe targets)  
+function_argument: function_field_assignment | block | number | string | tag_reference | shape_reference
 
 // Function field assignment: named parameters in pipeline function calls (name=value)
 // Uses or_expr to prevent pipelines within function arguments (avoid ambiguity)
 function_field_assignment: field_identifier assignment_op or_expr
 
 // Scope identifier: unified rule for scoped access patterns (used in both expressions and assignments)
-scope_identifier: AT field_identifier                  // @local, @local.nested.field, @#1, @"field", @'computed'
+scope_identifier: AT field_identifier                  // @local, @#1, @"field", @'computed'
+                | AT field_path                        // @local.nested.field, @cat.dog
                 | AT                                  // @ (bare at scope)
                 | DOLLAR identifier                   // $out
                 | DOLLAR identifier DOT field_identifier // $out.nested.field, $#1
-                | CARET field_identifier               // ^timeout, ^timeout.nested.field, ^#1
+                | CARET field_identifier               // ^timeout, ^#1, ^"field", ^'computed'
+                | CARET field_path                     // ^timeout.nested.field, ^arg.setting
                 | CARET                               // ^ (bare caret scope)
 
 // Field identifier: unified rule for any field identifier pattern  
@@ -207,7 +214,7 @@ field_identifier: identifier                           // field
                | computed_field_name                  // 'computed-expression'
                | index_reference                      // #1, #42 (indexed fields)
 
-field_path: identifier (DOT identifier)*
+field_path: identifier DOT identifier (DOT identifier)*
 
 // Assignment operators
 assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPREAD_ASSIGN | STRONG_SPREAD_ASSIGN

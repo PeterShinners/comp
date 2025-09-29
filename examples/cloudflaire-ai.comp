@@ -11,9 +11,9 @@
 	^request.url 
 	|parse/url 
 	|dispatch/url
-		"/favicon*".{#not-found.response}
-		"/insert".{|insert-vectors}
-		else.{|query-vectors}
+		"/favicon*":{#not-found.response}
+		"/insert":{|insert-vectors}
+		else:{|query-vectors}
 	?> {
 		body = %"Request processing failed: ${fail.message}"
 		status = status ?? #server-error.response
@@ -31,12 +31,12 @@
 		"This is a story about a hugging emoji"
 	]
 
-	@stories |map .{
+	@stories |map :{
 		text = $in
 		model=. ai=. |from $mod
 	} 
 	|ai-run
-	|iter .{
+	|iter :{
 		id = %"${index}"
 		values = value.embedding
 	} |vectorize-upsert

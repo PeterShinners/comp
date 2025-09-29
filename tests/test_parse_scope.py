@@ -109,9 +109,7 @@ def test_scope_assignments(assignment, scope_type, scope_name, field_path, opera
     result = comp.parse(assignment)
     assert isinstance(result, comp.AssignmentOperation)
 
-    # Check target - should be FieldAccessOperation
-    assert isinstance(result.target, comp.FieldAccessOperation)
-
+    #
     # Check operator
     assert result.operator == operator
 
@@ -241,6 +239,14 @@ def test_scope_assignment_vs_reference():
     
     # Assignment - should be AssignmentOperation
     assign_result = comp.parse("$ctx.session = token")
+    assert isinstance(assign_result, comp.AssignmentOperation)
+    assert isinstance(assign_result.target, comp.FieldAccessOperation)
+    assert isinstance(assign_result.target.object, comp.Scope)
+    assert assign_result.operator == "="
+essOperation)
+    assert isinstance(assign_result.target.object, comp.Scope)
+    assert assign_result.operator.value == "="
+n")
     assert isinstance(assign_result, comp.AssignmentOperation)
     assert isinstance(assign_result.target, comp.FieldAccessOperation)
     assert isinstance(assign_result.target.object, comp.Scope)

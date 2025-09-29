@@ -16,7 +16,7 @@ $mod.BLOCK_SIZE = 1024
 }
 
 !func |read-file-async ^{path ~string} = {
-	@size = ^path |stat/clib |.size
+	@size = ^path |stat/clib |:size
 	@vecs = {@size $mod.BLOCK_SIZE} |alloc-buffers/uring
 
 	@op = {
@@ -52,7 +52,7 @@ $mod.BLOCK_SIZE = 1024
 !main = {
 	@args = (|cmdline/env)
 	@args |if length < 2
-		.{#fail.process.arguments message="Usage: file_reader paths..."}
+		:{#fail.process.arguments message="Usage: file_reader paths..."}
 
 	; Initialize io_uring with queue depth
 	$mod.QUEUE_DEPTH |init/uring

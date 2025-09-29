@@ -14,6 +14,7 @@ __all__ = [
     "ShapeReference",
     "FunctionReference",
     "StructureLiteral",
+    "BlockLiteral",
     "StructureOperation",
     "NamedField",
     "PositionalField",
@@ -306,6 +307,30 @@ class StructureLiteral(ASTNode):
 
     def __eq__(self, other: Any) -> bool:
         if not isinstance(other, StructureLiteral):
+            return False
+        return self.operations == other.operations
+
+    def __hash__(self) -> int:
+        return hash(tuple(self.operations))
+
+
+class BlockLiteral(ASTNode):
+    """AST node representing a block literal :{...}."""
+
+    def __init__(self, operations: list["StructureOperation"]):
+        super().__init__()
+        self.operations = operations
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create BlockLiteral from a list of operation tokens."""
+        return cls(tokens)
+
+    def __repr__(self) -> str:
+        return f"BlockLiteral({self.operations!r})"
+
+    def __eq__(self, other: Any) -> bool:
+        if not isinstance(other, BlockLiteral):
             return False
         return self.operations == other.operations
 
@@ -668,7 +693,7 @@ class PipelineStructOperation(ASTNode):
 
 
 class PipelineBlockInvokeOperation(ASTNode):
-    """AST node representing a pipeline block invoke operation: data |.@block."""
+    """AST node representing a pipeline block invoke operation: data |:@block."""
 
     def __init__(self, expression: ASTNode, target: ASTNode):
         super().__init__()
@@ -867,16 +892,16 @@ class FieldAccessOperation(ASTNode):
         else:
             raise ValueError(f"Unexpected field access tokens: {tokens}")
 
-        # SPECIAL CASE: Check for block assignment pattern (name.{...})
-        # If field is a StructureLiteral, convert to AssignmentOperation with '.{}' operator
+        # SPECIAL CASE: Check for block assignment pattern (name:{...})
+        # If field is a StructureLiteral, convert to AssignmentOperation with ':{}' operator
         if isinstance(field, StructureLiteral):
             if len(field.operations) == 0:
-                # Empty structure: name.{} -> AssignmentOperation with empty StructureLiteral
+                # Empty structure: name:{} -> AssignmentOperation with empty StructureLiteral
                 pipeline_value = PipelineOperation([field])
-                return AssignmentOperation(object, ".{}", pipeline_value)
+                return AssignmentOperation(object, ":{}", pipeline_value)
             # For multi-field structures or named fields, treat as regular AssignmentOperation
             pipeline_value = PipelineOperation([field])
-            return AssignmentOperation(object, ".{}", pipeline_value)
+            return AssignmentOperation(object, ":{}", pipeline_value)
 
         # Check if object is already a FieldAccessOperation - if so, extend it
         if isinstance(object, cls):
@@ -949,7 +974,7 @@ class PrivateAccessOperation(ASTNode):
 
 
 class BlockInvokeOperation(ASTNode):
-    """AST node representing a block invocation (|.block)."""
+    """AST node representing a block invocation (|:block)."""
 
     def __init__(self, block: ASTNode):
         super().__init__()
@@ -959,21 +984,21 @@ class BlockInvokeOperation(ASTNode):
     def fromToken(cls, tokens):
         """Create BlockInvokeOperation from tokens."""
         # Handle different patterns:
-        # |. identifier -> 2 tokens
-        # |. @ identifier -> 3 tokens
-        # |. ^ identifier -> 3 tokens
-        # |. @ # number -> 4 tokens
-        # |. ^ # number -> 4 tokens
+        # |: identifier -> 2 tokens
+        # |: @ identifier -> 3 tokens
+        # |: ^ identifier -> 3 tokens
+        # |: @ # number -> 4 tokens
+        # |: ^ # number -> 4 tokens
         if len(tokens) == 2:
-            _, block = tokens  # |. identifier
+            _, block = tokens  # |: identifier
             return cls(block)
         elif len(tokens) == 3:
-            # |. @ identifier or |. ^ identifier
+            # |: @ identifier or |: ^ identifier
             target = tokens[2]
             # Create a field access operation for the scoped target
             return cls(FieldAccessOperation(None, target))
         elif len(tokens) == 4:
-            # |. @ # number or |. ^ # number
+            # |: @ # number or |: ^ # number
             target = tokens[3]
             # Create an index reference for the scoped indexed target
             index_value = int(target.value) if hasattr(target, 'value') else int(str(target))

@@ -69,7 +69,7 @@ Control flow functions interpret values for conditional logic. While only `#fals
 ```comp
 ; Control flow interpretation
 ($in |if {#false} true-branch false-branch)      ; False branch
-($in |if {#false} .{true-branch} .{false-branch}) ; Explicit block syntax
+($in |if {#false} :{true-branch} :{false-branch}) ; Explicit block syntax
 ($in |if {{}} true-branch false-branch)          ; False branch (empty)
 ($in |if {0} true-branch false-branch)           ; True branch (non-empty)
 ($in |if {empty} true-branch false-branch)       ; True branch (non-empty)

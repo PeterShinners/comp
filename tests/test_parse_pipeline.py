@@ -4,13 +4,13 @@ Test cases for pipeline operations including wrench operator.
 SPECIFICATION:
 - Pipeline failure operator: |?
 - Pipeline modifier (wrench) operator: |<<
-- Block definitions: .{expression}
-- Named block operations: name.{expression}
+- Block definitions: :{expression}
+- Named block operations: name:{expression}
 
 PARSER EXPECTATIONS:
 - comp.parse("data |? fallback") → PipelineFailureOperation
 - comp.parse("data |<< modifier") → PipelineModifierOperation
-- comp.parse("name.{expr}") → NamedBlockOperation
+- comp.parse("name:{expr}") → NamedBlockOperation
 
 AST NODES: PipelineFailureOperation, PipelineModifierOperation,
            NamedBlockOperation, BlockDefinition
@@ -121,8 +121,8 @@ wrench_operator_cases = [
     # ("data |<< progressbar", "basic pipeline modifier"),
     # ("items |<< debug", "single modifier"),
     # ("pipeline |<< optimize |<< profile", "chained modifiers"),
-    # ("func.{transform} |<< progressbar", "named block with modifier"),
-    # ("data |filter .{valid} |<< debug", "complex pipeline with modifier"),
+    # ("func:{transform} |<< progressbar", "named block with modifier"),
+    # ("data |filter :{valid} |<< debug", "complex pipeline with modifier"),
 ]
 
 
@@ -172,7 +172,7 @@ wrench_operator_cases = [
 
 # def test_wrench_with_named_blocks():
 #     """Test wrench operator with named block operations."""
-#     result = comp.parse("handler.{process} |<< progressbar")
+#     result = comp.parse("handler:{process} |<< progressbar")
 #     assert isinstance(result, comp.PipelineModifierOperation)
 #     assert isinstance(result.pipeline, comp.NamedBlockOperation)
 #     assert _check_identifier(result.modifier, "progressbar")
@@ -214,9 +214,9 @@ wrench_operator_cases = [
 
 # def test_complex_pipeline_combinations():
 #     """Test complex combinations of pipeline operations."""
-#     # Test: data |filter .{valid} |? backup |<< progressbar |<< debug
+#     # Test: data |filter :{valid} |? backup |<< progressbar |<< debug
 #     # This should parse as a complex pipeline with multiple operations
-#     test_expr = "data |filter .{valid} |<< progressbar"
+#     test_expr = "data |filter :{valid} |<< progressbar"
 #     result = comp.parse(test_expr)
 
 #     assert isinstance(result, comp.PipelineModifierOperation)
@@ -298,22 +298,22 @@ def test_implemented_pipeline_operations():
     assert len(stages) == 1
     assert isinstance(stages[0], comp.PipelineModifierOperation)
 
-    # Test block definitions .{expr}
-    result = comp.parse("x = .{expression}")
+    # Test block definitions :{expr}
+    result = comp.parse("x = :{expression}")
     assert isinstance(result, comp.AssignmentOperation)
     stages = result.pipeline.stages
     assert len(stages) == 1
     assert isinstance(stages[0], comp.BlockDefinition)
 
-    # Test named block operations name.{expr}
-    result = comp.parse("x = handler.{process}")
+    # Test named block operations name:{expr}
+    result = comp.parse("x = handler:{process}")
     assert isinstance(result, comp.AssignmentOperation)
     stages = result.pipeline.stages
     assert len(stages) == 1
     assert isinstance(stages[0], comp.NamedBlockOperation)
 
-    # Test block invoking |.
-    result = comp.parse("x = |.block_name")
+    # Test block invoking |:
+    result = comp.parse("x = |:block_name")
     assert isinstance(result, comp.AssignmentOperation)
     stages = result.pipeline.stages
     assert len(stages) == 1
@@ -349,7 +349,7 @@ def test_complex_pipeline_combinations():
     assert isinstance(stages[0].operation, comp.ShapeUnionOperation)
 
     # Test named block with pipeline
-    result = comp.parse("x = handler.{data |process}")
+    result = comp.parse("x = handler:{data |process}")
     assert isinstance(result, comp.AssignmentOperation)
     stages = result.pipeline.stages
     assert len(stages) == 1

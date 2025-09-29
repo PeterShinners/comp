@@ -110,7 +110,7 @@ invalid_reference_cases = [
     # Invalid hierarchy
     ("#.invalid", "tag starts with dot"),
     ("~invalid.", "shape ends with dot"),
-    ("|..double", "function double dots"),
+    ("|:.double", "function double dots"),
     ("#invalid..dot", "tag double dots in middle"),
     # Invalid module syntax
     ("#/empty", "tag missing identifier before slash"),

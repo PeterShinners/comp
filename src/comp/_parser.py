@@ -486,15 +486,15 @@ class _CompTransformer(Transformer):
     def pipeline_block_invoke_operation(self, tokens):
         """Transform pipeline_block_invoke_operation rule into PipelineBlockInvokeOperation AST node."""
         expression = tokens[0]
-        # Skip the |. token and get the target tokens
+        # Skip the |: token and get the target tokens
         target_tokens = tokens[2:]
 
         # Transform the target using existing field access logic
         if len(target_tokens) == 1:
-            # Simple identifier: |.block
+            # Simple identifier: |:block
             target = _ast.FieldAccessOperation(None, target_tokens[0])
         elif len(target_tokens) == 2:
-            # @ identifier or ^ identifier: |.@scope or |.^scope
+            # @ identifier or ^ identifier: |:@scope or |:^scope
             if target_tokens[0].type == "AT":
                 target = _ast.FieldAccessOperation(_ast.Scope("@"), target_tokens[1])
             elif target_tokens[0].type == "CARET":
@@ -502,7 +502,7 @@ class _CompTransformer(Transformer):
             else:
                 target = _ast.FieldAccessOperation(None, target_tokens[0])
         elif len(target_tokens) == 3:
-            # @ # number or ^ # number: |.@#4 or |.^#2
+            # @ # number or ^ # number: |:@#4 or |:^#2
             if target_tokens[0].type == "AT":
                 number_value = int(target_tokens[2].value) if hasattr(target_tokens[2], 'value') else int(str(target_tokens[2]))
                 number_node = _ast.NumberLiteral(decimal.Decimal(number_value))
@@ -520,6 +520,26 @@ class _CompTransformer(Transformer):
             
         # Create a PipelineBlockInvokeOperation stage with the target
         block_invoke_stage = _ast.PipelineBlockInvokeOperation(target, target)  # Use target for both operation and target for now
+        
+        # If expression is already a pipeline, extend it with the block invoke stage
+        if isinstance(expression, _ast.PipelineOperation):
+            stages = expression.stages + [block_invoke_stage]
+            return _ast.PipelineOperation(stages)
+        else:
+            # Create new pipeline with expression as first stage and block invoke as second
+            return _ast.PipelineOperation([expression, block_invoke_stage])
+
+    def pipeline_block_invoke_literal(self, tokens):
+        """Transform pipeline_block_invoke_literal rule into PipelineBlockInvokeOperation with block literal."""
+        expression = tokens[0]
+        # Skip the |: and :{ tokens and get structure fields (exclude the final RBRACE)
+        structure_fields = [t for t in tokens[3:-1] if not isinstance(t, str)]
+        
+        # Create the block literal
+        block_literal = _ast.BlockLiteral(structure_fields)
+        
+        # Create a PipelineBlockInvokeOperation stage with the block literal
+        block_invoke_stage = _ast.PipelineBlockInvokeOperation(block_literal, block_literal)
         
         # If expression is already a pipeline, extend it with the block invoke stage
         if isinstance(expression, _ast.PipelineOperation):
@@ -605,6 +625,58 @@ class _CompTransformer(Transformer):
         # Ensure all fields are StructureOperations
         structure_ops = self._ensure_structure_operations(processed_fields)
         return _ast.StructureLiteral(structure_ops)
+
+    def block(self, tokens):
+        """Transform block rule into BlockLiteral AST node."""
+        # Extract fields from the block (same logic as structure but returns BlockLiteral)
+        fields = []
+        for token in tokens:
+            if isinstance(token, _ast.ASTNode):
+                fields.append(token)
+
+        # Post-process to collect function arguments
+        processed_fields = self._collect_function_arguments(fields)
+        
+        # Ensure all fields are StructureOperations
+        structure_ops = self._ensure_structure_operations(processed_fields)
+        return _ast.BlockLiteral(structure_ops)
+
+    def block_literal(self, tokens):
+        """Transform block_literal rule into BlockLiteral AST node."""
+        # Extract fields from the block
+        fields = []
+        for token in tokens:
+            if isinstance(token, _ast.ASTNode):
+                fields.append(token)
+
+        # Post-process to collect function arguments
+        processed_fields = self._collect_function_arguments(fields)
+        
+        # Ensure all fields are StructureOperations
+        structure_ops = self._ensure_structure_operations(processed_fields)
+        return _ast.BlockLiteral(structure_ops)
+
+    def named_block_literal(self, tokens):
+        """Transform named_block_literal rule into StructureOperation with BlockLiteral."""
+        # First token is the target identifier, rest are the block contents
+        target = tokens[0]
+        fields = tokens[1:]
+        
+        # Create the BlockLiteral from the fields
+        block_fields = []
+        for token in fields:
+            if isinstance(token, _ast.ASTNode):
+                block_fields.append(token)
+        
+        # Post-process to collect function arguments
+        processed_fields = self._collect_function_arguments(block_fields)
+        
+        # Ensure all fields are StructureOperations
+        structure_ops = self._ensure_structure_operations(processed_fields)
+        block_literal = _ast.BlockLiteral(structure_ops)
+        
+        # Wrap in StructureOperation
+        return _ast.StructureOperation(target, '=', block_literal)
     
     def _collect_function_arguments(self, fields):
         """Collect positional arguments for pipeline functions in structure operations."""
