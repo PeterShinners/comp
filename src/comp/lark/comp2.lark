@@ -23,7 +23,6 @@ LPAREN: "("
 RPAREN: ")"
 
 
-
 // === NUMBER LITERALS ===
 // Identifies integer only values with bases, which need different parsing
 // route. Allow underscores for readability. 
@@ -86,22 +85,24 @@ scope: LOCALSCOPE
 
 _qualified: scope | identifier
 
+
 // === REFERENCE LITERALS ===
 // References to tags, shapes, and functions. Possibly from other namespaces.
-
 reference_identifiers: TOKEN ("." TOKEN)*
 reference_namespace: "/" TOKEN?
 _reference_path:  reference_identifiers reference_namespace?
 tag_reference: "#" _reference_path
 shape_reference: "~" _reference_path  
 function_reference: "|" _reference_path
+_function_piped: "|" _reference_path  // hidden for pipeline parsing
 
 
 // === STRUCTURE DEFINITION ===
 COLON_BLOCK_START: ":{"
 SPREAD: ".."
-structure: LBRACE _structure_op* RBRACE
-block: COLON_BLOCK_START _structure_op* RBRACE
+structure: LBRACE _structure_content RBRACE
+block: COLON_BLOCK_START _structure_content RBRACE
+_structure_content: _structure_op* | pipeline
 _structure_op: structure_spread | structure_assign | structure_unnamed
 structure_spread: SPREAD expression
 structure_assign: _qualified _assignment_op expression  
@@ -120,23 +121,44 @@ WEAK_SPREAD_ASSIGN: "..=?"
 _assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPREAD_ASSIGN | STRONG_SPREAD_ASSIGN
 
 
+// === BASIC ATOM ===
 
-// Entry to the general expression hierarchy
+// Atoms: the basic building blocks
+?atom: number
+     | string
+     | _qualified
+     | LPAREN expression RPAREN
+     | tag_reference
+     | structure
+     | block
+
+
+// Entry to the expression grammar
 ?expression: or_expr
 
-// === PIPELINE EXPRESSIONS ===
 
+// === PIPELINE EXPRESSIONS ===
+// PIPE_FUNC: "|"
+PIPE_FALLBACK: "|?"
+PIPE_STRUCT: "|{"
+PIPE_WRENCH: "|<<"
+PIPE_BLOCK: "|:"
+
+pipeline_func: _function_piped
+pipeline_struct: PIPE_STRUCT _structure_op* RBRACE
+pipeline_block: PIPE_BLOCK _qualified
+
+pipeline: (pipeline_func | pipeline_struct | pipeline_block)+
 
 // === BASIC EXPRESSIONS ===
-
 
 // Boolean operators
 LOGICAL_AND: "&&"
 LOGICAL_OR: "||"
 LOGICAL_NOT: "!!"
-?or_expr: and_expr | or_expr LOGICAL_OR and_expr -> binary_operation
-?and_expr: not_expr | and_expr LOGICAL_AND not_expr -> binary_operation
-?not_expr: comparison | LOGICAL_NOT not_expr -> unary_operation
+?or_expr: and_expr | or_expr LOGICAL_OR and_expr -> binary_op
+?and_expr: not_expr | and_expr LOGICAL_AND not_expr -> binary_op
+?not_expr: comparison | LOGICAL_NOT not_expr -> unary_op
 
 // Comparison operators
 EQUAL_EQUAL: "=="
@@ -146,41 +168,40 @@ LESS_EQUAL: "<="
 GREATER_THAN: ">"
 GREATER_EQUAL: ">="
 !comp_op: EQUAL_EQUAL | NOT_EQUAL | LESS_THAN | LESS_EQUAL | GREATER_THAN | GREATER_EQUAL
-?comparison: arith_expr | comparison comp_op arith_expr -> binary_operation
+?comparison: arith_expr | comparison comp_op arith_expr -> binary_op
 
 // Number operators 
 PLUS: "+"
 MINUS: "-"
-SUBTRACT: "+-"  // Disambiguation for subtraction vs kebab-case identifiers
+KEBAB_MINUS: "+-"  // Disambiguation for subtraction vs kebab-case identifiers
 MULTIPLY: "*"
 DIVIDE: "/"
 MODULO: "%"
 POWER: "**"
 ?arith_expr: term  // Arith (+, -, +-)
-           | arith_expr PLUS term -> binary_operation
-           | arith_expr MINUS term -> binary_operation
-           | arith_expr SUBTRACT term -> binary_operation
-?term: factor  // Terms (*, /, %)
-     | term MULTIPLY factor -> binary_operation
-     | term DIVIDE factor -> binary_operation
-     | term MODULO factor -> binary_operation
-?factor: power  // Factors (unary +/-, **)
-       | PLUS factor -> unary_operation
-       | MINUS factor -> unary_operation
-//Power (**) - right-associative  
-?power: atom
-      | atom POWER factor -> binary_operation
+           | arith_expr PLUS term -> binary_op
+           | arith_expr MINUS term -> binary_op
+           | arith_expr KEBAB_MINUS term -> binary_op
+?term: unary  // Terms (*, /, %)
+     | term MULTIPLY unary -> binary_op
+     | term DIVIDE unary -> binary_op
+     | term MODULO unary -> binary_op
+?unary: power  // Factors (unary +/-)
+       | PLUS unary -> unary_op
+       | MINUS unary -> unary_op
+?power: atom_in_expr  // Power (**) - right-associative  
+      | atom_in_expr POWER unary -> binary_op
 
 
-// // Atoms: the basic building blocks
-?atom: number
-     | string
-     | _qualified
-     | LPAREN expression RPAREN
-     | tag_reference
-    //  | shape_reference
-    //  | function_reference
-     | structure
-     | block
+// === ATOM EXPRESSIONS ===
+// Use of atoms to continue building expressions
+// PRIVATEATTACH: "&"
+// PRIVATEFIELD: "&."
+?atom_in_expr: atom
+             | atom_in_expr "." _field_follower -> atom_field
+             | atom_in_expr pipeline -> atom_pipeline
+//          //  | atom_in_expr PRIVATEATTACH -> atom_private
+//          //  | atom_in_expr PRIVATEFIELD identifier -> atom_private_field
+//          //  | scope_identifier -> field_access_operation
 
-// Keep it minimal for now - we can build up from here
+
