@@ -1049,3 +1049,66 @@ class _CompTransformer(Transformer):
     def field_name(self, tokens):
         """Transform field_name rule into FieldName AST node."""
         return _ast.FieldName.fromToken(tokens)
+
+
+# === DEBUG UTILITIES ===
+
+def debug_parse(expression):
+    """
+    Debug utility: Reload Lark parser, parse expression, and pretty print the raw Lark tree.
+
+    This bypasses AST transformation to show the raw grammar structure,
+    useful for debugging grammar issues at the Lark level.
+
+    Args:
+        expression (str): The expression to parse
+
+    Returns:
+        lark.Tree: The raw Lark parse tree, or None if parsing failed
+    """
+    from pathlib import Path
+    from lark import Lark
+
+    # Read and combine grammar files fresh each time
+    grammar_dir = Path(__file__).parent / "lark"
+
+    # Read main grammar
+    with open(grammar_dir / "comp.lark") as f:
+        comp_grammar = f.read()
+
+    # Create fresh parser
+    parser = Lark(
+        comp_grammar,
+        parser='lalr',
+        start='expression',
+        keep_all_tokens=True,
+        maybe_placeholders=False
+    )
+
+    print(f"Parsing: {expression}")
+    print("=" * 60)
+
+    try:
+        tree = parser.parse(expression)
+        _pretty_print_lark_tree(tree)
+        return tree
+    except Exception as e:
+        print(f"Parse error: {e}")
+        return None
+
+
+def _pretty_print_lark_tree(tree, indent=0):
+    """Pretty print a Lark tree in a readable hierarchical format."""
+    spaces = "  " * indent
+
+    if hasattr(tree, 'data'):
+        # This is a Tree node
+        print(f"{spaces}{tree.data}")
+        for child in tree.children:
+            _pretty_print_lark_tree(child, indent + 1)
+    else:
+        # This is a Token
+        if hasattr(tree, 'type'):
+            print(f"{spaces}[{tree.type}] '{tree.value}'")
+        else:
+            print(f"{spaces}'{tree}'")

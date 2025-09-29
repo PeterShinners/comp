@@ -1,56 +1,34 @@
 """
-AST node definitions and exceptions for Comp language.
+AST node definitions for Comp language - Clean Redesign
 
-This module defines the Abstract Syntax Tree nodes used to represent parsed Comp code.
-Currently supports number and string literals, identifiers, and reference literals.
+This module defines a simplified Abstract Syntax Tree for the Comp language.
+Focuses on clean, consistent naming and minimal complexity.
+
+Design principles:
+- Clear, consistent naming (no abbreviations or legacy terminology) 
+- Minimal node types (combine similar concepts)
+- Simple construction (no complex factory methods)
+- Consistent structure across all nodes
 """
 
 __all__ = [
-    "ASTNode",
-    "NumberLiteral",
-    "StringLiteral",
-    "Identifier",
-    "TagReference",
-    "ShapeReference",
-    "FunctionReference",
-    "StructureLiteral",
-    "BlockLiteral",
-    "StructureOperation",
-    "NamedField",
-    "PositionalField",
-    "BinaryOperation",
-    "UnaryOperation",
-    "AssignmentOperation",
-    "FallbackOperation",
-    "ShapeUnionOperation",
-    "PipelineFailureOperation",
-    "PipelineBlockOperation",
-    "PipelineModifierOperation",
-    "PipelineStructOperation",
-    "PipelineBlockInvokeOperation",
-    "PipelineFunctionOperation",
-    "FieldAccessOperation",
-    "IndexReference",
-    "PrivateAttachOperation",
-    "PrivateAccessOperation",
-    "BlockInvokeOperation",
-    "SpreadField",
-    "WeakNamedField",
-    "StrongNamedField",
-    "SpreadNamedField",
-    "WeakSpreadNamedField",
-    "StrongSpreadNamedField",
-    "Placeholder",
-    "ArrayType",
-    "FieldName",
-    "ComputedFieldName",
-    "Scope",
-    "ScopeAssignment",
-    "FieldAssignment",
-    "ScopeTarget",
-    "FieldTarget",
-    "PipelineOperation",
     "ParseError",
+    "ASTNode", 
+    "Number",
+    "String", 
+    "Identifier",
+    "TagRef",
+    "ShapeRef", 
+    "FunctionRef",
+    "Structure",
+    "Block",
+    "Pipeline", 
+    "BinaryOp",
+    "UnaryOp",
+    "FieldAccess",
+    "Scope",
+    "Placeholder",
+    "FieldName",
 ]
 
 import ast
@@ -59,104 +37,46 @@ from typing import Any
 
 
 class ParseError(Exception):
-    """Raised when parsing fails due to invalid syntax."""
+    """Exception raised for parsing errors."""
 
-    def __init__(
-        self, message: str, line: int | None = None, column: int | None = None
-    ):
-        super().__init__(message)
-        self.line = line
-        self.column = column
+    def __init__(self, message: str, position: int = None):
+        self.message = message
+        self.position = position
+        super().__init__(f"Parse error: {message}")
 
 
 class ASTNode:
-    """Base class for all AST nodes."""
+    """Base class for all AST nodes.
+    
+    Simple design with minimal magic - just stores attributes and provides
+    standard __repr__ and __eq__ implementations.
+    """
 
-    def __init__(self):
-        # Location information for error reporting (future)
-        self.line: int | None = None
-        self.column: int | None = None
+    def __init__(self, **kwargs):
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(...)"
-
-    @classmethod
-    def fromToken(cls, tokens):
-        """
-        Default fromToken implementation for simple AST nodes.
-
-        This base implementation works for classes with no constructor parameters
-        (other than self). Subclasses with parameters should override this method.
-        """
-        return cls()
-
-    def printTree(self, indent=0, name=""):
-        """Print recursive tree for ast nodes"""
-        if name:
-            name += " = "
-        fields = []
-        childs = []
-        for attr, value in self.__dict__.items():
-            # Skip line and column since they're always empty for now
-            if attr in ('line', 'column'):
-                continue
-
-            if isinstance(value, ASTNode):
-                childs.append((attr, value))
-            elif isinstance(value, list):
-                # Handle lists - check if they contain AST nodes
-                if value and isinstance(value[0], ASTNode):
-                    # Lists of AST nodes - each item gets its own line
-                    for i, item in enumerate(value):
-                        childs.append((f"{attr}[{i}]", item))
+    def __repr__(self):
+        attrs = []
+        for key, value in self.__dict__.items():
+            if not key.startswith("_"):
+                if isinstance(value, str):
+                    attrs.append(f'{key}="{value}"')
                 else:
-                    # Lists of non-AST nodes - show as field
-                    fields.append(f"{attr}={value!r}")
-            else:
-                fields.append(f"{attr}={value!r}")
-        name = ""  # temporarily cleaner
-        print(f"{'  '*indent}{name}{self.__class__.__name__}  {' '.join(fields)}")
-        for child_name, child in childs:
-            child.printTree(indent + 1, child_name)
+                    attrs.append(f"{key}={value}")
+        return f"{self.__class__.__name__}({', '.join(attrs)})"
+
+    def __eq__(self, other):
+        return isinstance(other, self.__class__) and self.__dict__ == other.__dict__
 
 
-class NumberLiteral(ASTNode):
-    """AST node representing a number literal."""
-
-    def __init__(self, value: decimal.Decimal):
-        super().__init__()
+# Literals and basic values
+class Number(ASTNode):
+    """Numeric literal (integer, decimal, float)."""
+    
+    def __init__(self, value: decimal.Decimal | int | float, raw: str = None):
         self.value = value
-
-    @classmethod
-    def fromToken(cls, token):
-        """Create NumberLiteral from a Lark token."""
-        try:
-            # Handle based integers (0x, 0b, 0o) with ast.literal_eval
-            # Check for both old and new token type names (with mathematical_operators prefix)
-            if token.type == "BASED" or token.type.endswith("__BASED"):
-                python_int = ast.literal_eval(str(token))
-                decimal_value = decimal.Decimal(python_int)
-            else:  # DECIMAL types
-                decimal_value = decimal.Decimal(str(token))
-
-            return cls(decimal_value)
-
-        except SyntaxError as err:
-            # Pass through literal_eval's better error messages
-            raise ParseError(f"Invalid number: {err.args[0]}") from err
-        except (decimal.InvalidOperation, ValueError) as err:
-            raise ParseError(f"Invalid number syntax: {token}") from err
-
-    def __repr__(self) -> str:
-        return f"NumberLiteral({self.value})"
-
-    def __eq__(self, other: Any) -> bool:
-        if not isinstance(other, NumberLiteral):
-            return False
-        return self.value == other.value
-
-    def __hash__(self) -> int:
-        return hash(self.value)
+        self.raw = raw
 
 
 class StringLiteral(ASTNode):

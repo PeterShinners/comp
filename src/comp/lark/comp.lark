@@ -1,249 +1,219 @@
-// Comp Language Grammar - Main Entry Point
+// Comp Language Grammar v2 - Clean Restart
 //
-// Main expression grammar following Python's precedence model with Comp-specific extensions
-//
-// ORGANIZATION:
-// - literals.lark: All literal types (numbers, strings, identifiers, references)  
-// - comp.lark: Main expression grammar with operators and constructs (this file)
+// Starting from the ground up with just literals and identifiers.
+// Focus on simplicity and letting the grammar do the work, not the transformer.
 //
 // DESIGN PRINCIPLES:
-// - Clean separation between literals and expressions
-// - Organized by precedence (lowest to highest)
-// - Clear sections for operators, constructs, and future extensions
-// - Minimal duplication, maximum clarity
+// - Grammar rules should be self-explanatory
+// - Minimize transformer complexity
+// - Clear separation of concerns
+// - Declarative over imperative
 
-// Import all literal types
-%import literals (number, string, identifier, tag_reference, shape_reference, function_reference, INDEX_NUMBER)
+// === BASIC TOKENS ===
 
-// === COMMENTS ===
+// Comments
 COMMENT: /;[^\r\n]*/
-
 %ignore COMMENT
 %ignore /\s+/
 
-// === OPERATORS ===
-// Mathematical operators
-PLUS: "+"
-MINUS: "-"
-SUBTRACT: "+-"  // Disambiguation for subtraction vs kebab-case identifiers
-MULTIPLY: "*"
-DIVIDE: "/"
-MODULO: "%"
-POWER: "**"
-EQUAL_EQUAL: "=="
-NOT_EQUAL: "!="
-LESS_THAN: "<"
-LESS_EQUAL: "<="
-GREATER_THAN: ">"
-GREATER_EQUAL: ">="
-LOGICAL_AND: "&&"
-LOGICAL_OR: "||"
-LOGICAL_NOT: "!!"
+// === NUMBER LITERALS ===
+// Identifies integer only values with bases, which need different parsing
+// route. Allow underscores for readability. 
+// Leading signs are handled by unary operators
 
-// Assignment operators
+number: INTBASE | DECIMAL
+
+// Based number formats - unsigned, signs handled by unary operators
+INTBASE.2: /0[xXbBoO](_?[\da-zA-Z])+/                      // All bases: hex, binary, octal
+
+// Decimal formats - unsigned, signs handled by unary operators  
+DECIMAL.1: /(([1-9](_?\d)*)|0(_?0)*)/                      // Integer: 123, 1_000, 0, 0_0 
+         | /\d(_?\d)*\.(\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?/  // Decimal: 3.14, 5., 1.5e-10, 5.e10
+         | /\.\d(_?\d)*([eE][+-]?\d(_?\d)*)?/              // Leading dot: .5, .123_456, .5e10  
+         | /\d(_?\d)*[eE][+-]?\d(_?\d)*/                   // Scientific integer: 1e5, 1_000e10
+
+
+// === STRING LITERALS ===
+// String parsing with separated quotes and content.
+// Uses Python's regex patterns but separates quotes from content in parse tree.
+// Ensures a content value is in the tree with the exact resulting string literal.
+
+string: _short_string | _long_string
+
+// Single quoted strings - quotes separated from content
+_short_string: "\"" SHORT_STRING_CONTENT? "\""
+SHORT_STRING_CONTENT: /[^"\\\r\n]+(?:\\.[^"\\\r\n]*)*/i
+
+// Triple quoted strings - quotes separated from content  
+SIXQUOTE:  "\"\"\""
+_long_string: SIXQUOTE LONG_STRING_CONTENT? SIXQUOTE
+LONG_STRING_CONTENT: /(.|\n)+?(?=""")/is
+
+
+// === TOKEN ===
+
+// The simplest name token for an identifier, UAX #31 compliant
+// Allows dashes and single optional trailing question mark
+TOKEN: /[^\W\d][\w-]*[?]?/
+INDEXFIELD: /#\d+/
+PLACEHOLDER: "???"
+computefield: "'" atom "'"  // should use 'expression' later?
+field_name: "'" TOKEN "'"
+
+
+// individual component of an identifier
+?field_leader: TOKEN | INDEXFIELD | computefield
+?field_follower: field_leader | string | field_name
+identifier: field_leader ("." field_follower)*
+
+LOCALSCOPE: "@"
+ARGSCOPE: "^"
+NAMESCOPE: "$" TOKEN
+
+scope: LOCALSCOPE
+     | LOCALSCOPE field_follower
+     | ARGSCOPE
+     | ARGSCOPE field_follower
+     | NAMESCOPE
+     | NAMESCOPE "." field_follower
+
+
+_qualified: scope | identifier
+
+
+// === REFERENCE LITERALS ===
+// References to tags, shapes, and functions. Possibly from other namespaces.
+reference_identifiers: TOKEN ("." TOKEN)*
+reference_namespace: "/" TOKEN?
+_reference_path:  reference_identifiers reference_namespace?
+tag_reference: "#" _reference_path
+shape_reference: "~" _reference_path  
+function_reference: "|" _reference_path
+_function_piped: "|" _reference_path  // ignored for pipeline parsing
+
+
+// === STRUCTURE DEFINITION ===
+LBRACE: "{"
+RBRACE: "}"
+COLON_BLOCK_START: ":{"
+SPREAD: ".."
+structure: LBRACE _structure_content RBRACE
+block: COLON_BLOCK_START _structure_content RBRACE
+_structure_content: structure_op* | pipeline
+?structure_op: structure_spread | structure_assign | structure_unnamed
+structure_spread: SPREAD expression
+structure_assign: _qualified _assignment_op expression  
+structure_unnamed: expression
+
+
+// === ASSIGN EXPRESSIONS ===
+// Assignments are not part of basic expressions, they are handled at specific
+// points in the grammar
 ASSIGN: "="
 STRONG_ASSIGN: "=*"
 WEAK_ASSIGN: "=?"
 SPREAD_ASSIGN: "..="
 STRONG_SPREAD_ASSIGN: "..=*"
 WEAK_SPREAD_ASSIGN: "..=?"
+_assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPREAD_ASSIGN | STRONG_SPREAD_ASSIGN
 
-// Pipeline operators
-PIPE: "|"
-PIPELINE_FAILURE: "|?"
-PIPELINE_BLOCK_START: "|{"
-PIPELINE_MODIFIER: "|<<"
-BLOCK_INVOKE: "|:"
 
-// Structure operators
-DOT: "."
-HASH: "#"
-SPREAD: ".."
-AMPERSAND: "&"
-PRIVATE_ACCESS: "&."
-FALLBACK: "??"
-PLACEHOLDER: "???"
-COLON_BLOCK_START: ":{"
+// === BASIC ATOM ===
 
-// Scope operators
-AT: "@"
-DOLLAR: "$"
-CARET: "^"
-
-// === STRUCTURAL TOKENS ===
-LBRACE: "{"
-RBRACE: "}"
-LBRACKET: "["
-RBRACKET: "]"
+// Atoms: the basic building blocks
 LPAREN: "("
 RPAREN: ")"
-SINGLE_QUOTE: "'"
-
-// === EXPRESSION HIERARCHY ===
-// Follows Python's precedence model with Comp-specific extensions
-// Lower precedence = higher in the hierarchy
-
-// Top level: expressions (can be assignments or regular expressions)
-?expression: assignment_expr
-
-// Assignment expressions: identifier = expression OR fallback_expr
-?assignment_expr: fallback_expr
-                | qualified_identifier assignment_op fallback_expr -> assignment_operation
-
-// Fallback operators (??)
-?fallback_expr: pipe_expr
-             | fallback_expr FALLBACK pipe_expr -> fallback_operation
-
-// Pipeline operators (|, |?, |<<)
-?pipe_expr: or_expr
-         | pipe_expr PIPE identifier function_argument+ -> pipeline_function_call_operation  // data |func arg1 name=value
-         | pipe_expr PIPE or_expr -> pipeline_operation
-         | pipe_expr PIPELINE_FAILURE or_expr -> pipeline_failure_operation
-         | pipe_expr PIPELINE_MODIFIER or_expr -> pipeline_modifier_operation
-         | pipe_expr PIPELINE_BLOCK_START structure_field* RBRACE -> pipeline_struct_operation
-         | pipe_expr BLOCK_INVOKE qualified_identifier -> pipeline_block_invoke_operation
-         | pipe_expr BLOCK_INVOKE COLON_BLOCK_START structure_field* RBRACE -> pipeline_block_invoke_literal
-         | standalone_pipeline
-
-// Standalone pipeline operations (can appear without left-hand side)
-?standalone_pipeline: BLOCK_INVOKE qualified_identifier -> standalone_block_invoke_operation
-                   | PIPELINE_FAILURE or_expr -> standalone_failure_operation
-                   | PIPELINE_MODIFIER or_expr -> standalone_modifier_operation
-                   | PIPELINE_BLOCK_START structure_field* RBRACE -> standalone_struct_operation
-
-// Logical OR (||)
-?or_expr: and_expr
-        | or_expr LOGICAL_OR and_expr -> binary_operation
-
-// Logical AND (&&)
-?and_expr: not_expr
-         | and_expr LOGICAL_AND not_expr -> binary_operation
-
-// Logical NOT (!!)
-?not_expr: comparison
-         | LOGICAL_NOT not_expr -> unary_operation
-
-// Comparison operators (==, !=, <, >, <=, >=)
-?comparison: arith_expr
-           | comparison comp_op arith_expr -> binary_operation
-
-!comp_op: EQUAL_EQUAL | NOT_EQUAL | LESS_THAN | LESS_EQUAL | GREATER_THAN | GREATER_EQUAL
-
-// Arithmetic expressions (+, -, +-)
-?arith_expr: term
-           | arith_expr PLUS term -> binary_operation
-           | arith_expr MINUS term -> binary_operation
-           | arith_expr SUBTRACT term -> binary_operation
-
-// Terms (*, /, %)
-?term: factor
-     | term MULTIPLY factor -> binary_operation
-     | term DIVIDE factor -> binary_operation
-     | term MODULO factor -> binary_operation
-
-// Factors (unary +/-, **)
-?factor: power
-       | PLUS factor -> unary_operation
-       | MINUS factor -> unary_operation
-
-// Power (**) - right-associative
-?power: atom_expr
-      | atom_expr POWER factor -> binary_operation
-
-// Atom expressions (member access, indexing, calls)
-?atom_expr: atom
-         | atom_expr DOT field_identifier -> field_access_operation
-         | atom_expr AMPERSAND atom -> private_attach_operation
-         | atom_expr PRIVATE_ACCESS identifier -> private_access_operation
-         | scope_identifier -> field_access_operation
-
-// Atoms (primary expressions - highest precedence)
-?atom: number 
-     | string 
-     | identifier -> field_access_operation
-     | tag_reference 
-     | shape_reference 
-     | function_reference
+placeholder: PLACEHOLDER
+?atom: number
+     | string
+     | _qualified
+     | tag_reference
      | structure
      | block
      | placeholder
-     | array_type
-     | index_reference
      | field_name
      | LPAREN expression RPAREN
+     | LPAREN pipeline RPAREN
 
-// === COMP-SPECIFIC CONSTRUCTS ===
 
-// Index references: #0, #1, #42
-index_reference: HASH INDEX_NUMBER
+// Entry to the expression grammar
+?expression: _prepipeline_expression
+           | _prepipeline_expression pipeline -> expr_pipeline
 
-// Computed expressions: 'expression' - single-quoted expressions that evaluate to values
-computed_field_name: SINGLE_QUOTE expression SINGLE_QUOTE
+// === PIPELINE EXPRESSIONS ===
+// PIPE_FUNC: "|"
+PIPE_FALLBACK: "|?"
+PIPE_STRUCT: "|{"
+PIPE_WRENCH: "|<<"
+PIPE_BLOCK: "|:"
+pipe_func: _function_piped function_arguments
+pipe_struct: PIPE_STRUCT structure_op* RBRACE
+pipe_fallback: PIPE_FALLBACK expression
+pipe_block: PIPE_BLOCK _qualified
+pipe_wrench: PIPE_WRENCH _function_piped  // Not right, may want to be a block or struct?
+pipeline: (pipe_func | pipe_struct | pipe_block | pipe_wrench | pipe_fallback)+
 
-// Structures: {field=value, positional, ..spread}
-structure: LBRACE structure_field* RBRACE
+function_arguments: functionstructure_op*
+?functionstructure_op: function_structure_spread | function_structure_assign | function_structure_unnamed
+function_structure_spread: SPREAD _prepipeline_expression
+function_structure_assign: _qualified _assignment_op _prepipeline_expression  
+function_structure_unnamed: _prepipeline_expression
 
-// Blocks: :{field=value, positional, ..spread}
-block: COLON_BLOCK_START structure_field* RBRACE
+// === BASIC EXPRESSIONS ===
 
-structure_field: spread_operation | assignment_field | positional_field
+// Expression level that excludes pipelines - used for function arguments 
+// and other contexts where pipelines should not be parsed
+_prepipeline_expression: or_expr
 
-// Combined assignment rule that handles both scope and field assignments
-assignment_field: qualified_identifier assignment_op fallback_expr
+// Boolean operators
+LOGICAL_AND: "&&"
+LOGICAL_OR: "||"
+LOGICAL_NOT: "!!"
+?or_expr: and_expr | or_expr LOGICAL_OR and_expr -> binary_op
+?and_expr: not_expr | and_expr LOGICAL_AND not_expr -> binary_op
+?not_expr: comparison | LOGICAL_NOT not_expr -> unary_op
 
-qualified_identifier: scope_identifier | field_identifier  
+// Comparison operators
+EQUAL_EQUAL: "=="
+NOT_EQUAL: "!="
+LESS_THAN: "<"
+LESS_EQUAL: "<="
+GREATER_THAN: ">"
+GREATER_EQUAL: ">="
+!comp_op: EQUAL_EQUAL | NOT_EQUAL | LESS_THAN | LESS_EQUAL | GREATER_THAN | GREATER_EQUAL
+?comparison: arith_expr | comparison comp_op arith_expr -> binary_op
 
-// Spread operations: ..expression (spreads the expression into the structure)
-spread_operation: SPREAD expression
+// Number operators 
+PLUS: "+"
+MINUS: "-"
+KEBAB_MINUS: "+-"  // Disambiguation for subtraction vs kebab-case identifiers
+MULTIPLY: "*"
+DIVIDE: "/"
+MODULO: "%"
+POWER: "**"
+?arith_expr: term  // Arith (+, -, +-)
+           | arith_expr PLUS term -> binary_op
+           | arith_expr MINUS term -> binary_op
+           | arith_expr KEBAB_MINUS term -> binary_op
+?term: unary  // Terms (*, /, %)
+     | term MULTIPLY unary -> binary_op
+     | term DIVIDE unary -> binary_op
+     | term MODULO unary -> binary_op
+?unary: power  // Factors (unary +/-)
+       | PLUS unary -> unary_op
+       | MINUS unary -> unary_op
+?power: atom_in_expr  // Power (**) - right-associative  
+      | atom_in_expr POWER unary -> binary_op
 
-// Positional fields: just expressions (implied positional assignment, excludes assignments)
-positional_field: fallback_expr
 
-// Function arguments: for pipeline function calls with arguments (data |func arg1 name=value)
-// Only allow field assignments, block literals, and non-identifier literals (no bare identifiers that could be pipe targets)  
-function_argument: function_field_assignment | block | number | string | tag_reference | shape_reference
+// === ATOM EXPRESSIONS ===
+// Use of atoms to continue building expressions
+// PRIVATEATTACH: "&"
+// PRIVATEFIELD: "&."
+FALLBACK: "??"
+?atom_in_expr: atom
+             | atom_in_expr "." field_follower -> atom_field
+             | atom_in_expr "??" expression -> atom_fallback
+//          //  | atom_in_expr PRIVATEATTACH -> atom_private
+//          //  | atom_in_expr PRIVATEFIELD identifier -> atom_private_field
 
-// Function field assignment: named parameters in pipeline function calls (name=value)
-// Uses or_expr to prevent pipelines within function arguments (avoid ambiguity)
-function_field_assignment: field_identifier assignment_op or_expr
-
-// Scope identifier: unified rule for scoped access patterns (used in both expressions and assignments)
-scope_identifier: AT field_identifier                  // @local, @#1, @"field", @'computed'
-                | AT field_path                        // @local.nested.field, @cat.dog
-                | AT                                  // @ (bare at scope)
-                | DOLLAR identifier                   // $out
-                | DOLLAR identifier DOT field_identifier // $out.nested.field, $#1
-                | CARET field_identifier               // ^timeout, ^#1, ^"field", ^'computed'
-                | CARET field_path                     // ^timeout.nested.field, ^arg.setting
-                | CARET                               // ^ (bare caret scope)
-
-// Field identifier: unified rule for any field identifier pattern  
-field_identifier: identifier                           // field
-               | string                               // "string-field-name"
-               | field_name                           // 'quoted-identifier'
-               | computed_field_name                  // 'computed-expression'
-               | index_reference                      // #1, #42 (indexed fields)
-
-field_path: identifier DOT identifier (DOT identifier)*
-
-// Assignment operators
-assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPREAD_ASSIGN | STRONG_SPREAD_ASSIGN
-
-// Placeholders: ???
-placeholder: PLACEHOLDER
-
-// Array types: identifier[]
-array_type: identifier LBRACKET RBRACKET
-
-// Field names: 'identifier' - quoted field names for meta-programming
-field_name: SINGLE_QUOTE identifier SINGLE_QUOTE
-
-// === FUTURE EXTENSIONS ===
-// Reserved space for upcoming language features:
-// - Pattern matching constructs
-// - Module/import expressions  
-// - Unit type annotations
-// - Generic type parameters
-// - Trait/protocol definitions
-// - Async/await expressions
-// - Resource/capability tokens
