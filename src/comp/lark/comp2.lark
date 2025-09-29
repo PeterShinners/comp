@@ -128,6 +128,7 @@ _assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPRE
      | string
      | _qualified
      | LPAREN expression RPAREN
+     | LPAREN pipeline RPAREN
      | tag_reference
      | structure
      | block
@@ -135,7 +136,7 @@ _assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPRE
 
 // Entry to the expression grammar
 ?expression: or_expr
-
+           | or_expr pipeline -> expr_pipeline
 
 // === PIPELINE EXPRESSIONS ===
 // PIPE_FUNC: "|"
@@ -143,12 +144,14 @@ PIPE_FALLBACK: "|?"
 PIPE_STRUCT: "|{"
 PIPE_WRENCH: "|<<"
 PIPE_BLOCK: "|:"
+pipe_func: _function_piped function_argument
+pipe_struct: PIPE_STRUCT _structure_op* RBRACE
+pipe_fallback: PIPE_FALLBACK expression
+pipe_block: PIPE_BLOCK _qualified
+pipe_wrench: PIPE_WRENCH _function_piped  // Not right, may want to be a block or struct?
+pipeline: (pipe_func | pipe_struct | pipe_block | pipe_wrench | pipe_fallback)+
 
-pipeline_func: _function_piped
-pipeline_struct: PIPE_STRUCT _structure_op* RBRACE
-pipeline_block: PIPE_BLOCK _qualified
-
-pipeline: (pipeline_func | pipeline_struct | pipeline_block)+
+function_argument: _structure_op*
 
 // === BASIC EXPRESSIONS ===
 
@@ -197,9 +200,10 @@ POWER: "**"
 // Use of atoms to continue building expressions
 // PRIVATEATTACH: "&"
 // PRIVATEFIELD: "&."
+FALLBACK: "??"
 ?atom_in_expr: atom
              | atom_in_expr "." _field_follower -> atom_field
-             | atom_in_expr pipeline -> atom_pipeline
+             | atom_in_expr "??" expression -> atom_fallback
 //          //  | atom_in_expr PRIVATEATTACH -> atom_private
 //          //  | atom_in_expr PRIVATEFIELD identifier -> atom_private_field
 //          //  | scope_identifier -> field_access_operation
