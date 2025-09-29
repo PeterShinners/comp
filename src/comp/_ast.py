@@ -515,7 +515,10 @@ class PipelineOperation(ASTNode):
     @classmethod
     def fromValue(cls, value: ASTNode):
         """Create a pipeline from a single value (pipeline-of-one)."""
-        if isinstance(value, ShapeUnionOperation):
+        if isinstance(value, PipelineOperation):
+            # If already a pipeline, return it as-is
+            return value
+        elif isinstance(value, ShapeUnionOperation):
             # Convert nested ShapeUnionOperation to flat pipeline stages
             stages = cls._flatten_shape_union(value)
             return cls(stages)
@@ -527,16 +530,16 @@ class PipelineOperation(ASTNode):
     def _flatten_shape_union(cls, shape_union: 'ShapeUnionOperation') -> list[ASTNode]:
         """Flatten nested ShapeUnionOperation into a list of pipeline stages."""
         stages = []
-        
+
         def collect_stages(node):
             if isinstance(node, ShapeUnionOperation):
                 collect_stages(node.left)
                 collect_stages(node.right)
             else:
                 stages.append(node)
-        
+
         collect_stages(shape_union)
-        
+
         # Convert simple identifiers to pipeline function operations (except the first stage)
         # The first stage is the data source, subsequent stages are function calls
         converted_stages = []
@@ -548,7 +551,7 @@ class PipelineOperation(ASTNode):
                 converted_stages.append(PipelineFunctionOperation.fromFunctionReference(function_ref))
             else:
                 converted_stages.append(stage)
-        
+
         return converted_stages
 
     def __repr__(self) -> str:
@@ -731,6 +734,79 @@ class PipelineFunctionOperation(ASTNode):
             return f"PipelineFunctionOperation({self.function_reference!r}, {self.args!r})"
 
 
+# === STANDALONE PIPELINE OPERATIONS ===
+# These are pipeline operations that don't require a left-hand side expression
+
+
+class StandaloneBlockInvokeOperation(ASTNode):
+    """AST node representing a standalone block invoke operation: |:block."""
+
+    def __init__(self, target: ASTNode):
+        super().__init__()
+        self.target = target
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create StandaloneBlockInvokeOperation from tokens."""
+        target = tokens[0]  # Just the target, no |: token
+        return cls(target)
+
+    def __repr__(self) -> str:
+        return f"StandaloneBlockInvokeOperation({self.target!r})"
+
+
+class StandaloneFailureOperation(ASTNode):
+    """AST node representing a standalone failure operation: |?fallback."""
+
+    def __init__(self, fallback: ASTNode):
+        super().__init__()
+        self.fallback = fallback
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create StandaloneFailureOperation from tokens."""
+        fallback = tokens[0]  # Just the fallback, no |? token
+        return cls(fallback)
+
+    def __repr__(self) -> str:
+        return f"StandaloneFailureOperation({self.fallback!r})"
+
+
+class StandaloneModifierOperation(ASTNode):
+    """AST node representing a standalone modifier operation: |<<modifier."""
+
+    def __init__(self, modifier: ASTNode):
+        super().__init__()
+        self.modifier = modifier
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create StandaloneModifierOperation from tokens."""
+        modifier = tokens[0]  # Just the modifier, no |<< token
+        return cls(modifier)
+
+    def __repr__(self) -> str:
+        return f"StandaloneModifierOperation({self.modifier!r})"
+
+
+class StandaloneStructOperation(ASTNode):
+    """AST node representing a standalone struct operation: |{field=value}."""
+
+    def __init__(self, structure_fields: list[ASTNode]):
+        super().__init__()
+        self.structure_fields = structure_fields
+
+    @classmethod
+    def fromToken(cls, tokens):
+        """Create StandaloneStructOperation from tokens."""
+        # tokens: [field1, field2, ..., field_n] (no |{ } tokens)
+        structure_fields = tokens
+        return cls(structure_fields)
+
+    def __repr__(self) -> str:
+        return f"StandaloneStructOperation({self.structure_fields!r})"
+
+
 class FieldAccessOperation(ASTNode):
     """AST node representing a field access operation (object.field.field2.field3)."""
 
@@ -822,15 +898,15 @@ class FieldAccessOperation(ASTNode):
                     # @identifier.field_path -> FieldAccessOperation(Scope('@'), identifier, ...field_path)
                     identifier = tokens[1]
                     field_path = tokens[3]  # This should be the field_path list from grammar
-                    
+
                     # Convert field_path (list of identifiers) to individual fields
                     if isinstance(field_path, list):
                         fields = [identifier] + field_path
                     else:
                         fields = [identifier, field_path]
-                    
+
                     return cls(Scope("@"), *fields)
-                    
+
             elif tokens[0].type == "CARET":
                 if len(tokens) == 2:
                     # ^identifier -> FieldAccessOperation(Scope('^'), identifier)
@@ -845,27 +921,27 @@ class FieldAccessOperation(ASTNode):
                     # ^identifier.field_path -> FieldAccessOperation(Scope('^'), identifier, ...field_path)
                     identifier = tokens[1]
                     field_path = tokens[3]  # This should be the field_path list from grammar
-                    
+
                     # Convert field_path (list of identifiers) to individual fields
                     if isinstance(field_path, list):
                         fields = [identifier] + field_path
                     else:
                         fields = [identifier, field_path]
-                    
+
                     return cls(Scope("^"), *fields)
-                    
+
             elif tokens[0].type == "DOLLAR":
                 if len(tokens) >= 4 and tokens[2].type == "DOT":
                     # $identifier.field_path -> FieldAccessOperation(Scope('$identifier'), ...field_path)
                     identifier = tokens[1]
                     field_path = tokens[3]  # This should be the field_path list from grammar
-                    
+
                     # Convert field_path (list of identifiers) to individual fields
                     if isinstance(field_path, list):
                         fields = field_path
                     else:
                         fields = [field_path]
-                    
+
                     # Create scope with $identifier format - extract name from Identifier AST node
                     identifier_name = identifier.name if hasattr(identifier, 'name') else str(identifier)
                     scope_name = f"${identifier_name}"
@@ -879,6 +955,13 @@ class FieldAccessOperation(ASTNode):
         if len(tokens) == 3:
             # Simple cases: object.field or object.string
             field = tokens[2]
+
+            # UNWRAP: If field is a simple FieldAccessOperation with no object, extract the identifier
+            if isinstance(field, FieldAccessOperation) and field.object is None and len(field.fields) == 1:
+                field = field.fields[0]
+            elif isinstance(field, FieldAccessOperation) and isinstance(field.object, Placeholder) and len(field.fields) == 1:
+                field = field.fields[0]
+
         elif len(tokens) == 4 and tokens[2].type == "HASH":
             # Index access: object.#number
             # tokens = [object, DOT, HASH, INDEX_NUMBER]
@@ -1207,14 +1290,14 @@ class ScopeTarget(ASTNode):
     def fromToken(cls, tokens):
         """Create ScopeTarget from tokens: [scope_type, field_reference] or [scope_type] for bare scopes."""
         scope_type = str(tokens[0])  # @ or $ or ^
-        
+
         if len(tokens) == 1:
             # Bare scope: @ or ^ or $
             return cls(scope_type, "", [])
-        
+
         # Has field_reference: extract name and field_path from field_reference
         field_ref = tokens[1]
-        
+
         # Handle different field_reference types
         if hasattr(field_ref, 'name'):  # Identifier or similar
             name = str(field_ref.name)

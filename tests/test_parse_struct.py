@@ -149,15 +149,15 @@ def test_contents():
     assert isinstance(op3.expression, comp.StructureLiteral)
 
 
-# Named Block Operation tests
+# Named Block Operation tests - now use assignment syntax
 named_block_cases = [
-    ("name:{5}", "simple named block with number"),
-    ("handler:{42 + 10}", "named block with expression"),
-    ("processor:{user}", "named block with identifier"),
-    ('formatter:{"hello"}', "named block with string"),
-    ("func:{#true}", "named block with tag reference"),
-    ("transform:{~str}", "named block with shape reference"),
-    ("pipeline:{|process}", "named block with function reference"),
+    ("name=:{5}", "simple named block assignment with number"),
+    ("handler=:{42 + 10}", "named block assignment with expression"),
+    ("processor=:{user}", "named block assignment with identifier"),
+    ('formatter=:{"hello"}', "named block assignment with string"),
+    ("func=:{#true}", "named block assignment with tag reference"),
+    ("transform=:{~str}", "named block assignment with shape reference"),
+    ("pipeline=:{|process}", "named block assignment with function reference"),
 ]
 
 
@@ -167,58 +167,75 @@ named_block_cases = [
     ids=[case[1] for case in named_block_cases],
 )
 def test_named_block_operations(input_str, description):
-    """Test that named block operations parse correctly."""
+    """Test that named block assignments parse correctly."""
     result = comp.parse(input_str)
-    assert isinstance(result, comp.NamedBlockOperation), (
-        f"Expected NamedBlockOperation for {description}"
+    assert isinstance(result, comp.AssignmentOperation), (
+        f"Expected AssignmentOperation for {description}"
     )
-    assert hasattr(result, "name"), (
-        f"NamedBlockOperation missing 'name' attribute for {description}"
+    assert hasattr(result, "target"), (
+        f"AssignmentOperation missing 'target' attribute for {description}"
     )
-    assert hasattr(result, "block"), (
-        f"NamedBlockOperation missing 'block' attribute for {description}"
+    assert hasattr(result, "pipeline"), (
+        f"AssignmentOperation missing 'pipeline' attribute for {description}"
     )
-    assert isinstance(result.name, comp.Identifier) or (
-        isinstance(result.name, comp.FieldAccessOperation) and 
-        result.name.object is None and 
-        len(result.name.fields) == 1 and 
-        isinstance(result.name.fields[0], comp.Identifier)
-    ), (
-        f"Expected name to be Identifier (or FieldAccessOperation with single Identifier) for {description}"
+    # Target should be a FieldAccessOperation
+    assert isinstance(result.target, comp.FieldAccessOperation), (
+        f"Expected target to be FieldAccessOperation for {description}"
     )
-    assert isinstance(result.block, comp.BlockDefinition), (
-        f"Expected block to be BlockDefinition for {description}"
+    # Pipeline should contain a BlockLiteral
+    assert isinstance(result.pipeline, comp.PipelineOperation), (
+        f"Expected pipeline to be PipelineOperation for {description}"
+    )
+    assert len(result.pipeline.stages) >= 1, (
+        f"Expected pipeline to have stages for {description}"
+    )
+    assert isinstance(result.pipeline.stages[0], comp.BlockLiteral), (
+        f"Expected first stage to be BlockLiteral for {description}"
     )
 
 
 def test_named_block_structure():
-    """Test the internal structure of named block operations."""
+    """Test the internal structure of named block assignments."""
     # Test simple case
-    result = comp.parse("handler:{42}")
-    assert isinstance(result, comp.NamedBlockOperation)
-    assert isinstance(result.name, comp.FieldAccessOperation)
-    assert result.name.object is None
-    assert len(result.name.fields) == 1
-    assert isinstance(result.name.fields[0], comp.Identifier)
-    assert result.name.fields[0].name == "handler"
-    assert isinstance(result.block.expression, comp.NumberLiteral)
-    assert result.block.expression.value == 42
+    result = comp.parse("handler=:{42}")
+    assert isinstance(result, comp.AssignmentOperation)
+    assert isinstance(result.target, comp.FieldAccessOperation)
+    assert result.target.object is None
+    assert len(result.target.fields) == 1
+    assert isinstance(result.target.fields[0], comp.Identifier)
+    assert result.target.fields[0].name == "handler"
+    assert isinstance(result.pipeline, comp.PipelineOperation)
+    assert len(result.pipeline.stages) >= 1
+    assert isinstance(result.pipeline.stages[0], comp.BlockLiteral)
+    # Check the block content
+    block = result.pipeline.stages[0]
+    assert len(block.operations) == 1
+    assert isinstance(block.operations[0], comp.StructureOperation)
+    assert isinstance(block.operations[0].expression, comp.NumberLiteral)
+    assert block.operations[0].expression.value == 42
 
     # Test with complex expression
-    result = comp.parse("processor:{10 + 5}")
-    assert isinstance(result, comp.NamedBlockOperation)
-    assert isinstance(result.name, comp.FieldAccessOperation)
-    assert result.name.object is None
-    assert len(result.name.fields) == 1
-    assert isinstance(result.name.fields[0], comp.Identifier)
-    assert result.name.fields[0].name == "processor"
-    assert isinstance(result.block.expression, comp.BinaryOperation)
-    assert result.block.expression.operator == "+"
+    result = comp.parse("processor=:{10 + 5}")
+    assert isinstance(result, comp.AssignmentOperation)
+    assert isinstance(result.target, comp.FieldAccessOperation)
+    assert result.target.object is None
+    assert len(result.target.fields) == 1
+    assert isinstance(result.target.fields[0], comp.Identifier)
+    assert result.target.fields[0].name == "processor"
+    assert isinstance(result.pipeline, comp.PipelineOperation)
+    assert len(result.pipeline.stages) >= 1
+    assert isinstance(result.pipeline.stages[0], comp.BlockLiteral)
+    # Check the block content
+    block = result.pipeline.stages[0]
+    assert len(block.operations) == 1
+    assert isinstance(block.operations[0], comp.StructureOperation)
+    assert isinstance(block.operations[0].expression, comp.BinaryOperation)
+    assert block.operations[0].expression.operator == "+"
 
 
 # Test that named blocks are different from regular field access
 def test_named_block_vs_field_access():
-    """Test that named blocks are distinguished from regular field access."""
+    """Test that named block assignments are distinguished from regular field access."""
     # Regular field access
     field_result = comp.parse("name.field")
     assert isinstance(field_result, comp.FieldAccessOperation)
@@ -226,15 +243,18 @@ def test_named_block_vs_field_access():
     assert len(field_result.fields) == 2  # Both "name" and "field"
     assert isinstance(field_result.fields[0], comp.Identifier)
     assert field_result.fields[0].name == "name"
+    # The second field is also an Identifier due to field access flattening
     assert isinstance(field_result.fields[1], comp.Identifier)
     assert field_result.fields[1].name == "field"
 
-    # Named block operation
-    block_result = comp.parse("name:{field}")
-    assert isinstance(block_result, comp.NamedBlockOperation)
-    assert isinstance(block_result.name, comp.FieldAccessOperation)
-    assert block_result.name.object is None
-    assert len(block_result.name.fields) == 1
-    assert isinstance(block_result.name.fields[0], comp.Identifier)
-    assert block_result.name.fields[0].name == "name"
-    # Note: block.expression access might need fixing based on actual BlockDefinition structure
+    # Block assignment using assignment syntax (named blocks no longer exist)
+    block_result = comp.parse("name=:{field}")
+    assert isinstance(block_result, comp.AssignmentOperation)
+    assert isinstance(block_result.target, comp.FieldAccessOperation)
+    assert block_result.target.object is None
+    assert len(block_result.target.fields) == 1
+    assert isinstance(block_result.target.fields[0], comp.Identifier)
+    assert block_result.target.fields[0].name == "name"
+    assert isinstance(block_result.pipeline, comp.PipelineOperation)
+    assert len(block_result.pipeline.stages) >= 1
+    assert isinstance(block_result.pipeline.stages[0], comp.BlockLiteral)

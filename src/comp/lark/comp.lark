@@ -83,11 +83,12 @@ SINGLE_QUOTE: "'"
 // Follows Python's precedence model with Comp-specific extensions
 // Lower precedence = higher in the hierarchy
 
-// Top level: expressions (assignments only in specific contexts)
+// Top level: expressions (can be assignments or regular expressions)
 ?expression: assignment_expr
 
-// Assignment expressions (only in specific contexts, not general expressions)  
+// Assignment expressions: identifier = expression OR fallback_expr
 ?assignment_expr: fallback_expr
+                | qualified_identifier assignment_op fallback_expr -> assignment_operation
 
 // Fallback operators (??)
 ?fallback_expr: pipe_expr
@@ -102,6 +103,13 @@ SINGLE_QUOTE: "'"
          | pipe_expr PIPELINE_BLOCK_START structure_field* RBRACE -> pipeline_struct_operation
          | pipe_expr BLOCK_INVOKE qualified_identifier -> pipeline_block_invoke_operation
          | pipe_expr BLOCK_INVOKE COLON_BLOCK_START structure_field* RBRACE -> pipeline_block_invoke_literal
+         | standalone_pipeline
+
+// Standalone pipeline operations (can appear without left-hand side)
+?standalone_pipeline: BLOCK_INVOKE qualified_identifier -> standalone_block_invoke_operation
+                   | PIPELINE_FAILURE or_expr -> standalone_failure_operation
+                   | PIPELINE_MODIFIER or_expr -> standalone_modifier_operation
+                   | PIPELINE_BLOCK_START structure_field* RBRACE -> standalone_struct_operation
 
 // Logical OR (||)
 ?or_expr: and_expr
@@ -160,6 +168,8 @@ SINGLE_QUOTE: "'"
      | block
      | placeholder
      | array_type
+     | index_reference
+     | field_name
      | LPAREN expression RPAREN
 
 // === COMP-SPECIFIC CONSTRUCTS ===

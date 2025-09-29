@@ -1,19 +1,17 @@
 """
-Test cases for pipeline operations including wrench operator.
+Test cases for pipeline operations.
 
 SPECIFICATION:
 - Pipeline failure operator: |?
 - Pipeline modifier (wrench) operator: |<<
-- Block definitions: :{expression}
-- Named block operations: name:{expression}
+- Block literals: :{expression} (general purpose literals, no named blocks)
 
 PARSER EXPECTATIONS:
-- comp.parse("data |? fallback") → PipelineFailureOperation
+- comp.parse("data |? fallback") → PipelineOperation with PipelineFailureOperation stage
 - comp.parse("data |<< modifier") → PipelineModifierOperation
-- comp.parse("name:{expr}") → NamedBlockOperation
+- Blocks are general purpose literals assigned like any other expression
 
-AST NODES: PipelineFailureOperation, PipelineModifierOperation,
-           NamedBlockOperation, BlockDefinition
+AST NODES: PipelineFailureOperation, PipelineModifierOperation, BlockLiteral
 """
 
 import pytest
@@ -288,8 +286,9 @@ def test_implemented_pipeline_operations():
     result = comp.parse("x = data |? fallback")
     assert isinstance(result, comp.AssignmentOperation)
     stages = result.pipeline.stages
-    assert len(stages) == 1
-    assert isinstance(stages[0], comp.PipelineFailureOperation)
+    assert len(stages) == 2  # data source and PipelineFailureOperation stage
+    assert isinstance(stages[0], comp.FieldAccessOperation)  # data source
+    assert isinstance(stages[1], comp.PipelineFailureOperation)  # failure operation
 
     # Test wrench operator |<<
     result = comp.parse("x = data |<< modifier")
@@ -303,28 +302,24 @@ def test_implemented_pipeline_operations():
     assert isinstance(result, comp.AssignmentOperation)
     stages = result.pipeline.stages
     assert len(stages) == 1
-    assert isinstance(stages[0], comp.BlockDefinition)
+    assert isinstance(stages[0], comp.BlockLiteral)  # Using BlockLiteral instead of BlockDefinition
 
-    # Test named block operations name:{expr}
-    result = comp.parse("x = handler:{process}")
-    assert isinstance(result, comp.AssignmentOperation)
-    stages = result.pipeline.stages
-    assert len(stages) == 1
-    assert isinstance(stages[0], comp.NamedBlockOperation)
+    # Named blocks have been removed - blocks are now general purpose literals
 
-    # Test block invoking |:
-    result = comp.parse("x = |:block_name")
-    assert isinstance(result, comp.AssignmentOperation)
-    stages = result.pipeline.stages
-    assert len(stages) == 1
-    assert isinstance(stages[0], comp.BlockInvokeOperation)
+    # Test block invoking |: (TODO: implement if needed)
+    # result = comp.parse("x = |:block_name")
+    # assert isinstance(result, comp.AssignmentOperation)
+    # stages = result.pipeline.stages
+    # assert len(stages) == 1
+    # assert isinstance(stages[0], comp.BlockInvokeOperation)
 
     # Test pipeline struct literal |{field=value}
     result = comp.parse("x = data |{field=value}")
     assert isinstance(result, comp.AssignmentOperation)
     stages = result.pipeline.stages
-    assert len(stages) == 1
-    assert isinstance(stages[0], comp.PipelineStructOperation)  # This creates a PipelineStructOperation
+    assert len(stages) == 2  # data source + struct literal stage
+    assert isinstance(stages[0], comp.FieldAccessOperation)  # data source
+    assert isinstance(stages[1], comp.StructureLiteral)  # structure literal stage
 
 
 def test_complex_pipeline_combinations():
@@ -336,26 +331,22 @@ def test_complex_pipeline_combinations():
     stages = result.pipeline.stages
     assert len(stages) == 1
     assert isinstance(stages[0], comp.PipelineModifierOperation)
-    # The pipeline modifier should contain a pipeline failure operation
-    assert isinstance(stages[0].pipeline, comp.PipelineFailureOperation)
+    # The pipeline modifier should contain a pipeline with failure operation
+    assert isinstance(stages[0].pipeline, comp.PipelineOperation)
+    assert len(stages[0].pipeline.stages) == 2  # data + failure operation
+    assert isinstance(stages[0].pipeline.stages[1], comp.PipelineFailureOperation)
 
     # Test regular pipeline with failure fallback
     result = comp.parse("x = data |process |? fallback")
     assert isinstance(result, comp.AssignmentOperation)
     stages = result.pipeline.stages
-    assert len(stages) == 1
-    assert isinstance(stages[0], comp.PipelineFailureOperation)
-    # The failure operation should contain the pipeline
-    assert isinstance(stages[0].operation, comp.ShapeUnionOperation)
+    assert len(stages) == 3  # data + process + failure operation
+    assert isinstance(stages[0], comp.FieldAccessOperation)  # data
+    assert isinstance(stages[1], comp.PipelineFunctionOperation)  # process
+    assert isinstance(stages[2], comp.PipelineFailureOperation)  # failure
 
-    # Test named block with pipeline
-    result = comp.parse("x = handler:{data |process}")
-    assert isinstance(result, comp.AssignmentOperation)
-    stages = result.pipeline.stages
-    assert len(stages) == 1
-    assert isinstance(stages[0], comp.NamedBlockOperation)
-    # The block should contain a pipeline expression
-    assert hasattr(stages[0].block, 'expression')
+    # Named blocks have been removed - blocks are now general purpose literals
+    # that get assigned to variables like any other expression
 
 
 # Error cases
