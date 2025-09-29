@@ -84,6 +84,7 @@ scope: LOCALSCOPE
      | NAMESCOPE "." _field_follower
 
 
+_qualified: scope | identifier
 
 // === REFERENCE LITERALS ===
 // References to tags, shapes, and functions. Possibly from other namespaces.
@@ -96,26 +97,90 @@ shape_reference: "~" _reference_path
 function_reference: "|" _reference_path
 
 
-// === INDEX NUMBERS ===
-// Simple unsigned integers for array indexing  
-INDEX_NUMBER: /\d+/
+// === STRUCTURE DEFINITION ===
+COLON_BLOCK_START: ":{"
+SPREAD: ".."
+structure: LBRACE _structure_op* RBRACE
+block: COLON_BLOCK_START _structure_op* RBRACE
+_structure_op: structure_spread | structure_assign | structure_unnamed
+structure_spread: SPREAD expression
+structure_assign: _qualified _assignment_op expression  
+structure_unnamed: expression
 
+
+// === ASSIGN EXPRESSIONS ===
+// Assignments are not part of basic expressions, they are handled at specific
+// points in the grammar
+ASSIGN: "="
+STRONG_ASSIGN: "=*"
+WEAK_ASSIGN: "=?"
+SPREAD_ASSIGN: "..="
+STRONG_SPREAD_ASSIGN: "..=*"
+WEAK_SPREAD_ASSIGN: "..=?"
+_assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPREAD_ASSIGN | STRONG_SPREAD_ASSIGN
+
+
+
+// Entry to the general expression hierarchy
+?expression: or_expr
+
+// === PIPELINE EXPRESSIONS ===
 
 
 // === BASIC EXPRESSIONS ===
 
-// // Start simple: just literals and parentheses
-?expression: atom
+
+// Boolean operators
+LOGICAL_AND: "&&"
+LOGICAL_OR: "||"
+LOGICAL_NOT: "!!"
+?or_expr: and_expr | or_expr LOGICAL_OR and_expr -> binary_operation
+?and_expr: not_expr | and_expr LOGICAL_AND not_expr -> binary_operation
+?not_expr: comparison | LOGICAL_NOT not_expr -> unary_operation
+
+// Comparison operators
+EQUAL_EQUAL: "=="
+NOT_EQUAL: "!="
+LESS_THAN: "<"
+LESS_EQUAL: "<="
+GREATER_THAN: ">"
+GREATER_EQUAL: ">="
+!comp_op: EQUAL_EQUAL | NOT_EQUAL | LESS_THAN | LESS_EQUAL | GREATER_THAN | GREATER_EQUAL
+?comparison: arith_expr | comparison comp_op arith_expr -> binary_operation
+
+// Number operators 
+PLUS: "+"
+MINUS: "-"
+SUBTRACT: "+-"  // Disambiguation for subtraction vs kebab-case identifiers
+MULTIPLY: "*"
+DIVIDE: "/"
+MODULO: "%"
+POWER: "**"
+?arith_expr: term  // Arith (+, -, +-)
+           | arith_expr PLUS term -> binary_operation
+           | arith_expr MINUS term -> binary_operation
+           | arith_expr SUBTRACT term -> binary_operation
+?term: factor  // Terms (*, /, %)
+     | term MULTIPLY factor -> binary_operation
+     | term DIVIDE factor -> binary_operation
+     | term MODULO factor -> binary_operation
+?factor: power  // Factors (unary +/-, **)
+       | PLUS factor -> unary_operation
+       | MINUS factor -> unary_operation
+//Power (**) - right-associative  
+?power: atom
+      | atom POWER factor -> binary_operation
+
 
 // // Atoms: the basic building blocks
 ?atom: number
      | string
-     | identifier
-     | scope
-    //  | IDENTIFIER_PATH
+     | _qualified
      | LPAREN expression RPAREN
      | tag_reference
-     | shape_reference
-     | function_reference
+    //  | shape_reference
+    //  | function_reference
+     | structure
+     | block
 
 // Keep it minimal for now - we can build up from here
