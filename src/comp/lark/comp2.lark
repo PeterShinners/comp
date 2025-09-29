@@ -16,13 +16,6 @@ COMMENT: /;[^\r\n]*/
 %ignore COMMENT
 %ignore /\s+/
 
-// Structural tokens
-LBRACE: "{"
-RBRACE: "}"
-LPAREN: "("
-RPAREN: ")"
-
-
 // === NUMBER LITERALS ===
 // Identifies integer only values with bases, which need different parsing
 // route. Allow underscores for readability. 
@@ -67,20 +60,20 @@ computefield: "'" atom "'"  // should use 'expression' later?
 
 
 // individual component of an identifier
-_field_leader: TOKEN | INDEXFIELD | computefield
-_field_follower: _field_leader | string
-identifier: _field_leader ("." _field_follower)*
+?field_leader: TOKEN | INDEXFIELD | computefield
+?field_follower: field_leader | string
+identifier: field_leader ("." field_follower)*
 
 LOCALSCOPE: "@"
 ARGSCOPE: "^"
 NAMESCOPE: "$" TOKEN
 
 scope: LOCALSCOPE
-     | LOCALSCOPE _field_follower
+     | LOCALSCOPE field_follower
      | ARGSCOPE
-     | ARGSCOPE _field_follower
+     | ARGSCOPE field_follower
      | NAMESCOPE
-     | NAMESCOPE "." _field_follower
+     | NAMESCOPE "." field_follower
 
 
 _qualified: scope | identifier
@@ -94,16 +87,18 @@ _reference_path:  reference_identifiers reference_namespace?
 tag_reference: "#" _reference_path
 shape_reference: "~" _reference_path  
 function_reference: "|" _reference_path
-_function_piped: "|" _reference_path  // hidden for pipeline parsing
+_function_piped: "|" _reference_path  // ignored for pipeline parsing
 
 
 // === STRUCTURE DEFINITION ===
+LBRACE: "{"
+RBRACE: "}"
 COLON_BLOCK_START: ":{"
 SPREAD: ".."
 structure: LBRACE _structure_content RBRACE
 block: COLON_BLOCK_START _structure_content RBRACE
-_structure_content: _structure_op* | pipeline
-_structure_op: structure_spread | structure_assign | structure_unnamed
+_structure_content: structure_op* | pipeline
+?structure_op: structure_spread | structure_assign | structure_unnamed
 structure_spread: SPREAD expression
 structure_assign: _qualified _assignment_op expression  
 structure_unnamed: expression
@@ -124,6 +119,8 @@ _assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPRE
 // === BASIC ATOM ===
 
 // Atoms: the basic building blocks
+LPAREN: "("
+RPAREN: ")"
 ?atom: number
      | string
      | _qualified
@@ -135,8 +132,8 @@ _assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPRE
 
 
 // Entry to the expression grammar
-?expression: or_expr
-           | or_expr pipeline -> expr_pipeline
+?expression: _prepipeline_expression
+           | _prepipeline_expression pipeline -> expr_pipeline
 
 // === PIPELINE EXPRESSIONS ===
 // PIPE_FUNC: "|"
@@ -151,9 +148,17 @@ pipe_block: PIPE_BLOCK _qualified
 pipe_wrench: PIPE_WRENCH _function_piped  // Not right, may want to be a block or struct?
 pipeline: (pipe_func | pipe_struct | pipe_block | pipe_wrench | pipe_fallback)+
 
-function_argument: _structure_op*
+function_argument: _function_structure_op*
+_function_structure_op: function_structure_spread | function_structure_assign | function_structure_unnamed
+function_structure_spread: SPREAD _prepipeline_expression  // Exclude pipelines
+function_structure_assign: _qualified _assignment_op _prepipeline_expression  // Exclude pipelines  
+function_structure_unnamed: _prepipeline_expression  // Exclude pipelines
 
 // === BASIC EXPRESSIONS ===
+
+// Expression level that excludes pipelines - used for function arguments 
+// and other contexts where pipelines should not be parsed
+_prepipeline_expression: or_expr
 
 // Boolean operators
 LOGICAL_AND: "&&"
@@ -202,7 +207,7 @@ POWER: "**"
 // PRIVATEFIELD: "&."
 FALLBACK: "??"
 ?atom_in_expr: atom
-             | atom_in_expr "." _field_follower -> atom_field
+             | atom_in_expr "." field_follower -> atom_field
              | atom_in_expr "??" expression -> atom_fallback
 //          //  | atom_in_expr PRIVATEATTACH -> atom_private
 //          //  | atom_in_expr PRIVATEFIELD identifier -> atom_private_field
