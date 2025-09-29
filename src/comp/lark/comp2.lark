@@ -1,0 +1,121 @@
+// Comp Language Grammar v2 - Clean Restart
+//
+// Starting from the ground up with just literals and identifiers.
+// Focus on simplicity and letting the grammar do the work, not the transformer.
+//
+// DESIGN PRINCIPLES:
+// - Grammar rules should be self-explanatory
+// - Minimize transformer complexity
+// - Clear separation of concerns
+// - Declarative over imperative
+
+// === BASIC TOKENS ===
+
+// Comments
+COMMENT: /;[^\r\n]*/
+%ignore COMMENT
+%ignore /\s+/
+
+// Structural tokens
+LBRACE: "{"
+RBRACE: "}"
+LPAREN: "("
+RPAREN: ")"
+
+
+
+// === NUMBER LITERALS ===
+// Identifies integer only values with bases, which need different parsing
+// route. Allow underscores for readability. 
+// Leading signs are handled by unary operators
+
+number: INTBASE | DECIMAL
+
+// Based number formats - unsigned, signs handled by unary operators
+INTBASE.2: /0[xXbBoO](_?[\da-zA-Z])+/                      // All bases: hex, binary, octal
+
+// Decimal formats - unsigned, signs handled by unary operators  
+DECIMAL.1: /(([1-9](_?\d)*)|0(_?0)*)/                      // Integer: 123, 1_000, 0, 0_0 
+         | /\d(_?\d)*\.(\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?/  // Decimal: 3.14, 5., 1.5e-10, 5.e10
+         | /\.\d(_?\d)*([eE][+-]?\d(_?\d)*)?/              // Leading dot: .5, .123_456, .5e10  
+         | /\d(_?\d)*[eE][+-]?\d(_?\d)*/                   // Scientific integer: 1e5, 1_000e10
+
+
+// === STRING LITERALS ===
+// String parsing with separated quotes and content.
+// Uses Python's regex patterns but separates quotes from content in parse tree.
+// Ensures a content value is in the tree with the exact resulting string literal.
+
+string: _short_string | _long_string
+
+// Single quoted strings - quotes separated from content
+_short_string: "\"" SHORT_STRING_CONTENT? "\""
+SHORT_STRING_CONTENT: /[^"\\\r\n]+(?:\\.[^"\\\r\n]*)*/i
+
+// Triple quoted strings - quotes separated from content  
+SIXQUOTE:  "\"\"\""
+_long_string: SIXQUOTE LONG_STRING_CONTENT? SIXQUOTE
+LONG_STRING_CONTENT: /(.|\n)+?(?=""")/is
+
+
+// === TOKEN ===
+
+// The simplest name token for an identifier, UAX #31 compliant
+// Allows dashes and single optional trailing question mark
+TOKEN: /[^\W\d][\w-]*[?]?/
+INDEXFIELD: /#\d+/
+computefield: "'" atom "'"  // should use 'expression' later?
+
+
+// individual component of an identifier
+_field_leader: TOKEN | INDEXFIELD | computefield
+_field_follower: _field_leader | string
+identifier: _field_leader ("." _field_follower)*
+
+LOCALSCOPE: "@"
+ARGSCOPE: "^"
+NAMESCOPE: "$" TOKEN
+
+scope: LOCALSCOPE
+     | LOCALSCOPE _field_follower
+     | ARGSCOPE
+     | ARGSCOPE _field_follower
+     | NAMESCOPE
+     | NAMESCOPE "." _field_follower
+
+
+
+// === REFERENCE LITERALS ===
+// References to tags, shapes, and functions. Possibly from other namespaces.
+
+reference_identifiers: TOKEN ("." TOKEN)*
+reference_namespace: "/" TOKEN?
+_reference_path:  reference_identifiers reference_namespace?
+tag_reference: "#" _reference_path
+shape_reference: "~" _reference_path  
+function_reference: "|" _reference_path
+
+
+// === INDEX NUMBERS ===
+// Simple unsigned integers for array indexing  
+INDEX_NUMBER: /\d+/
+
+
+
+// === BASIC EXPRESSIONS ===
+
+// // Start simple: just literals and parentheses
+?expression: atom
+
+// // Atoms: the basic building blocks
+?atom: number
+     | string
+     | identifier
+     | scope
+    //  | IDENTIFIER_PATH
+     | LPAREN expression RPAREN
+     | tag_reference
+     | shape_reference
+     | function_reference
+
+// Keep it minimal for now - we can build up from here
