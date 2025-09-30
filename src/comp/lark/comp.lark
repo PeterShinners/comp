@@ -9,6 +9,9 @@
 // - Clear separation of concerns
 // - Declarative over imperative
 
+// === ENTRY POINT ===
+start: expression
+
 // === BASIC TOKENS ===
 
 // Comments
@@ -36,49 +39,53 @@ DECIMAL.1: /(([1-9](_?\d)*)|0(_?0)*)/                      // Integer: 123, 1_00
 // === STRING LITERALS ===
 // String parsing with separated quotes and content.
 // Uses Python's regex patterns but separates quotes from content in parse tree.
-// Ensures a content value is in the tree with the exact resulting string literal.
+DUBQUOTE: "\""
+SIXQUOTE:  "\"\"\""
+SHORT_STRING_CONTENT: /[^"\\\r\n]+(?:\\.[^"\\\r\n]*)*/i
+_short_string: DUBQUOTE SHORT_STRING_CONTENT? DUBQUOTE
+
+LONG_STRING_CONTENT: /(.|\n)+?(?=""")/is
+_long_string: SIXQUOTE LONG_STRING_CONTENT? SIXQUOTE
 
 string: _short_string | _long_string
 
-// Single quoted strings - quotes separated from content
-_short_string: "\"" SHORT_STRING_CONTENT? "\""
-SHORT_STRING_CONTENT: /[^"\\\r\n]+(?:\\.[^"\\\r\n]*)*/i
-
-// Triple quoted strings - quotes separated from content  
-SIXQUOTE:  "\"\"\""
-_long_string: SIXQUOTE LONG_STRING_CONTENT? SIXQUOTE
-LONG_STRING_CONTENT: /(.|\n)+?(?=""")/is
-
-
-// === TOKEN ===
+// === IDENTIFIER FIELDS ===
 
 // The simplest name token for an identifier, UAX #31 compliant
 // Allows dashes and single optional trailing question mark
 TOKEN: /[^\W\d][\w-]*[?]?/
 INDEXFIELD: /#\d+/
-PLACEHOLDER: "???"
-computefield: "'" atom "'"  // should use 'expression' later?
-field_name: "'" TOKEN "'"
 
+// Individual field types - explicit rules for each context
+tokenfield: TOKEN
+indexfield: INDEXFIELD
+stringfield: string
+computefield: "'" expression "'"
 
-// individual component of an identifier
-?field_leader: TOKEN | INDEXFIELD | computefield
-?field_follower: field_leader | string | field_name
-identifier: field_leader ("." field_follower)*
+// Scope field types
+localscope: "@"
+argscope: "^"
+namescope: "$" TOKEN
 
-LOCALSCOPE: "@"
-ARGSCOPE: "^"
-NAMESCOPE: "$" TOKEN
+// Field components that can appear in identifiers
+// First field in a chain (cannot be a string literal - that would be standalone)
+?identifier_first_field: tokenfield | indexfield | computefield
 
-scope: LOCALSCOPE
-     | LOCALSCOPE field_follower
-     | ARGSCOPE
-     | ARGSCOPE field_follower
-     | NAMESCOPE
-     | NAMESCOPE "." field_follower
+// Fields after a dot (can include strings for quoted field names like obj."field")
+?identifier_next_field: tokenfield | indexfield | string | computefield
 
+// Identifier can optionally start with a scope marker
+// Examples: foo.bar, @foo.bar, ^item, $mod.pizza
+// Bare scope markers are also identifiers: @, ^, $mod
+identifier: localscope identifier_first_field ("." identifier_next_field)*  // @foo.bar
+          | argscope identifier_first_field ("." identifier_next_field)*    // ^foo.bar
+          | namescope ("." identifier_next_field)*                          // $mod.pizza
+          | localscope                                                      // @
+          | argscope                                                        // ^
+          | namescope                                                       // $mod
+          | identifier_first_field ("." identifier_next_field)*             // foo.bar
 
-_qualified: scope | identifier
+_qualified: identifier
 
 
 // === REFERENCE LITERALS ===
@@ -123,7 +130,15 @@ _assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPRE
 // Atoms: the basic building blocks
 LPAREN: "("
 RPAREN: ")"
+PLACEHOLDER: "???"
 placeholder: PLACEHOLDER
+
+// Parenthesized expressions - keeps atom definition flatter
+?paren_expr: LPAREN expression RPAREN
+           | LPAREN pipeline RPAREN
+
+// Atoms only match single entities
+// String is an atom (standalone literal), but can also appear as a field via stringfield
 ?atom: number
      | string
      | _qualified
@@ -131,9 +146,7 @@ placeholder: PLACEHOLDER
      | structure
      | block
      | placeholder
-     | field_name
-     | LPAREN expression RPAREN
-     | LPAREN pipeline RPAREN
+     | paren_expr
 
 
 // Entry to the expression grammar
@@ -146,7 +159,7 @@ PIPE_FALLBACK: "|?"
 PIPE_STRUCT: "|{"
 PIPE_WRENCH: "|<<"
 PIPE_BLOCK: "|:"
-pipe_func: _function_piped function_arguments
+pipe_func: function_reference function_arguments
 pipe_struct: PIPE_STRUCT structure_op* RBRACE
 pipe_fallback: PIPE_FALLBACK expression
 pipe_block: PIPE_BLOCK _qualified
@@ -180,7 +193,7 @@ LESS_THAN: "<"
 LESS_EQUAL: "<="
 GREATER_THAN: ">"
 GREATER_EQUAL: ">="
-!comp_op: EQUAL_EQUAL | NOT_EQUAL | LESS_THAN | LESS_EQUAL | GREATER_THAN | GREATER_EQUAL
+?comp_op: EQUAL_EQUAL | NOT_EQUAL | LESS_THAN | LESS_EQUAL | GREATER_THAN | GREATER_EQUAL
 ?comparison: arith_expr | comparison comp_op arith_expr -> binary_op
 
 // Number operators 
@@ -208,12 +221,10 @@ POWER: "**"
 
 // === ATOM EXPRESSIONS ===
 // Use of atoms to continue building expressions
-// PRIVATEATTACH: "&"
-// PRIVATEFIELD: "&."
 FALLBACK: "??"
 ?atom_in_expr: atom
-             | atom_in_expr "." field_follower -> atom_field
-             | atom_in_expr "??" expression -> atom_fallback
+             | atom_in_expr "." identifier_next_field -> atom_field
+             | atom_in_expr FALLBACK expression -> atom_fallback
 //          //  | atom_in_expr PRIVATEATTACH -> atom_private
 //          //  | atom_in_expr PRIVATEFIELD identifier -> atom_private_field
 
