@@ -42,35 +42,69 @@ def parse(text: str):
         parser = _get_parser()
         tree = parser.parse(text)
         root = MiniAst("root")
-        ast = lark_to_ast(root, tree)
+        ast = lark_to_ast(root, tree.children)
         return ast
     except lark.ParseError as e:
         raise _ast.ParseError(str(e)) from e
 
 
-def lark_to_ast(parent:MiniAst, tree:lark.Tree|lark.Token) -> MiniAst:
-    """Convert Lark parse tree to Comp AST."""
-    if isinstance(tree, lark.Tree):
-        children = tree.children
-    else:
-        children = [tree]
+def _process_atom_field(child: lark.Tree) -> MiniAst:
+    """Process atom_field node to create identifier with field chain.
 
+    atom_field nodes contain a base (scope/identifier) followed by fields,
+    all separated by dots. We flatten this into a single identifier node.
+    """
+    node = MiniAst('identifier')
+    for subchild in child.children:
+        if isinstance(subchild, lark.Token):
+            continue
+        # Handle each child type - we manually create nodes here
+        # because we can't recursively call lark_to_ast on a single child
+        match subchild.data:
+            case 'scope':
+                # Scope wraps localscope/argscope/namescope - recurse on it
+                lark_to_ast(node, subchild.children)
+            case 'tokenfield':
+                node.kids.append(MiniAst("tokenfield", value=subchild.children[0].value))
+            case 'indexfield':
+                node.kids.append(MiniAst("indexfield", value=int(subchild.children[0].value[1:])))
+            case 'stringfield' | 'computefield':
+                node.kids.append(MiniAst(subchild.data, value="???"))
+            case _:
+                # Other complex expressions - recurse
+                lark_to_ast(node, subchild.children)
+    return node
+
+
+def lark_to_ast(parent: MiniAst, children: list[lark.Tree | lark.Token]) -> MiniAst:
+    """Convert Lark parse tree children to Comp AST.
+
+    Args:
+        parent: MiniAst node to add children to
+        children: List of lark.Tree or lark.Token objects to process
+
+    Returns:
+        The parent node with children added
+    """
     for child in children:
         if isinstance(child, lark.Token):
             continue
 
-        # tree is a lark.Tree - determine which AST node to create
+        # child is a lark.Tree - determine which AST node to create
         assert isinstance(child, lark.Tree)
         kids = child.children
         node = None  # Fill out either node or nodes (or both?)
         nodes = []
         match child.data:
             # Skips
-            case 'start' | 'atom_field':
-                return lark_to_ast(parent, child.children[0])
+            case 'start':  #  Defensive, normally skipped at entry
+                return lark_to_ast(parent, child.children)  
             case 'paren_expr':
                 # LPAREN expression RPAREN - get the middle child
-                return lark_to_ast(parent, child.children[1])
+                return lark_to_ast(parent, [child.children[1]])
+            case 'atom_field':
+                # atom_field: base "." fields - creates identifier with all fields
+                node = _process_atom_field(child)
 
             # Leafs
             case 'string':
@@ -97,17 +131,42 @@ def lark_to_ast(parent:MiniAst, tree:lark.Tree|lark.Token) -> MiniAst:
                 node = MiniAst('computefield', value="???")
 
             # Parents
-            case 'identifier'|'scope':
-                node = lark_to_ast(MiniAst('identifier'), child)
+            case 'identifier':
+                node = MiniAst('identifier')
+                lark_to_ast(node, kids)
+            case 'scope':
+                # scope wraps localscope/argscope/namescope - create identifier
+                node = MiniAst('identifier')
+                lark_to_ast(node, kids)
             case 'binary_op':
                 node = MiniAst('binary_op', op=kids[1].value)
-                lark_to_ast(node, child)
+                lark_to_ast(node, kids)
             case 'unary_op':
                 node = MiniAst('unary_op', op=kids[0].value)
-                lark_to_ast(node, child)
+                lark_to_ast(node, kids)
+
+            # Structures
+            case 'structure':
+                node = MiniAst('structure')
+                lark_to_ast(node, kids)
+            case 'structure_assign':
+                # structure_assign: _qualified _assignment_op expression
+                # child.children[0] is identifier/qualified, [1] is Token(=), [2] is expression
+                # Find the assignment operator token
+                op_token = next((k for k in kids if isinstance(k, lark.Token)), None)
+                node = MiniAst('assign', op=op_token.value if op_token else '=')
+                lark_to_ast(node, kids)
+            case 'structure_unnamed':
+                # structure_unnamed: expression - just an unnamed value
+                node = MiniAst('unnamed')
+                lark_to_ast(node, kids)
+            case 'structure_spread':
+                # structure_spread: SPREAD expression - ..expr
+                node = MiniAst('spread')
+                lark_to_ast(node, kids)
 
             case _:
-                raise ValueError(f"Unimplemented rule: {tree.data}")
+                raise ValueError(f"Unimplemented rule: {child.data}")
 
         if node:
             parent.kids.append(node)
