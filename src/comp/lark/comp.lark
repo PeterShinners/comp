@@ -39,19 +39,15 @@ DECIMAL.1: /(([1-9](_?\d)*)|0(_?0)*)/                      // Integer: 123, 1_00
 // === STRING LITERALS ===
 // String parsing with separated quotes and content.
 // Uses Python's regex patterns but separates quotes from content in parse tree.
-// Ensures a content value is in the tree with the exact resulting string literal.
+DUBQUOTE: "\""
+SIXQUOTE:  "\"\"\""
+SHORT_STRING_CONTENT: /[^"\\\r\n]+(?:\\.[^"\\\r\n]*)*/i
+_short_string: DUBQUOTE SHORT_STRING_CONTENT? DUBQUOTE
+
+LONG_STRING_CONTENT: /(.|\n)+?(?=""")/is
+_long_string: SIXQUOTE LONG_STRING_CONTENT? SIXQUOTE
 
 string: _short_string | _long_string
-
-// Single quoted strings - quotes separated from content
-_short_string: "\"" SHORT_STRING_CONTENT? "\""
-SHORT_STRING_CONTENT: /[^"\\\r\n]+(?:\\.[^"\\\r\n]*)*/i
-
-// Triple quoted strings - quotes separated from content  
-SIXQUOTE:  "\"\"\""
-_long_string: SIXQUOTE LONG_STRING_CONTENT? SIXQUOTE
-LONG_STRING_CONTENT: /(.|\n)+?(?=""")/is
-
 
 // === TOKEN ===
 
@@ -59,7 +55,6 @@ LONG_STRING_CONTENT: /(.|\n)+?(?=""")/is
 // Allows dashes and single optional trailing question mark
 TOKEN: /[^\W\d][\w-]*[?]?/
 INDEXFIELD: /#\d+/
-PLACEHOLDER: "???"
 computefield: "'" expression "'"
 field_name: "'" TOKEN "'"
 
@@ -126,6 +121,7 @@ _assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPRE
 // Atoms: the basic building blocks
 LPAREN: "("
 RPAREN: ")"
+PLACEHOLDER: "???"
 placeholder: PLACEHOLDER
 
 // Parenthesized expressions - keeps atom definition flatter

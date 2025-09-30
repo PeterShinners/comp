@@ -36,6 +36,9 @@ __all__ = [
 ]
 
 import decimal
+import lark
+
+from . import _parser
 
 
 class ParseError(Exception):
@@ -55,13 +58,15 @@ class ASTNode:
     """
 
     def __init__(self, **kwargs):
+        self.start = None
+        self.end = None
         for key, value in kwargs.items():
             setattr(self, key, value)
 
     def __repr__(self):
         attrs = []
         for key, value in self.__dict__.items():
-            if not key.startswith("_"):
+            if not key.startswith("_") and key not in ("start", "end"):
                 if isinstance(value, str):
                     attrs.append(f'{key}="{value}"')
                 else:
@@ -136,7 +141,7 @@ class ASTNode:
         if show_attrs:
             attrs = []
             for key, value in self.__dict__.items():
-                if key.startswith("_"):
+                if key.startswith("_") or key in ("start", "end"):
                     continue
 
                 # Skip ASTNode attributes (they're shown as children)
@@ -195,6 +200,23 @@ class ASTNode:
             # Recursively print child
             child.print_tree(indent + 1, continuation, show_attrs)
 
+    def _position_from_token(self, token):
+        """Extract position from a token if available."""
+        self.start = Position(token.line, token.column)
+        self.end = Position(token.end_line, token.end_column)
+        return self
+
+    def _position_from_tree(self, tree):
+        """Extract position from a tree if available."""
+        if isinstance(tree, list):
+            children = tree
+        else:
+            children = tree.children
+        if len(children):
+            self.start = Position(children[0].line, children[0].column)
+            self.end = Position(children[-1].end_line, children[-1].end_column)
+        return self
+
 
 # === LITERALS AND BASIC VALUES ===
 
@@ -206,50 +228,38 @@ class Number(ASTNode):
         self.value = value
 
     def unparse(self) -> str:
-        """Convert back to minimal Comp representation."""
-        # Use raw if available, otherwise convert value back
         return str(self.value)
 
     @classmethod
-    def fromLark(cls, token):
-        """Create Number from a Lark token (DECIMAL or INTBASE)."""
-        raw = str(token)
+    def fromTree(cls, tree):
+        token = tree.children[0]
         try:
-            if token.type == "INTBASE" or token.type.endswith("__INTBASE"):
-                # Handle 0x, 0b, 0o formats
-                python_int = int(raw, 0)  # 0 means auto-detect base
+            if token.type == "INTBASE":
+                python_int = int(token.value, 0)  # 0 means auto-detect base
                 value = decimal.Decimal(python_int)
-            else:  # DECIMAL types
-                value = decimal.Decimal(raw)
+            else:  # DECIMAL type
+                value = decimal.Decimal(token.value)
             return cls(value)
         except (ValueError, decimal.InvalidOperation) as e:
-            raise ParseError(f"Invalid number syntax: {raw}") from e
+            raise ParseError(f"Invalid number syntax: {token.value}") from e
 
 
 class String(ASTNode):
     """String literal with quote information."""
 
-    def __init__(self, value: str, quote_type: str | None = None):
+    def __init__(self, value: str):
         self.value = value
-        self.quote_type = quote_type  # '"', "'", or '"""'
 
     def unparse(self) -> str:
-        """Convert back to minimal Comp representation."""
-        return f'"{self.value}"'
+        return f'"{self.value.replace('"', '\\"')}"'
 
     @classmethod
-    def fromLark(cls, token):
-        """Create String from a Lark token (SHORT_STRING_CONTENT, LONG_STRING_CONTENT)."""
-        value = str(token)
-
-        if token.type == "SHORT_STRING_CONTENT":
-            # Short strings use double quotes
-            return cls(value, '"')
-        elif token.type == "LONG_STRING_CONTENT":
-            # Long strings use triple quotes
-            return cls(value, '"""')
-        else:
-            raise ParseError(f"Unknown string token type: {token.type}")
+    def fromTree(cls, tree):
+        if len(tree.children) == 2:
+            self = cls("")
+        elif len(tree.children) == 3:
+            self = cls(tree.children[1])
+        return self._position_from_tree(tree)
 
 
 class Field(ASTNode):
@@ -258,10 +268,6 @@ class Field(ASTNode):
     Represents one element of a dotted field access like user.name.#0.'field'
     Subclasses handle different field types.
     """
-
-    def unparse(self) -> str:
-        """Convert back to minimal Comp representation."""
-        return "???"
 
 
 class TokenField(Field):
@@ -306,7 +312,7 @@ class ComputedField(Field):
 
 
 class StringField(Field):
-    """String literal used as field like \"Content-Type\"."""
+    """String literal used as field like \"http://\"."""
 
     def __init__(self, string):
         self.string = string
@@ -315,20 +321,57 @@ class StringField(Field):
         return self.string.unparse() if hasattr(self.string, 'unparse') else f'"{self.string}"'
 
 
+class ScopeField(Field):
+    """Scope markers: @ (local), ^ (args), or $name (named scope)."""
+
+    def __init__(self, scope_type: str, name: str | None = None):
+        self.scope_type = scope_type  # '@', '^', or '$'
+        self.name = name  # None for @ and ^, token for $name
+
+    def unparse(self) -> str:
+        if self.scope_type == '$':
+            return f"${self.name}"
+        return self.scope_type
+
+
 class Identifier(ASTNode):
-    """Field access chain without scope prefix.
+    """Field access chain without scope prefix."""
 
-    Examples:
-        - name -> Identifier([Field("token", "name")])
-        - user.profile.#0 -> Identifier([Field("token", "user"), Field("token", "profile"), Field("index", 0)])
-    """
-
-    def __init__(self, fields: list[Field]):
+    def __init__(self, fields: list):
         self.fields = fields
 
     def unparse(self) -> str:
-        """Convert back to minimal Comp representation."""
         return ".".join(f.unparse() for f in self.fields)
+
+    @classmethod
+    def fromTree(cls, tree):
+        self = cls([])
+        for child in tree:
+            field = None
+            if isinstance(child, String):
+                field = StringField(child.value)
+                field.start = child.start
+                field.end = child.end
+            elif isinstance(child, lark.Token):
+                if child.type == "TOKEN":
+                    field = TokenField(child.value)
+                elif child.type == "INDEXFIELD":
+                    index = int(child.value[1:])
+                    field = IndexField(index)
+                else:
+                    raise ParseError("Unknown field in identifier")
+                field._position_from_token(child)
+            elif isinstance(child, lark.Tree):
+                if child.data == "computefield":
+                    field = ComputedField(child)
+                else:
+                    raise ParseError("Unknown field in identifier")
+                field._position_from_tree(child)
+            else:
+                raise ParseError("Unknown field in identifier")
+
+            self.fields.append(field)
+        return self
 
     @classmethod
     def fromLark(cls, children):
@@ -367,13 +410,43 @@ class Identifier(ASTNode):
 
         return cls(fields)
 
+    @classmethod
+    def fromLarkIdentifier(cls, children):
+        """Create Identifier from identifier grammar rule.
+
+        Grammar: identifier: field_leader ("." field_follower)*
+        This is just an alias to fromLark for clarity.
+        """
+        return cls.fromLark(children)
+
+    @classmethod
+    def fromLarkScope(cls, children):
+        """Create Identifier from scope grammar rule.
+
+        Grammar: scope: LOCALSCOPE | LOCALSCOPE field_follower | ...
+        Children: [LOCALSCOPE/ARGSCOPE/NAMESCOPE, optional field_follower]
+        The scope tokens should already be converted to ScopeField by transformer.
+        """
+        scope_field = children[0]  # This is a ScopeField from token handlers
+        fields = [scope_field]
+        if len(children) > 1:
+            # Has additional field follower
+            fields.append(children[1])
+        return cls(fields)
+
 
 class Placeholder(ASTNode):
     """Placeholder token (???)."""
 
     def unparse(self) -> str:
-        """Convert back to minimal Comp representation."""
         return "???"
+
+    def __repr__(self):
+        return "Placeholder(???)"
+
+    @classmethod
+    def fromTree(cls, tree):
+        return cls()._position_from_tree(tree)
 
 
 # === REFERENCES ===
