@@ -60,7 +60,6 @@ INDEXFIELD: /#\d+/
 tokenfield: TOKEN
 indexfield: INDEXFIELD
 stringfield: string
-namefield: "'" TOKEN "'"
 computefield: "'" expression "'"
 
 // Scope field types
@@ -69,7 +68,7 @@ argscope: "^"
 namescope: "$" TOKEN
 
 // Field components that can appear in identifiers
-?identifier_field: tokenfield | indexfield | stringfield | namefield | computefield
+?identifier_field: tokenfield | indexfield | stringfield | computefield
 
 // Identifier is a chain of fields
 identifier: identifier_field ("." identifier_field)*
