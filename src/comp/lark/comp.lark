@@ -9,6 +9,9 @@
 // - Clear separation of concerns
 // - Declarative over imperative
 
+// === ENTRY POINT ===
+start: expression
+
 // === BASIC TOKENS ===
 
 // Comments
@@ -57,7 +60,7 @@ LONG_STRING_CONTENT: /(.|\n)+?(?=""")/is
 TOKEN: /[^\W\d][\w-]*[?]?/
 INDEXFIELD: /#\d+/
 PLACEHOLDER: "???"
-computefield: "'" atom "'"  // should use 'expression' later?
+computefield: "'" expression "'"
 field_name: "'" TOKEN "'"
 
 
@@ -124,6 +127,12 @@ _assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPRE
 LPAREN: "("
 RPAREN: ")"
 placeholder: PLACEHOLDER
+
+// Parenthesized expressions - keeps atom definition flatter
+?paren_expr: LPAREN expression RPAREN
+           | LPAREN pipeline RPAREN
+
+// Atoms only match single entities
 ?atom: number
      | string
      | _qualified
@@ -132,8 +141,7 @@ placeholder: PLACEHOLDER
      | block
      | placeholder
      | field_name
-     | LPAREN expression RPAREN
-     | LPAREN pipeline RPAREN
+     | paren_expr
 
 
 // Entry to the expression grammar
