@@ -17,93 +17,109 @@ from . import _ast
 _lark_parser: lark.Lark | None = None
 
 
+
+class MiniAst:
+    def __init__(self, name, kids=None, **kwargs):
+        self.name = name
+        self.kids = kids or []
+        self.attrs = kwargs
+
+    def __repr__(self):
+        attrs = [f"{k}={v}" for k, v in self.attrs.items()]
+        if self.kids:
+            attrs.insert(0, f"*{len(self.kids)}")
+        return f"{self.name}({' '.join(attrs)})"
+
+    def tree(self, indent=0):
+        print(f"{'  '*indent}{self!r}")
+        for kid in self.kids:
+            kid.tree(indent + 1)
+
+
 def parse(text: str):
     """Parse Comp code and return an AST node."""
     try:
         parser = _get_parser()
         tree = parser.parse(text)
-        ast = lark_to_ast(tree)
+        root = MiniAst("root")
+        ast = lark_to_ast(root, tree)
         return ast
     except lark.ParseError as e:
         raise _ast.ParseError(str(e)) from e
 
 
-def lark_to_ast(tree):
-    """Convert Lark parse tree to Comp AST (top-down traversal)."""
+def lark_to_ast(parent:MiniAst, tree:lark.Tree|lark.Token) -> MiniAst:
+    """Convert Lark parse tree to Comp AST."""
+    if isinstance(tree, lark.Tree):
+        children = tree.children
+    else:
+        children = [tree]
 
-    if isinstance(tree, lark.Token):
-        # Handle raw tokens
-        return tree
-
-    # tree is a lark.Tree
-    match tree.data:
-        case 'start':
-            node = lark_to_ast(tree.children[0])
-        case 'atom_field':
-            node = lark_to_ast(tree.children[0])
-
-        case 'string':
-            node = _ast.String.fromTree(tree)
-        case 'number':
-            node = _ast.Number.fromTree(tree)
-        case 'placeholder':
-            node = _ast.Placeholder.fromTree(tree)
-        case 'identifier':
-            node = lark_to_identifier(tree)
-        case 'scope':
-            node = lark_to_identifier(tree)
-        case _:
-            # Unknown rule - maybe just recurse?
-            raise ValueError(f"Unimplemented rule: {tree.data}")
-
-    if node:
-        node.start = tree.meta.container_line, tree.meta.container_column
-        node.end = tree.meta.container_end_line, tree.meta.container_end_column
-    return node
-
-
-def lark_to_identifier(tree):
-
-    node = _ast.Identifier([])
-
-    for child in tree.children:
+    for child in children:
         if isinstance(child, lark.Token):
-            match child.type:
-                case "TOKEN":
-                    field = _ast.TokenField(child.value)
-                case "INDEXFIELD":
-                    field = _ast.IndexField(int(child.value[1:]))
-                case "NAMESCOPE":
-                    field = _ast.ScopeField("$", child.value[1:])
-                case "ARGSCOPE":
-                    field = _ast.ScopeField("^", None)
-                case "LOCALSCOPE":
-                    field = _ast.ScopeField("@", None)
-                case "DOT":
-                    continue
-                case _:
-                    raise _ast.ParseError(f"Unknown field in identifier {child}")
-            field.start = child.line, child.column
-            field.end = child.end_line, child.end_column
-            node.fields.append(field)
             continue
 
+        # tree is a lark.Tree - determine which AST node to create
+        assert isinstance(child, lark.Tree)
+        kids = child.children
+        node = None  # Fill out either node or nodes (or both?)
+        nodes = []
         match child.data:
+            # Skips
+            case 'start' | 'atom_field':
+                return lark_to_ast(parent, child.children[0])
+            case 'paren_expr':
+                # LPAREN expression RPAREN - get the middle child
+                return lark_to_ast(parent, child.children[1])
+
+            # Leafs
             case 'string':
-                string = _ast.String.fromTree(child)
-                field = _ast.StringField(string.value)
+                node = MiniAst('string', value=kids[1] if len(kids) == 3 else "")
+            case 'number':
+                node = MiniAst('number', value=str(kids[0]))
+            case 'placeholder':
+                node = MiniAst('placeholder', value="???")
+
+            case 'localscope':
+                node = MiniAst("scope", value="@")
+            case 'argscope':
+                node = MiniAst("scope", value="^")
+            case 'namescope':
+                node = MiniAst("scope", value=f"${kids[0].value}")
+
+            case 'tokenfield':
+                node = MiniAst("tokenfield", value=kids[0].value)
+            case 'indexfield':
+                node = MiniAst("indexfield", value=int(kids[0].value[1:]))
+            case 'stringfield':
+                node = MiniAst("stringfield", value="???")
             case 'computefield':
-                expr = lark_to_ast(child.children[1])
-                field = _ast.ComputedField(expr)
+                node = MiniAst('computefield', value="???")
+
+            # Parents
+            case 'identifier'|'scope':
+                node = lark_to_ast(MiniAst('identifier'), child)
+            case 'binary_op':
+                node = MiniAst('binary_op', op=kids[1].value)
+                lark_to_ast(node, child)
+            case 'unary_op':
+                node = MiniAst('unary_op', op=kids[0].value)
+                lark_to_ast(node, child)
+
             case _:
-                raise _ast.ParseError(f"Unknown field in identifier {child}")
+                raise ValueError(f"Unimplemented rule: {tree.data}")
 
-        field.start = tree.meta.container_line, tree.meta.container_column
-        field.end = tree.meta.container_end_line, tree.meta.container_end_column
-        node.fields.append(field)
-    return node
+        if node:
+            parent.kids.append(node)
+        if nodes:
+            parent.kids.extend(nodes)
 
+        # # Set position metadata from tree
+        # if node and hasattr(tree, 'meta'):
+        #     node.start = (tree.meta.line, tree.meta.column)
+        #     node.end = (tree.meta.end_line, tree.meta.end_column)
 
+    return parent
 
 
 
