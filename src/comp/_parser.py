@@ -7,6 +7,7 @@ Uses the clean AST nodes for consistent naming and structure.
 
 __all__ = ["parse", "grammar"]
 
+import functools
 from pathlib import Path
 
 import lark
@@ -17,42 +18,23 @@ from . import _ast
 _lark_parser: lark.Lark | None = None
 
 
-
-class MiniAst:
-    def __init__(self, name, kids=None, **kwargs):
-        self.name = name
-        self.kids = kids or []
-        self.attrs = kwargs
-
-    def __repr__(self):
-        attrs = [f"{k}={v}" for k, v in self.attrs.items()]
-        if self.kids:
-            attrs.insert(0, f"*{len(self.kids)}")
-        return f"{self.name}({' '.join(attrs)})"
-
-    def tree(self, indent=0):
-        print(f"{'  '*indent}{self!r}")
-        for kid in self.kids:
-            kid.tree(indent + 1)
-
-
 def parse(text: str):
     """Parse Comp code and return an AST node."""
     try:
         parser = _get_parser()
         tree = parser.parse(text)
-        root = MiniAst("root")
-        ast = lark_to_ast(root, tree.children)
+        root = _create_node([].append, tree, _ast.Root)
+        ast = generate_ast(root, tree.children)
         return ast
     except lark.ParseError as e:
         raise _ast.ParseError(str(e)) from e
 
 
-def lark_to_ast(parent: MiniAst, children: list[lark.Tree | lark.Token]) -> MiniAst:
+def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -> _ast.AstNode:
     """Convert Lark parse tree children to Comp AST.
 
     Args:
-        parent: MiniAst node to add children to
+        parent: AstNode to add children to
         children: List of lark.Tree or lark.Token objects to process
 
     Returns:
@@ -65,207 +47,120 @@ def lark_to_ast(parent: MiniAst, children: list[lark.Tree | lark.Token]) -> Mini
         # child is a lark.Tree - determine which AST node to create
         assert isinstance(child, lark.Tree)
         kids = child.children
-        node = None  # Fill out either node or nodes (or both?)
-        nodes = []
+        _node = functools.partial(_create_node, parent.kids.append, child)
         match child.data:
             # Skips
             case 'start':  #  Defensive, normally skipped at entry
-                return lark_to_ast(parent, child.children)
+                return generate_ast(parent, child.children)
             case 'paren_expr':
-                # LPAREN expression RPAREN - just unwrap and process the middle child
-                # Don't return early - we need to continue processing siblings
-                lark_to_ast(parent, [child.children[1]])
+                # LPAREN (expression | pipeline) RPAREN
+                # If it's a pipeline, wrap it in a Pipeline node
+                # Otherwise just unwrap and process the middle child
+                middle_child = child.children[1]
+                if middle_child.data == 'pipeline':
+                    _node(_ast.Pipeline, walk=[middle_child])
+                else:
+                    generate_ast(parent, [middle_child])
                 continue
             case 'atom_field':
-                # atom_field: atom_in_expr "." identifier_field
+                # atom_field: atom_in_expr "." identifier_next_field
                 # This is field access on an expression: (expr).field
                 # Children: [expr_tree, DOT, field_tree]
-                node = MiniAst('field_access')
-                # Process the left side (the expression being accessed)
-                lark_to_ast(node, [kids[0]])
-                # Process the right side (the field) - try to use field helper
-                field_tree = kids[2]  # Skip DOT token
-                field_node = _create_field_node(field_tree)
-                if field_node:
-                    node.kids.append(field_node)
-                else:
-                    # Not a simple field, recurse
-                    lark_to_ast(node, [field_tree])
+                _node(_ast.FieldAccess, walk=kids)
 
             # Leafs
             case 'string':
-                node = MiniAst('string', value=kids[1] if len(kids) == 3 else "")
+                _node(_ast.String)
             case 'number':
-                node = MiniAst('number', value=str(kids[0]))
+                _node(_ast.Number)
             case 'placeholder':
-                node = MiniAst('placeholder', value="???")
-
-            case 'localscope':
-                node = MiniAst("scope", value="@")
-            case 'argscope':
-                node = MiniAst("scope", value="^")
-            case 'namescope':
-                node = MiniAst("scope", value=f"${kids[0].value}")
-
-            case 'tokenfield' | 'indexfield' | 'stringfield' | 'computefield':
-                # All field types handled by the helper
-                node = _create_field_node(child)
-
-            # Parents
-            case 'identifier':
-                node = MiniAst('identifier')
-                lark_to_ast(node, kids)
-            case 'scope':
-                # scope wraps localscope/argscope/namescope - create identifier
-                node = MiniAst('identifier')
-                lark_to_ast(node, kids)
-            case 'binary_op':
-                node = MiniAst('binary_op', op=kids[1].value)
-                lark_to_ast(node, kids)
-            case 'unary_op':
-                node = MiniAst('unary_op', op=kids[0].value)
-                lark_to_ast(node, kids)
-
-            # Structures
-            case 'structure':
-                node = MiniAst('structure')
-                lark_to_ast(node, kids)
-            case 'block':
-                # block: COLON_BLOCK_START _structure_content RBRACE
-                # Same as structure but with :{ instead of {
-                node = MiniAst('block')
-                lark_to_ast(node, kids)
-            case 'structure_assign':
-                # structure_assign: _qualified _assignment_op expression
-                # child.children[0] is identifier/qualified, [1] is Token(=), [2] is expression
-                # Find the assignment operator token
-                op_token = next((k for k in kids if isinstance(k, lark.Token)), None)
-                node = MiniAst('assign', op=op_token.value if op_token else '=')
-                lark_to_ast(node, kids)
-            case 'structure_unnamed':
-                # structure_unnamed: expression - just an unnamed value
-                node = MiniAst('unnamed')
-                lark_to_ast(node, kids)
-            case 'structure_spread':
-                # structure_spread: SPREAD expression - ..expr
-                node = MiniAst('spread')
-                lark_to_ast(node, kids)
-
-            # Pipelines
-            case 'expr_pipeline':
-                # expr_pipeline: expression pipeline - left side pipes through operations
-                node = MiniAst('pipeline')
-                lark_to_ast(node, kids)
-            case 'pipeline':
-                # pipeline: (pipe_func | pipe_struct | pipe_block | pipe_wrench | pipe_fallback)+
-                # Just a container for pipe operations - process children directly
-                lark_to_ast(parent, kids)
-                return parent
-            case 'pipe_fallback':
-                # pipe_fallback: PIPE_FALLBACK expression
-                node = MiniAst('pipe_op', op='|?')
-                lark_to_ast(node, kids)
-            case 'pipe_struct':
-                # pipe_struct: PIPE_STRUCT structure_op* RBRACE
-                node = MiniAst('pipe_op', op='|{')
-                lark_to_ast(node, kids)
-            case 'pipe_block':
-                # pipe_block: PIPE_BLOCK _qualified
-                node = MiniAst('pipe_op', op='|:')
-                lark_to_ast(node, kids)
-            case 'pipe_func':
-                # pipe_func: _function_piped function_arguments
-                node = MiniAst('pipe_op', op='|')
-                lark_to_ast(node, kids)
-            case 'pipe_wrench':
-                # pipe_wrench: PIPE_WRENCH _function_piped
-                node = MiniAst('pipe_op', op='|<<')
-                lark_to_ast(node, kids)
+                _node(_ast.Placeholder)
 
             # References
-            case 'reference_identifiers':
-                # reference_identifiers: TOKEN ("." TOKEN)* - dotted path like foo.bar.baz
-                # Collect all the TOKEN values
-                tokens = [t.value for t in kids if isinstance(t, lark.Token) and t.type == 'TOKEN']
-                node = MiniAst('ref_path', path='.'.join(tokens))
-            case 'reference_namespace':
-                # reference_namespace: "/" TOKEN? - optional namespace like /ns or just /
-                if len(kids) > 1 and isinstance(kids[1], lark.Token):
-                    node = MiniAst('ref_namespace', ns=kids[1].value)
-                else:
-                    node = MiniAst('ref_namespace', ns='')
             case 'tag_reference':
-                # tag_reference: "#" _reference_path
-                node = MiniAst('tag_ref')
-                lark_to_ast(node, kids)
+                _node(_ast.TagRef)
             case 'shape_reference':
-                # shape_reference: "~" _reference_path
-                node = MiniAst('shape_ref')
-                lark_to_ast(node, kids)
+                _node(_ast.ShapeRef)
             case 'function_reference':
-                # function_reference: "|" _reference_path
-                node = MiniAst('func_ref')
-                lark_to_ast(node, kids)
+                _node(_ast.FuncRef)
+
+            # Identifiers - need custom handling to process fields
+            case 'identifier':
+                _node(_ast.Identifier, walk=kids)
+            case 'tokenfield':
+                _node(_ast.TokenField)
+            case 'indexfield':
+                _node(_ast.IndexField)
+            case 'string':
+                _node(_ast.StringField)
+            case 'localscope' | 'argscope' | 'namescope':
+                _node(_ast.ScopeField)
+            case 'computefield':
+                # computefield: "'" expression "'" - create node and process expression
+                _node(_ast.ComputeField, walk=child.children)
+
+            # General Operators (not including assignment)
+            case 'binary_op':
+                _node(_ast.BinaryOp, walk=kids)
+            case 'unary_op':
+                _node(_ast.UnaryOp, walk=kids)
 
             # Function arguments
             case 'function_arguments':
-                # function_arguments: functionstructure_op* - container, process children
-                lark_to_ast(parent, kids)
-                return parent
+                _node(_ast.Structure, walk=kids)
             case 'function_structure_assign':
-                # function_structure_assign: _qualified _assignment_op _prepipeline_expression
-                op_token = next((k for k in kids if isinstance(k, lark.Token)), None)
-                node = MiniAst('arg_assign', op=op_token.value if op_token else '=')
-                lark_to_ast(node, kids)
+                _node(_ast.StructAssign, walk=kids)
             case 'function_structure_unnamed':
-                # function_structure_unnamed: _prepipeline_expression
-                node = MiniAst('arg_unnamed')
-                lark_to_ast(node, kids)
+                _node(_ast.StructUnnamed, walk=kids)
             case 'function_structure_spread':
-                # function_structure_spread: SPREAD _prepipeline_expression
-                node = MiniAst('arg_spread')
-                lark_to_ast(node, kids)
+                _node(_ast.StructSpread, walk=kids)
+
+            # Structures
+            case 'block':
+                _node(_ast.Block, walk=kids)
+            case 'structure' | 'function_arguments':
+                _node(_ast.Structure, walk=kids)
+            case 'structure_assign' | 'function_structure_assign':
+                _node(_ast.StructAssign, walk=kids)
+            case 'structure_unnamed' | 'function_structure_unnamed':
+                _node(_ast.StructUnnamed, walk=kids)
+            case 'structure_spread' | 'function_structure_spread':
+                _node(_ast.StructSpread, walk=kids)
+
+            # Pipelines
+            case 'expr_pipeline':
+                _node(_ast.Pipeline, walk=kids)
+            case 'pipeline':
+                # This is just a container for pipe operations - pass through children
+                # The Pipeline node is created by expr_pipeline or paren wrapping
+                generate_ast(parent, kids)
+            case 'pipe_fallback':
+                _node(_ast.PipeFallback, walk=kids)
+            case 'pipe_struct':
+                _node(_ast.PipeStruct, walk=kids)
+            case 'pipe_block':
+                _node(_ast.PipeBlock, walk=kids)
+            case 'pipe_func':
+                _node(_ast.PipeFunc, walk=kids)
+            case 'pipe_wrench':
+                _node(_ast.PipeWrench, walk=kids)
 
             case _:
-                raise ValueError(f"Unimplemented rule: {child.data}")
-
-        if node:
-            parent.kids.append(node)
-        if nodes:
-            parent.kids.extend(nodes)
-
-        # # Set position metadata from tree
-        # if node and hasattr(tree, 'meta'):
-        #     node.start = (tree.meta.line, tree.meta.column)
-        #     node.end = (tree.meta.end_line, tree.meta.end_column)
+                raise ValueError(f"Unimplemented grammar rule {child.data} at {parent}")
 
     return parent
 
 
-def _create_field_node(child: lark.Tree) -> MiniAst | None:
-    """Create a field node from a lark Tree.
-
-    This has two users; literal fields (one.two) and fields on expressions (|fancy).two
-    """
-    kids = child.children
-    match child.data:
-        case 'tokenfield':
-            return MiniAst("tokenfield", value=kids[0].value)
-        case 'indexfield':
-            return MiniAst("indexfield", value=int(kids[0].value[1:]))
-        case 'stringfield':
-            # stringfield contains a string tree: [QUOTE, content, QUOTE]
-            string_tree = kids[0]
-            string_kids = string_tree.children
-            value = string_kids[1].value if len(string_kids) == 3 else ""
-            return MiniAst("stringfield", value=value)
-        case 'computefield':
-            # computefield: "'" expression "'" - create node and process expression
-            node = MiniAst("computefield")
-            lark_to_ast(node, kids)
-            return node
-        case _:
-            return None
+def _create_node(parent_append, tree: lark.Tree, cls, walk=None):
+    """Helper to create ast nodes and recurse"""
+    node = cls.fromGrammar(tree)
+    meta = tree.meta
+    if tree.children:
+        node.position = ((meta.line, meta.column), (meta.end_line, meta.end_column))
+    if walk:
+        generate_ast(node, walk)
+    parent_append(node)
+    return node
 
 
 def grammar(expression):

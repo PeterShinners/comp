@@ -68,18 +68,24 @@ argscope: "^"
 namescope: "$" TOKEN
 
 // Field components that can appear in identifiers
-?identifier_field: tokenfield | indexfield | stringfield | computefield
+// First field in a chain (cannot be a string literal - that would be standalone)
+?identifier_first_field: tokenfield | indexfield | computefield
 
-// Identifier is a chain of fields
-identifier: identifier_field ("." identifier_field)*
+// Fields after a dot (can include strings for quoted field names like obj."field")
+?identifier_next_field: tokenfield | indexfield | string | computefield
 
-// Scope is a scope marker optionally followed by fields
-// First field has NO dot, subsequent fields have dots: ^car.one.two
-scope: localscope (identifier_field ("." identifier_field)*)?
-     | argscope (identifier_field ("." identifier_field)*)?
-     | namescope (identifier_field ("." identifier_field)*)?
+// Identifier can optionally start with a scope marker
+// Examples: foo.bar, @foo.bar, ^item, $mod.pizza
+// Bare scope markers are also identifiers: @, ^, $mod
+identifier: localscope identifier_first_field ("." identifier_next_field)*  // @foo.bar
+          | argscope identifier_first_field ("." identifier_next_field)*    // ^foo.bar
+          | namescope ("." identifier_next_field)*                          // $mod.pizza
+          | localscope                                                      // @
+          | argscope                                                        // ^
+          | namescope                                                       // $mod
+          | identifier_first_field ("." identifier_next_field)*             // foo.bar
 
-_qualified: scope | identifier
+_qualified: identifier
 
 
 // === REFERENCE LITERALS ===
@@ -132,8 +138,9 @@ placeholder: PLACEHOLDER
            | LPAREN pipeline RPAREN
 
 // Atoms only match single entities
-// Note: string and namefield are NOT atoms - they can only appear as identifier fields
+// String is an atom (standalone literal), but can also appear as a field via stringfield
 ?atom: number
+     | string
      | _qualified
      | tag_reference
      | structure
@@ -152,7 +159,7 @@ PIPE_FALLBACK: "|?"
 PIPE_STRUCT: "|{"
 PIPE_WRENCH: "|<<"
 PIPE_BLOCK: "|:"
-pipe_func: _function_piped function_arguments
+pipe_func: function_reference function_arguments
 pipe_struct: PIPE_STRUCT structure_op* RBRACE
 pipe_fallback: PIPE_FALLBACK expression
 pipe_block: PIPE_BLOCK _qualified
@@ -186,7 +193,7 @@ LESS_THAN: "<"
 LESS_EQUAL: "<="
 GREATER_THAN: ">"
 GREATER_EQUAL: ">="
-!comp_op: EQUAL_EQUAL | NOT_EQUAL | LESS_THAN | LESS_EQUAL | GREATER_THAN | GREATER_EQUAL
+?comp_op: EQUAL_EQUAL | NOT_EQUAL | LESS_THAN | LESS_EQUAL | GREATER_THAN | GREATER_EQUAL
 ?comparison: arith_expr | comparison comp_op arith_expr -> binary_op
 
 // Number operators 
@@ -216,7 +223,7 @@ POWER: "**"
 // Use of atoms to continue building expressions
 FALLBACK: "??"
 ?atom_in_expr: atom
-             | atom_in_expr "." identifier_field -> atom_field
+             | atom_in_expr "." identifier_next_field -> atom_field
              | atom_in_expr FALLBACK expression -> atom_fallback
 //          //  | atom_in_expr PRIVATEATTACH -> atom_private
 //          //  | atom_in_expr PRIVATEFIELD identifier -> atom_private_field
