@@ -41,7 +41,7 @@ DECIMAL.1: /(([1-9](_?\d)*)|0(_?0)*)/                      // Integer: 123, 1_00
 // Uses Python's regex patterns but separates quotes from content in parse tree.
 DUBQUOTE: "\""
 SIXQUOTE:  "\"\"\""
-SHORT_STRING_CONTENT: /[^"\\\r\n]+(?:\\.[^"\\\r\n]*)*/i
+SHORT_STRING_CONTENT: /(?:[^"\\\r\n]|\\.)+/i
 _short_string: DUBQUOTE SHORT_STRING_CONTENT? DUBQUOTE
 
 LONG_STRING_CONTENT: /(.|\n)+?(?=""")/is

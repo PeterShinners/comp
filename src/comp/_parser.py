@@ -26,8 +26,12 @@ def parse(text: str):
         root = _create_node([].append, tree, _ast.Root)
         ast = generate_ast(root, tree.children)
         return ast
-    except lark.ParseError as e:
-        raise _ast.ParseError(str(e)) from e
+    except lark.exceptions.LarkError as e:
+        error_msg = str(e)
+        # Improve error messages for common cases
+        if "DUBQUOTE" in error_msg and "$END" in error_msg:
+            error_msg = "Unterminated string literal"
+        raise _ast.ParseError(error_msg) from e
 
 
 def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -> _ast.AstNode:

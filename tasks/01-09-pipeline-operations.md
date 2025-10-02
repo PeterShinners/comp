@@ -1,6 +1,6 @@
 # Phase 01-09: Pipeline Operations
 
-**Status**: ❌ IN PROGRESS
+**Status**: ✅ COMPLETED  
 **Target start**: After scopes and assignments are complete
 
 ## Overview
@@ -42,28 +42,28 @@ PipelineExpression([
 ## Success Criteria
 
 ### Pipeline Parsing
-- [ ] Parse linear pipeline sequences: `data |validate |process |save`
-- [ ] Parse function calls: `|transform`, `|database.query`, `|math/sqrt` 
-- [ ] Parse structure operations: `|{result=value}`, `|{..base extra=field}`
-- [ ] Parse failure handling: `|? fallback-value`, `|? {default-structure}`
-- [ ] Parse pipeline modifiers: `|<< progressbar`, `|<< debug`
+- [X] Parse linear pipeline sequences: `data |validate |process |save`
+- [X] Parse function calls: `|transform`, `|database.query`, `|math/sqrt` 
+- [X] Parse structure operations: `|{result=value}`, `|{..base extra=field}`
+- [X] Parse failure handling: `|? fallback-value`, `|? {default-structure}`
+- [X] Parse pipeline modifiers: `|<< progressbar`, `|<< debug`
 
 ### AST Structure Changes
-- [ ] Replace expression trees with flat `PipelineStep` lists
-- [ ] `PipelineExpression` contains ordered sequence of operations
-- [ ] Each `PipelineStep` has operation type and arguments
-- [ ] Maintain compatibility with existing structure operations
+- [X] Replace expression trees with flat `PipelineStep` lists
+- [X] `PipelineExpression` contains ordered sequence of operations
+- [X] Each `PipelineStep` has operation type and arguments
+- [X] Maintain compatibility with existing structure operations
 
 ### Expression Integration
-- [ ] Support pipelines in expression contexts with proper precedence
-- [ ] Handle parenthesized pipeline expressions
-- [ ] Support pipeline results in binary operations
-- [ ] Integrate with existing field access and structure operations
+- [X] Support pipelines in expression contexts with proper precedence
+- [X] Handle parenthesized pipeline expressions
+- [X] Support pipeline results in binary operations
+- [X] Integrate with existing field access and structure operations
 
 ### Special Pipeline Forms  
-- [ ] Leading function calls: `(|now/time)`, `(|generate-token)`
-- [ ] Complex failure chains: `|? {type="fallback"} |? final-default`
-- [ ] Nested structure pipelines: `{result=($in |process |validate)}`
+- [X] Leading function calls: `(|now/time)`, `(|generate-token)`
+- [X] Complex failure chains: `|? {type="fallback"} |? final-default`
+- [X] Nested structure pipelines: `{result=($in |process |validate)}`
 
 ## Implementation Plan
 

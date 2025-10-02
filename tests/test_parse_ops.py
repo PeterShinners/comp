@@ -1,445 +1,167 @@
-"""Tests for Comp operator parsing capabilities."""
+"""
+Core operator parsing tests for mathematical and logical operators.
 
-import pytest
+Tests arithmetic, comparison, logical, and fallback operators with focus on
+operator behavior, precedence, and proper parsing.
+"""
+
 import comp
-
-
-def test_assignment_expressions    # Standalone block invocation now works as StandaloneBlockInvokeOperation
-    result = comp.parse("|:block")
-    assert isinstance(result, comp._ast.StandaloneBlockInvokeOperation)
-    assert result.target.object is None
-    assert result.target.fields[0].value == "block"ct():
-    """Test that assignment expressions work directly (not in structures)"""
-    # Test direct weak assignment
-    result = comp.parse("config =? default-value")
-    assert isinstance(result, comp._ast.AssignmentOperation)
-    assert result.operator == "=?"
-    assert isinstance(result.target, comp._ast.FieldAccessOperation)
-    assert result.target.object is None
-    assert len(result.target.fields) == 1
-    assert isinstance(result.target.fields[0], comp._ast.Identifier)
-    assert result.target.fields[0].name == "config"
-
-
-def test_basic_assignment_operators_parse():
-    """Test that basic assignment operators parse correctly"""
-    # Basic assignment in structure context
-    result = comp.parse("{x=42}")
-    _assert_structure_with_named_field(result, "x", 42)
-
-    # Weak assignment - only assigns if not defined
-    result = comp.parse("{config =? default-value}")
-    _assert_structure_with_named_field(result, "config", "ident=default-value", "=?")
-
-    # Strong assignment - force assignment, persists beyond scope
-    result = comp.parse("{data =* validated-value}")
-    _assert_structure_with_named_field(result, "data", "ident=validated-value", "=*")
-
-
-def test_spread_assignment_operators_parse():
-    """Test spread assignment operators"""
-    # Basic spread assignment
-    result = comp.parse("{user ..= {verified=#true}}")
-    _assert_structure_with_named_field(result, "user", None, "..=")
-
-    # Weak spread assignment - only adds new fields
-    result = comp.parse('{prefs ..=? {theme="dark"}}')
-    _assert_structure_with_named_field(result, "prefs", None, "..=?")
-
-    # Strong spread assignment - replaces entirely
-    result = comp.parse("{state ..=* new-state}")
-    _assert_structure_with_named_field(result, "state", "ident=new-state", "..=*")
-
-
-def test_structure_operators_parse():
-    """Test structure manipulation operators"""
-    # Spread operator in structure literal
-    result = comp.parse('{..defaults name="Alice"}')
-    assert isinstance(result, comp.StructureLiteral)
-    assert len(result.operations) == 2
-    # First operation should be spread operator
-    assert hasattr(result.operations[0], "expression")  # SpreadTarget
-    # Second operation should be named field
-    _assert_structure_with_named_field(result, "name", "Alice")
-
-    # Field access operator
-    result = comp.parse("user.name")
-    _assert_field_access(result, "ident=user", "name")
-
-    # Index access operator on object
-    result = comp.parse("items.#0")
-    _assert_index_access(result, "ident=items", 0)
-
-    # Standalone index reference (like tag atoms but all digits)
-    result = comp.parse("#1")
-    _assert_index_reference(result, 1)
-
-    # Private data attachment
-    result = comp.parse('data&{session="abc"}')
-    _assert_private_attach(result, "ident=data", None)
-
-    # Private data access
-    result = comp.parse("user&.session")
-    _assert_private_access(result, "ident=user", "session")
-
-
-def test_shape_union_operators_parse():
-    """Test shape union operators"""
-    pytest.skip("ShapeUnionOperation removed for this phase - will return in future phase")
-
-    # Shape union with pipe operator
-    result = comp.parse("~string|~number")
-    _assert_shape_union(result, "string", "number")
-
-    # Multi-way union
-    result = comp.parse("~int|~float|~string")
-    _assert_shape_union(result, None, None)  # Complex union, just check structure
-
-
-def test_pipeline_operators_parse():
-    """Test pipeline operators"""
-    # Pipeline failure handling
-    result = comp.parse("risky-operation |? default-value")
-    _assert_pipeline_failure(result, "ident=risky-operation", "ident=default-value")
-
-    # Pipeline with block (TODO: implement pipeline block syntax)
-    # result = comp.parse("process |{} transform")
-    # _assert_pipeline_block(result, "ident=process", "ident=transform")
-
-
-def test_block_operators_parse():
-    """Test block definition and invocation operators"""
-    # Block definition - currently not implemented in grammar
-    # TODO: Implement block definitions (:{...})
-    # result = comp.parse(":{x + y}")
-    # _assert_block_definition(result, None)  # Contains expression inside
-
-    # Standalone block invocation now works as StandaloneBlockInvokeOperation
-    result = comp.parse("|:block")
-    assert isinstance(result, comp._ast.StandaloneBlockInvokeOperation)
-    assert result.target.object is None
-    assert result.target.fields[0].name == "block"
-
-
-def test_fallback_operators_parse():
-    """Test fallback operators ?? and |?"""
-    # Basic fallback operator
-    result = comp.parse("config.port ?? 8080")
-    _assert_fallback(result, "??", None, 8080)
-
-    # Alternative fallback operator
-    result = comp.parse("primary |? secondary")
-    _assert_failure(result, "|?", "ident=secondary")
-
-    # Chained fallbacks
-    result = comp.parse("config.port ?? env.PORT ?? 8080")
-    _assert_fallback(result, "??", None, 8080)
-    _assert_fallback(result.left, "??", None, None)
-
-
-def test_special_operators_parse():
-    """Test special operators"""
-    # Placeholder operator
-    result = comp.parse("???")
-    _assert_placeholder(result)
-
-    # Array type brackets
-    result = comp.parse("tags[]")
-    _assert_array_type(result, "ident=tags")
-
-    # Single quote field naming
-    result = comp.parse("'computed-key'")
-    _assert_field_name(result, "computed-key")
-
-    # Index operators - both forms
-    result = comp.parse("list.#0")  # Object index access
-    _assert_index_access(result, "ident=list", 0)
-
-    result = comp.parse("#1")  # Standalone index reference
-    _assert_index_reference(result, 1)
-
-    # Using both in expression (object access + standalone reference)
-    result = comp.parse("items.#0 + #1")
-    _assert_binary(result, "+", None, None)  # Complex - just check structure
-
-
-def test_comments_parse():
-    """Test comment parsing"""
-    # Single line comments should be stripped/ignored
-    result = comp.parse("42 ; This is a comment")
-    _assert_number(result, 42)
-
-    # Comments at end of expressions
-    result = comp.parse("x + y ; Calculate sum")
-    _assert_binary(result, "+", "ident=x", "ident=y")
-
-
-def test_advanced_operator_precedence():
-    """Test operator precedence integration"""
-    # Assignment has lower precedence than mathematical operators
-    result = comp.parse("{result = x + y * z}")
-    _assert_structure_with_named_field(result, "result", None)
-
-    # Fallback has specific precedence
-    result = comp.parse("x + y ?? z * w")
-    _assert_fallback(result, "??", None, None)
-
-    # Field access has high precedence
-    result = comp.parse("user.age + 5")
-    _assert_binary(result, "+", None, 5)
-
-
-def test_complex_advanced_expressions():
-    """Test complex expressions combining operators"""
-    # Structure with individual operations (multi-op structures need more work)
-    result = comp.parse("{..base}")
-    assert isinstance(result, comp.StructureLiteral)
-    assert len(result.operations) == 1
-
-    result = comp.parse("{config =? defaults}")
-    assert isinstance(result, comp.StructureLiteral)
-    assert len(result.operations) == 1
-
-    # Pipeline with fallback
-    result = comp.parse("risky-op |? fallback ?? final-default")
-    _assert_fallback(result, "??", None, "ident=final-default")
-
-    # Block with field access
-    result = comp.parse(':{user.name + " " + user.surname}')
-    _assert_block_definition(result, None)
-
-
-# Helper assertion functions
-
-
-def _assert_structure_with_named_field(node, field_name, field_value, operator="="):
-    """Helper to assert structure contains named field with specific assignment"""
-    assert isinstance(node, comp.StructureLiteral)
-    assert len(node.operations) >= 1
-
-    # Find the operation with matching field name
-    matching_op = None
-    for op in node.operations:
-        if (
-            isinstance(op.target, comp.FieldTarget)
-            and op.target.name == field_name
-            and op.operator == operator
-        ):
-            matching_op = op
-            break
-
-    assert matching_op is not None, (
-        f"No operation found with field '{field_name}' and operator '{operator}'"
-    )
-
-    # Check the value if specified
-    if field_value is not None:
-        _check_value(matching_op.expression, field_value)
-
-
-def _assert_named_field(field, name, value, operator="="):
-    """Helper to assert a StructureOperation with FieldTarget (legacy compatibility)"""
-    assert isinstance(field, comp.StructureOperation)
-    assert isinstance(field.target, comp.FieldTarget)
-    assert field.target.name == name
-    assert field.operator == operator
-    if value is not None:
-        _check_value(field.expression, value)
-
-
-def _assert_field_access(node, object_ref, field_name):
-    """Helper to assert field access operation"""
-    assert isinstance(node, comp.FieldAccessOperation)
-
-    # With the unified architecture, user.name has object=None and fields=[user, name]
-    if object_ref is None:
-        # Simple case: just field_name
-        assert node.object is None
-        assert len(node.fields) == 1
-        field = node.fields[0]
-        if isinstance(field, comp.Identifier):
-            assert field.name == field_name
-        elif isinstance(field, comp.StringLiteral):
-            assert field.value == field_name
-        else:
-            assert str(field) == field_name
-    else:
-        # Complex case: object.field
-        assert node.object is None  # Flattened structure
-        assert len(node.fields) >= 2
-        # First field should match object_ref
-        _check_value(node.fields[0], object_ref)
-        # Last field should match field_name
-        last_field = node.fields[-1]
-        if isinstance(last_field, comp.Identifier):
-            assert last_field.name == field_name
-        elif isinstance(last_field, comp.StringLiteral):
-            assert last_field.value == field_name
-        else:
-            assert str(last_field) == field_name
-
-
-def _assert_index_access(node, object_ref, index):
-    """Helper to assert index access operation"""
-    assert isinstance(node, comp.FieldAccessOperation)
-
-    # With flattened structure: object.#index becomes FieldAccessOperation(None, [object, IndexReference])
-    assert node.object is None
-    assert len(node.fields) == 2
-
-    # First field should be the object identifier
-    _check_value(node.fields[0], object_ref)
-
-    # Second field should be the IndexReference
-    assert isinstance(node.fields[1], comp.IndexReference)
-    assert str(node.fields[1].index) == str(index)
-
-
-def _assert_index_reference(node, index):
-    """Helper to assert standalone index reference (like #1)"""
-    assert isinstance(node, comp.FieldAccessOperation)
-    # Should have None object (no target) and single IndexReference field
-    assert node.object is None
-    assert len(node.fields) == 1
-    assert isinstance(node.fields[0], comp.IndexReference)
-    # node.fields[0].index is a Token('INDEX_NUMBER', '1'), extract the value
-    assert node.fields[0].index.value == str(index)
-
-
-def _assert_private_attach(node, object_ref, private_data):
-    """Helper to assert private data attachment"""
-    assert isinstance(node, comp.PrivateAttachOperation)
-    _check_value(node.object, object_ref)
-    if private_data is not None:
-        _check_value(node.private_data, private_data)
-
-
-def _assert_private_access(node, object_ref, field_name):
-    """Helper to assert private field access"""
-    assert isinstance(node, comp.PrivateAccessOperation)
-    _check_value(node.object, object_ref)
-    # Note: PrivateAccessOperation still uses .field (not changed)
-    assert node.field == field_name
-
-
-def _assert_shape_union(node, left_shape, right_shape):
-    """Helper to assert shape union operation"""
-    assert isinstance(node, comp.ShapeUnionOperation)
-    if left_shape is not None:
-        _check_shape_ref(node.left, left_shape)
-    if right_shape is not None:
-        _check_shape_ref(node.right, right_shape)
-
-
-def _assert_pipeline_failure(node, operation, fallback):
-    """Helper to assert pipeline failure handling"""
-    # Pipeline failure operations are now wrapped in PipelineOperation
-    if isinstance(node, comp.PipelineOperation):
-        # Should have the operation as first stage and PipelineFailureOperation as second
-        assert len(node.stages) >= 2
-        _check_value(node.stages[0], operation)
-        assert isinstance(node.stages[1], comp.PipelineFailureOperation)
-        _check_value(node.stages[1].fallback, fallback)
-    else:
-        # Legacy direct PipelineFailureOperation (for backwards compatibility)
-        assert isinstance(node, comp.PipelineFailureOperation)
-        _check_value(node.operation, operation)
-        _check_value(node.fallback, fallback)
-
-
-def _assert_block_definition(node, expression):
-    """Helper to assert block definition"""
-    assert isinstance(node, comp.BlockLiteral)  # Using BlockLiteral instead of BlockDefinition
-    if expression is not None:
-        # BlockLiteral has operations, not expression
-        assert len(node.operations) > 0
-        # Could add more specific checks here if needed
-
-
-def _assert_block_invoke(node, block_ref):
-    """Helper to assert block invocation"""
-    assert isinstance(node, comp.BlockInvokeOperation)
-    _check_value(node.block, block_ref)
-
-
-def _assert_fallback(node, operator, left, right):
-    """Helper to assert fallback operation"""
-    assert isinstance(node, comp.FallbackOperation)
-    assert node.operator == operator
-    _check_value(node.left, left)
-    _check_value(node.right, right)
-
-
-def _assert_failure(node, operator, operand):
-    """Helper to assert pipeline failure operation"""
-    # Pipeline failure operations are now wrapped in PipelineOperation
-    if isinstance(node, comp.PipelineOperation):
-        # Should have at least 2 stages with PipelineFailureOperation as the last
-        assert len(node.stages) >= 2
-        assert isinstance(node.stages[1], comp.PipelineFailureOperation)
-        _check_value(node.stages[1].fallback, operand)
-    else:
-        # Legacy direct PipelineFailureOperation (for backwards compatibility)
-        assert isinstance(node, comp.PipelineFailureOperation)
-        # |? takes the fallback expression as its single value
-        _check_value(node.fallback, operand)
-
-
-def _assert_placeholder(node):
-    """Helper to assert placeholder operator"""
-    assert isinstance(node, comp.Placeholder)
-
-
-def _assert_array_type(node, base_type):
-    """Helper to assert array type operation"""
-    assert isinstance(node, comp.ArrayType)
-    _check_value(node.base_type, base_type)
-
-
-def _assert_field_name(node, name):
-    """Helper to assert field name expression"""
-    assert isinstance(node, comp.FieldName)
-    assert node.name == name
-
-
-def _assert_binary(node, operator, left, right):
-    """Helper to assert a BinaryOperation node structure"""
-    assert isinstance(node, comp.BinaryOperation)
-    assert node.operator == operator
-    _check_value(node.left, left)
-    _check_value(node.right, right)
-
-
-def _assert_number(node, value):
-    """Helper to assert a NumberLiteral"""
-    assert isinstance(node, comp.NumberLiteral)
-    assert node.value == value
-
-
-def _check_value(operand, expected):
-    """Check for literal or identifier value, or None to ignore"""
-    if expected is None:
-        return
-    if isinstance(expected, str) and expected.startswith("ident="):
-        expected_name = expected[6:]  # Remove "ident=" prefix
-        # Handle both FieldAccessOperation (for standalone identifiers) and raw Identifier (for sub-parts)
-        if isinstance(operand, comp.FieldAccessOperation):
-            # Standalone identifier as FieldAccessOperation
-            assert operand.object is None
-            assert len(operand.fields) == 1
-            assert isinstance(operand.fields[0], comp.Identifier)
-            assert operand.fields[0].name == expected_name
-        elif isinstance(operand, comp.Identifier):
-            # Raw identifier in some constructs
-            assert operand.name == expected_name
-        else:
-            raise AssertionError(f"Expected identifier-like value, got {type(operand)}")
-    else:
-        operand_value = operand.value  # type: ignore
-        assert operand_value == expected
-
-
-def _check_shape_ref(operand, shape_name):
-    """Check for shape reference"""
-    assert isinstance(operand, comp.ShapeReference)
-    assert operand.name == shape_name
+import comptest
+
+
+@comptest.params(
+    "expression, operator",
+    add=("5 + 3", "+"),
+    sub=("10 - 4", "-"),
+    mult=("6 * 7", "*"),
+    div=("20 / 5", "/"),
+    mod=("17 % 5", "%"),
+)
+def test_arithmetic_operators(key, expression, operator):
+    """Test basic arithmetic operators parse correctly."""
+    result = comp.parse(expression)
+    # Extract from Root wrapper
+    result = result.kids[0] if result.kids else result
+    assert isinstance(result, comp._ast.BinaryOp)
+    assert result.op == operator
+
+
+@comptest.params(
+    "expression",
+    plus=("+42",),
+    minus=("-42",),
+    pident=("+value",),
+    mident=("-count",),
+)
+def test_unary_operators(key, expression):
+    """Test unary operators parse correctly."""
+    result = comp.parse(expression)
+    # Extract from Root wrapper
+    result = result.kids[0] if result.kids else result
+    assert isinstance(result, comp._ast.UnaryOp)
+    assert result.op in ["+", "-"]
+
+
+@comptest.params(
+    "expression, operator",
+    equal=("a == b", "=="),
+    not_equal=("a != b", "!="),
+    less_than=("a < b", "<"),
+    less_equal=("a <= b", "<="),
+    greater_than=("a > b", ">"),
+    greater_equal=("a >= b", ">="),
+)
+def test_comparison_operators(key, expression, operator):
+    """Test comparison operators parse correctly."""
+    result = comp.parse(expression)
+    # Extract from Root wrapper
+    result = result.kids[0] if result.kids else result
+    assert isinstance(result, comp._ast.BinaryOp)
+    assert result.op == operator
+
+
+@comptest.params(
+    "expression, operator",
+    logical_and=("true && false", "&&"),
+    logical_or=("true || false", "||"),
+)
+def test_logical_operators(key, expression, operator):
+    """Test logical operators parse correctly."""
+    result = comp.parse(expression)
+    # Extract from Root wrapper
+    result = result.kids[0] if result.kids else result
+    assert isinstance(result, comp._ast.BinaryOp)
+    assert result.op == operator
+
+
+@comptest.params(
+    "expression",
+    mult_before_add=("2 + 3 * 4", ),
+    parens_override=("(2 + 3) * 4", ),
+    comparison_lower=("2 + 3 < 4 * 5", ),
+    logical_lowest=("2 < 3 && 4 > 5", ),
+)
+def test_operator_precedence(key, expression):
+    """Test operator precedence is handled correctly."""
+    result = comp.parse(expression)
+    comptest.roundtrip(result)
+
+
+def test_addition_multiplication_precedence():
+    """Verify 2 + 3 * 4 == 2 + (3 * 4), not (2 + 3) * 4."""
+    result = comp.parse("2 + 3 * 4")
+    # Extract from Root wrapper
+    result = result.kids[0] if result.kids else result
+    assert isinstance(result, comp._ast.BinaryOp)
+    assert result.op == "+"
+    # Right side should be multiplication
+    assert isinstance(result.kids[1], comp._ast.BinaryOp)
+    assert result.kids[1].op == "*"
+
+
+def test_comparison_arithmetic_precedence():
+    """Verify 2 + 3 < 4 * 5 == (2 + 3) < (4 * 5)."""
+    result = comp.parse("2 + 3 < 4 * 5")
+    # Extract from Root wrapper
+    result = result.kids[0] if result.kids else result
+    assert isinstance(result, comp._ast.BinaryOp)
+    assert result.op == "<"
+    # Both sides should be arithmetic
+    assert isinstance(result.kids[0], comp._ast.BinaryOp)
+    assert result.kids[0].op == "+"
+    assert isinstance(result.kids[1], comp._ast.BinaryOp)
+    assert result.kids[1].op == "*"
+
+
+def test_logical_comparison_precedence():
+    """Verify 2 < 3 && 4 > 5 == (2 < 3) && (4 > 5)."""
+    result = comp.parse("2 < 3 && 4 > 5")
+    # Extract from Root wrapper
+    result = result.kids[0] if result.kids else result
+    assert isinstance(result, comp._ast.BinaryOp)
+    assert result.op == "&&"
+    # Both sides should be comparisons
+    assert isinstance(result.kids[0], comp._ast.BinaryOp)
+    assert result.kids[0].op == "<"
+    assert isinstance(result.kids[1], comp._ast.BinaryOp)
+    assert result.kids[1].op == ">"
+
+
+@comptest.params(
+    "expression",
+    chained_comparison=("a < b < c",),
+    mixed_logical=("a && b || c",),
+    arithmetic_chain=("a + b - c * d / e",),
+)
+def test_operator_combinations(key, expression):
+    """Test complex combinations of operators parse correctly."""
+    result = comp.parse(expression)
+    comptest.roundtrip(result)
+
+
+@comptest.params(
+    "expression",
+    double_unary=("--x",),
+    nested_parens=("((((5))))",),
+    whitespace_heavy=("a   +   b",),
+    no_whitespace=("a+b*c-d",),
+)
+def test_operator_edge_cases(key, expression):
+    """Test edge cases in operator parsing."""
+    result = comp.parse(expression)
+    comptest.roundtrip(result)
+
+
+@comptest.params(
+    "expression",
+    triple_equal=("a === b",),
+    single_and=("a & b",),
+    bitshift_left=("a << b",),
+    bitshift_right=("a >> b",),
+    spaceship=("a <=> b",),
+    arrow=("a -> b",),
+    double_colon=("a :: b",),
+)
+def test_invalid_operator_syntax(key, expression):
+    """Test that invalid operator syntax fails to parse."""
+    comptest.invalid_parse(expression, match=r"parse error|unexpected")
