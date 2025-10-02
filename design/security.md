@@ -17,9 +17,9 @@ The runtime provides a single `resource` token that controls access to all exter
 ```comp
 ; Regular function - has resource access
 !func |process-file ^{path ~str} = {
-    content = (^path |fetch)          ; Needs resource token
-    processed = (content |transform)   ; Pure computation
-    (processed |save-to-cache)        ; Needs resource token
+    content = [^path |fetch]          ; Needs resource token
+    processed = [content |transform]   ; Pure computation
+    [processed |save-to-cache]        ; Needs resource token
 }
 
 ; Pure function - no resource access
@@ -78,13 +78,13 @@ Stores require resources internally, preventing their use in pure functions. Thi
 ```comp
 ; Store creation requires resource token
 !func |create-cache = {
-    @store = (|new/store {})  ; Acquires resource internally
+    @store = [|new/store {}]  ; Acquires resource internally
     @store
 }
 
 !pure
 !func |pure-attempt = {
-    @store = (|new/store {})  ; FAILS - no resource token available
+    @store = [|new/store {}]  ; FAILS - no resource token available
 }
 
 ; Pure functions can work with immutable snapshots
@@ -111,8 +111,8 @@ $mod.constant = 42
 
 !entry = {
     ; Runtime initialization - NOT visible to pure functions
-    $mod.cache = (|initialize-cache)
-    $mod.runtime-config = (|load-config)
+    $mod.cache = [|initialize-cache]
+    $mod.runtime-config = [|load-config]
 }
 
 !pure
@@ -129,24 +129,24 @@ The standard library enforces purity through internal resource requirements. Eve
 ```comp
 ; Standard library implementations
 !func |current-time = {
-    @clock = (|acquire-resource clock)  ; Fails in pure context
-    @clock |read
+    @clock = [|acquire-resource clock]  ; Fails in pure context
+    [@clock |read]
 }
 
 !func |random = {
-    @rng = (|acquire-resource entropy)  ; Fails in pure context
-    @rng |generate
+    @rng = [|acquire-resource entropy]  ; Fails in pure context
+    [@rng |generate]
 }
 
 !func |print ~{message} = {
-    @output = (|acquire-resource io)    ; Fails in pure context
-    @output |write message
+    @output = [|acquire-resource io]    ; Fails in pure context
+    [@output |write message]
 }
 
 ; File operations through capability system
 !func |fetch ^{path ~str} = {
-    @fs = (|acquire-resource filesystem) ; Fails in pure context
-    @fs |read ^path
+    @fs = [|acquire-resource filesystem] ; Fails in pure context
+    [@fs |read ^path]
 }
 ```
 
@@ -197,14 +197,14 @@ The simplified model enables clear security patterns:
 ; Process with minimal resource exposure
 !func |safe-process ~{untrusted} = {
     ; Validate in pure context first
-    validated = (untrusted |validate-input)
+    validated = [untrusted |validate-input]
     
     ; Only access resources after validation
-    validated |if :{$in} :{
-        $in |process-with-resources
+    [validated |if :{$in} :{
+        [$in |process-with-resources]
     } :{
         {#invalid-input.fail}
-    }
+    }]
 }
 ```
 

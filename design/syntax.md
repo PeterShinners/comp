@@ -171,7 +171,7 @@ result = data |process :{
         age-group = data.age |categorize
     }
 
-    admin? = (|if $out.name == "admin" #true #false)
+    admin? = [|if $out.name == "admin" #true #false]
 }
 ```
 
@@ -182,11 +182,11 @@ The `$out` scope can be directly modified to build output structures incremental
     ; Direct field assignment to $out
     $out.name = ^name
     $out.age = ^age
-    $out.created = (|now)
+    $out.created = [|now]
     
     ; Append operations using spread-assignment
     $out ..= #active.status
-    $out ..= (^name |calculate-permissions)
+    $out ..= [^name |calculate-permissions]
     
     ; Conditional additions
     (^age >= 18) |if :{
@@ -245,7 +245,7 @@ $mod.host = "default.com"
 }
 
 ; Function call with partial args
-(|connect host="override.com")
+[|connect host="override.com"]
 ; ^ becomes: {host="override.com" port=8080 timeout=30}
 ; - host from $arg (overrides $mod)
 ; - port from $ctx
@@ -521,8 +521,8 @@ Nested names are referenced using their full dotted path:
 user-record ~database.record = {id=123 data="user data"}
 
 ; Using nested functions  
-(config |database.connect)
-({sql="SELECT *" params=[]} |database.query)
+[config |database.connect]
+[{sql="SELECT *" params=[]} |database.query]
 
 ; Shapes in function signatures
 !func |save-user ~{user ~database.record} = {

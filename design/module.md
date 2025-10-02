@@ -129,22 +129,22 @@ Modules can define two special entry points that eliminate initialization headac
 !entry = {
     ; Called when module is imported
     ; All imports are loaded and their entry functions have run
-    $mod.cache = (|initialize-cache)
-    $mod.validators = (|build-validators)
+    $mod.cache = [|initialize-cache]
+    $mod.validators = [|build-validators]
     
     ; Can reference imported namespaces
-    (#pi/math |validate-precision)
+    [#pi/math |validate-precision]
 }
 
 !main = {
     ; Program entry point - only in executable modules
     ; All module initialization is complete
     
-    @args = (|parse/cli)
-    @config = @args.config-file |load-config
+    @args = [|parse/cli]
+    [@args.config-file |load-config] @config =
     
     @args.command |match
-        {serve} {@config |start-server}
+        {serve} {[@config |start-server]}
         {test} {|run-tests}
         {#true} {|show-help}
 }
@@ -194,8 +194,8 @@ While most imports are static, the language supports runtime module loading thro
 !import /proto = protobuf /./messages.proto/
 
 ; Use generated namespaces normally
-user = (|get/users/api id=123)
-result = (|find-by-email/users/db email=user@example.com)
+user = [|get/users/api id=123]
+result = [|find-by-email/users/db email=user@example.com]
 ```
 
 ## Module File Organization
@@ -221,12 +221,12 @@ After import, modules provide their definitions through their namespace. The rev
 
 ```comp
 ; Reversed notation - specific first
-(text |length/str)          ; Function from str module
+[text |length/str]          ; Function from str module
 data ~matrix/math           ; Shape from math module
 #initialized.state/store    ; Tag from store module
 
 ; Short forms when unique
-(text |length)              ; If only one 'length' function
+[text |length]              ; If only one 'length' function
 data ~matrix                ; If only one 'matrix' shape
 state = #initialized        ; If tag is unique
 
@@ -236,7 +236,7 @@ state = #initialized        ; If tag is unique
 !alias #error = #error.net
 
 ; Now use short forms
-{(4 |sqrt) (9 |cbrt/math)}  ; Mix aliased and qualified
+{[4 |sqrt] [9 |cbrt/math]}  ; Mix aliased and qualified
 ```
 
 ## Module Caching and Optimization

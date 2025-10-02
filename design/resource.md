@@ -22,27 +22,27 @@ All resource creation requires the resource capability token, which is absent in
 
 ```comp
 ; Resources require capability token (fails in pure functions)
-@file = ("/path/to/file" |open/file)      ; Needs resource token
-@conn = ("postgresql://localhost/mydb" |connect/db)
-@socket = {host="api.example.com" port=443} |connect/net
+@file = ["/path/to/file" |open/file]      ; Needs resource token
+@conn = ["postgresql://localhost/mydb" |connect/db]
+@socket = [{host="api.example.com" port=443} |connect/net]
 
 ; Automatic cleanup when leaving scope
 !func |process-file ^{path ~str} = {
-    @file = (^path |open/file)      ; Acquires resource
-    @file |read/file |process
+    @file = [^path |open/file]      ; Acquires resource
+    [@file |read/file |process]
     ; @file automatically closed when function returns
 }
 
 ; Explicit early release
-@temp = ("/tmp/data" |open/file)
-@temp |write/file data
-@temp |release                      ; Close immediately
+@temp = ["/tmp/data" |open/file]
+[@temp |write/file data]
+[@temp |release]                      ; Close immediately
 
 ; Pure functions cannot create resources
 !pure
 !func |pure-process ~{data} = {
-    ; @file = ("path" |open/file)   ; FAILS - no resource token
-    data |transform                 ; Can only do computation
+    ; @file = ["path" |open/file]   ; FAILS - no resource token
+    [data |transform]                 ; Can only do computation
 }
 ```
 
@@ -63,13 +63,13 @@ While pure functions cannot create or access resources, they can pass them throu
 
 ; Regular function uses the resource
 !func |process = {
-    @conn = (|connect/db)
+    @conn = [|connect/db]
     
     container = {value=100 resource=@conn}
-    result = (container |transform-container)  ; Pure function
+    result = [container |transform-container]  ; Pure function
     
     ; Can access resource after pure function returns it
-    result.resource |query "SELECT * FROM users"
+    [@result.resource |query "SELECT * FROM users"]
 }
 ```
 
@@ -79,17 +79,17 @@ Transactions coordinate multiple operations that should succeed or fail as a uni
 ```comp
 ; Basic transaction with single resource
 !transact $database {
-    (users |insert-user/db)
-    (profile |insert-profile/db)
-    (settings |insert-settings/db)
+    [users |insert-user/db]
+    [profile |insert-profile/db]
+    [settings |insert-settings/db]
 }
 ; All inserts commit together or all rollback
 
 ; Multiple coordinated resources
 !transact @database @cache @search {
-    @user-id = (user |insert/db |get-id)
-    (user |set/cache "user:${@user-id}")
-    (user |index/search "users")
+    @user-id = [user |insert/db |get-id]
+    [user |set/cache "user:${@user-id}"]
+    [user |index/search "users"]
 }
 ; All three systems update atomically
 ```
@@ -101,24 +101,24 @@ Rather than async/await, Comp favors multiplexed operations that handle multiple
 
 ```comp
 ; Connection pooling with automatic management
-@pool = (|create-pool/db url="database-url" max=10)
+@pool = [|create-pool/db url="database-url" max=10]
 
 ; Pool automatically multiplexes connections
-(requests |map {
-    @pool |with {$in |
-        (|query "SELECT * FROM users WHERE id = ${id}")
-    }
-})
+[requests |map {
+    [@pool |with {[$in |
+        [|query "SELECT * FROM users WHERE id = ${id}"]
+    ]}]
+}]
 
 ; Declarative retry logic instead of promise chains
-(operation |with-retry 
+[operation |with-retry 
     attempts=3
     backoff=|exponential
-    on-error=|warn/log)
+    on-error=|warn/log]
 
 ; Coordinated fanout without async
-(endpoints |map {$in |get/http timeout=5000}
-           |gather)   ; Waits for all, handles partial failures
+[endpoints |map {[$in |get/http timeout=5000]}
+           |gather]   ; Waits for all, handles partial failures
 ```
 
 The language runtime can optimize these patterns, potentially using parallel execution or async I/O internally while presenting a synchronous interface to the programmer.
@@ -131,7 +131,7 @@ Transactions maintain consistency through several mechanisms. State capture pres
 @counter = 0
 !transact @resource {
     @counter = @counter + 1     ; Local change
-    (|risky-operation)          ; Might fail
+    [|risky-operation]          ; Might fail
 }
 ; If operation fails, @counter remains 0
 
@@ -158,13 +158,13 @@ The integration between resources and pure functions is simple: pure functions c
 }
 
 !func |network-handler = {
-    @conn = (|open-connection)
+    @conn = [|open-connection]
     
-    packets |map {
+    [packets |map {
         packet = {data=$in connection=@conn type=#bulk}
-        routed = (packet |route-data)  ; Pure routing logic
-        routed.connection |send routed.data  ; Use resource after
-    }
+        routed = [packet |route-data]  ; Pure routing logic
+        [routed.connection |send routed.data]  ; Use resource after
+    }]
 }
 ```
 

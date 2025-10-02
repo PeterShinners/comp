@@ -17,26 +17,26 @@ Function returns in Comp are always lazy structures. Values are computed on dema
 ```comp
 ; Literals evaluate immediately
 config = {
-    startup = (|initialize)    ; Runs now
+    startup = [|initialize]    ; Runs now
     value = 42                 ; Immediate
 }
 
 ; Function returns are lazy
 !func |process = {
-    expensive = (|compute-heavy)  ; Not executed yet
+    expensive = [|compute-heavy]  ; Not executed yet
     cheap = value * 2             ; Not executed yet
 }
-result = |process                ; Returns lazy structure
-result.expensive                  ; NOW it computes and stores
+result = [|process]                ; Returns lazy structure
+result.expensive                   ; NOW it computes and stores
 
 ; Pipeline operations automatically optimize
-data = source 
+data = [source 
     |filter :{score > 100}       ; Returns lazy structure
-    |map :{$in |transform}        ; Still lazy
-    |sort-by :{name}              ; Still lazy
+    |map :{[$in |transform]}        ; Still lazy
+    |sort-by :{name}]              ; Still lazy
     
 data.#0                            ; Evaluates first element only
-data |length                      ; Can use field introspection
+[data |length]                     ; Can use field introspection
 ```
 
 ### Deferred Computation Benefits
@@ -45,12 +45,12 @@ Comp's lazy structures store computed values, allowing multiple operations on th
 
 ```comp
 ; Process once, use many times
-results = items |filter :{valid} |map :{$in |expensive-transform}
+results = [items |filter :{valid} |map :{[$in |expensive-transform]}]
 
-results |length      ; Works
-results.#5            ; Works - might trigger computation
-results |sum         ; Still works - uses stored values
-results |average     ; Still works
+[results |length]      ; Works
+results.#5             ; Works - might trigger computation
+[results |sum]         ; Still works - uses stored values
+[results |average]     ; Still works
 ```
 
 ### Field Introspection
@@ -67,9 +67,9 @@ Special functions allow examining structure shape without triggering evaluation:
 }
 
 ; Efficient operations on lazy structures
-lazy-data |fields                ; ["a", "b", "c"] - no evaluation
-lazy-data |fields |contains "x"  ; Check field existence
-lazy-data |indices                ; Count unnamed fields
+[lazy-data |fields]                ; ["a", "b", "c"] - no evaluation
+[lazy-data |fields |contains "x"]  ; Check field existence
+[lazy-data |indices]               ; Count unnamed fields
 ```
 
 ## Iteration Fundamentals
@@ -78,15 +78,15 @@ Iteration functions transform or consume sequences by applying blocks to element
 
 ```comp
 ; Basic iteration over structures
-{1 2 3} |map :{$in * 2}         ; Returns lazy {2 4 6}
-{1 2 3} |filter :{$in > 1}      ; Returns lazy {2 3}
-{1 2 3} |each :{$in |print}     ; Side effects, returns {}
+[{1 2 3} |map :{$in * 2}]         ; Returns lazy {2 4 6}
+[{1 2 3} |filter :{$in > 1}]      ; Returns lazy {2 3}
+[{1 2 3} |each :{[$in |print]}]     ; Side effects, returns {}
 
 ; Control flow in iteration blocks
-items |map :{
-    $in < 0 |if :{#skip} :{$in * 2}  ; Skip negative values
-    $in > 100 |if :{#break} :{$in}   ; Stop at values over 100
-}
+[items |map :{
+    [$in < 0 |if :{#skip} :{$in * 2}]  ; Skip negative values
+    [$in > 100 |if :{#break} :{$in}]   ; Stop at values over 100
+}]
 ```
 
 ### Eager Resolution
@@ -94,10 +94,12 @@ items |map :{
 When eager evaluation is needed, spread operations force computation:
 
 ```comp
-lazy-result = data |complex-pipeline
+lazy-result = [data |complex-pipeline]
 eager-result = {..lazy-result}   ; Forces all evaluation
 
 ; Or use an explicit function
+[lazy-result |eager]
+```
 !func |eager ~{structure} = {..structure}
 lazy-result |eager
 ```
@@ -119,7 +121,7 @@ Streams are blocks that maintain internal state and generate values when invoked
 }
 
 ; Usage
-@counts = (|counter start=10)
+@counts = [|counter start=10]
 value1 = |:@counts    ; 10
 value2 = |:@counts    ; 11
 ```
@@ -154,7 +156,7 @@ Functions use loose morphing (extra fields ignored), while blocks use strict mor
     }
 }
 
-@stream = (|stateful-stream)
+@stream = [|stateful-stream]
 |:@stream           ; 1 (default increment)
 10 |:@stream        ; 10 (explicit value)
 ```
@@ -172,8 +174,8 @@ Transforms each element through a block, returning a lazy structure.
 }
 
 ; Usage
-{1 2 3} |map :{$in * 2}        ; Lazy {2 4 6}
-@stream |map :{$in |enhance}   ; Transformed stream
+[{1 2 3} |map :{$in * 2}]        ; Lazy {2 4 6}
+[@stream |map :{$in |enhance}]   ; Transformed stream
 ```
 
 ### |filter
@@ -185,8 +187,8 @@ Selects elements matching a predicate, returning a lazy structure.
 }
 
 ; Usage
-{1 2 3 4 5} |filter :{$in % 2 == 0}  ; Lazy {2 4}
-@stream |filter :{score > threshold}  ; Filtered stream
+[{1 2 3 4 5} |filter :{$in % 2 == 0}]  ; Lazy {2 4}
+[@stream |filter :{score > threshold}]  ; Filtered stream
 ```
 
 ### |take
@@ -198,8 +200,8 @@ Limits iteration to a specified number of elements.
 }
 
 ; Usage
-{1 2 3 4 5} |take 3           ; Lazy {1 2 3}
-(|counter) |take 10           ; Finite stream of 10 values
+[{1 2 3 4 5} |take 3]           ; Lazy {1 2 3}
+[|counter |take 10]           ; Finite stream of 10 values
 ```
 
 ### |fold
@@ -212,8 +214,8 @@ Reduces a sequence to a single value using an accumulator.
 }
 
 ; Usage
-{1 2 3} |fold 0 :{accumulator + element}  ; 6
-@stream |take 100 |fold {} :{..accumulator element}  ; Collect stream
+[{1 2 3} |fold 0 :{accumulator + element}]  ; 6
+[@stream |take 100 |fold {} :{..accumulator element}]  ; Collect stream
 ```
 
 ### |each
@@ -225,8 +227,8 @@ Executes a block for each element, primarily for side effects.
 }
 
 ; Usage
-{1 2 3} |each :{$in |print}
-@stream |take 10 |each :{$in |process}
+[{1 2 3} |each :{$in |print}]
+[@stream |take 10 |each :{$in |process}]
 ```
 
 ### |range
@@ -238,8 +240,8 @@ Creates a sequence of numbers as a lazy structure.
 }
 
 ; Usage
-(1 |range 10)        ; Lazy {1 2 3 4 5 6 7 8 9}
-(0 |range 100 step=2)  ; Lazy {0 2 4 6 8...98}
+[1 |range 10]        ; Lazy {1 2 3 4 5 6 7 8 9}
+[0 |range 100 step=2]  ; Lazy {0 2 4 6 8...98}
 ```
 
 ### |counter
@@ -256,8 +258,8 @@ Creates an infinite counting stream.
 }
 
 ; Usage
-@ids = (|counter start=1000)
-@evens = (|counter start=0 step=2)
+@ids = [|counter start=1000]
+@evens = [|counter start=0 step=2]
 ```
 
 ### |zip
@@ -270,7 +272,7 @@ Combines multiple sequences element-wise into a lazy structure.
 }
 
 ; Usage
-(|zip {1 2 3} {a b c})  ; Lazy {{1 a} {2 b} {3 c}}
+[|zip {1 2 3} {a b c}]  ; Lazy {{1 a} {2 b} {3 c}}
 ```
 
 ### |has-any?
@@ -283,9 +285,9 @@ Checks if a sequence contains any elements without forcing evaluation.
 }
 
 ; Usage
-results |has-any? |if
-    :{results |process}
-    :{#no-results}
+[results |has-any? |if
+    :{[results |process]}
+    :{#no-results}]
 ```
 
 ## Stream Patterns
@@ -322,15 +324,15 @@ Streams naturally integrate with Comp's context system:
 
 ```comp
 ; Set random generator in context
-$ctx.random = (123 |seed/random)
+$ctx.random = [123 |seed/random]
 
 ; Functions use context stream
 !func |create-values ^{count ~num} = {
-    @rng = $ctx.random ?? (|default-random)
+    @rng = $ctx.random ?? [|default-random]
     
-    (1 |range ^count) |map :{
-        |:@rng |uniform {0 1}
-    }
+    [1 |range ^count |map :{
+        [|:@rng |uniform {0 1}]
+    }]
 }
 ```
 
@@ -340,31 +342,31 @@ The lazy-by-default design provides automatic optimization for common patterns:
 
 **Existence checks** are nearly instant:
 ```comp
-results = data |complex-filter |expensive-transform
-results |has-any?  ; No evaluation needed
+results = [data |complex-filter |expensive-transform]
+[results |has-any?]  ; No evaluation needed
 ```
 
 **Partial evaluation** only computes what's needed:
 ```comp
-data = items |map :{$in |expensive} |filter :{valid}
+data = [items |map :{$in |expensive} |filter :{valid}]
 data.#0  ; Only evaluates until first valid item found
 ```
 
 **Chained operations** defer all computation:
 ```comp
-result = source
+result = [source
     |filter :{test1}
     |map :{transform}
     |filter :{test2}
-    |sort-by :{field}
+    |sort-by :{field}]
 ; Nothing computed until result is accessed
 ```
 
 **Deferred computation** prevents redundant computation:
 ```comp
-expensive = data |map :{$in |complex-calculation}
-expensive |sum      ; Computes all values
-expensive |average  ; Uses stored values
+expensive = [data |map :{$in |complex-calculation}]
+[expensive |sum]      ; Computes all values
+[expensive |average]  ; Uses stored values
 ```
 
 The overhead of lazy structures (bookkeeping and value storage) is offset by avoided computation. For pure streaming needs where value storage is undesirable, explicit stream blocks provide an alternative with minimal memory footprint.

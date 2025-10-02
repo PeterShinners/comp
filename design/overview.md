@@ -140,10 +140,10 @@ current = #active
 problem = #maintenance.error
 
 ; Use them for dispatch
-($in |handle-request
+[$in |handle-request
     '#timeout.error.status' :{|retry-with-backoff}
-    '#error.status' :{(|log-error) (|use-fallback)}
-)
+    '#error.status' :{[|log-error] [|use-fallback]}
+]
 ```
 
 Tags play a dual role in the language, acting as both values a, promoting them into new
@@ -176,7 +176,7 @@ le that
 !import /pygame = python "pygame"e!import /api = openapi "http://api.example.org/v1"
 s, no de/marsdency tregithub+release://offworld/martiancalendar@1.0.4ngl;Access through simple namespaces
 $token = "username" |fetch-auth-token |base64/str
-$now = (|now/time ~num#day/mars)
+$now = [|now/time ~num#day/mars]
 confunding conteWhere You Need Theme
 Comp keeps a variety of scopes at hand for any evaluating code. This allows
 placing data in the appropriate place. Short symbols uniquely identify which
@@ -189,11 +189,11 @@ es. No mysterious variable capturng, no ccproc-argsites, no hunting through nest
 
 ```comp
 !func |process-request;~{request} ^{timeout ~num} = {
-    @start-time = (|now/time)          ; Function-local variable
+    @start-time = [|now/time]          ; Function-local variable
     @user = request.user               ; Another local variable
     
-    response = request |validate |process   ; Output field
-    duration = (|now/time) - @start-time   ; Uses local variable
+    response = [request |validate |process]   ; Output field
+    duration = [|now/time] - @start-time   ; Uses local variable
     
     server-timeout = ^timeout          ; Argument reference
     global-config = $mod.settings      ; Module-level data
@@ -286,27 +286,27 @@ This example shows how Comp's features combine naturally:
 !import /time = std "core/time"
 
 !main = {
-    @after = (|now/time) - 1#week
+    @after = [|now/time] - 1#week
     @fields = {"title" "url" "created-at" "reactions"}
     
-    {..@fields repo="nushell/nushell"}
+    [{..@fields repo="nushell/nushell"}
     |list-issues/gh
     |filter :{created-at >= @after}
-    |<<progressbar              ; Add progress tracking
+    |-| progressbar              ; Add progress tracking
     |map :{
-        @thumbs-up = reactions |count-if :{content == #thumbs-up}
+        @thumbs-up = [reactions |count-if :{content == #thumbs-up}]
         {thumbs-up=@thumbs-up title=. url=.}
     }
-    |<<debug                    ; Development logging
-    |first 5
+    |-| debug                    ; Development logging
+    |first 5]
 }
 ```
 
 **What's happening here:**
 - Variables store computed values (`@after`, `@fields`)  
 - Structures compose cleanly (`{..@fields repo="nushell/nushell"}`)
-- Pipelines chain operations naturally (`|filter :{created-at >= @after}`)
-- Pipeline modifiers add capabilities without changing logic (`|<<progressbar`, `|<<debug`)
+- Pipelines chain operations naturally (`[|filter :{created-at >= @after}]`)
+- Pipeline modifiers add capabilities without changing logic (`|-| progressbar`, `|-| debug`)
 - Blocks capture scope and simplify syntax (`:{created-at >= @after}`)
 - Field shorthand reduces noise (`title=.` for `title=$in.title`)
 - Everything composes seamlessly
@@ -320,7 +320,7 @@ This overview shows you what makes Comp distinctive. Each concept has rich depth
 - **[structure.md](structure.md)** - Structure operations, spreads, and lazy evaluation  
 - **[shape.md](shape.md)** - Shape system, morphing, and structural typing
 - **[tag.md](tag.md)** - Hierarchical tags and polymorphic dispatch
-- **[pipeline.md](pipeline.md)** - Pipeline operations, failure handling, and the wrench operator (`|<<`)
+- **[pipeline.md](pipeline.md)** - Pipeline operations, failure handling, and the wrench operator (`|-|`)
 - **[function.md](function.md)** - Function definition, dispatch, and composition
 - **[module.md](module.md)** - Module system, imports, and namespaces
 - **[trail.md](trail.md)** - Advanced navigation through complex data

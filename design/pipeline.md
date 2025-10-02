@@ -4,42 +4,42 @@
 
 ## Overview
 
-Comp uses pipelines to eliminate the nested function call spaghetti. The `|` labeling and operators creates readable left-to-right data flow—like a recipe where each step transforms what came before. The syntax steers towards a flatter namespace to avoid excessive nesting and bracing.
+Comp uses pipelines to eliminate the nested function call spaghetti. Pipelines are enclosed in square brackets `[...]` with the `|` operator creating readable left-to-right data flow—like a recipe where each step transforms what came before. The syntax provides clear boundaries between data (structures) and computation (pipelines).
 
 Control flow and error handling work through functions that accept block arguments, providing a consistent approach that scales from simple transformations to complex workflows.
 
-Pipeline modifiers using the wrench operator (`|<<`) enable meta-operations that can inspect, transform, and optimize pipeline structure before execution. These modifiers can add capabilities like progress tracking, query optimization, or performance profiling without modifying the original business logic.
+Pipeline modifiers using the wrench operator (`|-|`) enable meta-operations that can inspect, transform, and optimize pipeline structure before execution. These modifiers can add capabilities like progress tracking, query optimization, or performance profiling without modifying the original business logic. The wrench operator requires a function reference, ensuring compile-time validation of pipeline modifiers.
 
 Every statement gets fresh pipeline input through `$in`, which resets to the function's original input at each statement boundary. This enables natural parallel processing where multiple statements independently transform the same data—no variable juggling required.
 
-These principles combine to present code that reads linearly, while still accomodating practical
-and real world situations. Failures propagate predictably without hidden control flow, and all operations compose through the same fundamental mechanism. The functions that process pipeline data are detailed in [Functions and Blocks](function.md), while structure operations are covered in [Structures, Spreads, and Lazy Evaluation](structure.md).
+Pipelines are deferred by default—they describe computation without executing it. Evaluation happens when the result is needed: field access, comparison operations, or explicit morphing to a shape. This enables powerful optimizations through pipeline modifiers and lazy evaluation of expensive operations.
+
+These principles combine to present code that reads linearly, while still accomodating practical and real world situations. Failures propagate predictably without hidden control flow, and all operations compose through the same fundamental mechanism. The functions that process pipeline data are detailed in [Functions and Blocks](function.md), while structure operations are covered in [Structures, Spreads, and Lazy Evaluation](structure.md).
 
 ## Pipeline Fundamentals
 
-A pipeline starts with either a value or a function. Starting with a value feeds that data into the first function. Starting with a function (marked by leading `|`) means the function gets no initial input or uses ambient data—perfect for things like timestamps or configuration lookups.
+Pipelines are enclosed in square brackets `[...]` and contain a sequence of operations connected by the pipe operator `|`. A pipeline can start with a seed value (the data being transformed) or begin directly with a function call (indicated by leading `|`).
 
 ```comp
 !func |process ~{data} = {
-    ; Pipelines with value input
-    validated = $in |validate
-    transformed = $in |transform
+    ; Pipeline with seed value
+    validated = [data |validate]
+    transformed = [data |transform]
     
-    ; Pipeline without initial value
-    timestamp = (|now/time)
+    ; Pipeline without seed (unseeded)
+    timestamp = [|now/time]
     
-    ; Explicit pipeline with multiple steps
-    result = $in |validate |transform |save
+    ; Multi-step pipeline
+    result = [data |validate |transform |save]
     
     ; All results combined
     {validated transformed timestamp result}
 }
 ```
 
-The `$in` reference provides access to pipeline data and resets at each
-statement boundary. This enables natural parallel processing patterns where
-multiple statements work on the same input data independently. Field references
-use undecorated tokens that cascade through output being built to input.
+Functions always use the `|` prefix in pipeline contexts, creating a clear visual distinction between function calls and data references. The square brackets provide unambiguous boundaries, eliminating the parsing ambiguities that arise with inline pipeline syntax.
+
+The `$in` reference provides access to pipeline data and resets at each statement boundary. This enables natural parallel processing patterns where multiple statements work on the same input data independently. Field references use undecorated tokens that cascade through output being built to input.
 
 ## Statements and Temporaries
 
@@ -64,10 +64,10 @@ order and can be accessed by position.
 ```comp
 !func |process-data ~{data} = {
     ; Local variables store intermediate results
-    @threshold = average * 1.5
+    @threshold = [average |multiply 1.5]
     
     ; Use local variable in pipeline
-    high-values = $in |filter {value > @threshold}
+    high-values = [data |filter :{value > @threshold}]
 ```
 
 Function-local variables provide a crucial scope separate from field
@@ -90,19 +90,19 @@ scope and execute conditionally.
 ```comp
 !func |process-request ~{request} = {
     ; Multiple conditional patterns
-    response-type = $in |if {priority == urgent} 
-                             immediate 
-                             queued
+    response-type = [priority |if :{$in == urgent} 
+                                   :immediate 
+                                   :queued]
     
-    $in |when {response-type == immediate} {
-        (%"Urgent: ${summary}" |alert-team)
-    }
+    [response-type |when :{$in == immediate} :{
+        [%"Urgent: ${summary}" |alert-team]
+    }]
     
-    status |match
-        {$in == 200} {$in |handle-success}
-        {$in >= 500} {$in |handle-server-error |alert-ops}
-        {$in >= 400} {$in |handle-client-error}
-        {#true} {$in |log-unknown |investigate}
+    [status |match
+        :{$in == 200} :{[status |handle-success]}
+        :{$in >= 500} :{[status |handle-server-error |alert-ops]}
+        :{$in >= 400} :{[status |handle-client-error]}
+        :{#true} :{[status |log-unknown |investigate]}]
 }
 ```
 
@@ -117,15 +117,15 @@ error.
 ```comp
 !func |analyze-records ~{records} = {
     ; Complete iteration pipeline
-    processed = $in |filter {status != archived}
-                   |map {
-                       $in |if {priority < 0} 
-                               {#skip} 
-                               {$in |validate |enhance |{$in processed=(|now/time)}}
-                   }
-                   |fold {total=0 count=0} {
-                       {total=(total + amount) count=(count + 1)}
-                   }
+    processed = [records |filter :{status != archived}
+                         |map :{
+                             [priority |if :{$in < 0} 
+                                           :{#skip} 
+                                           :{[$in |validate |enhance |{$in processed=[|now/time]}]}]
+                         }
+                         |fold :{total=0 count=0} :{
+                             {total=(total + amount) count=(count + 1)}
+                         }]
     
     {records=processed.count average=processed.total/processed.count}
 }
@@ -207,85 +207,82 @@ operators creating a chain of handlers tested in order.
 
 ```comp
 !func |process-transaction ~{data} = {
-    $in |validate
-        |execute-steps
-        |? {#io.fail} {$in |retry-with-backoff}
-        |? {#deadlock.database.fail} {$in |wait-and-retry}
-        |? {
-            ; General failure - multiple operations for recovery
-            @error = $in
-            (%"Operation failed: ${@error.message}" |log)
-            @error |cleanup-resources |{status=#failed original=$in}
-        }
+    [data |validate
+          |execute-steps
+          |? :{#io.fail} :{[data |retry-with-backoff]}
+          |? :{#deadlock.database.fail} :{[data |wait-and-retry]}
+          |? :{
+              ; General failure - multiple operations for recovery
+              @error = $in
+              [%"Operation failed: ${@error.message}" |log]
+              [@error |cleanup-resources |{status=#failed original=@error}]
+          }]
 }
 
 ; Complex recovery in a single block
-$in |risky-operation |? {
+[data |risky-operation |? :{
     @error = $in
-    (%"Operation failed: ${@error.message}" |log)
-    @error.code |match
-        {$in >= 500} {$in |wait-and-retry}
-        {$in == 429} {$in |backoff-exponentially}
-        {#true} {$in |use-fallback-service}
-}
+    [%"Operation failed: ${@error.message}" |log]
+    [@error.code |match
+        :{$in >= 500} :{[@error |wait-and-retry]}
+        :{$in == 429} :{[@error |backoff-exponentially]}
+        :{#true} :{[@error |use-fallback-service]}]
+}]
 ```
 
 ## Pipeline Composition
 
-Complex pipelines benefit from clear composition patterns. Parentheses clearly
-delimit pipeline boundaries, making it obvious where transformations begin and
-end. Within these boundaries, functions chain naturally through the `|`
-operator.
+Square brackets clearly delimit pipeline boundaries, making it obvious where transformations begin and end. Within these boundaries, functions chain naturally through the `|` operator. Adjacent pipelines at the same statement level automatically merge into a single chain.
 
-The fresh `$in` at each statement boundary enables elegant parallel processing
-patterns where multiple independent operations process the same input, then
-combine their results. Each statement gets the same input, processes
-independently, and contributes to the final structure.
+The fresh `$in` at each statement boundary enables elegant parallel processing patterns where multiple independent operations process the same input, then combine their results. Each statement gets the same input, processes independently, and contributes to the final structure.
 
 ```comp
 !func |comprehensive-analysis ~{data} = {
     ; Three independent analyses on same input
-    structure-valid = $in |validate-structure
-    business-valid = $in |validate-business-rules  
-    security-valid = $in |validate-security
+    structure-valid = [data |validate-structure]
+    business-valid = [data |validate-business-rules]
+    security-valid = [data |validate-security]
     
-    $in |if {structure-valid && business-valid && security-valid}
-            {$in |process}
-            {#validation.fail issues={structure-valid business-valid security-valid}}
+    [structure-valid && business-valid && security-valid
+        |if :{$in} 
+            :{[data |process]} 
+            :{#validation.fail issues={structure-valid business-valid security-valid}}]
 }
 
 !func |parallel-enrichment ~{record} = {
     ; Multiple enrichments of the same record
-    with-score = $in |calculate-score
-    with-category = $in |determine-category
-    with-timestamp = $in |add-processing-time
+    with-score = [record |calculate-score]
+    with-category = [record |determine-category]
+    with-timestamp = [record |add-processing-time]
     
     ; Merge all enrichments
-    {$in ..with-score ..with-category ..with-timestamp}
+    {record ..with-score ..with-category ..with-timestamp}
 }
 ```
 
 ## Pipeline Modifiers: The Wrench Operator
 
-The wrench operator (`|<<`) enables pipeline meta-operations that inspect, transform, and optimize pipeline structure before execution. Unlike regular pipeline operations that transform data, wrench operations modify the pipeline itself, enabling powerful capabilities like progress tracking, query optimization, and performance instrumentation.
+The wrench operator (`|-|`) enables pipeline meta-operations that inspect, transform, and optimize pipeline structure before execution. Unlike regular pipeline operations that transform data, wrench operations modify the pipeline itself, enabling powerful capabilities like progress tracking, query optimization, and performance instrumentation.
+
+The wrench operator requires a function reference (always prefixed with `|`), ensuring that pipeline modifiers are defined functions that can be validated at compile time. This prevents runtime errors and enables better tooling support for pipeline transformations.
 
 Pipeline modifiers identify operations using shape-based patterns, leveraging the consistent naming conventions in standard library functions. Operations with `~iterable` inputs are recognized as iteration points, enabling automatic progress tracking or parallelization without additional metadata.
 
 ```comp
 ; Automatic progress tracking
-data |filter :{valid}
-     |map :{expensive-transform}
-     |<<progressbar    ; Analyzes pipeline, adds progress to all iterations
+[data |filter :{valid}
+      |map :{expensive-transform}
+      |-|progressbar]    ; Analyzes pipeline, adds progress to all iterations
 
 ; Database query optimization  
-db.users |filter :{active}
-         |map :{name email}
-         |<<push-to-sql    ; Converts to optimized SQL query
+[db.users |filter :{active}
+          |map :{name email}
+          |-|push-to-sql]    ; Converts to optimized SQL query
 
 ; Development and profiling
-data |complex-pipeline
-     |<<debug           ; Logs data at each stage
-     |<<profile-time    ; Measures operation timing
+[data |complex-pipeline
+      |-|debug           ; Logs data at each stage
+      |-|profile-time]   ; Measures operation timing
 ```
 
 The wrench operator transforms Comp from a pipeline language into a meta-pipeline language where the computation structure itself becomes malleable and optimizable. Multiple modifiers can be chained, creating sophisticated transformation and optimization chains.
@@ -294,23 +291,49 @@ For comprehensive details on pipeline modifier implementation, shape-based opera
 
 ## Blocks and Pipeline Context
 
-Blocks can contain pipelines without requiring additional parentheses, as the
-block boundaries provide clear scope. This keeps the syntax clean for common
-patterns like filtering and mapping.
+Blocks can contain pipelines, with the square brackets providing clear boundaries for the pipeline operations. This keeps the syntax clean for common patterns like filtering and mapping.
 
 ```comp
-; Block contains pipeline - no extra parens needed
-items |map {$in |validate |enhance}
+; Block contains pipeline
+items |map :{[$in |validate |enhance]}
 
-; Equivalent to (but cleaner than)
-items |map {($in |validate |enhance)}
+; At statement level
+@result = [data |process |validate]
 
-; At statement level, no parens needed
-; Simple variable usage in pipeline
-@result = $in |process |validate
+; Pipelines compose naturally
+total = [base |calculate] + [bonus |calculate]
 
-; In expression position, parens required
-total = (base |calculate) + (bonus |calculate)
+; Adjacent pipelines merge into single chain
+result = [|fetch] [|validate] [|transform]  ; Equivalent to [|fetch |validate |transform]
+```
+
+## Pipeline Composition and Merging
+
+Adjacent pipelines at the same statement level automatically merge into a single pipeline chain. This enables modular pipeline construction where operations can be built incrementally and composed together.
+
+```comp
+; These are equivalent
+result = [|fetch |validate |transform]
+result = [|fetch] [|validate] [|transform]
+
+; Readable multi-line composition
+result = [data |validate]
+         [|normalize]
+         [|enrich]
+         [|save]
+
+; Building pipelines programmatically
+@validators = [|check-format] [|check-rules]
+@processors = [|transform] [|enrich]
+full-pipeline = @validators @processors [|save]
+```
+
+Operators between pipelines prevent merging, creating separate pipeline evaluations:
+
+```comp
+; These are separate pipelines
+combined = [x |double] + [y |triple]    ; Two pipelines, results added
+condition = [a |check] && [b |validate]  ; Two pipelines, results compared
 ```
 
 ## Placeholder Operator
@@ -323,9 +346,9 @@ and error handling patterns, see [Tag System](tag.md).
 
 ```comp
 !func |incomplete ~{data} = {
-    validated = $in |validate
+    validated = [data |validate]
     processed = ???  ; TODO: implement processing
-    saved = processed |save
+    saved = [processed |save]
     {validated saved}
 }
 
