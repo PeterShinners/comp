@@ -11,8 +11,8 @@ This is a minimal first pass to establish tag definition parsing.
 Tag references (e.g., #status in expressions) are tested in test_parse_refs.py
 
 PARSER EXPECTATIONS:
-- comp.parse("!tag #status") → Module with TagDefinition
-- comp.parse("!tag #status = {#active}") → TagDefinition with children
+- comp.parse_module("!tag #status") → Module with TagDefinition
+- comp.parse_module("!tag #status = {#active}") → TagDefinition with children
 - Round-trip: parse(code).unparse() should preserve structure
 
 AST NODES: Module, TagDefinition, TagReference
@@ -33,7 +33,7 @@ import comptest
 )
 def test_valid_tag_definitions(key, code):
     """Test that valid tag definition syntax parses and round-trips correctly."""
-    result = comp.parse(code)
+    result = comp.parse_module(code)
 
     # Should parse as a Module
     assert isinstance(result, comp.Module), (
@@ -76,7 +76,7 @@ def test_multiple_tag_definitions():
     code = """!tag #status
 !tag #priority"""
 
-    result = comp.parse(code)
+    result = comp.parse_module(code)
     assert isinstance(result, comp.Module)
     assert len(result.statements) == 2
 
@@ -91,16 +91,14 @@ def test_tag_definition_with_nested_hierarchy():
     """Test that nested tag definitions create proper hierarchy."""
     code = "!tag #status = {#active #inactive #error = {#timeout}}"
 
-    result = comp.parse(code)
+    result = comp.parse_module(code)
     tag_def = result.statements[0]
 
     assert isinstance(tag_def, comp.TagDefinition)
-    assert tag_def.tag is not None
-    assert tag_def.children is not None
-    assert len(tag_def.children) == 3  # active, inactive, error
+    assert tag_def.tokens is not None
+    assert len(tag_def.kids) == 3  # active, inactive, error
 
     # The third child (#error) should itself have children
-    error_child = tag_def.children[2]
+    error_child = tag_def.kids[2]
     assert isinstance(error_child, comp.TagDefinition)
-    assert error_child.children is not None
-    assert len(error_child.children) == 1  # timeout
+    assert len(error_child.kids) == 1  # timeout

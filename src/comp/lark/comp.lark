@@ -9,8 +9,21 @@
 // - Clear separation of concerns
 // - Declarative over imperative
 
-// === ENTRY POINT ===
-start: expression
+// === ENTRY POINTS ===
+
+// Module-level parsing (default - for complete .comp files)
+start: module
+
+// Module contains zero or more module-level statements
+module: module_statement*
+
+// Module-level statements (definitions and top-level expressions)
+?module_statement: tag_definition
+                 | expression         // Allow expressions for REPL/testing compatibility
+
+// Expression-level parsing (for REPL, testing, embedded evaluation)
+// Access via Lark's start parameter: Lark(..., start="expression_start")
+expression_start: expression
 
 // === BASIC TOKENS ===
 
@@ -97,6 +110,28 @@ tag_reference: "#" _reference_path
 shape_reference: "~" _reference_path  
 function_reference: "|" _reference_path
 _function_piped: "|" _reference_path  // ignored for pipeline parsing
+
+
+// === MODULE-LEVEL DEFINITIONS ===
+
+// Tag definitions (!tag)
+// Supports multiple styles:
+//   Simple:     !tag #status
+//   Nested:     !tag #status = {#active #inactive}
+//   Flat:       !tag #status.error.timeout
+//   Hierarchical: !tag #status = {#error = {#timeout #network}}
+// Note: Tag definitions cannot include module namespace (no /module suffix)
+BANG_TAG: "!tag"
+
+tag_definition: BANG_TAG tag_path                         // Simple: !tag #status
+              | BANG_TAG tag_path ASSIGN tag_body         // With children: !tag #status = {...}
+
+tag_path: "#" reference_identifiers                       // Tag path without namespace
+
+tag_body: LBRACE tag_child* RBRACE
+
+tag_child: tag_path                                       // Simple child: #active
+         | tag_path ASSIGN tag_body                       // Nested child: #error = {...}
 
 
 // === STRUCTURE DEFINITION ===

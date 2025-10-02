@@ -34,7 +34,7 @@ import comptest
 )
 def test_valid_tag_references(key, expression):
     """Test that valid tag references parse and round-trip correctly."""
-    result = comp.parse(expression)
+    result = comp.parse_expr(expression)
     # Verify it parsed successfully and round-trips
     comptest.roundtrip(result)
     # Verify unparsing gives back the original
@@ -81,6 +81,6 @@ def test_tag_reference_with_other_literals():
     ]
 
     for expr in literals:
-        result = comp.parse(expr)
+        result = comp.parse_expr(expr)
         comptest.roundtrip(result)
 

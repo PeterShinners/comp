@@ -5,7 +5,7 @@ Simple, consistent design with minimal complexity.
 Uses the clean AST nodes for consistent naming and structure.
 """
 
-__all__ = ["parse", "grammar"]
+__all__ = ["parse_module", "parse_expr", "grammar_module", "grammar_expr"]
 
 import functools
 from pathlib import Path
@@ -14,14 +14,57 @@ import lark
 
 from . import _ast
 
-# Global parser instance
-_lark_parser: lark.Lark | None = None
+# Global parser instances
+_module_parser: lark.Lark | None = None
+_expr_parser: lark.Lark | None = None
 
 
-def parse(text: str):
-    """Parse Comp code and return an AST node."""
+def parse_module(text: str) -> _ast.Module:
+    """Parse a complete Comp module.
+    
+    Parses module-level statements including tag definitions, function
+    definitions, imports, and entry points.
+    
+    Args:
+        text: Module source code
+        
+    Returns:
+        Module AST node containing all module statements
+        
+    Raises:
+        ParseError: If the text contains invalid syntax
+    """
     try:
-        parser = _get_parser()
+        parser = _get_module_parser()
+        tree = parser.parse(text)
+        module = _create_node([].append, tree, _ast.Module)
+        ast = generate_ast(module, tree.children)
+        return ast
+    except lark.exceptions.LarkError as e:
+        error_msg = str(e)
+        # Improve error messages for common cases
+        if "DUBQUOTE" in error_msg and "$END" in error_msg:
+            error_msg = "Unterminated string literal"
+        raise _ast.ParseError(error_msg) from e
+
+
+def parse_expr(text: str) -> _ast.Root:
+    """Parse a single Comp expression.
+    
+    Parses expression-level constructs like numbers, strings, structures,
+    pipelines, and operators. Used for REPL, testing, and embedded contexts.
+    
+    Args:
+        text: Expression source code
+        
+    Returns:
+        Root AST node containing the expression
+        
+    Raises:
+        ParseError: If the text contains invalid syntax
+    """
+    try:
+        parser = _get_expr_parser()
         tree = parser.parse(text)
         root = _create_node([].append, tree, _ast.Root)
         ast = generate_ast(root, tree.children)
@@ -54,7 +97,11 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
         _node = functools.partial(_create_node, parent.kids.append, child)
         match child.data:
             # Skips
-            case 'start':  #  Defensive, normally skipped at entry
+            case 'start' | 'module':
+                # Pass through to children
+                return generate_ast(parent, child.children)
+            case 'expression_start':
+                # Expression entry point - pass through
                 return generate_ast(parent, child.children)
             case 'paren_expr':
                 # LPAREN expression RPAREN
@@ -71,6 +118,25 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 # This is field access on an expression: (expr).field
                 # Children: [expr_tree, DOT, field_tree]
                 _node(_ast.FieldAccess, walk=kids)
+
+            # Module-level definitions
+            case 'tag_definition':
+                _node(_ast.TagDefinition, walk=kids)
+            case 'tag_body':
+                # tag_body: LBRACE tag_child* RBRACE
+                # Just pass through children (tag_child nodes)
+                generate_ast(parent, kids)
+                continue
+            case 'tag_child':
+                # tag_child can be either:
+                # 1. Just a tag_path: #active
+                # 2. tag_path with nested body: #error = {...}
+                # Create a TagDefinition for the child
+                _node(_ast.TagDefinition, walk=kids)
+            case 'tag_path':
+                # This is handled by TagDefinition.fromGrammar
+                # Should not appear as standalone in AST
+                pass
 
             # Leafs
             case 'string':
@@ -169,40 +235,63 @@ def _create_node(parent_append, tree: lark.Tree, cls, walk=None):
     return node
 
 
-def grammar(expression):
+def grammar_module(code: str):
     """
-    Debug utility: Reload Lark parser, parse expression, and pretty print the raw Lark tree.
+    Debug utility: Parse module and pretty print the raw Lark tree.
+    
+    This bypasses AST transformation to show the raw grammar structure,
+    useful for debugging module-level grammar issues.
+    
+    Args:
+        code: The module code to parse
+        
+    Returns:
+        lark.Tree: The raw Lark parse tree, or None if parsing failed
+    """
+    grammar_path = Path(__file__).parent / "lark" / "comp.lark"
+    parser = lark.Lark(
+        grammar_path.read_text(encoding="utf-8"),
+        parser='lalr',
+        start='module',
+        keep_all_tokens=True,
+    )
+    
+    print(f"Parsing module: {code}")
+    try:
+        tree = parser.parse(code)
+        _pretty_print_lark_tree(tree)
+        return None
+    except Exception as e:
+        print(f"Parse error: {e}")
+        return None
+
+
+def grammar_expr(expression: str):
+    """
+    Debug utility: Parse expression and pretty print the raw Lark tree.
 
     This bypasses AST transformation to show the raw grammar structure,
-    useful for debugging grammar issues at the Lark level.
+    useful for debugging expression-level grammar issues.
 
     Args:
-        expression (str): The expression to parse
+        expression: The expression to parse
 
     Returns:
         lark.Tree: The raw Lark parse tree, or None if parsing failed
     """
-    # Read and combine grammar files fresh each time
-    grammar_dir = Path(__file__).parent / "lark"
-
-    # Read main grammar
-    with open(grammar_dir / "comp.lark") as f:
-        comp_grammar = f.read()
-
-    # Create fresh parser
+    grammar_path = Path(__file__).parent / "lark" / "comp.lark"
     parser = lark.Lark(
-        comp_grammar,
+        grammar_path.read_text(encoding="utf-8"),
         parser='lalr',
-        start='expression',
+        start='expression_start',
         keep_all_tokens=True,
-        maybe_placeholders=False,
     )
 
-    print(f"Parsing: {expression}")
+    print(f"Parsing expression: {expression}")
     try:
         tree = parser.parse(expression)
         _pretty_print_lark_tree(tree)
-        return None#tree
+        return None
     except Exception as e:
         print(f"Parse error: {e}")
         return None
@@ -225,17 +314,32 @@ def _pretty_print_lark_tree(tree, indent=0):
             print(f"{spaces}'{tree}'")
 
 
-def _get_parser() -> lark.Lark:
-    """Get the singleton Lark parser instance."""
-    global _lark_parser
-    if _lark_parser is None:
+def _get_module_parser() -> lark.Lark:
+    """Get the singleton Lark parser instance for module parsing."""
+    global _module_parser
+    if _module_parser is None:
         grammar_path = Path(__file__).parent / "lark" / "comp.lark"
-        _lark_parser = lark.Lark(
+        _module_parser = lark.Lark(
             grammar_path.read_text(encoding="utf-8"),
             parser="lalr",
-            #transformer=CompTransformer(),
+            start="module",
             propagate_positions=True,
             keep_all_tokens=True,
         )
-    return _lark_parser
+    return _module_parser
+
+
+def _get_expr_parser() -> lark.Lark:
+    """Get the singleton Lark parser instance for expression parsing."""
+    global _expr_parser
+    if _expr_parser is None:
+        grammar_path = Path(__file__).parent / "lark" / "comp.lark"
+        _expr_parser = lark.Lark(
+            grammar_path.read_text(encoding="utf-8"),
+            parser="lalr",
+            start="expression_start",
+            propagate_positions=True,
+            keep_all_tokens=True,
+        )
+    return _expr_parser
 

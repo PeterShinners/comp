@@ -9,6 +9,7 @@ __all__ = [
     "ParseError",
     "AstNode",
     "Root",
+    "Module",
     "Number",
     "String",
     "BinaryOp",
@@ -36,6 +37,7 @@ __all__ = [
     "TagRef",
     "ShapeRef",
     "FuncRef",
+    "TagDefinition",
 ]
 
 import decimal
@@ -156,9 +158,111 @@ class AstNode:
 
 
 class Root(AstNode):
-    """Root of grammar Ast."""
+    """Root of grammar Ast for expressions."""
     def unparse(self) -> str:
         return " ".join(kid.unparse() for kid in self.kids)
+
+
+class Module(AstNode):
+    """Root of grammar Ast for modules.
+
+    Contains module-level statements like tag definitions, function definitions,
+    imports, and potentially expressions (for REPL/testing compatibility).
+    """
+    @property
+    def statements(self) -> list['AstNode']:
+        """Access module statements (alias for kids)."""
+        return self.kids
+
+    def unparse(self) -> str:
+        return "\n".join(kid.unparse() for kid in self.kids)
+
+
+# === MODULE-LEVEL DEFINITIONS ===
+
+
+class TagDefinition(AstNode):
+    """Tag definition at module level.
+
+    Examples:
+        !tag #status
+        !tag #status = {#active #inactive}
+        !tag #status.error.timeout
+
+    The tag path is stored as a list of tokens (e.g., ["status", "error", "timeout"]).
+    Children are nested TagDefinition nodes for hierarchical definitions.
+    """
+
+    def __init__(self, tokens: list[str] | None = None):
+        """Initialize tag definition.
+
+        Args:
+            tokens: List of tag path components (e.g., ["status", "error"])
+        """
+        self.tokens = list(tokens) if tokens else []
+        super().__init__()
+
+    def unparse(self, is_child: bool = False) -> str:
+        """Unparse tag definition back to source code.
+
+        Args:
+            is_child: If True, omit the !tag prefix (used for nested definitions)
+        """
+        tag_path = "#" + ".".join(self.tokens)
+
+        if not self.kids:
+            # Simple definition
+            if is_child:
+                return tag_path  # Just #status
+            else:
+                return f"!tag {tag_path}"  # !tag #status
+
+        # Definition with children: !tag #status = {#active #inactive}
+        # Children are unparsed without the !tag prefix
+        children_str = " ".join(kid.unparse(is_child=True) for kid in self.kids)
+
+        if is_child:
+            return f"{tag_path} = {{{children_str}}}"  # #error = {...}
+        else:
+            return f"!tag {tag_path} = {{{children_str}}}"  # !tag #status = {...}
+
+    @classmethod
+    def fromGrammar(cls, tree):
+        """Parse from Lark tree.
+
+        Can handle two grammar rules:
+        - tag_definition: BANG_TAG tag_path [ASSIGN tag_body]
+        - tag_child: tag_path | tag_path ASSIGN tag_body
+
+        For tag_path: "#" reference_identifiers -> extracts tokens from reference_identifiers
+        For tag_body: LBRACE tag_child* RBRACE -> children are processed separately
+        """
+        # Determine if this is tag_definition or tag_child
+        if tree.data == 'tag_definition':
+            # tag_definition: BANG_TAG tag_path [ASSIGN tag_body]
+            # First child is BANG_TAG token, second is tag_path
+            tag_path_tree = tree.children[1]
+        else:
+            # tag_child: tag_path | tag_path ASSIGN tag_body
+            # First child is tag_path
+            tag_path_tree = tree.children[0]
+
+        # tag_path -> "#" reference_identifiers
+        # Check if tag_path_tree is a Tree or Token
+        if hasattr(tag_path_tree, 'children'):
+            # It's a Tree - get reference_identifiers
+            reference_identifiers = tag_path_tree.children[1]  # Skip "#" token
+        else:
+            # It's a Token - shouldn't happen, but handle gracefully
+            raise ValueError(f"Expected tag_path tree, got token: {tag_path_tree}")
+
+        # Extract tokens from reference_identifiers (TOKEN ("." TOKEN)*)
+        tokens = []
+        for child in reference_identifiers.children:
+            if hasattr(child, 'value') and child.value != ".":
+                tokens.append(child.value)
+
+        return cls(tokens=tokens)
 
 
 # === LITERALS ===
@@ -485,7 +589,7 @@ class Placeholder(AstNode):
 
 class EmptyPipelineSeed(AstNode):
     """Placeholder for pipelines without an explicit seed expression.
-    
+
     Used when a pipeline starts with a pipe operator like ( |process)
     rather than having an explicit seed value like (data |process).
     This ensures Pipeline.kids[0] is always the seed expression.

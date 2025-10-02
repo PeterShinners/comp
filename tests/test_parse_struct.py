@@ -10,9 +10,9 @@ SPECIFICATION:
 - Named block operations: name:{expression} as shorthand
 
 PARSER EXPECTATIONS:
-- comp.parse("{}") → Structure([])
-- comp.parse("{42}") → Structure with one unnamed field
-- comp.parse("{x=1}") → Structure with one assignment
+- comp.parse_expr("{}") → Structure([])
+- comp.parse_expr("{42}") → Structure with one unnamed field
+- comp.parse_expr("{x=1}") → Structure with one assignment
 - Round-trip: parse(code).unparse() should match structure
 
 AST NODES: Structure, StructAssign, StructUnnamed, etc.

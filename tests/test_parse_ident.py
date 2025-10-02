@@ -1,7 +1,7 @@
 """
 Comprehensive identifier parsing tests for the Comp language.
 
-Tests identifiers through the main comp.parse() method with proper parser flow.
+Tests identifiers through the main comp.parse_expr() method with proper parser flow.
 """
 
 import comp

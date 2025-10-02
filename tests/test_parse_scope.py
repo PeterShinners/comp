@@ -9,12 +9,12 @@ SPECIFICATION:
 - Mixed assignments: {$ctx.session = token, result.field = value, @temp = data}
 
 PARSER EXPECTATIONS (Updated for flattened structure):
-- comp.parse("$ctx") → ScopeReference(ScopeToken("$", "ctx"))
-- comp.parse("$ctx.session") → ScopeReference(ScopeToken("$", "ctx"), Identifier("session"))
-- comp.parse("^timeout") → ScopeReference(ScopeToken("^", None), Identifier("timeout"))
-- comp.parse("@counter") → ScopeReference(ScopeToken("@", None), Identifier("counter"))
-- comp.parse("$mod.two.three") → ScopeReference(ScopeToken("$", "mod"), Identifier("two"), Identifier("three"))
-- comp.parse("{$ctx.session = token}") → StructureLiteral([ScopeAssignment(...)])
+- comp.parse_expr("$ctx") → ScopeReference(ScopeToken("$", "ctx"))
+- comp.parse_expr("$ctx.session") → ScopeReference(ScopeToken("$", "ctx"), Identifier("session"))
+- comp.parse_expr("^timeout") → ScopeReference(ScopeToken("^", None), Identifier("timeout"))
+- comp.parse_expr("@counter") → ScopeReference(ScopeToken("@", None), Identifier("counter"))
+- comp.parse_expr("$mod.two.three") → ScopeReference(ScopeToken("$", "mod"), Identifier("two"), Identifier("three"))
+- comp.parse_expr("{$ctx.session = token}") → StructureLiteral([ScopeAssignment(...)])
 
 AST NODES: ScopeReference(scope_token, *field_identifiers),
            ScopeToken(scope_type, scope_name),
@@ -47,7 +47,7 @@ import comp
 ])
 def test_valid_scopes(field, scope, field_count):
     """Test parsing of standalone scopes"""
-    result = comp.parse(field)
+    result = comp.parse_expr(field)
     assert isinstance(result, comp.FieldAccessOperation)
     assert isinstance(result.object, comp.Scope)
     assert result.object.value == scope
@@ -62,7 +62,7 @@ def test_valid_scopes(field, scope, field_count):
 def test_invalid_scopes(field):
     """Test parsing of invalid standalong scopes"""
     with pytest.raises(comp.ParseError):
-        comp.parse(field)
+        comp.parse_expr(field)
 
 
 @pytest.mark.parametrize("field,left,right", [
@@ -71,7 +71,7 @@ def test_invalid_scopes(field):
 ])
 def test_binary_parsing(field, left, right):
     """Check operator precedence with simple expressions"""
-    result = comp.parse(field)
+    result = comp.parse_expr(field)
     assert isinstance(result, comp.BinaryOperation)
     assert isinstance(result.left, comp.FieldAccessOperation)
     assert isinstance(result.right, comp.FieldAccessOperation)
@@ -106,7 +106,7 @@ def test_binary_parsing(field, left, right):
 ])
 def test_scope_assignments(assignment, scope_type, scope_name, field_path, operator, value_type):
     """Test parsing of scope assignments at top level"""
-    result = comp.parse(assignment)
+    result = comp.parse_expr(assignment)
     assert isinstance(result, comp.AssignmentOperation)
 
     #
@@ -127,14 +127,14 @@ def test_scope_assignments(assignment, scope_type, scope_name, field_path, opera
         assert isinstance(actual_value.fields[0], comp.Identifier)
     else:
         assert isinstance(actual_value, value_type)
-    
+
     # Check scope structure
     if scope_type in ["$", "@", "^"]:
         # Should have a Scope as object
         assert isinstance(result.target.object, comp.Scope)
         expected_scope_value = f"{scope_type}{scope_name}" if scope_type == "$" else scope_type
         assert result.target.object.value == expected_scope_value
-        
+
         # Check fields (for field paths like ctx.field)
         if field_path:
             assert len(result.target.fields) > 0
@@ -169,13 +169,13 @@ def test_scope_assignments(assignment, scope_type, scope_name, field_path, opera
 ])
 def test_field_assignments(assignment, target_name, field_path, operator, value_type):
     """Test parsing of nested field assignments at top level"""
-    result = comp.parse(assignment)
+    result = comp.parse_expr(assignment)
     assert isinstance(result, comp.AssignmentOperation)
 
     # Check target - should be FieldAccessOperation
     assert isinstance(result.target, comp.FieldAccessOperation)
     assert result.target.object is None  # Bare field access has no object
-    
+
     # Check operator
     assert result.operator == operator
 
@@ -193,15 +193,15 @@ def test_field_assignments(assignment, target_name, field_path, operator, value_
     assert len(result.target.fields) >= 1
     assert isinstance(result.target.fields[0], comp.Identifier)
     assert result.target.fields[0].name == target_name
-    
+
     # Check nested field path
     if len(field_path) > 0:
         # For nested paths like one.two, we should have the base identifier plus additional fields
         # The flattened structure removes dots, so "config.database.timeout" becomes
-        # [Identifier('config'), Identifier('database'), Identifier('timeout')] 
+        # [Identifier('config'), Identifier('database'), Identifier('timeout')]
         expected_field_count = len([f for f in field_path if f != "."])  # Count non-dot fields
         assert len(result.target.fields) == expected_field_count + 1  # +1 for base identifier
-        
+
         # Check the additional fields (skip the base identifier at index 0)
         field_index = 1
         for expected_field in field_path:
@@ -214,14 +214,14 @@ def test_field_assignments(assignment, target_name, field_path, operator, value_
 @pytest.mark.parametrize("assignment,description", [
     # Mixed scope and field assignments in structures (single assignments only - no commas)
     ("{$ctx.session = token}", "scope field assignment in structure"),
-    
+
     # Complex nested structures with assignments
     ("{$ctx.database = {host=\"localhost\" port=5432}}", "nested structure assignment to scope"),
     ("{user.profile = {name=\"alice\" verified=#true}}", "nested structure assignment to field"),
 ])
 def test_assignment_in_structures(assignment, description):
     """Test that assignments work correctly within structure literals"""
-    result = comp.parse(assignment)
+    result = comp.parse_expr(assignment)
     assert isinstance(result, comp.StructureLiteral)
     assert len(result.operations) > 0
 
@@ -233,12 +233,12 @@ def test_assignment_in_structures(assignment, description):
 def test_scope_assignment_vs_reference():
     """Test that scope assignments and references are parsed differently"""
     # Reference - should be FieldAccessOperation
-    ref_result = comp.parse("$ctx.session")
+    ref_result = comp.parse_expr("$ctx.session")
     assert isinstance(ref_result, comp.FieldAccessOperation)
     assert isinstance(ref_result.object, comp.Scope)
-    
+
     # Assignment - should be AssignmentOperation
-    assign_result = comp.parse("$ctx.session = token")
+    assign_result = comp.parse_expr("$ctx.session = token")
     assert isinstance(assign_result, comp.AssignmentOperation)
     assert isinstance(assign_result.target, comp.FieldAccessOperation)
     assert isinstance(assign_result.target.object, comp.Scope)

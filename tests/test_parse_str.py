@@ -8,8 +8,8 @@ SPECIFICATION:
 - Error cases: unterminated strings, invalid escapes
 
 PARSER EXPECTATIONS:
-- comp.parse('"hello"') → String("hello")
-- comp.parse('"say \\"hi\\""') → String('say "hi"')
+- comp.parse_expr('"hello"') → String("hello")
+- comp.parse_expr('"say \\"hi\\""') → String('say "hi"')
 
 AST NODE: String(value: str)
 

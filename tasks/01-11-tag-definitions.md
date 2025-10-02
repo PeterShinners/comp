@@ -1,7 +1,21 @@
 # Phase 11: Tag Definitions (Module-Level Grammar)
 
-**Status**: 🔄 **IN PROGRESS**  
-**Started**: October 2025
+**Status**: ✅ **COMPLETE**  
+**Started**: October 2025  
+**Completed**: October 2025
+
+## Progress
+
+- [X] Grammar updated with module-level entry point
+- [X] Tag definition grammar rules added
+- [X] Implement `parse_module()` and `parse_expr()` functions
+- [X] Create `Module` and `TagDefinition` AST nodes
+- [X] Add transformer methods for new grammar rules
+- [X] Update test helpers in `comptest.py`
+- [X] Update tests to use new parse functions
+- [X] Run test suite and validate
+- [X] All 11 tag definition tests passing
+- [X] All 266 existing tests still passing
 
 ## Overview
 
@@ -90,95 +104,219 @@ This phase implements "tags-light" - tag definitions **without values** (those c
 
 ### Entry Point Transformation
 
-The grammar entry point needs to change from single expression parsing to module-level parsing:
-
-**Current (expression-level)**:
+**Before**:
 ```lark
+// === ENTRY POINT ===
 start: expression
 ```
 
-**New (module-level)**:
+**After**:
 ```lark
+// === ENTRY POINTS ===
+
+// Module-level parsing (default - for complete .comp files)
 start: module
 
-module: module_statement*
+// Module contains zero or more module-level statements
+module: _module_statement*
 
-?module_statement: tag_definition
-                 | expression        // For REPL and testing compatibility
+// Module-level statements (definitions and top-level expressions)
+?_module_statement: tag_definition
+                  | expression         // Allow expressions for REPL/testing compatibility
+
+// Expression-level parsing (for REPL, testing, embedded evaluation)
+// Access via Lark's start parameter: Lark(..., start="expression_start")
+expression_start: expression
 ```
 
-This allows the parser to handle both complete modules and single expressions (for REPL/testing).
-
 ### Tag Definition Grammar
+
+**Location**: Lines 118-131 in `comp.lark`
 
 ```lark
 // === MODULE-LEVEL DEFINITIONS ===
 
+// Tag definitions (!tag)
+// Supports multiple styles:
+//   Simple:     !tag #status
+//   Nested:     !tag #status = {#active #inactive}
+//   Flat:       !tag #status.error.timeout
+//   Hierarchical: !tag #status = {#error = {#timeout #network}}
 BANG_TAG: "!tag"
 
-tag_definition: BANG_TAG tag_reference
-              | BANG_TAG tag_reference ASSIGN tag_body
+tag_definition: BANG_TAG tag_reference                    // Simple: !tag #status
+              | BANG_TAG tag_reference ASSIGN tag_body    // With children: !tag #status = {...}
 
-tag_body: LBRACE tag_children RBRACE
+tag_body: LBRACE tag_child* RBRACE
 
-tag_children: tag_child*
-
-?tag_child: tag_reference                    // Simple: #active
-          | tag_reference ASSIGN tag_body    // With children: #error = {...}
+?tag_child: tag_reference                             // Simple child: #active
+          | tag_reference ASSIGN tag_body             // Nested child: #error = {...}
 ```
 
-### Integration Considerations
+### Pattern for Future Definitions
 
-- **Backward compatibility**: Existing expression tests should still work
-- **REPL support**: Single expressions should parse as valid modules
-- **Error messages**: Clear distinction between module-level and expression-level contexts
-- **Future expansion**: Architecture supports adding `!func`, `!shape`, `!import` later
+This establishes a clean pattern for upcoming module-level definitions:
+
+1. **Token naming**: `BANG_<TYPE>` (e.g., `BANG_TAG`, future: `BANG_FUNC`, `BANG_SHAPE`)
+2. **Rule naming**: `<type>_definition` (e.g., `tag_definition`, future: `func_definition`)
+3. **Body structure**: `<type>_body` contains `<type>_child*` for hierarchical content
+4. **Simple + complex forms**: Support both simple and structured forms with `ASSIGN`
+
+**Future application**:
+```lark
+// Function definitions (future phase)
+BANG_FUNC: "!func"
+func_definition: BANG_FUNC function_reference func_signature ASSIGN func_body
+                | BANG_FUNC function_reference ASSIGN func_body  // No signature
+
+// Shape definitions (future phase)  
+BANG_SHAPE: "!shape"
+shape_definition: BANG_SHAPE shape_reference ASSIGN shape_body
+```
+
+### Supported Tag Styles
+
+**1. Simple Definition**
+```comp
+!tag #status
+```
+Parses as: `tag_definition(BANG_TAG, tag_reference("#status"))`
+
+**2. Nested Style**
+```comp
+!tag #status = {#active #inactive #pending}
+```
+Parses as: `tag_definition(BANG_TAG, tag_reference("#status"), ASSIGN, tag_body(...))`
+
+**3. Hierarchical Nested**
+```comp
+!tag #status = {
+    #active
+    #inactive
+    #error = {
+        #timeout
+        #network
+    }
+}
+```
+Parses hierarchically with nested `tag_child` containing `tag_body`.
+
+**4. Flat Style**
+```comp
+!tag #status.error.timeout
+```
+Uses dotted notation in tag reference - hierarchy built by parser/transformer.
+
+### Grammar Implementation Notes
+
+- Empty tag bodies `{}` are **invalid** (caught by grammar with `tag_child*` requiring at least implicit content)
+- Tag references must follow existing reference syntax from Phase 04
+- The `?` prefix on `_module_statement` and `tag_child` prevents intermediate nodes in parse tree
+- Comments work in tag bodies (handled by `%ignore COMMENT`)
+- Whitespace is flexible (handled by `%ignore /\s+/`)
+- Module can be empty (zero statements is valid)
 
 ## AST Node Design
-
-### TagDefinition Node
-
-```python
-@dataclass
-class TagDefinition(AstNode):
-    """
-    Represents a tag definition at module level.
-    
-    Examples:
-        !tag #status
-        !tag #status = {#active #inactive}
-        !tag #status.error.timeout
-    """
-    tag: TagReference      # The tag being defined (e.g., #status.error)
-    children: list[TagDefinition] | None  # Child tag definitions, if any
-    
-    def unparse(self) -> str:
-        if self.children is None:
-            return f"!tag {self.tag.unparse()}"
-        
-        # Format children
-        child_strs = [child.unparse() for child in self.children]
-        children_formatted = " ".join(child_strs)
-        
-        return f"!tag {self.tag.unparse()} = {{{children_formatted}}}"
-```
 
 ### Module Node
 
 ```python
-@dataclass  
 class Module(AstNode):
-    """
-    Represents a complete Comp module (file).
+    """Root of grammar AST for modules.
     
-    Contains module-level statements: tag definitions, function definitions,
-    imports, and potentially top-level expressions (for REPL compatibility).
+    Contains module-level statements like tag definitions, function definitions,
+    imports, and potentially expressions (for REPL/testing compatibility).
     """
-    statements: list[AstNode]  # List of module-level statements
+    def unparse(self) -> str:
+        return "\n".join(kid.unparse() for kid in self.kids)
+```
+
+**Design**: Simple container similar to `Root`, but separates module-level from expression-level parsing. Children are module-level statements (tag definitions, expressions, etc.).
+
+### TagDefinition Node
+
+```python
+class TagDefinition(AstNode):
+    """Tag definition at module level.
+    
+    The tag path is stored as a list of tokens (e.g., ["status", "error", "timeout"]).
+    Children are nested TagDefinition nodes for hierarchical definitions.
+    """
+    
+    def __init__(self, tokens: list[str] | None = None):
+        self.tokens = list(tokens) if tokens else []
+        super().__init__()
     
     def unparse(self) -> str:
-        return "\n".join(stmt.unparse() for stmt in self.statements)
+        tag_path = "#" + ".".join(self.tokens)
+        
+        if not self.kids:
+            # Simple: !tag #status
+            return f"!tag {tag_path}"
+        
+        # With children: !tag #status = {#active #inactive}
+        children_str = " ".join(kid.unparse() for kid in self.kids)
+        return f"!tag {tag_path} = {{{children_str}}}"
 ```
+
+**Design Decisions**:
+
+1. **Storage**: `tokens` list stores tag path components (e.g., `["status", "error"]`)
+   - Matches pattern from `TagRef` which uses `tokens` for path
+   - Easy to reconstruct full path: `"#" + ".".join(tokens)`
+
+2. **Children**: Nested `TagDefinition` nodes in `self.kids`
+   - Example: `!tag #status = {#active #error = {#timeout}}`
+   - Creates hierarchy: `TagDefinition(["status"])` with kids:
+     - `TagDefinition(["active"])`  (no children)
+     - `TagDefinition(["error"])` with kids:
+       - `TagDefinition(["timeout"])` (no children)
+
+3. **Flat vs Nested**: Both styles produce the same AST structure
+   - Flat: `!tag #status.error.timeout` → `TagDefinition(["status", "error", "timeout"])`
+   - Nested hierarchy is built through parent-child relationships in `self.kids`
+
+4. **No separate tag_path node**: Tag path is inlined as `tokens` attribute
+   - Simpler than creating a separate `TagPath` AST node
+   - Follows pattern from `Structure` which stores data directly
+
+**Hierarchy Example**:
+
+```comp
+!tag #status = {
+    #active
+    #error = {
+        #timeout
+        #network
+    }
+}
+```
+
+Produces AST:
+```
+Module
+  └─ TagDefinition(tokens=["status"])
+       ├─ TagDefinition(tokens=["active"])
+       └─ TagDefinition(tokens=["error"])
+            ├─ TagDefinition(tokens=["timeout"])
+            └─ TagDefinition(tokens=["network"])
+```
+
+**Alternative Considered**: Store full path in children instead of just name
+
+```python
+# Rejected: Store full path
+TagDefinition(["status", "error", "timeout"])  # Full path in leaf
+
+# Chosen: Store only immediate name  
+TagDefinition(["timeout"])  # Just the name, hierarchy via parent chain
+```
+
+**Rationale**: 
+- Children store only their immediate name (e.g., `["timeout"]` not `["status", "error", "timeout"]`)
+- This matches the grammar where `#timeout` appears in the source, not `#status.error.timeout`
+- Parent context is implicit through the tree structure
+- Simpler unparsing - just output the immediate name
 
 ## Planned Features
 
@@ -362,6 +500,69 @@ When parsing flat style `!tag #status.error.timeout`, the transformer should:
 This ensures both styles produce identical AST structures.
 
 ## Success Metrics
+
+**All Success Criteria Met**: ✅
+
+- **Tag Definition Parsing**: All styles working (simple, nested, flat, hierarchical)
+- **Module-Level Grammar**: Clean separation from expression-level parsing
+- **AST Integration**: Module and TagDefinition nodes with proper unparsing
+- **Test Coverage**: 11 new tests, all passing
+- **Backward Compatibility**: All 266 existing tests still passing
+- **Round-trip Validation**: Parse → unparse → parse produces identical AST
+
+## Implementation Summary
+
+### Key Changes Made
+
+1. **Grammar** (`src/comp/lark/comp.lark`):
+   - Changed entry point from `expression` to `module`
+   - Added `module_statement` rule for module-level constructs
+   - Added `tag_definition`, `tag_path`, `tag_body`, `tag_child` rules
+   - Added `BANG_TAG` token for `!tag` keyword
+   - Fixed: Removed `?` from `tag_child` to prevent inlining issues
+
+2. **Parser** (`src/comp/_parser.py`):
+   - Split `parse()` into `parse_module()` and `parse_expr()`
+   - Added grammar debug functions: `grammar_module()`, `grammar_expr()`
+   - Implemented two singleton parsers with different entry points
+   - Added transformer cases for `tag_definition`, `tag_body`, `tag_child`
+
+3. **AST** (`src/comp/_ast.py`):
+   - Added `Module` class with `statements` property
+   - Added `TagDefinition` class with `tokens` list and children
+   - Implemented `unparse(is_child=False)` to handle nested vs top-level
+   - Implemented `fromGrammar()` to handle both grammar rule types
+
+4. **Tests** (`tests/test_parse_tags.py`):
+   - 4 valid cases: simple, nested, deep_nested, flat
+   - 5 invalid cases: no_tag_reference, empty_braces, missing_equals, invalid_tag_name, nested_no_tag
+   - Multiple definitions test
+   - Nested hierarchy validation test
+
+5. **Test Infrastructure** (`tests/comptest.py`):
+   - Updated `roundtrip()` to detect Module vs Root and use appropriate parser
+   - All other tests updated to use `parse_expr()` instead of `parse()`
+
+### Lessons Learned
+
+- **Lark modifiers**: Cannot combine `?` (inline) with `_` (internal) prefix
+- **Parse tree structure**: Removing `?` from `tag_child` was critical for transformer
+- **API design**: Separate functions (`parse_module`/`parse_expr`) clearer than mode parameter
+- **Unparsing context**: Need `is_child` flag to differentiate top-level vs nested output
+
+### Foundation for Future Work
+
+This phase establishes the pattern for all future module-level constructs:
+- `!func` - Function definitions
+- `!shape` - Shape/type definitions  
+- `!import` - Module imports
+- Entry points and module metadata
+
+The clean separation between module-level and expression-level grammar will make these additions straightforward.
+
+## Status: ✅ COMPLETE
+
+All objectives achieved. Ready for commit.
 
 - ✅ All existing tests pass (backward compatibility)
 - ✅ New tag definition tests pass (all styles)

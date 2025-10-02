@@ -9,8 +9,8 @@ SPECIFICATION:
 - Decimals: leading/trailing points (.5, 5.)
 
 PARSER EXPECTATIONS:
-- comp.parse("42") → Number(Decimal('42'))
-- comp.parse("0xFF") → Number(Decimal('255'))
+- comp.parse_expr("42") → Number(Decimal('42'))
+- comp.parse_expr("0xFF") → Number(Decimal('255'))
 
 AST NODE: Number(value: Decimal)
 

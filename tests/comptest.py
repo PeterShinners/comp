@@ -55,7 +55,7 @@ def invalid_parse(expression, match=None):
         invalid_parse("0b789", match="invalid.*binary")
     """
     try:
-        comp.parse(expression)
+        comp.parse_expr(expression)
     except comp.ParseError as err:
         msg = err.args[0]
         if match:
@@ -80,20 +80,25 @@ def roundtrip(ast):
         AssertionError: If round-trip produces different structure
 
     Example:
-        result = comp.parse("{x=1}")
+        result = comp.parse_expr("{x=1}")
         roundtrip(result)  # Asserts result.matches(reparsed)
 
         struct = parse_value("{x=1}", comp.Structure)
         roundtrip(struct)  # Also works with non-Root nodes
     """
     unparsed = ast.unparse()
-    reparsed = comp.parse(unparsed)
-
-    # If ast is not a Root node, wrap it in Root for comparison
-    if not isinstance(ast, comp.Root):
-        root = comp.Root()
-        root.kids = [ast]
-        ast = root
+    
+    # Choose parser based on AST type
+    if isinstance(ast, comp.Module):
+        reparsed = comp.parse_module(unparsed)
+    else:
+        reparsed = comp.parse_expr(unparsed)
+    
+        # If ast is not a Root node, wrap it in Root for comparison
+        if not isinstance(ast, comp.Root):
+            root = comp.Root()
+            root.kids = [ast]
+            ast = root
 
     assert ast.matches(reparsed), (
         f"Round-trip failed:\n"
@@ -121,7 +126,7 @@ def parse_value(expression, cls=comp.AstNode, index=0):
         number = parse_value("42", comp.Number)
         binop = parse_value("a + b", comp.BinaryOp)
     """
-    result = comp.parse(expression)
+    result = comp.parse_expr(expression)
     node = result.kids[index] if result.kids else result
     assert isinstance(node, cls), (
         f"Expected {cls.__name__}, got {type(node).__name__}\n"
@@ -152,7 +157,7 @@ def parse_number(expression, index=0):
         value = parse_number("-17")       # Returns Decimal('-17')
         value = parse_number("+3.14")     # Returns Decimal('3.14')
     """
-    result = comp.parse(expression)
+    result = comp.parse_expr(expression)
     node = result.kids[index] if result.kids else result
 
     # Handle UnaryOp("-", Number) or UnaryOp("+", Number)
@@ -188,7 +193,7 @@ def assert_unparse(ast, expression):
         AssertionError: If unparsed output doesn't match
 
     Example:
-        result = comp.parse("a+b")
+        result = comp.parse_expr("a+b")
         assert_unparse(result, "a + b")  # Spaces normalized
     """
     unparsed = ast.unparse()

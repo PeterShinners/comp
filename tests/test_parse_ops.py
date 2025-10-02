@@ -19,7 +19,7 @@ import comptest
 )
 def test_arithmetic_operators(key, expression, operator):
     """Test basic arithmetic operators parse correctly."""
-    result = comp.parse(expression)
+    result = comp.parse_expr(expression)
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
     assert isinstance(result, comp._ast.BinaryOp)
@@ -35,7 +35,7 @@ def test_arithmetic_operators(key, expression, operator):
 )
 def test_unary_operators(key, expression):
     """Test unary operators parse correctly."""
-    result = comp.parse(expression)
+    result = comp.parse_expr(expression)
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
     assert isinstance(result, comp._ast.UnaryOp)
@@ -53,7 +53,7 @@ def test_unary_operators(key, expression):
 )
 def test_comparison_operators(key, expression, operator):
     """Test comparison operators parse correctly."""
-    result = comp.parse(expression)
+    result = comp.parse_expr(expression)
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
     assert isinstance(result, comp._ast.BinaryOp)
@@ -67,7 +67,7 @@ def test_comparison_operators(key, expression, operator):
 )
 def test_logical_operators(key, expression, operator):
     """Test logical operators parse correctly."""
-    result = comp.parse(expression)
+    result = comp.parse_expr(expression)
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
     assert isinstance(result, comp._ast.BinaryOp)
@@ -83,13 +83,13 @@ def test_logical_operators(key, expression, operator):
 )
 def test_operator_precedence(key, expression):
     """Test operator precedence is handled correctly."""
-    result = comp.parse(expression)
+    result = comp.parse_expr(expression)
     comptest.roundtrip(result)
 
 
 def test_addition_multiplication_precedence():
     """Verify 2 + 3 * 4 == 2 + (3 * 4), not (2 + 3) * 4."""
-    result = comp.parse("2 + 3 * 4")
+    result = comp.parse_expr("2 + 3 * 4")
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
     assert isinstance(result, comp._ast.BinaryOp)
@@ -101,7 +101,7 @@ def test_addition_multiplication_precedence():
 
 def test_comparison_arithmetic_precedence():
     """Verify 2 + 3 < 4 * 5 == (2 + 3) < (4 * 5)."""
-    result = comp.parse("2 + 3 < 4 * 5")
+    result = comp.parse_expr("2 + 3 < 4 * 5")
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
     assert isinstance(result, comp._ast.BinaryOp)
@@ -115,7 +115,7 @@ def test_comparison_arithmetic_precedence():
 
 def test_logical_comparison_precedence():
     """Verify 2 < 3 && 4 > 5 == (2 < 3) && (4 > 5)."""
-    result = comp.parse("2 < 3 && 4 > 5")
+    result = comp.parse_expr("2 < 3 && 4 > 5")
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
     assert isinstance(result, comp._ast.BinaryOp)
@@ -135,7 +135,7 @@ def test_logical_comparison_precedence():
 )
 def test_operator_combinations(key, expression):
     """Test complex combinations of operators parse correctly."""
-    result = comp.parse(expression)
+    result = comp.parse_expr(expression)
     comptest.roundtrip(result)
 
 
@@ -148,7 +148,7 @@ def test_operator_combinations(key, expression):
 )
 def test_operator_edge_cases(key, expression):
     """Test edge cases in operator parsing."""
-    result = comp.parse(expression)
+    result = comp.parse_expr(expression)
     comptest.roundtrip(result)
 
 
