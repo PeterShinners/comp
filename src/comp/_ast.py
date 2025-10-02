@@ -525,10 +525,8 @@ class Pipeline(AstNode):
             parts.append(kid.unparse())
 
         value = " ".join(parts)
-        # If first real element is a pipe operator, wrap in parens
-        if self.kids and isinstance(self.kids[0], (EmptyPipelineSeed, PipelineOp)):
-            return f"({value})"
-        return value
+        # Pipelines now use square brackets
+        return f"[{value}]"
 
     @classmethod
     def fromGrammar(cls, tree):
@@ -635,7 +633,7 @@ class PipeFunc(PipelineOp):
 
 
 class PipeWrench(PipelineOp):
-    """Pipe wrench: |<< func"""
+    """Pipe wrench: |-| func"""
 
     @property
     def wrench(self):
@@ -644,8 +642,8 @@ class PipeWrench(PipelineOp):
 
     def unparse(self) -> str:
         if self.kids:
-            return f"|<< {self.wrench.unparse()}"
-        return "|<< ???"
+            return f"|-| {self.wrench.unparse()}"
+        return "|-| ???"
 
 
 # === REFERENCES ===

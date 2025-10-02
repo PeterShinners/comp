@@ -102,11 +102,13 @@ _function_piped: "|" _reference_path  // ignored for pipeline parsing
 // === STRUCTURE DEFINITION ===
 LBRACE: "{"
 RBRACE: "}"
+LBRACKET: "["
+RBRACKET: "]"
 COLON_BLOCK_START: ":{"
 SPREAD: ".."
 structure: LBRACE _structure_content RBRACE
 block: COLON_BLOCK_START _structure_content RBRACE
-_structure_content: structure_op* | pipeline
+_structure_content: structure_op*
 ?structure_op: structure_spread | structure_assign | structure_unnamed
 structure_spread: SPREAD expression
 structure_assign: _qualified _assignment_op expression  
@@ -133,9 +135,12 @@ RPAREN: ")"
 PLACEHOLDER: "???"
 placeholder: PLACEHOLDER
 
-// Parenthesized expressions - keeps atom definition flatter
+// Parenthesized expressions - simple grouping only (no pipelines)
 ?paren_expr: LPAREN expression RPAREN
-           | LPAREN pipeline RPAREN
+
+// Pipeline expressions - now use square brackets
+pipeline_expr: LBRACKET pipeline RBRACKET
+             | LBRACKET _prepipeline_expression pipeline RBRACKET  // Seeded pipeline
 
 // Atoms only match single entities
 // String is an atom (standalone literal), but can also appear as a field via stringfield
@@ -147,23 +152,24 @@ placeholder: PLACEHOLDER
      | block
      | placeholder
      | paren_expr
+     | pipeline_expr
 
 
 // Entry to the expression grammar
 ?expression: _prepipeline_expression
-           | _prepipeline_expression pipeline -> expr_pipeline
 
 // === PIPELINE EXPRESSIONS ===
+// Pipelines now use square brackets: [seed |op1 |op2] or [|op]
 // PIPE_FUNC: "|"
 PIPE_FALLBACK: "|?"
 PIPE_STRUCT: "|{"
-PIPE_WRENCH: "|<<"
+PIPE_WRENCH: "|-|"
 PIPE_BLOCK: "|:"
 pipe_func: function_reference function_arguments
 pipe_struct: PIPE_STRUCT structure_op* RBRACE
 pipe_fallback: PIPE_FALLBACK expression
 pipe_block: PIPE_BLOCK _qualified
-pipe_wrench: PIPE_WRENCH _function_piped  // Not right, may want to be a block or struct?
+pipe_wrench: PIPE_WRENCH _function_piped
 pipeline: (pipe_func | pipe_struct | pipe_block | pipe_wrench | pipe_fallback)+
 
 function_arguments: functionstructure_op*
