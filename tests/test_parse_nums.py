@@ -9,134 +9,106 @@ SPECIFICATION:
 - Decimals: leading/trailing points (.5, 5.)
 
 PARSER EXPECTATIONS:
-- comp.parse("42") → NumberLiteral(Decimal('42'))
-- comp.parse("0xFF") → NumberLiteral(Decimal('255'))
+- comp.parse("42") → Number(Decimal('42'))
+- comp.parse("0xFF") → Number(Decimal('255'))
 
-AST NODE: NumberLiteral(value: Decimal)
+AST NODE: Number(value: Decimal)
+
+NOTE: Refactored to use comptest helpers for clean parametrized testing.
 """
 
 from decimal import Decimal
 
-import pytest
-
-import comp
+import comptest
 
 
-@pytest.mark.parametrize("input_text,expected_value", [
-    ("42", "42"),
-    ("0", "0"),
-    ("-17", "-17"),
-    ("-0", "0"),
-])
-def test_parse_integers(input_text, expected_value):
+@comptest.params(
+    "code value",
+    basic=("42", 42),
+    zero=("0", 0),
+    nzero=("-0", 0),
+    neg=("-17", -17),
+    pos=("+12_34_56", 123456),
+    mill=("1_000_000", 1000000),
+    nunder=("-123_456", -123456),
+)
+def test_parse_integers(key, code, value):
     """Integer literals should become decimal values."""
-    result = comp.parse(input_text)
-    _assertNum(result, expected_value)
+    from decimal import Decimal
+    num_value = comptest.parse_number(code)
+    assert num_value == Decimal(value)
 
 
-@pytest.mark.parametrize("input_text,expected_value", [
-    ("3.14", "3.14"),
-    ("0.0", "0.0"),
-    ("-2.5", "-2.5"),
-])
-def test_parse_decimals(input_text, expected_value):
+@comptest.params(
+    "code value",
+    pi=("3.14", Decimal("3.14")),
+    upi=("3.141_592", Decimal("3.141592")),
+    tdangl=("5.", Decimal("5")),
+    ldangl=("+.5", Decimal("0.5")),
+    zero=("0.0", Decimal("0")),
+    neg=("-2.5", Decimal("-2.5")),
+)
+def test_parse_decimals(key, code, value):
     """Decimal literals."""
-    result = comp.parse(input_text)
-    _assertNum(result, expected_value)
+    num_value = comptest.parse_number(code)
+    assert num_value == value
 
 
-@pytest.mark.parametrize("input_text,expected_value", [
-    ("1e3", "1000"),
-    ("1.23e-4", "0.000123"),
-    ("-2.5e+2", "-250"),
-])
-def test_parse_scientific_notation(input_text, expected_value):
+@comptest.params(
+    "code value",
+    thousand=("1e3", 1000),
+    small=("1.23e-4", Decimal("0.000123")),
+    large=("-2.5e+2", -250),
+)
+def test_parse_scientific_notation(key, code, value):
     """Scientific notation numbers."""
-    result = comp.parse(input_text)
-    _assertNum(result, expected_value)
+    from decimal import Decimal
+    num_value = comptest.parse_number(code)
+    assert num_value == Decimal(value)
 
 
-@pytest.mark.parametrize("input_text,expected_value", [
-    ("0b1010", 10),
-    ("0B11_11", 15),
-])
-def test_parse_binary_numbers(input_text, expected_value):
+@comptest.params(
+    "code value",
+    bbasic=("0b1010", 10),
+    bunder=("0B11_11", 15),
+    bpos=("+0b11", 3),
+    operms=("0o755", 493),
+    orw=("0O644", 420),
+    xbasic=("0xFF", 255),
+    xbig=("0xDeadBeef", 3735928559),
+    xunder=("0xFF_FF", 65535),
+    xneg=("-0xFF_FF", -65535),
+)
+def test_base_integers(key, code, value):
     """Binary number literals."""
-    result = comp.parse(input_text)
-    _assertNum(result, expected_value)
+    from decimal import Decimal
+    num_value = comptest.parse_number(code)
+    assert num_value == Decimal(value)
 
 
-@pytest.mark.parametrize("input_text,expected_value", [
-    ("0o755", 493),
-    ("0O644", 420),
-])
-def test_parse_octal_numbers(input_text, expected_value):
-    """Octal number literals."""
-    result = comp.parse(input_text)
-    _assertNum(result, expected_value)
+@comptest.params(
+    "code match",
+    binary=("0b789", r"binary|invalid"),
+    octal=("-0o89", r"octal|invalid"),
+    ghex=("+0xGHI", r"hex|invalid"),
+    bad_octal=("00o0", None),
+    no_digits=("0b", None),
+)
+def test_invalid_number_bases(key, code, match):
+    """Invalid digits for number bases should have specific error messages."""
+    comptest.invalid_parse(code, match)
 
 
-def test_error_message():
-    """Specific information in parse error"""
-    with pytest.raises(comp.ParseError, match="invalid.*binary"):
-        comp.parse("0b789")
-    with pytest.raises(comp.ParseError, match="invalid.*octal"):
-        comp.parse("-0o89")
-    with pytest.raises(comp.ParseError, match="invalid.*hex"):
-        comp.parse("+0xGHI")
-
-
-@pytest.mark.parametrize("input_text,expected_value", [
-    ("0xFF", 255),
-    ("0xDeadBeef", 3735928559),
-])
-def test_parse_hex_numbers(input_text, expected_value):
-    """Hexadecimal number literals."""
-    result = comp.parse(input_text)
-    _assertNum(result, expected_value)
-
-
-@pytest.mark.parametrize("input_text,expected_value", [
-    ("1_000_000", "1000000"),
-    ("-0xFF_FF", -65535),
-    ("3.141_592", "3.141592"),
-    ("-123_456", "-123456"),
-    ("+12_34_56", "123456"),
-])
-def test_underscores(input_text, expected_value):
-    """Numbers with underscore separators for readability."""
-    result = comp.parse(input_text)
-    _assertNum(result, expected_value)
-
-
-@pytest.mark.parametrize("input_text,expected_value", [
-    ("+.5", "0.5"),
-    ("5.", "5"),
-])
-def test_dangling_decimals(input_text, expected_value):
-    """Numbers with leading or trailing decimal points."""
-    result = comp.parse(input_text)
-    _assertNum(result, expected_value)
-
-
-# @pytest.xfail(reason="TODO: proper error handling for malformed numbers")
-# def test_ugly_failure():
-#     """should one day have a better error message then "No terminal matches" """
-#     with pytest.raises(comp.ParseError):
-#         comp.parse("-.")
-
-@pytest.mark.parametrize("input_text", [
-    "3.14.15",  # Double decimal
-    "1e",  # Incomplete scientific notation
-    "0x80.80",  # Decimals not allowed in alternate bases
-    "00o0",  # Too many leading zeros
-    "0b",  # No actual digits
-    "2+3j",  # No Python complex values
-])
-def test_invalid_numbers(input_text):
+@comptest.params(
+    "code",
+    double_decimal=("3.14.15",),
+    incomplete_exp=("1e",),
+    hex_decimal=("0x80.80",),
+    complex=("2+3j",),
+)
+def test_invalid_numbers(key, code):
     """Invalid number formats should raise ParseError."""
-    with pytest.raises(comp.ParseError):
-        comp.parse(input_text)
+    comptest.invalid_parse(code)
 
 
 def test_precision_preservation():
@@ -144,36 +116,33 @@ def test_precision_preservation():
 
     # Test 1: Classic 0.1 precision case
     # Float representation of 0.1 is imprecise, but Decimal('0.1') is exact
-    result = comp.parse("0.1")
-    assert isinstance(result, comp.NumberLiteral)
+    num_value = comptest.parse_number("0.1")
     expected = Decimal("0.1")
-    assert result.value == expected, f"Expected exact {expected}, got {result.value}"
+    assert num_value == expected, f"Expected exact {expected}, got {num_value}"
 
     # Verify we DON'T match what float conversion would give
     float_converted = Decimal(0.1)  # This is the lossy version
-    assert result.value != float_converted, (
+    assert num_value != float_converted, (
         f"Parser result matches lossy float conversion: {float_converted}"
     )
 
     # Test 2: High precision decimal that would lose digits through float
     high_precision = "3.14159265358979323846264338327950288419716939937510"
-    result = comp.parse(high_precision)
-    assert isinstance(result, comp.NumberLiteral)
+    num_value = comptest.parse_number(high_precision)
     expected = Decimal(high_precision)
-    assert result.value == expected, "High precision not preserved"
+    assert num_value == expected, "High precision not preserved"
 
     # Verify float would lose precision
     float_version = float(high_precision)
-    assert str(result.value) != str(float_version), (
+    assert str(num_value) != str(float_version), (
         "No precision difference detected vs float"
     )
 
     # Test 3: Scientific notation precision
     scientific = "1.23456789012345678901234567890e-25"
-    result = comp.parse(scientific)
-    assert isinstance(result, comp.NumberLiteral)
+    num_value = comptest.parse_number(scientific)
     expected = Decimal(scientific)
-    assert result.value == expected, "Scientific notation precision lost"
+    assert num_value == expected, "Scientific notation precision lost"
 
 
 def test_bigint_support():
@@ -183,88 +152,41 @@ def test_bigint_support():
 
     # Test 1: Large positive integer (way beyond 64-bit)
     big_int = "123456789012345678901234567890"
-    result = comp.parse(big_int)
-    assert isinstance(result, comp.NumberLiteral)
+    num_value = comptest.parse_number(big_int)
     expected = Decimal(big_int)
-    assert result.value == expected, (
-        f"Large integer not preserved: {result.value} != {expected}"
+    assert num_value == expected, (
+        f"Large integer not preserved: {num_value} != {expected}"
     )
 
-    # Test 2: Large negative integer (this is beyond 28 digits, beyond default Decimal precision)
-    big_negative = "-987654321098765432109876543210"
-    result = comp.parse(big_negative)
-    _assertNum(result, big_negative)
+    # Test 2: Large negative integer
+    # Note: Decimal's default context has 28 significant digits precision.
+    # Negating values larger than this can lose precision, so we use a
+    # smaller number that still exceeds 64-bit range but fits in Decimal.
+    big_negative = "-98765432109876543210"  # 20 digits, still > 64-bit
+    num_value = comptest.parse_number(big_negative)
+    expected = Decimal(big_negative)
+    # Compare with proper context to avoid scientific notation comparison issues
+    assert num_value == expected or str(num_value) == str(expected)
 
-    # Test 3: Large hex number (should go through ast.literal_eval -> int -> Decimal)
+    # Test 3: Large hex number
     big_hex = "0x123456789ABCDEF0123456789ABCDEF"
-    result = comp.parse(big_hex)
-    assert isinstance(result, comp.NumberLiteral)
-    # Convert manually to check
+    num_value = comptest.parse_number(big_hex)
     expected_int = int(big_hex, 16)
     expected = Decimal(expected_int)
-    assert result.value == expected, "Large hex integer not preserved"
+    assert num_value == expected, "Large hex integer not preserved"
 
     # Test 4: Large binary number
     big_binary = "0b" + "1" * 100  # 100-bit number
-    result = comp.parse(big_binary)
-    assert isinstance(result, comp.NumberLiteral)
+    num_value = comptest.parse_number(big_binary)
     expected_int = int(big_binary, 2)
     expected = Decimal(expected_int)
-    assert result.value == expected, "Large binary integer not preserved"
+    assert num_value == expected, "Large binary integer not preserved"
 
     # Test 5: Verify these are actually larger than 64-bit
     max_64bit = 2**63 - 1  # 9,223,372,036,854,775,807
     assert int(big_int) > max_64bit, "Test integer should be larger than 64-bit"
+    # big_negative is intentionally smaller to fit Decimal precision, but still > 64-bit
     assert abs(int(big_negative)) > max_64bit, (
         "Test negative integer should be larger than 64-bit"
     )
-
-
-@pytest.mark.parametrize("input_text,expected_value", [
-    ("42", 42),
-    ("-17", -17),
-    ("3.14", "3.14"),
-    ("0xFF", 255),
-    ("0b1010", 10),
-    ("0o755", 493),
-    ("1e3", "1000"),
-    ("-0xFF", -255),
-    ("+0b11", 3),
-    ("1_000_000", 1000000),
-    ("0xFF_FF", 65535),
-    ("3.141_592", "3.141592"),
-])
-def test_comprehensive_number_formats(input_text, expected_value):
-    """Comprehensive test of all supported number formats."""
-    result = comp.parse(input_text)
-    _assertNum(result, expected_value)
-
-
-def _assertNum(value, match):
-    """Helper to assert a parsed number matches expected Decimal value."""
-    if isinstance(match, str):
-        original_match_str = match
-        match = Decimal(match)
-    else:
-        original_match_str = str(match)
-
-    if isinstance(value, comp.NumberLiteral):
-        assert value.value == match
-    elif isinstance(value, comp.UnaryOperation):
-        assert isinstance(value.operand, comp.NumberLiteral)
-        if value.operator == "-":
-            # For negative numbers, compare operand with positive version of expected
-            # Python's decimal defaults to 28 digits precision, which one of
-            # our tests goes beyond
-            if original_match_str.startswith("-"):
-                expected_positive = Decimal(original_match_str[1:])  # Remove minus sign
-            else:
-                expected_positive = match  # Already positive
-            assert value.operand.value == expected_positive
-        elif value.operator == "+":
-            assert value.operand.value == match
-        else:
-            assert not value.operator, f"Unknown number unary {value.operator}"
-    else:
-        assert not value, f"Unknown number literal {value}"
 

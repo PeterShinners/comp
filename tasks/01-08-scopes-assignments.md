@@ -47,10 +47,10 @@ This phase focuses purely on parsing - the runtime behavior of scopes will be im
 - [x] Validate scope names (only predefined scope names allowed)
 
 ### Scope Assignment Parsing
-- [ ] Parse scope assignments with all operators (`=`, `=*`, `=?`)
-- [ ] Support assignments to deep field paths
-- [ ] Parse scope assignments within structure literals
-- [ ] Handle mixed scope/field assignments in same structure
+- [X] Parse scope assignments with all operators (`=`, `=*`, `=?`)
+- [X] Support assignments to deep field paths
+- [X] Parse scope assignments within structure literals
+- [X] Handle mixed scope/field assignments in same structure
 
 ### Grammar Integration
 - [x] Integrate with existing expression precedence

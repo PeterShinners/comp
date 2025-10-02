@@ -125,7 +125,7 @@ tree.left.value = 10
 ; Assignment targets
 !func |example = {
     $var.temp = 5                    ; Local variable
-    result = (|compute)              ; Output field (implicit $pipe)
+    result = [|compute]              ; Output field (implicit $pipe)
     $ctx.setting = value             ; Context namespace
     $var.data = {field=10}          ; New structure in variable
 }
@@ -194,9 +194,9 @@ Lazy structures capture their creation context - local variables, namespace valu
 ```comp
 ; Lazy structure delays expensive operations
 expensive = [
-    summary = (|compute-summary)
-    analysis = (|deep-analysis)
-    report = (|generate-report)
+    summary = [|compute-summary]
+    analysis = [|deep-analysis]
+    report = [|generate-report]
 ]
 ; No computation happens yet
 
@@ -216,22 +216,22 @@ value = expensive.summary  ; Only computes summary field
 
 ; Multiple independent calls in lazy structure
 $var.lazy = [
-    call1 = ($in |slow-call1)     ; Explicit $in breaks chain
-    call2 = ($in |slow-call2)     ; Independent call
+    call1 = [$in |slow-call1]     ; Explicit $in breaks chain
+    call2 = [$in |slow-call2]     ; Independent call
 ]
 
 ; Or with parentheses
 $var.lazy = [
-    call1 = (|slow-call1)          ; Independent pipeline
-    call2 = (|slow-call2)          ; Independent pipeline
+    call1 = [|slow-call1]          ; Independent pipeline
+    call2 = [|slow-call2]          ; Independent pipeline
 ]
 
 ; Lazy evaluation with shapes
 data = [
-    field1 = (|expensive1)
-    field2 = (|expensive2)
-    field3 = (|expensive3)
-    extra = (|not-needed)
+    field1 = [|expensive1]
+    field2 = [|expensive2]
+    field3 = [|expensive3]
+    extra = [|not-needed]
 ] ~{field1 field2}  ; Only computes field1 and field2
 ```
 
@@ -256,10 +256,10 @@ The standard library provides comprehensive structure operations through the `st
 ; Structure operations via standard library
 !import struct = std "core/struct"
 
-(data |field-names/struct)           ; [name age status]
-(data |has-field/struct email)       ; true or false
-(data |filter/struct {$pipe.value > 0})  ; Keep positive fields
-(data |map-fields/struct |upper/str) ; Transform all fields
+[data |field-names/struct]           ; [name age status]
+[data |has-field/struct email]       ; true or false
+[data |filter/struct {$pipe.value > 0}]  ; Keep positive fields
+[data |map-fields/struct |upper/str] ; Transform all fields
 ```
 
 ## Advanced Structure Patterns
@@ -273,7 +273,7 @@ Complex structures often combine multiple composition techniques. Template funct
 !func |create-response = {
     status = $arg.status
     data = $arg.data
-    timestamp = (|now/time)
+    timestamp = [|now/time]
     metadata = {
         version = 1.0
         ?..(($arg.status >= 400) |if {$in} {error=#true} {})
@@ -289,10 +289,10 @@ user-view = {
 }
 
 ; Structure transformation pipeline
-(raw-data |validate
-          |{$in validated=#true timestamp=(|now/time)}
+[raw-data |validate
+          |{$in validated=#true timestamp=[|now/time]}
           |enhance-with-metadata
-          |{$in checksum=(|calculate-checksum)})
+          |{$in checksum=[|calculate-checksum]}]
 ```
 
 ## Design Principles

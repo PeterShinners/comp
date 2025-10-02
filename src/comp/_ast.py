@@ -1,20 +1,14 @@
 """
-AST node definitions for Comp language - Clean Redesign
+AST node definitions for Comp language
 
 This module defines a simplified Abstract Syntax Tree for the Comp language.
-Combines MiniAst's simplicity with structured node classes.
 
-Design principles:
-- Uniform structure: all nodes have 'kids' list for children
-- Simple construction with kwargs
-- Compact repr showing type and key attributes
-- Clean tree printing (MiniAst style)
-- Short find methods (2-4 lines)
 """
 
 __all__ = [
     "ParseError",
     "AstNode",
+    "Root",
     "Number",
     "String",
     "BinaryOp",
@@ -33,6 +27,7 @@ __all__ = [
     "FieldAccess",
     "Placeholder",
     "Pipeline",
+    "EmptyPipelineSeed",
     "PipeFallback",
     "PipeStruct",
     "PipeBlock",
@@ -103,6 +98,49 @@ class AstNode:
             results.extend(kid.find_all(node_type))
         return results
 
+    def matches(self, other) -> bool:
+        """Hierarchical comparison of AST structure.
+
+        Compares node types, attributes (excluding position), and recursively
+        compares all children. Useful for testing round-trip parsing.
+
+        Args:
+            other: Another AstNode to compare against
+
+        Returns:
+            True if nodes have same type, attributes, and children structure
+        """
+        # Must be same type
+        if not isinstance(other, type(self)):
+            return False
+
+        # Must have same number of children
+        if len(self.kids) != len(other.kids):
+            return False
+
+        # Compare all attributes except kids and position
+        for key in self.__dict__:
+            if key in ('kids', 'position'):
+                continue
+            if key not in other.__dict__:
+                return False
+            if self.__dict__[key] != other.__dict__[key]:
+                return False
+
+        # Check other doesn't have extra attributes
+        for key in other.__dict__:
+            if key in ('kids', 'position'):
+                continue
+            if key not in self.__dict__:
+                return False
+
+        # Recursively compare all children
+        for self_kid, other_kid in zip(self.kids, other.kids, strict=True):
+            if not self_kid.matches(other_kid):
+                return False
+
+        return True
+
     def unparse(self) -> str:
         """Convert back to Comp source representation."""
         return "???"
@@ -159,17 +197,42 @@ class String(AstNode):
         super().__init__()
 
     def unparse(self) -> str:
-        # Escape quotes and backslashes
-        escaped = self.value.replace('\\', '\\\\').replace('"', '\\"')
-        return f'"{escaped}"'
+        # Use repr() for proper escaping, but force double quotes
+        # repr() may choose single quotes if the string contains double quotes,
+        # so we need to handle that case
+        r = repr(self.value)
+        if r.startswith("'"):
+            # repr chose single quotes, convert to double quotes
+            # Remove outer single quotes and escape inner double quotes
+            # Must also unescape single quotes since \' is not valid in double-quoted strings
+            inner = r[1:-1].replace('"', '\\"').replace("\\'", "'")
+            return f'"{inner}"'
+        else:
+            # Already using double quotes
+            return r
 
     @classmethod
     def fromGrammar(cls, tree):
         """Parse string from Lark tree: string -> QUOTE content? QUOTE"""
+        import ast as python_ast
+
         kids = tree.children
         # kids: [QUOTE, content, QUOTE] or [QUOTE, QUOTE] for empty string
         if len(kids) == 3:
-            return cls(value=kids[1].value)
+            # Use Python's ast.literal_eval to decode escape sequences
+            # Wrap the content in quotes to make it a valid Python string literal
+            raw_value = kids[1].value
+            python_string = f'"{raw_value}"'
+            try:
+                decoded = python_ast.literal_eval(python_string)
+            except (ValueError, SyntaxError) as e:
+                # Check if this is a unicode escape error
+                error_msg = str(e)
+                if "unicode" in error_msg.lower() or "escape" in error_msg.lower():
+                    raise ParseError(f"Invalid unicode escape sequence in string: {error_msg}") from e
+                # For other errors, keep the raw value
+                decoded = raw_value
+            return cls(value=decoded)
         else:
             return cls(value="")
 
@@ -203,6 +266,7 @@ class BinaryOp(AstNode):
     def fromGrammar(cls, tree):
         """Parse binary operation from Lark tree."""
         return cls(tree.children[1].value)
+
 
 class UnaryOp(AstNode):
     """Unary operation."""
@@ -254,11 +318,21 @@ class StructAssign(AstNode):
         self.op = op
         super().__init__()
 
+    @property
+    def key(self):
+        """The key/identifier (first child)."""
+        return self.kids[0] if self.kids else None
+
+    @property
+    def value(self):
+        """The assigned value (second child)."""
+        return self.kids[1] if len(self.kids) > 1 else None
+
     def unparse(self) -> str:
         # First kid is the identifier/key, second is the value
         if len(self.kids) >= 2:
-            key = self.kids[0].unparse()
-            value = self.kids[1].unparse()
+            key = self.key.unparse()
+            value = self.value.unparse()
             return f"{key} {self.op} {value}"
         return "??? = ???"
 
@@ -273,18 +347,28 @@ class StructAssign(AstNode):
 class StructUnnamed(AstNode):
     """Structure unnamed value: expression"""
 
+    @property
+    def value(self):
+        """The unnamed value expression (first child)."""
+        return self.kids[0] if self.kids else None
+
     def unparse(self) -> str:
         if self.kids:
-            return self.kids[0].unparse()
+            return self.value.unparse()
         return "???"
 
 
 class StructSpread(AstNode):
     """Structure spread: ..expression"""
 
+    @property
+    def value(self):
+        """The spread expression (first child)."""
+        return self.kids[0] if self.kids else None
+
     def unparse(self) -> str:
         if self.kids:
-            return f"..{self.kids[0].unparse()}"
+            return f"..{self.value.unparse()}"
         return "..???"
 
 
@@ -326,9 +410,14 @@ class IndexField(AstNode):
 class ComputeField(AstNode):
     """Computed field: 'expression' in single quotes"""
 
+    @property
+    def expr(self):
+        """The computed expression (first child)."""
+        return self.kids[0] if self.kids else None
+
     def unparse(self) -> str:
         if self.kids:
-            return f"'{self.kids[0].unparse()}'"
+            return f"'{self.expr.unparse()}'"
         return "'???'"
 
 
@@ -394,16 +483,93 @@ class Placeholder(AstNode):
 # === PIPELINES ===
 
 
-class Pipeline(AstNode):
-    """Pipeline expression: expr | op1 | op2"""
+class EmptyPipelineSeed(AstNode):
+    """Placeholder for pipelines without an explicit seed expression.
+    
+    Used when a pipeline starts with a pipe operator like ( |process)
+    rather than having an explicit seed value like (data |process).
+    This ensures Pipeline.kids[0] is always the seed expression.
+    """
+
+    def __init__(self):
+        super().__init__()
 
     def unparse(self) -> str:
-        value = " ".join(kid.unparse() for kid in self.kids)
-        if isinstance(self.kids[0], PipelineOp):
-            return f"({value})"
-        return value
+        return ""
 
 
+class Pipeline(AstNode):
+    """Pipeline expression: expr | op1 | op2
+
+    The first child (kids[0]) is always the seed expression. If no explicit
+    seed is provided, an EmptyPipelineSeed node is inserted automatically.
+    Remaining children are PipelineOp subclasses (PipeFunc, PipeFallback, etc).
+    """
+
+    @property
+    def seed(self):
+        """The seed expression (first child, may be EmptyPipelineSeed)."""
+        return self.kids[0] if self.kids else None
+
+    @property
+    def operations(self):
+        """List of pipeline operations (all children after seed)."""
+        return self.kids[1:] if len(self.kids) > 1 else []
+
+    def unparse(self) -> str:
+        # Skip EmptyPipelineSeed in output, but include other seeds
+        parts = []
+        for i, kid in enumerate(self.kids):
+            if i == 0 and isinstance(kid, EmptyPipelineSeed):
+                continue
+            parts.append(kid.unparse())
+
+        value = " ".join(parts)
+        # Pipelines now use square brackets
+        return f"[{value}]"
+
+    @classmethod
+    def fromGrammar(cls, tree):
+        """Create Pipeline node, inserting EmptyPipelineSeed if needed.
+
+        Scans the lark tree to check if the first child is a pipe operation.
+        If so, inserts an EmptyPipelineSeed as the first child before the
+        tree is walked.
+
+        The tree passed can be:
+        - 'paren_expr': LPAREN pipeline RPAREN -> middle child is the pipeline
+        - 'expr_pipeline': expression pipeline -> first child is expression (seed)
+        """
+        node = cls()
+
+        # Determine which tree structure we're dealing with
+        if tree.data == 'paren_expr':
+            # paren_expr has 3 children: LPAREN, pipeline, RPAREN
+            # Get the pipeline tree (middle child)
+            if len(tree.children) >= 2:
+                pipeline_tree = tree.children[1]
+                if hasattr(pipeline_tree, 'children') and pipeline_tree.children:
+                    first_pipe_child = pipeline_tree.children[0]
+                    # Check if it's a pipe operation
+                    if hasattr(first_pipe_child, 'data') and first_pipe_child.data in (
+                        'pipe_func', 'pipe_fallback', 'pipe_struct', 'pipe_block', 'pipe_wrench'
+                    ):
+                        # No seed expression, insert EmptyPipelineSeed
+                        node.kids.append(EmptyPipelineSeed())
+        elif tree.data == 'expr_pipeline':
+            # expr_pipeline has expression first, then pipeline operations
+            # First child is the seed, so no EmptyPipelineSeed needed
+            pass
+        else:
+            # For other cases, check first child directly
+            if tree.children:
+                first_child = tree.children[0]
+                if hasattr(first_child, 'data') and first_child.data in (
+                    'pipe_func', 'pipe_fallback', 'pipe_struct', 'pipe_block', 'pipe_wrench'
+                ):
+                    node.kids.append(EmptyPipelineSeed())
+
+        return node
 class PipelineOp(AstNode):
     """Shared base class for all pipeline operators."""
 
@@ -411,9 +577,14 @@ class PipelineOp(AstNode):
 class PipeFallback(PipelineOp):
     """Pipe fallback: |? expr"""
 
+    @property
+    def fallback(self):
+        """The fallback expression (first child)."""
+        return self.kids[0] if self.kids else None
+
     def unparse(self) -> str:
         if self.kids:
-            return f"|? {self.kids[0].unparse()}"
+            return f"|? {self.fallback.unparse()}"
         return "|? ???"
 
 
@@ -430,9 +601,14 @@ class PipeStruct(PipelineOp):
 class PipeBlock(PipelineOp):
     """Pipe block: |: qualified"""
 
+    @property
+    def block(self):
+        """The block identifier (first child)."""
+        return self.kids[0] if self.kids else None
+
     def unparse(self) -> str:
         if self.kids:
-            return f"|: {self.kids[0].unparse()}"
+            return f"|: {self.block.unparse()}"
         return "|: ???"
 
 
@@ -441,11 +617,13 @@ class PipeFunc(PipelineOp):
 
     @property
     def func(self):
-        return self.kids[0]
+        """The function reference (first child)."""
+        return self.kids[0] if self.kids else None
 
     @property
     def args(self):
-        return self.kids[1]
+        """The function arguments structure (second child)."""
+        return self.kids[1] if len(self.kids) > 1 else None
 
     def unparse(self) -> str:
         if self.args and self.args.kids:
@@ -455,10 +633,17 @@ class PipeFunc(PipelineOp):
 
 
 class PipeWrench(PipelineOp):
-    """Pipe wrench: |<< func"""
+    """Pipe wrench: |-| func"""
+
+    @property
+    def wrench(self):
+        """The wrench function reference (first child)."""
+        return self.kids[0] if self.kids else None
 
     def unparse(self) -> str:
-        return f"|<< {self.kids[0].unparse()}"
+        if self.kids:
+            return f"|-| {self.wrench.unparse()}"
+        return "|-| ???"
 
 
 # === REFERENCES ===

@@ -20,11 +20,11 @@
 }
 
 !main = {
-	{title = "Todo App" state = {..~state}} |app/rio {|todo-app}
+	[{title = "Todo App" state = {..~state}} |app/rio {|todo-app}]
 }
 
 !func |todo-app = {
-	@s = (|fetch-state/rio)
+	@s = [|fetch-state/rio]
 	
 	{#column spacing = 1 padding = 2
 		; Creation field
@@ -40,46 +40,46 @@
 			}
 		}
 		; Show filtered todos
-		@s.todos 
+		[@s.todos 
 		|filter {
-			@filter-values = @s.filter |get-children/tag |:1  ; Get the boolean array
-			complete |in @filter-values
+			@filter-values = [@s.filter |get-children/tag |:1]  ; Get the boolean array
+			[complete |in @filter-values]
 		}
-		|map |todo-item
+		|map |todo-item]
 		
 		; Filter buttons
 		{#row spacing = 0.5
-			#filter |children/tag |map {
-				@variant = (|if {@s.filter == tag} {"primary"} {"secondary"})
+			[#filter |children/tag |map {
+				@variant = [|if {@s.filter == tag} {"primary"} {"secondary"}]
 				{#button 
 					text = value.0 
 					variant = @variant
 					on-click:{..@s filter = tag}
 				}
-			}
+			}]
 		}
 	}
 }
 
-!func |todo-item ^{todo ~todo} = {
-	@s = (|fetch-state/rio)
+!func |todo-item ^todo = {
+	@s = [|fetch-state/rio]
 
 	{#row spacing = 1
 		; Completed check
 		{#checkbox 
-			checked = ^todo.complete
+			checked = ^complete
 			on-change:{
-				@new = {title = ^todo.title complete = !!^todo.complete}
-				..@s todos={@s.todos |replace {title = ^todo.title} @new}
+				@new = {title = ^title complete = !!^complete}
+				..@s todos=[{@s.todos |replace {title = ^title} @new}]
 			}
 		}
 		; Styled title
-		@style = (|if {^todo.complete} {"strikethrough"} {"normal"})
-		{#text text = ^todo.title style = @style}
+		@style = [|if {^complete} {"strikethrough"} {"normal"}]
+		{#text text = ^title style = @style}
 		; Delete button
 		{#iconbutton 
 			icon = "material/delete"
-			on-click{..@s todos={@s.todos |filter {title != ^todo.title}}}
+			on-click :{..$in todos=[todos |filter :{title != ^title}]}
 		}
 	}
 }

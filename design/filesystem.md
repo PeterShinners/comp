@@ -25,15 +25,15 @@
 
 ```comp
 ; High-level fetch (90% use case)
-content = ("/path/to/file" |fetch)
-data = ("/archive.zip:zip/data.json/" |fetch)
+content = ["/path/to/file" |fetch]
+data = ["/archive.zip:zip/data.json/" |fetch]
 
 ; Directory-based operations (10% power use)
-@dir = ("/home/user" |open-dir)
-@entries = (@dir |list)
-content = (@dir |read "file.txt")
-@dir |write "output.txt" data
-@subdir = (@dir |open-dir "subfolder")
+@dir = ["/home/user" |open-dir]
+@entries = [@dir |list]
+content = [@dir |read "file.txt"]
+[@dir |write "output.txt" data]
+@subdir = [@dir |open-dir "subfolder"]
 ```
 
 ## Trail Integration
@@ -47,7 +47,7 @@ Trails with axis-shift notation navigate filesystems and archives:
 
 OS paths resolve to directory handles plus remaining segments:
 ```comp
-@resolved = ("/home/user/new/file.txt" |resolve-path)
+@resolved = ["/home/user/new/file.txt" |resolve-path]
 ; Returns: {dir=<user-dir> trail=/home/user/ remaining=["new" "file.txt"]}
 ```
 
@@ -65,8 +65,8 @@ Each filesystem type implements standard operations:
 Directory listings return rich metadata without extra syscalls:
 ```comp
 ; Entry structure: {name type size modified permissions ...}
-@entries = (@dir |list)
-@files = (@entries |filter :{type == #file})
+@entries = [@dir |list]
+@files = [@entries |filter :{type == #file}]
 ```
 
 ## Permission Model

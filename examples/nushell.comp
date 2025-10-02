@@ -9,13 +9,14 @@ https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
 	@after = (|now/time) - 1#week
 	@fields = ("title url created-at reactions" |tokenize/str)
 		
-	{@fields repo="nushell/nushell"}
-	|list-issues.gh  ; applies $repo from ctx
-	|filter :{created-at >= @after}
-	|map :{
-		@thumbs-up = (reactions |count-if :{content == #thumbs-up})
-		{thumbs-up=@thumbs-up title=. url=.}
-	}
-	|sort #reverse :{thumbs-up}
-	|first 5
+	[{@fields repo="nushell/nushell"} 
+		|list-issues.gh  ; applies $repo from ctx
+		|filter :{created-at >= @after}
+		|map :{
+			@thumbs-up = [reactions |count-if :{content == #thumbs-up}]
+			{thumbs-up=@. title=. url=.}
+		}
+		|sort #reverse :{thumbs-up}
+		|first 5
+	]
 }

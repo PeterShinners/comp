@@ -21,8 +21,9 @@ Focused just on parsing the main language features into ast trees
 [X] 01-06. Mathematical Operators - Parse arithmetic, comparison, logical operators, parentheses
 [X] 01-07. Advanced Operators - Parse assignment, structure, pipeline, block operators
 [X] 01-08. Scopes and Assignments - Parse scope operators and references ($ctx, $mod, $in, $out, ^, @)
-[~] 01-09. Pipeline Operations - Parse statements and pipelines (flat operation lists)
-[ ] 01-10. Tags Initial - Parse simple tag definitions (no values)
+[X] 01-09. Pipeline Operations - Parse statements and pipelines (flat operation lists)
+[X] 01-10. Rework grammar, astnodes, and unit tests
+[ ] 01-PP. Tags Initial - Parse simple tag definitions (no values)
 [ ] 01-PP. Shapes - Parse shape definitions
 [ ] 01-PP. Function - Parse function definitions
 [ ] 01-PP. Tags Complete - Complete parsing of tags with values

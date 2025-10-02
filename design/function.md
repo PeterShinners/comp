@@ -10,7 +10,7 @@ Every function receives pipeline input and generates new output, while arguments
 
 Functions are references, not values—you can't stuff them in variables like JavaScript, but you can invoke them through pipelines and compose them with blocks. This design creates clear boundaries between code and data while enabling powerful composition patterns that feel natural to write.
 
-Functions return lazy structures that are backed by a pipeline of operations. The pipeline behind the structure can be accessed and modified. This is most often done with the (`|<<`) pipeline wrench operator which works with a function that takes the incoming pipeline description and generates a new pipeline description. This enabling meta-operations like progress tracking, query optimization, and performance profiling.
+Functions return lazy structures that are backed by a pipeline of operations. The pipeline behind the structure can be accessed and modified. This is most often done with the (`|-|`) pipeline wrench operator which works with a function that takes the incoming pipeline description and generates a new pipeline description. This enabling meta-operations like progress tracking, query optimization, and performance profiling.
 
 At the core, function definitions and structure literals work identically—same parsing rules, same assignments, same operations. The difference is timing: structures evaluate immediately, functions become recipes for later execution. Functions come with a few extras, like pipeline inputs, documentation, and arguments.
 
@@ -43,14 +43,14 @@ System](shape.md).
 }
 
 !func |get-timestamp ^{format ~str} = {
-    current = (|now/time)
-    formatted = (current |format/time ^format)
+    current = [|now/time]
+    formatted = [current |format/time ^format]
     {current formatted}
 }
 
 ; Functions automatically morph inputs
-({10 20} |calculate-area)               ; Positional matching
-({height=15 width=25} |calculate-area)  ; Named matching
+[{10 20} |calculate-area]               ; Positional matching
+[{height=15 width=25} |calculate-area]  ; Named matching
 ```
 
 Each statement in the function body begins with fresh pipeline input through
@@ -109,16 +109,16 @@ results it wants to become its value.
 !func |filter-items 
     ~{items[]} 
     ^{threshold ~num = 0} = {
-    items |filter :{$in > ^threshold}
+    [items |filter :{$in > ^threshold}]
 }
 
 !func |process-order ~order-data ^process-config = {
     ; Implementation focuses on logic, not type declarations
-    validated = ^validate? |if :{#true} 
-        :{order |validate}
-        :{order}
+    validated = [^validate? |if :{#true} 
+        :{[order |validate]}
+        :{order}]
     
-    processed = validated |apply-priority ^priority
+    processed = [validated |apply-priority ^priority]
 }
 ```
 
@@ -130,18 +130,18 @@ This solves the common problem of expensive calculations in objects: do you comp
 
 ```comp
 !func |infinite-sequence ^{start ~num step ~num} = {
-    ($in |count |map {^start + $in * ^step})
+    [range |count |map :{^start + $in * ^step}]
 }
 
 !func |expensive-analysis ~{data} = {
-    summary = ($in |compute-summary)
-    statistics = ($in |deep-statistical-analysis)
-    visualization = ($in |generate-charts)
-    report = (|compile-full-report)
+    summary = [data |compute-summary]
+    statistics = [data |deep-statistical-analysis]
+    visualization = [data |generate-charts]
+    report = [|compile-full-report]
 }
 
 ; Only computes what's needed
-analysis = (data |expensive-analysis)
+analysis = [data |expensive-analysis]
 quick-view = analysis.summary    ; Only computes summary
 full = analysis ~{summary statistics}  ; Computes two fields
 ```
@@ -157,17 +157,17 @@ Privacy structures solve the common problem of functions that need complex inter
 ```comp
 ; Regular function - every statement contributes to output
 !func |messy-calculation ~{data} = {
-    validation = (data |validate)        ; This becomes output field
-    temp-result = (validation |process)  ; This becomes output field  
-    final = (temp-result |finalize)      ; This becomes output field
+    validation = [data |validate]        ; This becomes output field
+    temp-result = [validation |process]  ; This becomes output field  
+    final = [temp-result |finalize]      ; This becomes output field
     ; Result: {validation=... temp-result=... final=...}
 }
 
 ; Privacy function - only explicit $out modifications are exported
 !func |clean-calculation ~{data} = &{
-    @validation = (data |validate)        ; Internal only
-    @temp-result = (@validation |process)  ; Internal only
-    @final = (@temp-result |finalize)     ; Internal only
+    @validation = [data |validate]        ; Internal only
+    @temp-result = [@validation |process]  ; Internal only
+    @final = [@temp-result |finalize]     ; Internal only
     
     ; Only these become output
     $out.result = @final
@@ -177,11 +177,11 @@ Privacy structures solve the common problem of functions that need complex inter
 
 ; Privacy function for controlled generators (still lazy by default)
 !func |filtered-sequence ^{filter-fn} = &{
-    @raw-data = (|get-large-dataset)      ; Internal processing
-    @processed = (@raw-data |expensive-transform)
+    @raw-data = [|get-large-dataset]      ; Internal processing
+    @processed = [@raw-data |expensive-transform]
     
     ; Only expose the final filtered results
-    $out.result = ($in |^filter-fn @processed)
+    $out.result = [data |^filter-fn @processed]
 }
 ```
 
@@ -190,9 +190,9 @@ Privacy structures work with all the same mechanisms as regular structures—sha
 ```comp
 ; Mixed approach - some fields automatic, some controlled
 !func |user-profile ~{user-id} = &{
-    @user-data = (user-id |database.fetch)
-    @permissions = (@user-data |calculate-permissions)
-    @preferences = (@user-data |load-preferences)
+    @user-data = [user-id |database.fetch]
+    @permissions = [@user-data |calculate-permissions]
+    @preferences = [@user-data |load-preferences]
     
     ; Automatic exports (these create output fields)
     display-name = @user-data.name
@@ -200,7 +200,7 @@ Privacy structures work with all the same mechanisms as regular structures—sha
     
     ; Controlled exports via $out
     $out.can-admin = (@permissions.admin?)
-    $out ..= (@preferences |filter-public)
+    $out ..= [@preferences |filter-public]
 }
 ```
 
@@ -213,16 +213,16 @@ The `!pure` decorator creates hard enforcement—these functions literally canno
 ```comp
 !pure
 !func |fibonacci ~{n ~num} = {
-    ($in |if :{$in <= 1} :{$in} :{
-        @a = ($in - 1 |fibonacci)
-        @b = ($in - 2 |fibonacci)
+    [n |if :{$in <= 1} :{$in} :{
+        @a = [n - 1 |fibonacci]
+        @b = [n - 2 |fibonacci]
         @a + @b
-    })
+    }]
 }
 
 !pure
 !func |validate-email ~{email ~str} = {
-    $in |match/str "^[^@]+@[^@]+$"
+    [email |match/str "^[^@]+@[^@]+$"]
 }
 
 !pure
@@ -230,7 +230,7 @@ The `!pure` decorator creates hard enforcement—these functions literally canno
     ; Can compute, validate, transform
     ; Cannot: access files, network, time, random, stores
     ; Cannot: access $mod runtime state or |describe
-    data |normalize |validate
+    [data |normalize |validate]
 }
 ```
 
@@ -269,14 +269,14 @@ shapes can specify the expected input shape using `~block{shape}` syntax.
 ```comp
 !func |with-retry ~{operation} ^{on-error ~block{~str}} = {
     @attempts = 0
-    ($in |while :{@attempts < 3} :{
-        @result = ($in |operation |? :{
+    [operation |while :{@attempts < 3} :{
+        @result = [operation |execute |? :{
             @attempts = @attempts + 1
             @error-msg = %"Attempt ${@attempts} failed"
-            (@error-msg |: ^on-error)  ; Invoke block with string input
-            ($in |if :{@attempts >= 3} :{$in} :{#skip})
-        })
-    })
+            [@error-msg |: ^on-error]  ; Invoke block with string input
+            [@attempts |if :{$in >= 3} :{operation} :{#skip}]
+        }]
+    }]
     @result
 }
 
@@ -285,35 +285,35 @@ shapes can specify the expected input shape using `~block{shape}` syntax.
     validate ~block{~item} 
     callback ~block{~num ~num}
 } = {
-    @processed = (items |map :{$in |: ^transform})
-    @valid = (@processed |filter :{$in |: ^validate})
-    @count = (@valid |count)
-    @total = (@valid |sum {amount})
-    ({@count @total} |: ^callback)  ; Invoke with two numbers
+    @processed = [items |map :{[$in |: ^transform]}]
+    @valid = [@processed |filter :{[$in |: ^validate]}]
+    @count = [@valid |count]
+    @total = [@valid |sum :{amount}]
+    [{@count @total} |: ^callback]  ; Invoke with two numbers
 }
 
 ; Usage with explicit blocks
-(data |with-retry on-error:{error-msg |log})
+[data |with-retry on-error:{[error-msg |log]}]
 
 ; Usage with simple values - automatically wrapped
-@style = (|if complete "strikethrough" "normal")
-@variant = (|if priority == urgent "primary" "secondary")
+@style = [complete |if :{$in} :"strikethrough" :"normal"]
+@variant = [priority |if :{$in == urgent} :"primary" :"secondary"]
 
 ; Named block arguments can use simple values too
-(items |process-items 
-    transform:{$in |enhance |normalize}  ; explicit block
-    validate=#true                       ; simple value for block parameter
-    callback:{@count @total |summarize}) ; explicit block with two inputs
+[items |process-items 
+    transform:{[$in |enhance |normalize]}  ; explicit block
+    validate=#true                         ; simple value for block parameter
+    callback:{[@count @total |summarize]}] ; explicit block with two inputs
 
 ; Mixed usage in conditionals
-(|prepare-data :{|called-unnamed-block} named:{|called-named-block})
-(|prepare-data simple-value named=simple-named-value)
+[|prepare-data :{[|called-unnamed-block]} named:{[|called-named-block]}]
+[|prepare-data simple-value named=simple-named-value]
 
 ; Complex control flow with mixed block styles
-(items |process-batch 
-    transform:{$in |enhance |normalize}
+[items |process-batch 
+    transform:{[$in |enhance |normalize]}
     validate:{score > threshold}
-    on-success="completed")  ; Simple string wrapped automatically
+    on-success="completed"]  ; Simple string wrapped automatically
 ```
 
 ## Block Invocation
@@ -322,22 +322,22 @@ Blocks can be invoked using the `|:` operator, which executes the block with the
 
 ```comp
 ; Block stored in variable
-@validator = :{$in |check-format |validate-rules}
-result = (data |: @validator)  ; Invoke the block
+@validator = :{[$in |check-format |validate-rules]}
+result = [data |: @validator]  ; Invoke the block
 
 ; Block literals can be invoked directly
-result = (data |: :{$in |transform |validate})
+result = [data |: :{[$in |transform |validate]}]
 
 ; Block in structure
 handlers = {
-    process = :{$in |transform |save}
-    validate = :{$in.email |check-email}
+    process = :{[$in |transform |save]}
+    validate = :{[$in.email |check-email]}
 }
-(user |: handlers.validate)  ; Invoke validation block
+[user |: handlers.validate]  ; Invoke validation block
 
 ; Chaining block invocations
-pipeline = :{$in |step1 |step2 |step3}
-final = (input |: pipeline |post-process)
+pipeline = :{[$in |step1 |step2 |step3]}
+final = [input |: pipeline |post-process]
 ```
 
 ## Blocks as Partial Pipeline Fragments
@@ -349,40 +349,40 @@ Unlike complete pipelines that start with specific data, partial pipeline fragme
 ```comp
 ; Partial pipeline fragments for data processing
 @validation-chain = :{
-    $in |check-format
-        |validate-schema  
-        |sanitize-input
+    [$in |check-format
+         |validate-schema  
+         |sanitize-input]
 }
 
 @enrichment-chain = :{
-    $in |lookup-metadata
-        |calculate-scores
-        |add-timestamps
+    [$in |lookup-metadata
+         |calculate-scores
+         |add-timestamps]
 }
 
 @output-chain = :{
-    $in |format-results
-        |apply-templates
-        |compress-data
+    [$in |format-results
+         |apply-templates
+         |compress-data]
 }
 
 ; Apply fragments to different data sources
-user-data = (raw-users |: @validation-chain |: @enrichment-chain)
-system-data = (raw-systems |: @validation-chain |: @output-chain)
+user-data = [raw-users |: @validation-chain |: @enrichment-chain]
+system-data = [raw-systems |: @validation-chain |: @output-chain]
 
 ; Compose fragments into complete workflows
 @complete-workflow = :{
-    $in |: @validation-chain
-        |: @enrichment-chain  
-        |: @output-chain
+    [$in |: @validation-chain
+         |: @enrichment-chain  
+         |: @output-chain]
 }
 
 ; Use in function arguments for flexible behavior
 !func |process-data ~{data} ^{pipeline ~block} = {
-    $in |: ^pipeline |save-results
+    [data |: ^pipeline |save-results]
 }
 
-(user-records |process-data pipeline=@complete-workflow)
+[user-records |process-data pipeline=@complete-workflow]
 ```
 
 Partial pipeline fragments excel at creating reusable transformation logic. They enable separation of concerns where data validation, enrichment, and formatting can be defined independently and combined as needed. Functions can accept pipeline fragments as arguments, allowing callers to customize processing behavior while maintaining type safety through block shapes.
@@ -392,32 +392,32 @@ This can also be done by defining regular functions in the module, but some situ
 ```comp
 ; Library of reusable pipeline fragments
 @fragments = {
-    clean = :{$in |trim |normalize |remove-duplicates}
-    analyze = :{$in |extract-features |calculate-metrics}
-    secure = :{$in |encrypt-sensitive |hash-identifiers}
-    format = :{$in |apply-schema |compress |encode}
+    clean = :{[$in |trim |normalize |remove-duplicates]}
+    analyze = :{[$in |extract-features |calculate-metrics]}
+    secure = :{[$in |encrypt-sensitive |hash-identifiers]}
+    format = :{[$in |apply-schema |compress |encode]}
 }
 
 ; Flexible composition for different use cases
 batch-job = :{
-    $in |: @fragments.clean
-        |: @fragments.analyze
-        |: @fragments.format
+    [$in |: @fragments.clean
+         |: @fragments.analyze
+         |: @fragments.format]
 }
 
 secure-batch = :{
-    $in |: @fragments.clean
-        |: @fragments.secure
-        |: @fragments.format
+    [$in |: @fragments.clean
+         |: @fragments.secure
+         |: @fragments.format]
 }
 
 ; Pipeline fragments can be modified by wrench operators too
 enhanced-workflow = :{
-    $in |: @fragments.clean
-        |<<progressbar           ; Add progress tracking
-        |: @fragments.analyze
-        |<<profile-time         ; Add timing profiling
-        |: @fragments.format
+    [$in |: @fragments.clean
+         |-|progressbar           ; Add progress tracking
+         |: @fragments.analyze
+         |-|profile-time         ; Add timing profiling
+         |: @fragments.format]
 }
 ```
 
@@ -444,24 +444,24 @@ unnamed value in the argument list.
 }
 
 !func |process ^process-args = {
-    (^verbose |when :{#true} :{
-        (|log "Verbose mode enabled")
-    })
+    [^verbose |when :{#true} :{
+        [|log "Verbose mode enabled"]
+    }]
     ; ^rest contains unmatched fields
 }
 
 ; Natural calling syntax
-(data |process verbose extra=1 more=2)
+[data |process verbose extra=1 more=2]
 ; Results in: {verbose=#true debug=#false extra=1 more=2}
 
 ; With argument spreading
 @defaults = {debug}
-(data |process ..@defaults verbose)
+[data |process ..@defaults verbose]
 ; Results in: {verbose=#true debug=#true}
 
 ; Spread operators work like Python **kwargs
 @preset = {verbose debug port=8080}
-(server |configure ..@preset host="localhost" port=3000)
+[server |configure ..@preset host="localhost" port=3000]
 ; Results in: {verbose=#true debug=#true host="localhost" port=3000}
 ; Note: explicit port=3000 overrides preset port=8080
 ```
@@ -486,17 +486,17 @@ hierarchies and polymorphic dispatch mechanisms, see [Tag System](tag.md).
 !func |render ~point-2d =* {"2D improved"}  ; Strong assignment wins
 !func |render ~point-3d = {"3D point"}
 
-({x=5 y=10} |render)           ; "2D improved" - strong assignment wins
-({x=5 y=10 z=15} |render)      ; "3D point" - more specific shape
-({5 10} |render)               ; "2D improved" - positional matching
+[{x=5 y=10} |render]           ; "2D improved" - strong assignment wins
+[{x=5 y=10 z=15} |render]      ; "3D point" - more specific shape
+[{5 10} |render]               ; "2D improved" - positional matching
 
 ; Tag-based dispatch with hierarchical scoring
 !func |process ~{status=#status} = {"generic status"}
 !func |process ~{status=#error.status} = {"error handler"}
 !func |process ~{status=#error.network} = {"network specialist"}
 
-({status=#timeout.error} |process)  ; "error handler"
-({status=#network.error} |process)  ; "network specialist"
+[{status=#timeout.error} |process]  ; "error handler"
+[{status=#network.error} |process]  ; "network specialist"
 ```
 
 ### Overload References
@@ -512,16 +512,16 @@ meant for short summaries.
 
 !doc impl "Saves to primary database"
 !func |process ~user-data = {
-    $in |validate-user |save-user
+    [data |validate-user |save-user]
 }
 
 !doc impl "Archives to time-series store"
 !func |process ~system-data = {
-    $in |validate-system |archive
+    [data |validate-system |archive]
 }
 
 ; Single describe shows all implementations
-!describe |process
+[|describe |process]
 ; Returns: {
 ;   doc: "Process different types of data appropriately"
 ;   module: current-module
@@ -566,13 +566,13 @@ defines where dynamic dispatch can find the correct implementation.
 !func |speak ~{type #cat.mammal} = {"meow"}
 
 ; Polymorphic dispatch with nested tags
-({type=#bird} |speak)          ; "chirp"
-({type=#dog.mammal} |speak)    ; "woof"
-({type=#cat.mammal} |speak)    ; "meow"
+[{type=#bird} |speak]          ; "chirp"
+[{type=#dog.mammal} |speak]    ; "woof"
+[{type=#cat.mammal} |speak]    ; "meow"
 
 ; Cross-module polymorphism
 creature = {type=#dog.mammal name=Rex}
-(creature |speak)             ; "woof" - most specific match
+[creature |speak]             ; "woof" - most specific match
 ```
 
 ## Function Security and Resource Access
@@ -584,9 +584,9 @@ The security model is refreshingly honest: instead of pretending to offer fine-g
 ```comp
 ; Regular function with resource access
 !func |backup-file ^{source ~str dest ~str} = {
-    (^source |read/file)      ; Uses resource capability
-    |compress
-    |write/file ^dest         ; Uses resource capability
+    [^source |read/file      ; Uses resource capability
+             |compress
+             |write/file ^dest]  ; Uses resource capability
 }
 
 ; Pure function - no resource access
@@ -594,19 +594,19 @@ The security model is refreshingly honest: instead of pretending to offer fine-g
 !func |compress ~{data} = {
     ; Deterministic compression algorithm
     ; Cannot access filesystem, network, time, etc.
-    data |apply-compression-algorithm
+    [data |apply-compression-algorithm]
 }
 
 ; Mixed usage
 !func |process-safely = {
     ; Validate with pure function first
-    validated = (untrusted-input |validate-pure)
+    validated = [untrusted-input |validate-pure]
     
     ; Then use resources if valid
-    validated |if :{$in} :{
-        $in |save-to-disk
+    [validated |if :{$in} :{
+        [$in |save-to-disk]
     } :{
         {#invalid.fail}
-    }
+    }]
 }
 ```

@@ -26,8 +26,12 @@ def parse(text: str):
         root = _create_node([].append, tree, _ast.Root)
         ast = generate_ast(root, tree.children)
         return ast
-    except lark.ParseError as e:
-        raise _ast.ParseError(str(e)) from e
+    except lark.exceptions.LarkError as e:
+        error_msg = str(e)
+        # Improve error messages for common cases
+        if "DUBQUOTE" in error_msg and "$END" in error_msg:
+            error_msg = "Unterminated string literal"
+        raise _ast.ParseError(error_msg) from e
 
 
 def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -> _ast.AstNode:
@@ -53,15 +57,15 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
             case 'start':  #  Defensive, normally skipped at entry
                 return generate_ast(parent, child.children)
             case 'paren_expr':
-                # LPAREN (expression | pipeline) RPAREN
-                # If it's a pipeline, wrap it in a Pipeline node
-                # Otherwise just unwrap and process the middle child
+                # LPAREN expression RPAREN
+                # Just unwrap and process the middle child
                 middle_child = child.children[1]
-                if middle_child.data == 'pipeline':
-                    _node(_ast.Pipeline, walk=[middle_child])
-                else:
-                    generate_ast(parent, [middle_child])
+                generate_ast(parent, [middle_child])
                 continue
+            case 'pipeline_expr':
+                # LBRACKET [seed] pipeline RBRACKET
+                # Create a Pipeline node and process children
+                _node(_ast.Pipeline, walk=kids)
             case 'atom_field':
                 # atom_field: atom_in_expr "." identifier_next_field
                 # This is field access on an expression: (expr).field
@@ -128,11 +132,13 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 _node(_ast.StructSpread, walk=kids)
 
             # Pipelines
-            case 'expr_pipeline':
-                _node(_ast.Pipeline, walk=kids)
+            case 'pipeline_expr':
+                # LBRACKET [seed] pipeline RBRACKET
+                # Pipeline node created above in atom section
+                pass
             case 'pipeline':
                 # This is just a container for pipe operations - pass through children
-                # The Pipeline node is created by expr_pipeline or paren wrapping
+                # The Pipeline node is created by pipeline_expr
                 generate_ast(parent, kids)
             case 'pipe_fallback':
                 _node(_ast.PipeFallback, walk=kids)
