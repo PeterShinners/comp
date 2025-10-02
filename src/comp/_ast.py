@@ -640,38 +640,26 @@ class Pipeline(AstNode):
         If so, inserts an EmptyPipelineSeed as the first child before the
         tree is walked.
 
-        The tree passed can be:
-        - 'paren_expr': LPAREN pipeline RPAREN -> middle child is the pipeline
-        - 'expr_pipeline': expression pipeline -> first child is expression (seed)
+        The tree passed is:
+        - 'pipeline_expr': LBRACKET pipeline RBRACKET or LBRACKET expression pipeline RBRACKET
         """
         node = cls()
 
-        # Determine which tree structure we're dealing with
-        if tree.data == 'paren_expr':
-            # paren_expr has 3 children: LPAREN, pipeline, RPAREN
-            # Get the pipeline tree (middle child)
-            if len(tree.children) >= 2:
-                pipeline_tree = tree.children[1]
-                if hasattr(pipeline_tree, 'children') and pipeline_tree.children:
-                    first_pipe_child = pipeline_tree.children[0]
-                    # Check if it's a pipe operation
-                    if hasattr(first_pipe_child, 'data') and first_pipe_child.data in (
-                        'pipe_func', 'pipe_fallback', 'pipe_struct', 'pipe_block', 'pipe_wrench'
-                    ):
-                        # No seed expression, insert EmptyPipelineSeed
-                        node.kids.append(EmptyPipelineSeed())
-        elif tree.data == 'expr_pipeline':
-            # expr_pipeline has expression first, then pipeline operations
-            # First child is the seed, so no EmptyPipelineSeed needed
-            pass
-        else:
-            # For other cases, check first child directly
-            if tree.children:
-                first_child = tree.children[0]
-                if hasattr(first_child, 'data') and first_child.data in (
-                    'pipe_func', 'pipe_fallback', 'pipe_struct', 'pipe_block', 'pipe_wrench'
-                ):
-                    node.kids.append(EmptyPipelineSeed())
+        # pipeline_expr has either:
+        # 1. LBRACKET, pipeline, RBRACKET (no seed - starts with pipe op)
+        # 2. LBRACKET, expression, pipeline, RBRACKET (has seed)
+
+        # Skip token children (LBRACKET, RBRACKET) and find the first non-token child
+        children = [c for c in tree.children if hasattr(c, 'data')]
+
+        if children:
+            first_child = children[0]
+            # Check if first child is a pipeline (contains pipe operations)
+            if first_child.data == 'pipeline':
+                # No seed - pipeline starts immediately
+                # Insert EmptyPipelineSeed
+                node.kids.append(EmptyPipelineSeed())
+            # Otherwise, first child is the seed expression, no EmptyPipelineSeed needed
 
         return node
 class PipelineOp(AstNode):
