@@ -23,12 +23,11 @@ Focused just on parsing the main language features into ast trees
 [X] 01-08. Scopes and Assignments - Parse scope operators and references ($ctx, $mod, $in, $out, ^, @)
 [X] 01-09. Pipeline Operations - Parse statements and pipelines (flat operation lists)
 [X] 01-10. Rework grammar, astnodes, and unit tests
-[ ] 01-PP. Tags Initial - Parse simple tag definitions (no values)
+[~] 01-11. Tag Definitions - Module-level grammar, parse tag definitions (no values yet)
 [ ] 01-PP. Shapes - Parse shape definitions
 [ ] 01-PP. Function - Parse function definitions
 [ ] 01-PP. Tags Complete - Complete parsing of tags with values
 [ ] 01-PP. Non-definition Bang Operators - Parse !delete, !doc, etc.
-[ ] 01-PP. Blocks and Args - Parsing of blocks and definition and passing function args
 
 ## 02. Values and Expressions
 

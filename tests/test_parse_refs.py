@@ -79,7 +79,7 @@ def test_tag_reference_with_other_literals():
         '"hello"',
         "#active",
     ]
-    
+
     for expr in literals:
         result = comp.parse(expr)
         comptest.roundtrip(result)
