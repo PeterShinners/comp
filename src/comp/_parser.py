@@ -252,26 +252,16 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 # morph_union: morph_type (PIPE morph_type)+
                 _node(_ast.ShapeUnion, walk=kids)
 
-            # Function arguments
-            case 'function_arguments':
-                _node(_ast.Structure, walk=kids)
-            case 'function_structure_assign':
-                _node(_ast.StructAssign, walk=kids)
-            case 'function_structure_unnamed':
-                _node(_ast.StructUnnamed, walk=kids)
-            case 'function_structure_spread':
-                _node(_ast.StructSpread, walk=kids)
-
-            # Structures
+            # Structures (including function arguments)
             case 'block':
                 _node(_ast.Block, walk=kids)
             case 'structure' | 'function_arguments':
                 _node(_ast.Structure, walk=kids)
-            case 'structure_assign' | 'function_structure_assign':
+            case 'structure_assign':
                 _node(_ast.StructAssign, walk=kids)
-            case 'structure_unnamed' | 'function_structure_unnamed':
+            case 'structure_unnamed':
                 _node(_ast.StructUnnamed, walk=kids)
-            case 'structure_spread' | 'function_structure_spread':
+            case 'structure_spread':
                 _node(_ast.StructSpread, walk=kids)
 
             # Pipelines

@@ -154,12 +154,13 @@ shape_definition: BANG_SHAPE shape_path ASSIGN shape_body
 shape_path: "~" reference_identifiers                     // Shape path without namespace
 
 shape_body: LBRACE shape_field* RBRACE                    // Shape with fields
-          | shape_type                                    // Alias or union
+          | shape_type (ASSIGN expression)?               // Alias or union, optionally with default
 
 ?shape_field: shape_spread                                // ..~shape (spread)
             | shape_field_def                             // field? ~type = default
 
-shape_field_def: TOKEN QUESTION? shape_type? (ASSIGN expression)?
+shape_field_def: TOKEN QUESTION? shape_type? (ASSIGN expression)?  // Named field
+               | shape_type (ASSIGN expression)?          // Positional field (no name)
 
 shape_spread: SPREAD shape_type                           // ..~shape
 

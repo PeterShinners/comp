@@ -319,6 +319,11 @@ class ShapeDefinition(AstNode):
             # Shape with no body (shouldn't happen in valid code)
             return f"!shape {shape_path}"
 
+        # Check if this is an alias with default (2 kids: type + default expression)
+        if len(self.kids) == 2 and isinstance(self.kids[0], (ShapeRef, TagRef)):
+            # Alias with default: !shape ~one = ~num=1
+            return f"!shape {shape_path} = {self.kids[0].unparse()}={self.kids[1].unparse()}"
+
         # Check if this is a simple alias or union (single child that's a type reference/union)
         if len(self.kids) == 1 and isinstance(self.kids[0], (ShapeRef, TagRef)):
             # Simple alias: !shape ~number = ~num
@@ -472,11 +477,11 @@ class ShapeField(AstNode):
         default: Optional child node for default value expression
     """
 
-    def __init__(self, name: str = "", optional: bool = False):
+    def __init__(self, name: str | None = "", optional: bool = False):
         """Initialize shape field.
 
         Args:
-            name: Field name
+            name: Field name (None for positional fields, "" or string for named fields)
             optional: Whether field is optional (has ? suffix)
         """
         self.name = name
@@ -495,13 +500,19 @@ class ShapeField(AstNode):
 
     def unparse(self) -> str:
         """Unparse shape field back to source code."""
-        result = self.name
-
-        # Note: optional ? is already part of the name token
-        # (TOKEN regex includes optional trailing ?)
+        # Positional fields (no name) start with type directly
+        if self.name is None:
+            result = ""
+        else:
+            result = self.name
+            # Note: optional ? is already part of the name token
+            # (TOKEN regex includes optional trailing ?)
 
         if self.type_ref:
-            result += f" {self.type_ref.unparse()}"
+            if result:  # Named field: add space before type
+                result += f" {self.type_ref.unparse()}"
+            else:  # Positional field: no space, just type
+                result = self.type_ref.unparse()
 
         if self.default:
             result += f" = {self.default.unparse()}"
@@ -512,20 +523,25 @@ class ShapeField(AstNode):
     def fromGrammar(cls, tree):
         """Parse from Lark tree.
 
-        Grammar: shape_field_def: TOKEN QUESTION? shape_type? (ASSIGN expression)?
-
-        Note: QUESTION is optional and may already be part of TOKEN
+        Grammar:
+            shape_field_def: TOKEN QUESTION? shape_type? (ASSIGN expression)?  // Named field
+                           | shape_type (ASSIGN expression)?          // Positional field (no name)
         """
         children = tree.children
 
-        # First child is TOKEN (field name, may include ? suffix)
-        name_token = children[0]
-        name = name_token.value if hasattr(name_token, 'value') else str(name_token)
-
-        # Check if name ends with ? (optional field)
-        optional = name.endswith('?')
-
-        return cls(name=name, optional=optional)
+        # Check if first child is a TOKEN (named field) or shape_type (positional field)
+        first_child = children[0] if children else None
+        
+        if first_child and hasattr(first_child, 'type') and first_child.type == 'TOKEN':
+            # Named field: first child is TOKEN
+            name = first_child.value
+            # Check if name ends with ? (optional field)
+            optional = name.endswith('?')
+            return cls(name=name, optional=optional)
+        else:
+            # Positional field: no name token, starts with shape_type
+            # Return field with empty name to indicate positional
+            return cls(name=None, optional=False)
 
 
 class ShapeSpread(AstNode):
