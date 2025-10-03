@@ -12,22 +12,23 @@ This phase implements shape definitions and operations, building on the module-l
 **Core Shape Features**:
 - Top-level shape definitions with `!shape`
 - Inline shape definitions (shape literals)
-- Shape morph operators: `~`, `*~`, `?~`
-- Shape check operators: `~?`, `*~?`, `?~?`
+- Shape morph operators: `~`, `~*`, `~?` (postfix modifiers)
 - Shape references (using `~shapename`)
 - Tag references where shapes expected (#tag as inline shape)
+- Positional fields (no field names, matched by position)
+- Type aliases with defaults (`!shape ~one = ~num=1`)
 - Shape spread in definitions (`..~shape`)
 - Structure spread in literals (`..{struct}`)
-- Union shapes with `|` operator
-
-**Optional (if straightforward)**:
-- Presence check syntax with `??`
+- Union shapes with `|` operator and specificity ranking
+- Block field syntax (`field ~:{input_shape}`)
 
 **Explicitly Deferred**:
+- Shape check operators: `~?`, `~*?`, `~?? ` (removed - use morph with fallback)
 - Shape constraints (`{min=0 max=100}`)
 - Size constraints with `[]` (e.g., `~str[1-10]`)
 - Unit definitions and references
 - Performance optimization/caching
+- Runtime morphing implementation
 
 ## Shape Definition Syntax
 
@@ -47,10 +48,16 @@ Shapes are defined at module level using the `!shape` operator, similar to tag d
     name ~str
     email ~str
     age ~num = 0
-    active? ~bool = #true
-    preferences?              ; Optional field (any type)
+    active? ~bool = #true     ; ? suffix for boolean predicate (Ruby idiom)
     tags #user-tag            ; Tag reference as type
 }
+
+; Positional shapes (no field names - matched by position)
+!shape ~pair = {~num ~num}
+!shape ~triple = {~str ~num ~bool}
+
+; Mixed named and positional fields
+!shape ~labeled = {~str name ~str id ~num}
 
 ; Shape inheritance via spread
 !shape ~point-3d = {
@@ -71,11 +78,18 @@ Shapes are defined at module level using the `!shape` operator, similar to tag d
 Shapes can be defined inline wherever a shape reference is expected. Shape definitions are naturally recursive - field types can themselves be inline shape definitions:
 
 ```comp
-; Inline in function signature
-!func |process ~{x ~num y ~num} = {x + y}
+; Inline in function signature with named fields
+!func |process ^{x ~num y ~num} = {x + y}
+
+; Inline positional shape (no field names)
+!func |add ^{~num ~num} = {$0 + $1}
 
 ; Inline in morph operation
 data ~{name ~str age ~num}
+
+; Positional inline shapes
+{5 10} ~{~num ~num}        ; Morph to pair of numbers
+{hello 42 #true} ~{~str ~num ~bool}  ; Triple
 
 ; Inline with defaults
 value ~{x ~num = 0 y ~num = 0}
@@ -95,13 +109,58 @@ value ~{x ~num = 0 y ~num = 0}
     objects ~list
 }
 
-; Block types are just shape references
-!shape ~validator = ~block{x ~num y ~num}
-!shape ~transformer = ~block{~any}
+; Block types use : prefix with input shape
+!shape ~validator = {check ~:{x ~num y ~num}}
+!shape ~transformer = {op ~:{~any}}
+!shape ~generator = {produce ~:{}}
 
 ; Tag as inline shape (tag reference treated as shape)
 status #active              ; Using tag as value
 data ~#user-status         ; Using tag as shape (any #user-status works)
+```
+
+### Type Aliases with Defaults
+
+Shape definitions can create type aliases with embedded default values. When these aliased shapes are used as field types, the default is inherited:
+
+```comp
+; Simple type aliases
+!shape ~number = ~num
+!shape ~text = ~str
+
+; Type aliases with defaults
+!shape ~one = ~num=1
+!shape ~zero = ~num=0  
+!shape ~active = #bool=#true
+!shape ~empty-text = ~str=""
+
+; Using aliases in shapes - defaults are inherited
+!shape ~counter = {
+    count ~one              ; Field gets default value 1 from ~one alias
+    step ~one
+    offset ~zero            ; Field gets default value 0 from ~zero alias
+}
+
+!shape ~widget = {
+    enabled ~active         ; Field gets default #true from ~active alias
+    label ~text             ; No default from ~text (it has none)
+}
+
+; The defaults propagate through the type system
+({} ~counter)              ; Result: {count=1 step=1 offset=0}
+({count=5} ~counter)       ; Result: {count=5 step=1 offset=0}
+
+; Comprehensive example - defaults cascade through type aliases
+!shape ~one = ~num=1
+!shape ~active = #bool=#true
+
+!shape ~data = {
+    name ~str
+    count ~one              ; Inherits default=1 from ~one
+    active ~active          ; Inherits default=#true from ~active
+}
+
+({name="test"} ~data)      ; Result: {name="test" count=1 active=#true}
 ```
 
 ### Union Shapes
@@ -141,10 +200,10 @@ Shape definitions are naturally recursive - any field type can be an inline shap
     scale ~{x ~num = 1 y ~num = 1 z ~num = 1}
 }
 
-; Blocks are just special shape references
-!shape ~validator = ~block{x ~num y ~num}
-!shape ~mapper = ~block{~any}
-!shape ~filter = ~block{item ~any}
+; Blocks use : prefix with input shape
+!shape ~validator = {check ~:{x ~num y ~num}}
+!shape ~mapper = {op ~:{~any}}
+!shape ~filter = {test ~:{item ~any}}
 
 ; Mix of references and inline
 !shape ~entity = {
@@ -220,6 +279,14 @@ Shapes can be spread in both shape definitions and structure literals:
     ..~timestamped
     status #status
 }
+
+; Spreading shapes with defaults - defaults are inherited
+!shape ~defaults = {one ~num=1 active ~bool=#true}
+!shape ~data = {
+    name ~str
+    ..~defaults             ; Inherits: one ~num=1, active ~bool=#true
+}
+; Equivalent to: !shape ~data = {name ~str one ~num=1 active ~bool=#true}
 ```
 
 ### In Structure Literals
@@ -235,25 +302,6 @@ Shapes can be spread in both shape definitions and structure literals:
 server = {..~config}                     ; All defaults
 custom = {..~config port=3000}           ; Override port
 partial = {?..~config host="remote"}     ; Weak spread
-```
-
-## Presence Check (Optional)
-
-If straightforward, include the `??` presence check syntax:
-
-```comp
-!shape ~process-flags = {
-    verbose ~bool = #false ?? #true
-    debug ~bool = #false ?? #true
-    quiet? ~bool = #true ?? #false
-}
-
-; The ?? operator:
-; - Left side: value when field name NOT in unnamed values
-; - Right side: value when field name IS in unnamed values
-
-({verbose extra=data} ~process-flags)
-; Result: {verbose=#true debug=#false quiet?=#true extra=data}
 ```
 
 ## Grammar Design
@@ -272,13 +320,13 @@ shape_reference: TILDE TOKEN                    // ~shapename
                | TILDE TOKEN DOT TOKEN          // ~module.shapename
 
 // Shape body (similar to structure but with types)
-shape_body: LBRACE shape_field* RBRACE
-          | shape_reference                     // Alias
-          | shape_union                         // Union type
+shape_body: LBRACE shape_field* RBRACE          // Structure: {fields...}
+          | shape_type [ASSIGN expression]      // Type alias with optional default: ~num=1 or ~num
 
 shape_field: shape_spread                       // ..~shape
-           | identifier shape_type [ASSIGN expression]  // field ~type = default
-           | identifier [QUESTION] [shape_type] [ASSIGN expression] [PRESENCE_CHECK expression]  // optional fields
+           | identifier shape_type [ASSIGN expression]  // named field: field ~type = default
+           | identifier COLON shape_body [ASSIGN expression]  // block field: field ~:{...} = default
+           | shape_type [ASSIGN expression]     // positional field: ~type (no name)
 
 shape_spread: SPREAD shape_reference            // ..~shape
             | SPREAD QUESTION shape_reference   // ?..~shape (weak)
@@ -286,13 +334,12 @@ shape_spread: SPREAD shape_reference            // ..~shape
 
 shape_type: shape_reference                     // ~typename
           | tag_reference                       // #tagname (tag as type)
-          | TILDE TOKEN LBRACE shape_body RBRACE  // ~block{...} or ~any{...}
           | TILDE LBRACE shape_body RBRACE      // ~{...} inline shape
           | shape_union                         // ~type1 | ~type2
 
 shape_union: shape_type (PIPE shape_type)+
 
-PRESENCE_CHECK: "??"
+COLON: ":"
 ```
 
 ### Shape Operators in Expressions
@@ -324,17 +371,28 @@ PIPE: "|"  // For union types
 
 ```python
 class ShapeDefinition(AstNode):
-    """Shape definition at module level: !shape ~name = {...}"""
+    """Shape definition at module level: !shape ~name = {...} or !shape ~name = ~type=default
     
-    def __init__(self, name: str, body: AstNode | None = None):
+    Can define:
+    - Structural shapes: !shape ~point = {x ~num y ~num}
+    - Type aliases: !shape ~number = ~num
+    - Type aliases with defaults: !shape ~one = ~num=1
+    - Union shapes: !shape ~result = ~success | ~error
+    """
+    
+    def __init__(self, name: str, body: AstNode | None = None, default: AstNode | None = None):
         self.name = name        # Shape name (without ~)
-        self.body = body        # ShapeBody or ShapeReference or ShapeUnion
+        self.body = body        # ShapeBody, ShapeReference, ShapeUnion, or shape_type
+        self.default = default  # Default value if this is a typed alias with default
         super().__init__()
     
     def unparse(self) -> str:
         if not self.body:
             return f"!shape ~{self.name}"
-        return f"!shape ~{self.name} = {self.body.unparse()}"
+        result = f"!shape ~{self.name} = {self.body.unparse()}"
+        if self.default:
+            result += f"={self.default.unparse()}"
+        return result
     
     @classmethod
     def fromGrammar(cls, tree):
@@ -351,28 +409,36 @@ class ShapeBody(AstNode):
 
 
 class ShapeField(AstNode):
-    """Single field in shape: name ~type = default"""
+    """Single field in shape: name ~type = default or name ~:{...} for blocks
     
-    def __init__(self, name: str, type_ref: AstNode | None = None,
-                 default: AstNode | None = None, optional: bool = False,
-                 presence_check: AstNode | None = None):
-        self.name = name
-        self.type_ref = type_ref      # ShapeReference, TagRef, or None
+    Fields can be named or positional:
+    - Named: name ~type or name? ~type (? for boolean predicates, Ruby idiom)
+    - Positional: ~type (no name, matched by position)
+    - Block: name ~:{input_shape} (blocks with typed inputs)
+    """
+    
+    def __init__(self, name: str | None = None, type_ref: AstNode | None = None,
+                 default: AstNode | None = None, is_block: bool = False):
+        self.name = name               # Field name (can include ? for predicates), or None for positional
+        self.type_ref = type_ref      # ShapeReference, TagRef, ShapeBody (for blocks), or None
         self.default = default         # Default value expression
-        self.optional = optional       # Has ? suffix
-        self.presence_check = presence_check  # Expression after ??
+        self.is_block = is_block       # True if this is a block field (uses : prefix)
         super().__init__()
     
     def unparse(self) -> str:
-        result = self.name
-        if self.optional:
-            result += "?"
-        if self.type_ref:
-            result += f" {self.type_ref.unparse()}"
+        if not self.name:
+            # Positional field: just the type
+            result = self.type_ref.unparse() if self.type_ref else ""
+        else:
+            result = self.name
+            if self.is_block:
+                # Block field: name ~:{...}
+                result += f" ~:{{{self.type_ref.unparse()}}}" if self.type_ref else " ~:{}"
+            elif self.type_ref:
+                result += f" {self.type_ref.unparse()}"
+        
         if self.default:
             result += f" = {self.default.unparse()}"
-        if self.presence_check:
-            result += f" ?? {self.presence_check.unparse()}"
         return result
 
 
@@ -432,36 +498,7 @@ class MorphOp(AstNode):
         expr_str = self.expr.unparse() if self.expr else ""
         shape_str = self.shape.unparse() if self.shape else ""
         
-        op = "~" if self.mode == "normal" else f"{self.mode[0]}~"
-        return f"{expr_str} {op}{shape_str}"
-
-
-class ShapeCheckOp(AstNode):
-    """Shape check operation: data ~? shape"""
-    
-    def __init__(self, mode: str = "normal"):
-        self.mode = mode  # "normal", "strong", "weak"
-        super().__init__()
-    
-    @property
-    def expr(self):
-        return self.kids[0] if self.kids else None
-    
-    @property
-    def shape(self):
-        return self.kids[1] if len(self.kids) > 1 else None
-    
-    def unparse(self) -> str:
-        expr_str = self.expr.unparse() if self.expr else ""
-        shape_str = self.shape.unparse() if self.shape else ""
-        
-        if self.mode == "normal":
-            op = "~?"
-        elif self.mode == "strong":
-            op = "*~?"
-        else:
-            op = "?~?"
-        
+        op = "~" if self.mode == "normal" else f"~{self.mode[0]}"
         return f"{expr_str} {op} {shape_str}"
 ```
 
@@ -474,28 +511,27 @@ class ShapeCheckOp(AstNode):
 4. Add transformer cases for shape_definition
 5. Test simple shape definitions
 
-### Phase 2: Shape Bodies
+### Phase 2: Shape Bodies and Fields
 1. Implement shape_body and shape_field grammar
 2. Create ShapeBody and ShapeField AST nodes
 3. Add support for type references in fields
-4. Test shape definitions with typed fields and defaults
+4. Add support for positional fields (no name)
+5. Add support for type aliases with defaults
+6. Test shape definitions with typed fields and defaults
 
 ### Phase 3: Shape Operators
-1. Add morph and check operator tokens
-2. Implement morph_expr and check_expr grammar
-3. Create MorphOp and ShapeCheckOp AST nodes
-4. Test basic morph and check operations
+1. Add morph operator tokens (`~`, `~*`, `~?`)
+2. Implement morph_expr grammar
+3. Create MorphOp AST node with expr/shape properties
+4. Test basic morph operations with different modes
 
 ### Phase 4: Advanced Features
 1. Implement shape_union grammar
 2. Create ShapeUnion AST node
 3. Add shape spreading in definitions
 4. Add structure spreading in literals
-5. Test union shapes and spreading
-
-### Phase 5: Optional Features (if straightforward)
-1. Presence check syntax (`??`)
-2. Tag-as-shape references
+5. Add block field syntax (`~:{...}`)
+6. Test union shapes, spreading, and block fields
 
 ## Test Strategy
 
@@ -506,13 +542,20 @@ class ShapeCheckOp(AstNode):
     "code",
     simple=("!shape ~point = {x ~num y ~num}",),
     defaults=("!shape ~point = {x ~num = 0 y ~num = 0}",),
-    optional=("!shape ~user = {name ~str email? ~str}",),
+    predicate=("!shape ~user = {name ~str active? ~bool}",),  # ? for boolean predicate
     tag_type=("!shape ~status = {value #active}",),
     spread=("!shape ~point3d = {..~point z ~num}",),
     union=("!shape ~result = ~success | ~error",),
-    block=("!shape ~validator = ~block{x ~num}",),
+    block=("!shape ~validator = {check ~:{x ~num}}",),
+    block_any=("!shape ~transformer = {op ~:{~any}}",),
+    block_empty=("!shape ~generator = {produce ~:{}}",),
     nested=("!shape ~circle = {pos ~{x ~num y ~num} radius ~num}",),
     deep_nested=("!shape ~transform = {translate ~{x ~num y ~num z ~num}}",),
+    block_with_default=("!shape ~repeat = {count ~num op ~:{value ~str}}",),
+    optional_via_union=("!shape ~config = {host ~str | ~nil = {}}",),  # Optional via union + default
+    alias_with_default=("!shape ~one = ~num=1",),  # Type alias with default
+    tag_alias_with_default=("!shape ~active = #bool=#true",),  # Tag alias with default
+)
 )
 def test_valid_shape_definitions(key, code):
     result = comp.parse_module(code)
@@ -560,16 +603,19 @@ def test_invalid_shape_syntax(key, code):
 ### Shape Definitions
 - ✅ Parse simple shape definitions: `!shape ~point = {x ~num y ~num}`
 - ✅ Parse shapes with defaults: `!shape ~point = {x ~num = 0}`
-- ✅ Parse shapes with optional fields: `name? ~str`
+- ✅ Parse type aliases: `!shape ~number = ~num`
+- ✅ Parse type aliases with defaults: `!shape ~one = ~num=1`
+- ✅ Parse field names with `?` suffix: `active? ~bool` (boolean predicates, Ruby idiom)
+- ✅ Parse positional fields: `!shape ~pair = {~num ~num}` (no field names)
+- ✅ Parse mixed named/positional: `!shape ~mixed = {~str name ~str}`
 - ✅ Parse shape inheritance: `!shape ~point3d = {..~point z ~num}`
 - ✅ Parse union shapes: `!shape ~result = ~success | ~error`
+- ✅ Parse optional fields via union: `email ~str | ~nil = {}`
 - ✅ Round-trip all shape definitions
 
 ### Shape Operators
 - ✅ Parse morph operators: `~`, `*~`, `?~`
-- ✅ Parse check operators: `~?`, `*~?`, `?~?`
 - ✅ Parse inline shape definitions: `data ~{x ~num}`
-- ✅ Parse tag as shape: `value ~#status`
 - ✅ Round-trip all operator expressions
 
 ### Shape Spreading
@@ -580,10 +626,7 @@ def test_invalid_shape_syntax(key, code):
 ### Recursive Shapes
 - ✅ Parse nested inline shapes: `!shape ~circle = {pos ~{x ~num y ~num} radius ~num}`
 - ✅ Parse deeply nested shapes
-- ✅ Parse block shapes (just special type references): `~block{x ~num}`
-
-### Optional Features
-- ⏸️ Presence check: `field ~bool = #false ?? #true` (if straightforward)
+- ✅ Parse block shapes with `:` prefix: `{op ~:{x ~num}}`
 
 ### Integration
 - ✅ All existing tests still pass
@@ -592,6 +635,50 @@ def test_invalid_shape_syntax(key, code):
 - ✅ No runtime evaluation (parsing/AST only)
 
 ## Notes for Implementation
+
+### Block Field Syntax
+
+Block fields in shapes use the `:` prefix followed by an inline shape definition:
+
+```comp
+!shape ~repeat-text = {
+    count ~num
+    op ~:{value ~str}    ; Block field expecting {value ~str}
+}
+
+!shape ~transformer = {
+    op ~:{~any}          ; Block accepting any input
+}
+
+!shape ~generator = {
+    produce ~:{}         ; Block with no input (empty structure)
+}
+```
+
+The `:` makes block fields syntactically distinct and the shape after the colon is **mandatory** - it defines what input structure the block expects. The grammar should parse this as:
+- Field identifier
+- `~:` token sequence
+- `{` shape_body `}`
+
+This is cleaner than `~block{...}` because it eliminates the `block` keyword and makes the type syntax more uniform - all type references use `~`, and blocks are just a special field modifier.
+
+**The syntax is beautifully consistent:**
+
+```comp
+~{op ~:{~str}} = :{[|length/str]}
+```
+
+Breaking this down:
+- `~{...}` - inline shape definition (tilde means "shape")
+- `op ~:{~str}` - field `op` is a block (colon) that accepts a string as input
+- `= :{[|length/str]}` - default value is a block (colon) that gets string length
+
+The pattern:
+- **`~`** always means "shape/type reference"
+- **`:`** always means "block/deferred computation"  
+- **`{}`** is either a structure literal or shape body (context-dependent)
+
+This shows how shapes, blocks, and structures compose naturally - the block type `~:{~str}` declares the input shape, while the block value `:{...}` implements the logic.
 
 ### Recursive Shape Grammar
 
@@ -609,7 +696,7 @@ The grammar naturally supports recursion since `shape_type` can contain `TILDE L
 }
 ```
 
-Block shapes like `~block{x ~num}` are just parsed as `~block` (a shape reference to a built-in shape) followed by an inline shape body. The grammar should handle this as: `TILDE TOKEN LBRACE shape_body RBRACE`.
+Block shapes use the `:` prefix syntax and are parsed as a special field type that includes an inline shape body for the block's expected input.
 
 ### Operator Precedence
 
@@ -653,12 +740,32 @@ The spread operator `..` works differently in different contexts:
 **Risk**: Medium (operator precedence, multiple contexts)
 
 **Breakdown**:
-- Grammar rules: ~40 lines
-- AST nodes: ~8 new classes
-- Parser cases: ~15 new cases  
-- Tests: ~30-40 test cases
+- Grammar rules: ~50 lines
+- AST nodes: ~10 new classes
+- Parser cases: ~20 new cases  
+- Tests: ~40-50 test cases
 
-**Expected Duration**: 2-3 sessions (with optional features)
+**Expected Duration**: 3-4 sessions
+
+## Key Design Decisions
+
+**Removed Features**:
+- ❌ Check operators (`~?`, `~*?`, `~??`) - use morph with fallback instead
+- ❌ Presence-check operators (`??`, `!exists`, `!count`) - use tag morphing + `$ctx`
+- ❌ Optional field syntax (`field?`) - use union with `~nil` + defaults
+
+**Added Features**:
+- ✅ Positional fields (no field names): `{~num ~num}`
+- ✅ Type aliases with defaults: `!shape ~one = ~num=1`
+- ✅ Block field syntax: `field ~:{input_shape}`
+- ✅ Shape spreading with defaults: `..~defaults`
+- ✅ Morph operator syntax: `~`, `~*`, `~?` (postfix modifiers, tilde first)
+- ✅ Union morphing with specificity ranking
+
+**Design Philosophy**:
+- Composable primitives over special-case syntax
+- Let patterns emerge organically before adding convenience features
+- Named properties for heterogeneous children, direct access for homogeneous
 
 ## Status: Ready to Begin
 
@@ -666,7 +773,7 @@ This phase establishes the complete shape system foundation. Future phases can a
 - Shape constraints and validation
 - Size constraints with `[]`
 - Unit system integration
-- Runtime shape morphing and validation
+- Runtime shape morphing and validation (the actual morphing algorithm)
 - Performance optimization
 
 All prerequisites are in place from Phase 11's module-level grammar work.

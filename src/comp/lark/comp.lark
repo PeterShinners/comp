@@ -282,7 +282,34 @@ LESS_EQUAL: "<="
 GREATER_THAN: ">"
 GREATER_EQUAL: ">="
 ?comp_op: EQUAL_EQUAL | NOT_EQUAL | LESS_THAN | LESS_EQUAL | GREATER_THAN | GREATER_EQUAL
-?comparison: arith_expr | comparison comp_op arith_expr -> binary_op
+?comparison: morph_expr | comparison comp_op morph_expr -> binary_op
+
+// Shape morph operators
+// Transforms data to match a shape specification
+// Normal (~): apply defaults, allow extra fields
+// Strong (~*): no extra fields allowed, strict matching
+// Weak (~?): missing fields acceptable, partial matching
+STRONG_MORPH: "~*"
+WEAK_MORPH: "~?"
+
+// Shape type in morph context
+// Accepts both bare identifiers (cat | dog) and full references (~cat | ~dog)
+?morph_type: reference_identifiers reference_namespace?   // shapename or module.shape
+           | tag_reference                                // #tag
+           | shape_reference                              // ~shapename (full syntax)
+           | shape_inline                                 // ~{...}
+           | morph_inline                                 // {...} (without ~)
+           | morph_union                                  // cat | dog or ~cat | ~dog
+
+// Inline shape without leading ~ for morph context
+morph_inline: LBRACE shape_field* RBRACE
+
+morph_union: morph_type (PIPE morph_type)+
+
+?morph_expr: arith_expr
+           | morph_expr "~" morph_type -> morph_op
+           | morph_expr STRONG_MORPH morph_type -> strong_morph_op
+           | morph_expr WEAK_MORPH morph_type -> weak_morph_op
 
 // Number operators 
 PLUS: "+"

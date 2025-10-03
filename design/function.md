@@ -264,10 +264,10 @@ blocks that return the value.
 
 Functions invoke blocks using the `|:` operator, which executes the block with
 the current pipeline value as input. Block parameters in function argument
-shapes can specify the expected input shape using `~block{shape}` syntax.
+shapes can specify the expected input shape using `~:{shape}` syntax.
 
 ```comp
-!func |with-retry ~{operation} ^{on-error ~block{~str}} = {
+!func |with-retry ~{operation} ^{on-error ~:{~str}} = {
     @attempts = 0
     [operation |while :{@attempts < 3} :{
         @result = [operation |execute |? :{
@@ -281,9 +281,9 @@ shapes can specify the expected input shape using `~block{shape}` syntax.
 }
 
 !func |process-items ~{items[]} ^{
-    transform ~block{~item}
-    validate ~block{~item} 
-    callback ~block{~num ~num}
+    transform ~:{~item}
+    validate ~:{~item} 
+    callback ~:{~num ~num}
 } = {
     @processed = [items |map :{[$in |: ^transform]}]
     @valid = [@processed |filter :{[$in |: ^validate]}]
@@ -423,47 +423,49 @@ enhanced-workflow = :{
 
 This pattern transforms blocks from simple callbacks into powerful pipeline construction tools. By separating the definition of transformation logic from the data it operates on, partial pipeline fragments enable more modular, testable, and reusable code architectures.
 
-## Argument Spreading and Presence-Check
+## Argument Spreading
 
 Functions support spread operators for arguments, allowing predefined argument
-sets to be reused and overridden. The presence-check morphing pattern enables
-flag-style arguments where unnamed values matching field names set those fields
-to their "found" value.
-
-The `??` fallback operator in a shape definitions indicates presence-check
-fields: left side is the default (field not found), right side is the value when
-found in unnamed arguments. These presence checks look for the existence of an
-unnamed value in the argument list.
+sets to be reused and overridden. This enables flexible configuration patterns
+and composable argument definitions.
 
 ```comp
-
 !shape ~process-args = {
-    verbose ~bool = #false ?? #true
-    debug ~bool = #false ?? #true
+    verbose ~bool = #false
+    debug ~bool = #false
     ..rest   ; Collect remaining fields
 }
 
 !func |process ^process-args = {
-    [^verbose |when :{#true} :{
+    [^verbose |if :{#true} :{
         [|log "Verbose mode enabled"]
     }]
     ; ^rest contains unmatched fields
 }
 
-; Natural calling syntax
-[data |process verbose extra=1 more=2]
-; Results in: {verbose=#true debug=#false extra=1 more=2}
-
-; With argument spreading
-@defaults = {debug}
-[data |process ..@defaults verbose]
-; Results in: {verbose=#true debug=#true}
-
 ; Spread operators work like Python **kwargs
-@preset = {verbose debug port=8080}
+@preset = {verbose=#true debug=#true port=8080}
 [server |configure ..@preset host="localhost" port=3000]
 ; Results in: {verbose=#true debug=#true host="localhost" port=3000}
 ; Note: explicit port=3000 overrides preset port=8080
+
+; Tag-based flag arguments through shape morphing
+!tag #sort-order = {#asc #desc}
+
+!func |sort ^{order #sort-order = #asc} = {
+    ; Tag field matches unnamed tag values during morphing
+}
+
+[data |sort #desc]          ; Morphs to: {order=#desc}
+[data |sort]                ; Morphs to: {order=#asc} (default)
+
+; Tags in variables work naturally
+@order = #desc
+[data |sort @order]         ; Pass tag through variable
+
+; Context-based configuration
+$ctx.order = #desc
+[data |sort $ctx.order]     ; Use context value
 ```
 
 ## Function Overloads

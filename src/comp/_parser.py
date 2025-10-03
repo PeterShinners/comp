@@ -165,6 +165,10 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 # shape_inline: TILDE LBRACE shape_field* RBRACE
                 # Creates a ShapeInline with all fields as children
                 _node(_ast.ShapeInline, walk=kids)
+            case 'morph_inline':
+                # morph_inline: LBRACE shape_field* RBRACE (without ~)
+                # Creates a ShapeInline for morph context
+                _node(_ast.ShapeInline, walk=kids)
             case 'shape_type' | 'shape_type_atom':
                 # Just pass through - the actual nodes are created by their specific rules
                 generate_ast(parent, kids)
@@ -185,6 +189,9 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 _node(_ast.ShapeRef)
             case 'function_reference':
                 _node(_ast.FuncRef)
+            case 'reference_identifiers':
+                # Used in morph_type to build a ShapeRef without the ~ prefix
+                _node(_ast.ShapeRef, walk=kids)
 
             # Identifiers - need custom handling to process fields
             case 'identifier':
@@ -206,6 +213,25 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 _node(_ast.BinaryOp, walk=kids)
             case 'unary_op':
                 _node(_ast.UnaryOp, walk=kids)
+
+            # Shape morph operators
+            case 'morph_op' | 'strong_morph_op' | 'weak_morph_op':
+                _node(_ast.MorphOp, walk=kids)
+
+            # Morph type handling
+            case 'morph_type':
+                # morph_type: reference_identifiers reference_namespace? | tag_reference | shape_inline | morph_union
+                # If it's just reference_identifiers, create a ShapeRef
+                if len(kids) >= 1 and kids[0].data == 'reference_identifiers':
+                    # This is a shape reference (without the ~ prefix)
+                    _node(_ast.ShapeRef, walk=kids)
+                else:
+                    # tag_reference, shape_inline, or morph_union - pass through
+                    generate_ast(parent, kids)
+                    continue
+            case 'morph_union':
+                # morph_union: morph_type (PIPE morph_type)+
+                _node(_ast.ShapeUnion, walk=kids)
 
             # Function arguments
             case 'function_arguments':

@@ -11,15 +11,19 @@ from tests import comptest
     simple=("!shape ~point = {x ~num y ~num}",),
     dotted_name=("!shape ~geo.point = {x ~num y ~num}",),
     with_defaults=("!shape ~point = {x ~num = 0 y ~num = 0}",),
-    optional_field=("!shape ~user = {name ~str email? ~str}",),
+    predicate_field=("!shape ~user = {name ~str active? ~bool}",),  # ? for boolean predicate
     tag_as_type=("!shape ~status = {value #active}",),
     shape_spread=("!shape ~point3d = {..~point z ~num}",),
     nested_inline=("!shape ~circle = {pos ~{x ~num y ~num} radius ~num}",),
     deep_nested=("!shape ~transform = {translate ~{x ~num y ~num z ~num}}",),
     alias=("!shape ~number = ~num",),
     union=("!shape ~result = ~success | ~error",),
+    optional_via_union=("!shape ~config = {email ~str | ~nil = {}}",),  # Optional via union
+    positional=("!shape ~pair = {~num ~num}",),  # Positional fields (no names)
+    positional_three=("!shape ~triple = {~num ~num ~num}",),
+    mixed_positional=("!shape ~labeled = {~str name ~str}",),  # Mix positional and named
     complex=(
-        "!shape ~entity = {id ~str pos ~{x ~num y ~num} tags? #tag}",
+        "!shape ~entity = {id ~str pos ~{x ~num y ~num} found? ~bool}",
     ),
 )
 def test_valid_shape_definitions(key, code):
@@ -62,25 +66,28 @@ def test_shape_field_count(key, code, expected_fields):
 
 @comptest.params(
     "code",
-    optional_field=("!shape ~user = {email? ~str}",),
-    optional_in_middle=("!shape ~user = {name ~str email? ~str id ~num}",),
+    predicate_simple=("!shape ~user = {active? ~bool}",),
+    predicate_mixed=("!shape ~user = {name ~str verified? ~bool id ~num}",),
 )
-def test_optional_fields(key, code):
-    """Test optional fields (with ? suffix)."""
+def test_predicate_field_names(key, code):
+    """Test field names with ? suffix (Ruby idiom for boolean predicates).
+
+    The ? is part of the field name, not special optional syntax.
+    """
     result = comp.parse_module(code)
     shape_def = result.statements[0]
-    
-    # Find the optional field
-    optional_fields = [
+
+    # Find fields with ? in the name
+    predicate_fields = [
         f for f in shape_def.kids
-        if isinstance(f, comp.ShapeField) and f.optional
+        if isinstance(f, comp.ShapeField) and '?' in f.name
     ]
-    assert len(optional_fields) > 0, "Should have at least one optional field"
-    
+    assert len(predicate_fields) > 0, "Should have at least one predicate field"
+
     # Check that the field name includes the ?
-    for field in optional_fields:
-        assert field.name.endswith('?'), f"Optional field name should end with ?: {field.name}"
-    
+    for field in predicate_fields:
+        assert field.name.endswith('?'), f"Predicate field name should end with ?: {field.name}"
+
     comptest.roundtrip(result)
 
 
@@ -94,14 +101,14 @@ def test_default_values(key, code):
     """Test fields with default values."""
     result = comp.parse_module(code)
     shape_def = result.statements[0]
-    
+
     # Check that fields have defaults
     fields_with_defaults = [
         f for f in shape_def.kids
         if isinstance(f, comp.ShapeField) and f.default is not None
     ]
     assert len(fields_with_defaults) > 0, "Should have fields with defaults"
-    
+
     comptest.roundtrip(result)
 
 
@@ -109,16 +116,17 @@ def test_default_values(key, code):
     "code",
     simple_spread=("!shape ~point3d = {..~point z ~num}",),
     multiple_spreads=("!shape ~combined = {..~base ..~extra id ~num}",),
+    spread_with_defaults=("!shape ~data = {name ~str ..~defaults}",),  # Spread shape with defaults
 )
 def test_shape_spread(key, code):
     """Test shape spreading."""
     result = comp.parse_module(code)
     shape_def = result.statements[0]
-    
+
     # Check that there's at least one spread
     spreads = [k for k in shape_def.kids if isinstance(k, comp.ShapeSpread)]
     assert len(spreads) > 0, "Should have at least one spread"
-    
+
     comptest.roundtrip(result)
 
 
@@ -132,10 +140,35 @@ def test_nested_inline_shapes(key, code):
     """Test nested inline shape definitions."""
     result = comp.parse_module(code)
     shape_def = result.statements[0]
-    
+
     # The nested inline shape fields should be present as children of the field
     assert len(shape_def.kids) > 0
-    
+
+    comptest.roundtrip(result)
+
+
+@comptest.params(
+    "code",
+    two_positional=("!shape ~pair = {~num ~num}",),
+    three_positional=("!shape ~triple = {~str ~num ~bool}",),
+    mixed=("!shape ~mixed = {~str name ~str id ~num}",),
+    positional_with_default=("!shape ~pair = {~num ~num = 0}",),
+)
+def test_positional_fields(key, code):
+    """Test positional (unnamed) fields in shapes.
+
+    Positional fields have no name and are matched by position during morphing.
+    """
+    result = comp.parse_module(code)
+    shape_def = result.statements[0]
+
+    # Find positional fields (fields with no name)
+    positional_fields = [
+        f for f in shape_def.kids
+        if isinstance(f, comp.ShapeField) and f.name is None
+    ]
+    assert len(positional_fields) > 0, "Should have at least one positional field"
+
     comptest.roundtrip(result)
 
 
@@ -144,16 +177,16 @@ def test_nested_inline_shapes(key, code):
     simple_alias=("!shape ~number = ~num",),
     alias_to_custom=("!shape ~coordinate = ~point",),
     tag_alias=("!shape ~status-type = #status",),
+    alias_with_default=("!shape ~one = ~num=1",),
+    tag_alias_with_default=("!shape ~active = #bool=#true",),
+    string_alias_with_default=("!shape ~empty = ~str=\"\"",),
 )
 def test_shape_aliases(key, code):
-    """Test simple shape aliases."""
+    """Test simple shape aliases and aliases with defaults."""
     result = comp.parse_module(code)
     shape_def = result.statements[0]
-    
-    # Alias should have one child (the reference)
-    assert len(shape_def.kids) == 1
-    assert isinstance(shape_def.kids[0], (comp.ShapeRef, comp.TagRef))
-    
+
+    assert isinstance(shape_def, comp.ShapeDefinition)
     comptest.roundtrip(result)
 
 
@@ -166,10 +199,10 @@ def test_shape_unions(key, code):
     """Test union shapes."""
     result = comp.parse_module(code)
     shape_def = result.statements[0]
-    
+
     # Union creates a tree structure - should have children
     assert len(shape_def.kids) > 0
-    
+
     comptest.roundtrip(result)
 
 
@@ -179,27 +212,27 @@ def test_complex_shape_definition():
         id ~str
         name ~str = "unnamed"
         pos ~{x ~num y ~num z ~num}
-        tags? #tag
+        found? ~bool
         ..~timestamped
     }"""
-    
+
     # Normalize whitespace for roundtrip comparison
     normalized = " ".join(code.split())
-    
+
     result = comp.parse_module(normalized)
     shape_def = result.statements[0]
-    
+
     assert isinstance(shape_def, comp.ShapeDefinition)
     assert shape_def.tokens == ["entity"]
     assert len(shape_def.kids) == 5  # 4 fields + 1 spread
-    
+
     # Find different field types
-    regular_fields = [k for k in shape_def.kids if isinstance(k, comp.ShapeField) and not k.optional]
-    optional_fields = [k for k in shape_def.kids if isinstance(k, comp.ShapeField) and k.optional]
+    all_fields = [k for k in shape_def.kids if isinstance(k, comp.ShapeField)]
+    predicate_fields = [f for f in all_fields if '?' in f.name]
     spreads = [k for k in shape_def.kids if isinstance(k, comp.ShapeSpread)]
-    
-    assert len(regular_fields) == 3  # id, name, pos
-    assert len(optional_fields) == 1  # tags?
+
+    assert len(all_fields) == 4  # id, name, pos, found?
+    assert len(predicate_fields) == 1  # found?
     assert len(spreads) == 1  # ..~timestamped
-    
+
     comptest.roundtrip(result)

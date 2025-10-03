@@ -141,10 +141,10 @@ Functions use loose morphing (extra fields ignored), while blocks use strict mor
 
 ```comp
 ; Stream blocks typically expect no input
-!shape ~generator = ~block{}    ; Strict - rejects any input
+!shape ~generator = {produce ~:{}}    ; Strict - rejects any input
 
 ; Predicate blocks expect specific input
-!shape ~predicate = ~block{value ~any}  ; Strict - must match exactly
+!shape ~predicate = {test ~:{value ~any}}  ; Strict - must match exactly
 
 ; Two-way communication streams
 !func |stateful-stream = &{
@@ -169,7 +169,7 @@ The standard library provides essential iteration functions that work uniformly 
 Transforms each element through a block, returning a lazy structure.
 
 ```comp
-!func |map ~{source} ^{transform ~block{}} = {
+!func |map ~{source} ^{transform ~:{}} = {
     ; Returns lazy structure with transformed values
 }
 
@@ -182,7 +182,7 @@ Transforms each element through a block, returning a lazy structure.
 Selects elements matching a predicate, returning a lazy structure.
 
 ```comp
-!func |filter ~{source} ^{predicate ~block{}} = {
+!func |filter ~{source} ^{predicate ~:{}} = {
     ; Returns lazy structure with matching elements
 }
 
@@ -208,7 +208,7 @@ Limits iteration to a specified number of elements.
 Reduces a sequence to a single value using an accumulator.
 
 ```comp
-!func |fold ~{source} ^{initial ~any reducer ~block{}} = {
+!func |fold ~{source} ^{initial ~any reducer ~:{}} = {
     ; Block receives {accumulator element}
     ; Forces evaluation of source elements
 }
@@ -222,7 +222,7 @@ Reduces a sequence to a single value using an accumulator.
 Executes a block for each element, primarily for side effects.
 
 ```comp
-!func |each ~{source} ^{action ~block{}} = {
+!func |each ~{source} ^{action ~:{}} = {
     ; Forces evaluation, returns empty structure
 }
 
