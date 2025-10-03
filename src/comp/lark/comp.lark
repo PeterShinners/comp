@@ -19,6 +19,7 @@ module: module_statement*
 
 // Module-level statements (definitions and top-level expressions)
 ?module_statement: tag_definition
+                 | shape_definition
                  | expression         // Allow expressions for REPL/testing compatibility
 
 // Expression-level parsing (for REPL, testing, embedded evaluation)
@@ -132,6 +133,52 @@ tag_body: LBRACE tag_child* RBRACE
 
 tag_child: tag_path                                       // Simple child: #active
          | tag_path ASSIGN tag_body                       // Nested child: #error = {...}
+
+
+// === SHAPE DEFINITIONS ===
+
+// Shape definitions (!shape)
+// Supports simple and complex shapes:
+//   Simple:     !shape ~point = {x ~num y ~num}
+//   Defaults:   !shape ~point = {x ~num = 0 y ~num = 0}
+//   Optional:   !shape ~user = {name ~str email? ~str}
+//   Nested:     !shape ~circle = {pos ~{x ~num y ~num} radius ~num}
+//   Spread:     !shape ~point3d = {..~point z ~num}
+//   Union:      !shape ~result = ~success | ~error
+// Note: Shape definitions cannot include module namespace (no /module suffix)
+BANG_SHAPE: "!shape"
+
+shape_definition: BANG_SHAPE shape_path ASSIGN shape_body
+
+shape_path: "~" reference_identifiers                     // Shape path without namespace
+
+shape_body: LBRACE shape_field* RBRACE                    // Shape with fields
+          | shape_type                                    // Alias or union
+
+?shape_field: shape_spread                                // ..~shape (spread)
+            | shape_field_def                             // field? ~type = default
+
+shape_field_def: TOKEN QUESTION? shape_type? (ASSIGN expression)?
+
+shape_spread: SPREAD shape_type                           // ..~shape
+
+// Union is now a separate rule that creates a flat list
+shape_union: shape_type_atom (PIPE shape_type_atom)+      // ~type1 | ~type2 | ~type3
+
+// Renamed to shape_type_atom - individual type without union
+shape_type_atom: shape_reference                          // ~typename
+               | tag_reference                            // #tagname (tag as type)
+               | shape_inline                             // ~{...} inline shape
+
+// Inline anonymous shape definition
+shape_inline: TILDE LBRACE shape_field* RBRACE            // ~{fields...}
+
+// shape_type can be a union or a single atom
+shape_type: shape_union | shape_type_atom
+
+TILDE: "~"
+PIPE: "|"
+QUESTION: "?"
 
 
 // === STRUCTURE DEFINITION ===

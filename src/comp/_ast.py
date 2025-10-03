@@ -38,6 +38,11 @@ __all__ = [
     "ShapeRef",
     "FuncRef",
     "TagDefinition",
+    "ShapeDefinition",
+    "ShapeField",
+    "ShapeSpread",
+    "ShapeUnion",
+    "ShapeInline",
 ]
 
 import decimal
@@ -263,6 +268,256 @@ class TagDefinition(AstNode):
                 tokens.append(child.value)
 
         return cls(tokens=tokens)
+
+
+class ShapeDefinition(AstNode):
+    """Shape definition at module level.
+
+    Examples:
+        !shape ~point = {x ~num y ~num}
+        !shape ~point = {x ~num = 0 y ~num = 0}
+        !shape ~user = {name ~str email? ~str}
+        !shape ~circle = {pos ~{x ~num y ~num} radius ~num}
+        !shape ~point3d = {..~point z ~num}
+        !shape ~result = ~success | ~error
+
+    The shape name is stored as a list of tokens (e.g., ["point"] or ["geo", "point"]).
+    The body can be a structure-like definition, a type reference, or a union.
+    Children can be ShapeField, ShapeSpread, or other shape type nodes.
+    """
+
+    def __init__(self, tokens: list[str] | None = None, assign_op: str = "="):
+        """Initialize shape definition.
+
+        Args:
+            tokens: List of shape path components (e.g., ["point"] or ["geo", "point"])
+            assign_op: Assignment operator used ("=", "=?", "=*")
+        """
+        self.tokens = list(tokens) if tokens else []
+        self.assign_op = assign_op
+        super().__init__()
+
+    def unparse(self, is_child: bool = False) -> str:
+        """Unparse shape definition back to source code.
+
+        Args:
+            is_child: Currently unused for shapes (no nested definitions like tags)
+        """
+        shape_path = "~" + ".".join(self.tokens)
+
+        if not self.kids:
+            # Shape with no body (shouldn't happen in valid code)
+            return f"!shape {shape_path}"
+
+        # Check if this is a simple alias or union (single child that's a type reference/union)
+        if len(self.kids) == 1 and isinstance(self.kids[0], (ShapeRef, TagRef)):
+            # Simple alias: !shape ~number = ~num
+            return f"!shape {shape_path} = {self.kids[0].unparse()}"
+
+        # Check if single child is a union or other shape_type expression
+        if len(self.kids) == 1 and not isinstance(self.kids[0], (ShapeField, ShapeSpread)):
+            # Union or complex type: !shape ~result = ~success | ~error
+            return f"!shape {shape_path} = {self.kids[0].unparse()}"
+
+        # Definition with fields: !shape ~point = {x ~num y ~num}
+        fields_str = " ".join(kid.unparse() for kid in self.kids)
+        return f"!shape {shape_path} = {{{fields_str}}}"
+
+    @classmethod
+    def fromGrammar(cls, tree):
+        """Parse from Lark tree.
+
+        Grammar: shape_definition: BANG_SHAPE shape_path ASSIGN shape_body
+
+        shape_path: "~" reference_identifiers
+        shape_body: LBRACE shape_field* RBRACE | shape_type
+        """
+        # tree.children: [BANG_SHAPE, shape_path, ASSIGN, shape_body]
+        shape_path_tree = tree.children[1]
+        assign_op_token = tree.children[2]
+        shape_body_tree = tree.children[3]
+
+        # shape_path -> "~" reference_identifiers
+        reference_identifiers = shape_path_tree.children[1]  # Skip "~" token
+
+        # Extract tokens from reference_identifiers (TOKEN ("." TOKEN)*)
+        tokens = []
+        for child in reference_identifiers.children:
+            if hasattr(child, 'value') and child.value != ".":
+                tokens.append(child.value)
+
+        # Extract assignment operator string
+        assign_op = assign_op_token.value if hasattr(assign_op_token, 'value') else str(assign_op_token)
+
+        return cls(tokens=tokens, assign_op=assign_op)
+
+
+class ShapeField(AstNode):
+    """Single field in a shape definition.
+
+    Examples:
+        x ~num
+        y ~num = 0
+        email? ~str
+        pos ~{x ~num y ~num}
+
+    Attributes:
+        name: Field name (e.g., "x", "email")
+        optional: Whether field has ? suffix (from TOKEN like "email?")
+        type_ref: Optional child node for the type (ShapeRef, TagRef, inline shape, etc.)
+        default: Optional child node for default value expression
+    """
+
+    def __init__(self, name: str = "", optional: bool = False):
+        """Initialize shape field.
+
+        Args:
+            name: Field name
+            optional: Whether field is optional (has ? suffix)
+        """
+        self.name = name
+        self.optional = optional
+        super().__init__()
+
+    @property
+    def type_ref(self):
+        """First child is the type reference (if present)."""
+        return self.kids[0] if self.kids else None
+
+    @property
+    def default(self):
+        """Second child is the default value (if present)."""
+        return self.kids[1] if len(self.kids) > 1 else None
+
+    def unparse(self) -> str:
+        """Unparse shape field back to source code."""
+        result = self.name
+
+        # Note: optional ? is already part of the name token
+        # (TOKEN regex includes optional trailing ?)
+
+        if self.type_ref:
+            result += f" {self.type_ref.unparse()}"
+
+        if self.default:
+            result += f" = {self.default.unparse()}"
+
+        return result
+
+    @classmethod
+    def fromGrammar(cls, tree):
+        """Parse from Lark tree.
+
+        Grammar: shape_field_def: TOKEN QUESTION? shape_type? (ASSIGN expression)?
+
+        Note: QUESTION is optional and may already be part of TOKEN
+        """
+        children = tree.children
+
+        # First child is TOKEN (field name, may include ? suffix)
+        name_token = children[0]
+        name = name_token.value if hasattr(name_token, 'value') else str(name_token)
+
+        # Check if name ends with ? (optional field)
+        optional = name.endswith('?')
+
+        return cls(name=name, optional=optional)
+
+
+class ShapeSpread(AstNode):
+    """Shape spread in definition: ..~shape
+
+    Examples:
+        ..~point
+        ..~base
+
+    The spread type is stored as the first child (usually a ShapeRef).
+    """
+
+    def __init__(self):
+        """Initialize shape spread."""
+        super().__init__()
+
+    @property
+    def shape_type(self):
+        """The shape type being spread (first child)."""
+        return self.kids[0] if self.kids else None
+
+    def unparse(self) -> str:
+        """Unparse shape spread back to source code."""
+        if self.shape_type:
+            return f"..{self.shape_type.unparse()}"
+        return ".."
+
+    @classmethod
+    def fromGrammar(cls, tree):
+        """Parse from Lark tree.
+
+        Grammar: shape_spread: SPREAD shape_type
+        """
+        return cls()
+
+
+class ShapeUnion(AstNode):
+    """Union of shape types: ~type1 | ~type2 | ~type3
+
+    Examples:
+        ~success | ~error
+        ~num | ~str | ~bool
+        ~point | ~{x ~num y ~num}
+
+    All union members are stored as children. The union is always flat,
+    not nested (a | b | c becomes one ShapeUnion with 3 children).
+    """
+
+    def __init__(self):
+        """Initialize shape union."""
+        super().__init__()
+
+    def unparse(self) -> str:
+        """Unparse shape union back to source code."""
+        if not self.kids:
+            return "???"
+        return " | ".join(kid.unparse() for kid in self.kids)
+
+    @classmethod
+    def fromGrammar(cls, tree):
+        """Parse from Lark tree.
+
+        Grammar: shape_union: shape_type_atom (PIPE shape_type_atom)+
+        """
+        return cls()
+
+
+class ShapeInline(AstNode):
+    """Inline anonymous shape definition: ~{...fields...}
+
+    Examples:
+        ~{x ~num y ~num}
+        ~{name ~str age ~num = 0}
+        ~{id ~str ..~timestamped}
+
+    Children are ShapeField and ShapeSpread nodes.
+    """
+
+    def __init__(self):
+        """Initialize inline shape."""
+        super().__init__()
+
+    def unparse(self) -> str:
+        """Unparse inline shape back to source code."""
+        if not self.kids:
+            return "~{}"
+        fields = " ".join(kid.unparse() for kid in self.kids)
+        return f"~{{{fields}}}"
+
+    @classmethod
+    def fromGrammar(cls, tree):
+        """Parse from Lark tree.
+
+        Grammar: shape_type_atom: TILDE LBRACE shape_field* RBRACE
+        """
+        return cls()
 
 
 # === LITERALS ===

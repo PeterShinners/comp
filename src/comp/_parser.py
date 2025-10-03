@@ -21,16 +21,16 @@ _expr_parser: lark.Lark | None = None
 
 def parse_module(text: str) -> _ast.Module:
     """Parse a complete Comp module.
-    
+
     Parses module-level statements including tag definitions, function
     definitions, imports, and entry points.
-    
+
     Args:
         text: Module source code
-        
+
     Returns:
         Module AST node containing all module statements
-        
+
     Raises:
         ParseError: If the text contains invalid syntax
     """
@@ -50,16 +50,16 @@ def parse_module(text: str) -> _ast.Module:
 
 def parse_expr(text: str) -> _ast.Root:
     """Parse a single Comp expression.
-    
+
     Parses expression-level constructs like numbers, strings, structures,
     pipelines, and operators. Used for REPL, testing, and embedded contexts.
-    
+
     Args:
         text: Expression source code
-        
+
     Returns:
         Root AST node containing the expression
-        
+
     Raises:
         ParseError: If the text contains invalid syntax
     """
@@ -137,6 +137,38 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 # This is handled by TagDefinition.fromGrammar
                 # Should not appear as standalone in AST
                 pass
+
+            # Shape definitions
+            case 'shape_definition':
+                _node(_ast.ShapeDefinition, walk=kids)
+            case 'shape_body':
+                # shape_body: LBRACE shape_field* RBRACE | shape_type
+                # If it's a body with braces, pass through children (shape_field nodes)
+                # If it's a simple type reference/union, that will be handled as a child
+                generate_ast(parent, kids)
+                continue
+            case 'shape_field_def':
+                # shape_field_def: TOKEN QUESTION? shape_type? (ASSIGN expression)?
+                _node(_ast.ShapeField, walk=kids)
+            case 'shape_spread':
+                # shape_spread: SPREAD shape_type
+                _node(_ast.ShapeSpread, walk=kids)
+            case 'shape_path':
+                # This is handled by ShapeDefinition.fromGrammar
+                # Should not appear as standalone in AST
+                pass
+            case 'shape_union':
+                # shape_union: shape_type_atom (PIPE shape_type_atom)+
+                # Creates a ShapeUnion with all atoms as direct children
+                _node(_ast.ShapeUnion, walk=kids)
+            case 'shape_inline':
+                # shape_inline: TILDE LBRACE shape_field* RBRACE
+                # Creates a ShapeInline with all fields as children
+                _node(_ast.ShapeInline, walk=kids)
+            case 'shape_type' | 'shape_type_atom':
+                # Just pass through - the actual nodes are created by their specific rules
+                generate_ast(parent, kids)
+                continue
 
             # Leafs
             case 'string':
@@ -238,13 +270,13 @@ def _create_node(parent_append, tree: lark.Tree, cls, walk=None):
 def grammar_module(code: str):
     """
     Debug utility: Parse module and pretty print the raw Lark tree.
-    
+
     This bypasses AST transformation to show the raw grammar structure,
     useful for debugging module-level grammar issues.
-    
+
     Args:
         code: The module code to parse
-        
+
     Returns:
         lark.Tree: The raw Lark parse tree, or None if parsing failed
     """
@@ -255,7 +287,7 @@ def grammar_module(code: str):
         start='module',
         keep_all_tokens=True,
     )
-    
+
     print(f"Parsing module: {code}")
     try:
         tree = parser.parse(code)
