@@ -199,13 +199,15 @@ class TagDefinition(AstNode):
     Children are nested TagDefinition nodes for hierarchical definitions.
     """
 
-    def __init__(self, tokens: list[str] | None = None):
+    def __init__(self, tokens: list[str] | None = None, assign_op: str = "="):
         """Initialize tag definition.
 
         Args:
             tokens: List of tag path components (e.g., ["status", "error"])
+            assign_op: Assignment operator used ("=", "=?", "=*")
         """
         self.tokens = list(tokens) if tokens else []
+        self.assign_op = assign_op
         super().__init__()
 
     def unparse(self, is_child: bool = False) -> str:
@@ -228,9 +230,9 @@ class TagDefinition(AstNode):
         children_str = " ".join(kid.unparse(is_child=True) for kid in self.kids)
 
         if is_child:
-            return f"{tag_path} = {{{children_str}}}"  # #error = {...}
+            return f"{tag_path} {self.assign_op} {{{children_str}}}"  # #error = {...}
         else:
-            return f"!tag {tag_path} = {{{children_str}}}"  # !tag #status = {...}
+            return f"!tag {tag_path} {self.assign_op} {{{children_str}}}"  # !tag #status = {...}
 
     @classmethod
     def fromGrammar(cls, tree):
@@ -268,7 +270,14 @@ class TagDefinition(AstNode):
             if hasattr(child, 'value') and child.value != ".":
                 tokens.append(child.value)
 
-        return cls(tokens=tokens)
+        # Extract assignment operator if present
+        assign_op = "="
+        for child in tree.children:
+            if hasattr(child, 'type') and 'ASSIGN' in child.type:
+                assign_op = child.value
+                break
+
+        return cls(tokens=tokens, assign_op=assign_op)
 
 
 class ShapeDefinition(AstNode):
@@ -351,6 +360,100 @@ class ShapeDefinition(AstNode):
         assign_op = assign_op_token.value if hasattr(assign_op_token, 'value') else str(assign_op_token)
 
         return cls(tokens=tokens, assign_op=assign_op)
+
+
+class FunctionDefinition(AstNode):
+    """Function definition at module level.
+
+    Examples:
+        !func |add ~num ^{a ~num b ~num} = {a + b}
+        !func |process ~data = {data | validate | transform}
+        !func |greet ~nil ^greeting = {"Hello " + name}
+
+    The function name is stored as a list of tokens (e.g., ["add"] or ["math", "add"]).
+    The shape is always present (use ~nil if no input needed).
+    The args is always a Structure node (may be empty if no arguments).
+    The assignment_op can be "=", "=*", or "=?" for different assignment semantics.
+
+    Children layout:
+    - kids[0]: shape (required)
+    - kids[1]: args Structure (always present, may be empty)
+    - kids[2]: body Structure (required)
+    """
+
+    def __init__(self, tokens: list[str] | None = None, assign_op: str = "="):
+        """Initialize function definition.
+
+        Args:
+            tokens: List of function path components (e.g., ["add"] or ["math", "add"])
+            assign_op: Assignment operator used ("=", "=*", "=?")
+        """
+        self.tokens = list(tokens) if tokens else []
+        self.assign_op = assign_op
+        super().__init__()
+
+    @property
+    def name(self) -> str:
+        """Get the function name as a dotted path."""
+        return ".".join(self.tokens)
+
+    @property
+    def shape(self):
+        """Get the input shape (first child, always present)."""
+        return self.kids[0] if len(self.kids) > 0 else None
+
+    @property
+    def args(self):
+        """Get the args structure (second child, always present)."""
+        return self.kids[1] if len(self.kids) > 1 else None
+
+    @property
+    def body(self):
+        """Get the function body structure (third child, always present)."""
+        return self.kids[2] if len(self.kids) > 2 else None
+
+    def unparse(self, is_child: bool = False) -> str:
+        """Unparse function definition back to source code.
+
+        Args:
+            is_child: Currently unused for functions (no nested definitions)
+        """
+        func_path = "|" + ".".join(self.tokens)
+        input_str = self.shape.unparse() if self.shape else ""
+
+        # Build the function signature
+        # Only include ^{...} if args structure has children
+        if self.args and self.args.kids:
+            # args is a Structure with ShapeField children
+            arg_fields = " ".join(kid.unparse() for kid in self.args.kids)
+            signature = f"!func {func_path} {input_str} ^{{{arg_fields}}}"
+        else:
+            signature = f"!func {func_path} {input_str}"
+
+        # Add the assignment operator and body
+        body_str = self.body.unparse() if self.body else "{}"
+        return f"{signature} {self.assign_op} {body_str}"
+
+    @classmethod
+    def fromGrammar(cls, tree):
+        """Parse from Lark tree.
+
+        Grammar:
+            function_definition: BANG_FUNC function_path shape arg_shape _assignment_op structure
+                               | BANG_FUNC function_path shape _assignment_op structure
+
+        function_path: PIPE TOKEN ("." TOKEN)*
+
+        The parser will create an empty Structure for args when arg_shape is not present.
+        """
+        tokens = [t.value for t in tree.children[1].children if t.value not in "|."]
+        assign_op = tree.children[-2].value
+        return cls(tokens=tokens, assign_op=assign_op)
+
+    def postGrammar(self):
+        """Called after children have been populated"""
+        if len(self.kids) == 2:
+            self.kids.insert(1, Structure())
 
 
 class ShapeField(AstNode):

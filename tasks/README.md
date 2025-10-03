@@ -24,10 +24,10 @@ Focused just on parsing the main language features into ast trees
 [X] 01-09. Pipeline Operations - Parse statements and pipelines (flat operation lists)
 [X] 01-10. Rework grammar, astnodes, and unit tests
 [X] 01-11. Tag Definitions - Module-level grammar, parse tag definitions (no values yet)
-[ ] 01-PP. Shapes - Parse shape definitions
-[ ] 01-PP. Function - Parse function definitions
-[ ] 01-PP. Tags Complete - Complete parsing of tags with values
-[ ] 01-PP. Non-definition Bang Operators - Parse !delete, !doc, etc.
+[X] 01-12. Shapes - Parse shape definitions
+[~] 01-13. Function - Parse function definitions
+[ ] 01-14. Tags Complete - Complete parsing of tags with values
+[ ] 01-15. Non-definition Bang Operators - Parse !delete, !doc, etc.
 
 ## 02. Values and Expressions
 

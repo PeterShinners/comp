@@ -20,6 +20,7 @@ module: module_statement*
 // Module-level statements (definitions and top-level expressions)
 ?module_statement: tag_definition
                  | shape_definition
+                 | function_definition
                  | expression         // Allow expressions for REPL/testing compatibility
 
 // Expression-level parsing (for REPL, testing, embedded evaluation)
@@ -181,6 +182,21 @@ PIPE: "|"
 QUESTION: "?"
 
 
+// === FUNCTION DEFINITION ===
+BANG_FUNC: "!func"
+
+function_definition: BANG_FUNC function_path function_shape arg_shape _assignment_op structure
+                   | BANG_FUNC function_path function_shape _assignment_op structure
+
+function_path: PIPE TOKEN ("." TOKEN)*
+
+function_shape: shape_type
+
+arg_shape: CARET shape_body
+
+CARET: "^"
+
+
 // === STRUCTURE DEFINITION ===
 LBRACE: "{"
 RBRACE: "}"
@@ -254,11 +270,7 @@ pipe_block: PIPE_BLOCK _qualified
 pipe_wrench: PIPE_WRENCH _function_piped
 pipeline: (pipe_func | pipe_struct | pipe_block | pipe_wrench | pipe_fallback)+
 
-function_arguments: functionstructure_op*
-?functionstructure_op: function_structure_spread | function_structure_assign | function_structure_unnamed
-function_structure_spread: SPREAD _prepipeline_expression
-function_structure_assign: _qualified _assignment_op _prepipeline_expression  
-function_structure_unnamed: _prepipeline_expression
+function_arguments: structure_op*
 
 // === BASIC EXPRESSIONS ===
 

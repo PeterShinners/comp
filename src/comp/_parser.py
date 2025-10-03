@@ -157,6 +157,25 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 # This is handled by ShapeDefinition.fromGrammar
                 # Should not appear as standalone in AST
                 pass
+
+            # Function definitions
+            case 'function_definition':
+                _node(_ast.FunctionDefinition, walk=kids).postGrammar()
+            case 'function_path':
+                # This is handled by FunctionDefinition.fromGrammar
+                # Should not appear as standalone in AST
+                pass
+            case 'function_shape':
+                # function_shape: shape_type - just pass through the type
+                generate_ast(parent, kids)
+                continue
+            case 'arg_shape':
+                # arg_shape: CARET shape_body
+                # Convert shape_body content into a Structure node
+                # The shape_body will have ShapeField children which we wrap in Structure
+                _node(_ast.Structure, walk=kids)
+                continue
+
             case 'shape_union':
                 # shape_union: shape_type_atom (PIPE shape_type_atom)+
                 # Creates a ShapeUnion with all atoms as direct children
