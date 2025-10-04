@@ -1,3 +1,6 @@
 """Runtime interpreter"""
 
-from ._types import *
+from ._builtin import *
+from ._struct import *
+from ._tag import *
+from ._value import *
