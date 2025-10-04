@@ -18,8 +18,7 @@ class TestFunctionDefinition:
         assert func.tokens == ["double"]
         assert func.name == "double"
         assert isinstance(func.shape, ShapeRef)
-        assert isinstance(func.args, Structure)
-        assert len(func.args.kids) == 0  # Empty args
+        assert func.args is None  # No args when not specified
         assert isinstance(func.body, Structure)
 
     def test_function_with_args(self):

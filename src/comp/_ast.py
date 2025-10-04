@@ -37,6 +37,8 @@ __all__ = [
     "TagRef",
     "ShapeRef",
     "FuncRef",
+    "TagChild",
+    "TagBody",
     "TagDefinition",
     "ShapeDefinition",
     "ShapeField",
@@ -187,97 +189,108 @@ class Module(AstNode):
 # === MODULE-LEVEL DEFINITIONS ===
 
 
-class TagDefinition(AstNode):
-    """Tag definition at module level.
-
-    Examples:
-        !tag #status
-        !tag #status = {#active #inactive}
-        !tag #status.error.timeout
-
-    The tag path is stored as a list of tokens (e.g., ["status", "error", "timeout"]).
-    Children are nested TagDefinition nodes for hierarchical definitions.
-    """
+class TagChild(AstNode):
+    """Nested tag child in a tag hierarchy (no !tag prefix)."""
 
     def __init__(self, tokens: list[str] | None = None, assign_op: str = "="):
-        """Initialize tag definition.
-
-        Args:
-            tokens: List of tag path components (e.g., ["status", "error"])
-            assign_op: Assignment operator used ("=", "=?", "=*")
-        """
         self.tokens = list(tokens) if tokens else []
         self.assign_op = assign_op
+        self._valIdx = self._bodIdx = None
         super().__init__()
 
-    def unparse(self, is_child: bool = False) -> str:
-        """Unparse tag definition back to source code.
+    @property
+    def value(self):
+        return self.kids[self._valIdx] if self._valIdx is not None else None
 
-        Args:
-            is_child: If True, omit the !tag prefix (used for nested definitions)
-        """
-        tag_path = "#" + ".".join(self.tokens)
+    @property
+    def body(self):
+        return self.kids[self._bodIdx] if self._bodIdx is not None else None
 
-        if not self.kids:
-            # Simple definition
-            if is_child:
-                return tag_path  # Just #status
-            else:
-                return f"!tag {tag_path}"  # !tag #status
+    @property
+    def body_kids(self):
+        """Get all children after the assignment (value + body children)."""
+        kids = []
+        if self.value is not None:
+            kids.append(self.value)
+        body = self.body
+        if body:
+            kids.extend(body.kids)
+        return kids
 
-        # Definition with children: !tag #status = {#active #inactive}
-        # Children are unparsed without the !tag prefix
-        children_str = " ".join(kid.unparse(is_child=True) for kid in self.kids)
-
-        if is_child:
-            return f"{tag_path} {self.assign_op} {{{children_str}}}"  # #error = {...}
-        else:
-            return f"!tag {tag_path} {self.assign_op} {{{children_str}}}"  # !tag #status = {...}
+    def unparse(self) -> str:
+        parts = ["#" + ".".join(self.tokens)]
+        if self.assign_op:
+            parts.append(self.assign_op)
+        _maybe_unparse(parts, self.value)
+        _maybe_unparse(parts, self.body)
+        return " ".join(parts)
 
     @classmethod
     def fromGrammar(cls, tree):
-        """Parse from Lark tree.
+        kids = tree.children
+        tokens = [t.value for t in kids[0].children[1].children[::2]]
+        assign_op = _tokenValue(kids, 1, "")
+        self = cls(tokens=tokens, assign_op=assign_op)
+        self._valIdx, self._bodIdx = _enumMatches(kids, 'tag_value', 'tag_body')
+        return self
 
-        Can handle two grammar rules:
-        - tag_definition: BANG_TAG tag_path [ASSIGN tag_body]
-        - tag_child: tag_path | tag_path ASSIGN tag_body
 
-        For tag_path: "#" reference_identifiers -> extracts tokens from reference_identifiers
-        For tag_body: LBRACE tag_child* RBRACE -> children are processed separately
-        """
-        # Determine if this is tag_definition or tag_child
-        if tree.data == 'tag_definition':
-            # tag_definition: BANG_TAG tag_path [ASSIGN tag_body]
-            # First child is BANG_TAG token, second is tag_path
-            tag_path_tree = tree.children[1]
-        else:
-            # tag_child: tag_path | tag_path ASSIGN tag_body
-            # First child is tag_path
-            tag_path_tree = tree.children[0]
+class TagBody(AstNode):
+    def unparse(self):
+        tags = " ".join(t.unparse() for t in self.kids)
+        return f"{{{tags}}}"
 
-        # tag_path -> "#" reference_identifiers
-        # Check if tag_path_tree is a Tree or Token
-        if hasattr(tag_path_tree, 'children'):
-            # It's a Tree - get reference_identifiers
-            reference_identifiers = tag_path_tree.children[1]  # Skip "#" token
-        else:
-            # It's a Token - shouldn't happen, but handle gracefully
-            raise ValueError(f"Expected tag_path tree, got token: {tag_path_tree}")
 
-        # Extract tokens from reference_identifiers (TOKEN ("." TOKEN)*)
-        tokens = []
-        for child in reference_identifiers.children:
-            if hasattr(child, 'value') and child.value != ".":
-                tokens.append(child.value)
+class TagDefinition(AstNode):
+    """Tag definition at module level (with !tag prefix)."""
 
-        # Extract assignment operator if present
-        assign_op = "="
-        for child in tree.children:
-            if hasattr(child, 'type') and 'ASSIGN' in child.type:
-                assign_op = child.value
-                break
+    def __init__(self, tokens: list[str] | None = None, assign_op: str = "="):
+        self.tokens = list(tokens) if tokens else []
+        self.assign_op = assign_op
+        self._genIdx = self._valIdx = self._bodIdx = None
+        super().__init__()
 
-        return cls(tokens=tokens, assign_op=assign_op)
+    @property
+    def generator(self):
+        return self.kids[self._genIdx] if self._genIdx is not None else None
+
+    @property
+    def value(self):
+        return self.kids[self._valIdx] if self._valIdx is not None else None
+
+    @property
+    def body(self):
+        return self.kids[self._bodIdx] if self._bodIdx is not None else None
+
+    @property
+    def body_kids(self):
+        """Get all children after the assignment (value + body children)."""
+        kids = []
+        if self.value is not None:
+            kids.append(self.value)
+        body = self.body
+        if body:
+            kids.extend(body.kids)
+        return kids
+
+    def unparse(self) -> str:
+        parts = ["!tag", "#" + ".".join(self.tokens)]
+        _maybe_unparse(parts, self.generator)
+        if self.assign_op:
+            parts.append(self.assign_op)
+        _maybe_unparse(parts, self.value)
+        _maybe_unparse(parts, self.body)
+        return " ".join(parts)
+
+    @classmethod
+    def fromGrammar(cls, tree):
+        """Parse TagDefinition from Lark tree."""
+        kids = tree.children
+        tokens = [t.value for t in kids[1].children[1].children[::2]]
+        assign_op = _tokenValue(kids, 2, "")
+        self = cls(tokens=tokens, assign_op=assign_op)
+        self._genIdx, self._valIdx, self._bodIdx = _enumMatches(kids, 'tag_generator', 'tag_value', 'tag_body')
+        return self
 
 
 class ShapeDefinition(AstNode):
@@ -307,12 +320,7 @@ class ShapeDefinition(AstNode):
         self.assign_op = assign_op
         super().__init__()
 
-    def unparse(self, is_child: bool = False) -> str:
-        """Unparse shape definition back to source code.
-
-        Args:
-            is_child: Currently unused for shapes (no nested definitions like tags)
-        """
+    def unparse(self) -> str:
         shape_path = "~" + ".".join(self.tokens)
 
         if not self.kids:
@@ -379,11 +387,6 @@ class FunctionDefinition(AstNode):
     The shape is always present (use ~nil if no input needed).
     The args is always a Structure node (may be empty if no arguments).
     The assignment_op can be "=", "=*", or "=?" for different assignment semantics.
-
-    Children layout:
-    - kids[0]: shape (required)
-    - kids[1]: args Structure (always present, may be empty)
-    - kids[2]: body Structure (required)
     """
 
     def __init__(self, tokens: list[str] | None = None, assign_op: str = "="):
@@ -395,70 +398,49 @@ class FunctionDefinition(AstNode):
         """
         self.tokens = list(tokens) if tokens else []
         self.assign_op = assign_op
+        self._argIdx = self._bodIdx = None
         super().__init__()
 
     @property
-    def name(self) -> str:
-        """Get the function name as a dotted path."""
+    def name(self):
+        """Get the function name as a dotted string (for compatibility)."""
         return ".".join(self.tokens)
 
     @property
     def shape(self):
         """Get the input shape (first child, always present)."""
-        return self.kids[0] if len(self.kids) > 0 else None
+        return self.kids[0] if self.kids else None
 
     @property
     def args(self):
         """Get the args structure (second child, always present)."""
-        return self.kids[1] if len(self.kids) > 1 else None
+        return self.kids[self._argIdx] if self._argIdx is not None else None
 
     @property
     def body(self):
         """Get the function body structure (third child, always present)."""
-        return self.kids[2] if len(self.kids) > 2 else None
+        return self.kids[self._bodIdx] if self._bodIdx is not None else None
 
-    def unparse(self, is_child: bool = False) -> str:
-        """Unparse function definition back to source code.
-
-        Args:
-            is_child: Currently unused for functions (no nested definitions)
-        """
-        func_path = "|" + ".".join(self.tokens)
-        input_str = self.shape.unparse() if self.shape else ""
-
-        # Build the function signature
-        # Only include ^{...} if args structure has children
-        if self.args and self.args.kids:
-            # args is a Structure with ShapeField children
-            arg_fields = " ".join(kid.unparse() for kid in self.args.kids)
-            signature = f"!func {func_path} {input_str} ^{{{arg_fields}}}"
-        else:
-            signature = f"!func {func_path} {input_str}"
-
-        # Add the assignment operator and body
-        body_str = self.body.unparse() if self.body else "{}"
-        return f"{signature} {self.assign_op} {body_str}"
+    def unparse(self) -> str:
+        parts = ["!func", "|" + ".".join(self.tokens)]
+        _maybe_unparse(parts, self.shape)
+        args = self.args
+        if args:
+            parts.append("^" + args.unparse())
+        if self.assign_op:
+            parts.append(self.assign_op)
+        _maybe_unparse(parts, self.body)
+        return " ".join(parts)
 
     @classmethod
     def fromGrammar(cls, tree):
-        """Parse from Lark tree.
-
-        Grammar:
-            function_definition: BANG_FUNC function_path shape arg_shape _assignment_op structure
-                               | BANG_FUNC function_path shape _assignment_op structure
-
-        function_path: PIPE TOKEN ("." TOKEN)*
-
-        The parser will create an empty Structure for args when arg_shape is not present.
-        """
-        tokens = [t.value for t in tree.children[1].children if t.value not in "|."]
+        tokens = [t.value for t in tree.children[1].children[1::2]]
         assign_op = tree.children[-2].value
-        return cls(tokens=tokens, assign_op=assign_op)
+        self = cls(tokens=tokens, assign_op=assign_op)
 
-    def postGrammar(self):
-        """Called after children have been populated"""
-        if len(self.kids) == 2:
-            self.kids.insert(1, Structure())
+        self._argIdx, = _enumMatches(tree.children, 'arg_shape', offset=1)
+        self._bodIdx = -1
+        return self
 
 
 class ShapeField(AstNode):
@@ -531,7 +513,7 @@ class ShapeField(AstNode):
 
         # Check if first child is a TOKEN (named field) or shape_type (positional field)
         first_child = children[0] if children else None
-        
+
         if first_child and hasattr(first_child, 'type') and first_child.type == 'TOKEN':
             # Named field: first child is TOKEN
             name = first_child.value
@@ -1245,3 +1227,39 @@ class FuncRef(_BaseRef):
     """Function reference: |path"""
     SYMBOL = "|"
 
+
+def _maybe_unparse(parts, val):
+    """Add unparsed value to array if not None"""
+    if val is not None:
+        parts.append(val.unparse())
+
+
+def _enumMatches(kids, *rules, offset=0):
+    """Find ordering of optional rules in tree children"""
+    ruleCount = len(rules)
+    found = [None] * ruleCount
+    rule = 0
+    count = 0
+    # print("MATCHES:", rules, len(kids), kids)
+    for kid in kids:
+        data = getattr(kid, 'data', None)
+        # print("  KID:", data, rule, count)
+        for hunt in range(rule, ruleCount):
+            if data == rules[hunt]:
+                rule = hunt + 1
+                found[hunt] = count
+                # print("MATCH:", hunt, found)
+                count += 1
+                break
+        if rule >= ruleCount:
+            break
+    found = [f + offset if f is not None else None for f in found]
+    return found
+
+
+def _tokenValue(kids, offset=0, default=None):
+    """Find first token value in tree children after offset"""
+    for kid in kids[offset:]:
+        if hasattr(kid, 'type'):
+            return kid.value
+    return default

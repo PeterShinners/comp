@@ -119,24 +119,21 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 # Children: [expr_tree, DOT, field_tree]
                 _node(_ast.FieldAccess, walk=kids)
 
-            # Module-level definitions
+            # Tag definitions
             case 'tag_definition':
                 _node(_ast.TagDefinition, walk=kids)
-            case 'tag_body':
-                # tag_body: LBRACE tag_child* RBRACE
-                # Just pass through children (tag_child nodes)
-                generate_ast(parent, kids)
+            case 'tag_generator':
+                generate_ast(parent, kids)  # pass through function or block ref
                 continue
+            case 'tag_body':
+                _node(_ast.TagBody, walk=kids)
             case 'tag_child':
-                # tag_child can be either:
-                # 1. Just a tag_path: #active
-                # 2. tag_path with nested body: #error = {...}
-                # Create a TagDefinition for the child
-                _node(_ast.TagDefinition, walk=kids)
+                _node(_ast.TagChild, walk=kids)
+            case 'tag_value' | 'tag_arithmetic' | 'tag_term' | 'tag_bitwise' | 'tag_comparison' | 'tag_unary' | 'tag_atom':
+                generate_ast(parent, kids)  # pass through value literals (and exprs)
+                continue
             case 'tag_path':
-                # This is handled by TagDefinition.fromGrammar
-                # Should not appear as standalone in AST
-                pass
+                pass  # ignored
 
             # Shape definitions
             case 'shape_definition':
@@ -160,7 +157,7 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
 
             # Function definitions
             case 'function_definition':
-                _node(_ast.FunctionDefinition, walk=kids).postGrammar()
+                _node(_ast.FunctionDefinition, walk=kids)
             case 'function_path':
                 # This is handled by FunctionDefinition.fromGrammar
                 # Should not appear as standalone in AST
