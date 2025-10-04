@@ -363,7 +363,7 @@ class FunctionDefinition(AstNode):
             return f"!func {func_name} {input_str} = {self.body.unparse()}"
     
     @classmethod
-    def fromGrammar(cls, tree):
+    def from_grammar(cls, tree):
         """Parse from Lark tree.
         
         Grammar:

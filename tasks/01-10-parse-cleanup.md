@@ -75,7 +75,7 @@ This eliminates grammar ambiguity where `{$mod.pizza=#true}` failed to parse whi
 
 **Eliminated Scope Case**: Removed ~60 lines of special `scope` case handling by making scopes just specialized identifiers.
 
-**Simplified Binary Operators**: `BinaryOp.fromGrammar()` reduced from 15 lines with hardcoded operator mappings to a single line: `return cls(tree.children[1].value)`.
+**Simplified Binary Operators**: `BinaryOp.from_grammar()` reduced from 15 lines with hardcoded operator mappings to a single line: `return cls(tree.children[1].value)`.
 
 **Pipeline Node Creation**: Fixed pipeline AST node creation so all pipeline contexts properly wrap operations:
 - Parenthesized pipelines: `(|now/time)` creates Pipeline node
@@ -88,7 +88,7 @@ This eliminates grammar ambiguity where `{$mod.pizza=#true}` failed to parse whi
 - `kids` list for child nodes
 - `unparse()` returns valid source code
 - `tree()` for debugging visualization
-- `fromGrammar(cls, tree)` for construction
+- `from_grammar(cls, tree)` for construction
 - `matches(other)` for hierarchical AST comparison
 
 **Hierarchical Comparison**: New `matches()` method enables easy testing of round-trip parsing:
@@ -157,7 +157,7 @@ Switched from Lark's Transformer to custom visitor because:
 
 ### Operator Inlining
 Using `?comp_op` instead of `!comp_op` gives all operators identical structure, even though it creates slightly more verbose grammar, because:
-- Simpler `BinaryOp.fromGrammar()` implementation
+- Simpler `BinaryOp.from_grammar()` implementation
 - Consistent tree structure across all operators
 - Easier to add new operators in future
 
@@ -190,7 +190,7 @@ AST nodes add parentheses when unparsing nested operations because:
 **Result**: All scope assignments now parse correctly in structures.
 
 ### Bug 2: BinaryOp Grammar Copy-Paste Error
-**Problem**: `BinaryOp.fromGrammar()` had copy-pasted implementation from `String` class that didn't work for operators.
+**Problem**: `BinaryOp.from_grammar()` had copy-pasted implementation from `String` class that didn't work for operators.
 
 **Root Cause**: Hardcoded operator mapping with 15 lines of if/elif statements that were incomplete.
 
@@ -310,7 +310,7 @@ This ensures `(|now/time)` creates a Pipeline node while `(x + y)` doesn't.
 **BinaryOp Simplification** (lines 203-207):
 ```python
 @classmethod
-def fromGrammar(cls, tree):
+def from_grammar(cls, tree):
     """Parse from Lark tree: binary_op with operator token"""
     # tree.children[1] is the operator token
     return cls(tree.children[1].value)

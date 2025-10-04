@@ -22,7 +22,7 @@ def test_arithmetic_operators(key, expression, operator):
     result = comp.parse_expr(expression)
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
-    assert isinstance(result, comp._ast.BinaryOp)
+    assert isinstance(result, comp.ast.BinaryOp)
     assert result.op == operator
 
 
@@ -38,7 +38,7 @@ def test_unary_operators(key, expression):
     result = comp.parse_expr(expression)
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
-    assert isinstance(result, comp._ast.UnaryOp)
+    assert isinstance(result, comp.ast.UnaryOp)
     assert result.op in ["+", "-"]
 
 
@@ -56,7 +56,7 @@ def test_comparison_operators(key, expression, operator):
     result = comp.parse_expr(expression)
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
-    assert isinstance(result, comp._ast.BinaryOp)
+    assert isinstance(result, comp.ast.BinaryOp)
     assert result.op == operator
 
 
@@ -70,7 +70,7 @@ def test_logical_operators(key, expression, operator):
     result = comp.parse_expr(expression)
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
-    assert isinstance(result, comp._ast.BinaryOp)
+    assert isinstance(result, comp.ast.BinaryOp)
     assert result.op == operator
 
 
@@ -92,10 +92,10 @@ def test_addition_multiplication_precedence():
     result = comp.parse_expr("2 + 3 * 4")
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
-    assert isinstance(result, comp._ast.BinaryOp)
+    assert isinstance(result, comp.ast.BinaryOp)
     assert result.op == "+"
     # Right side should be multiplication
-    assert isinstance(result.kids[1], comp._ast.BinaryOp)
+    assert isinstance(result.kids[1], comp.ast.BinaryOp)
     assert result.kids[1].op == "*"
 
 
@@ -104,12 +104,12 @@ def test_comparison_arithmetic_precedence():
     result = comp.parse_expr("2 + 3 < 4 * 5")
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
-    assert isinstance(result, comp._ast.BinaryOp)
+    assert isinstance(result, comp.ast.BinaryOp)
     assert result.op == "<"
     # Both sides should be arithmetic
-    assert isinstance(result.kids[0], comp._ast.BinaryOp)
+    assert isinstance(result.kids[0], comp.ast.BinaryOp)
     assert result.kids[0].op == "+"
-    assert isinstance(result.kids[1], comp._ast.BinaryOp)
+    assert isinstance(result.kids[1], comp.ast.BinaryOp)
     assert result.kids[1].op == "*"
 
 
@@ -118,12 +118,12 @@ def test_logical_comparison_precedence():
     result = comp.parse_expr("2 < 3 && 4 > 5")
     # Extract from Root wrapper
     result = result.kids[0] if result.kids else result
-    assert isinstance(result, comp._ast.BinaryOp)
+    assert isinstance(result, comp.ast.BinaryOp)
     assert result.op == "&&"
     # Both sides should be comparisons
-    assert isinstance(result.kids[0], comp._ast.BinaryOp)
+    assert isinstance(result.kids[0], comp.ast.BinaryOp)
     assert result.kids[0].op == "<"
-    assert isinstance(result.kids[1], comp._ast.BinaryOp)
+    assert isinstance(result.kids[1], comp.ast.BinaryOp)
     assert result.kids[1].op == ">"
 
 

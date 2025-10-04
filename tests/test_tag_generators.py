@@ -31,22 +31,22 @@ def test_tag_generator_syntax(key, code):
     result = comp.parse_module(code)
 
     # Should parse as a Module
-    assert isinstance(result, comp.Module)
+    assert isinstance(result, comp.ast.Module)
     assert len(result.statements) == 1
 
     # First statement should be a TagDefinition
     tag_def = result.statements[0]
-    assert isinstance(tag_def, comp.TagDefinition)
+    assert isinstance(tag_def, comp.ast.TagDefinition)
 
     # Should have a real generator (not Placeholder)
-    assert not isinstance(tag_def.generator, comp.Placeholder), f"Expected real generator, got Placeholder for {code}"
+    assert not isinstance(tag_def.generator, comp.ast.Placeholder), f"Expected real generator, got Placeholder for {code}"
 
     # Should have children (tag child definitions) in body_kids
     assert len(tag_def.body_kids) > 0, f"Expected children for {code}"
 
     # All body_kids should be TagChild nodes (not the generator, not TagDefinition)
     for kid in tag_def.body_kids:
-        assert isinstance(kid, comp.TagChild), (
+        assert isinstance(kid, comp.ast.TagChild), (
             f"Expected all body_kids to be TagChild, got {type(kid).__name__}"
         )
 
@@ -61,7 +61,7 @@ def test_tag_generator_func_ref():
     tag_def = result.statements[0]
 
     # Generator should be a FuncRef
-    assert isinstance(tag_def.generator, comp.FuncRef)
+    assert isinstance(tag_def.generator, comp.ast.FuncRef)
     assert tag_def.generator.tokens == ('name',)
     assert tag_def.generator.namespace == 'tag'
 
@@ -73,7 +73,7 @@ def test_tag_generator_inline_block():
     tag_def = result.statements[0]
 
     # Generator should be a Block
-    assert isinstance(tag_def.generator, comp.Block)
+    assert isinstance(tag_def.generator, comp.ast.Block)
     # Block should have pipeline content
     assert len(tag_def.generator.kids) > 0
 
@@ -95,11 +95,11 @@ def test_tag_generator_with_value():
     tag_def = result.statements[0]
 
     # Should have a generator
-    assert isinstance(tag_def.generator, comp.FuncRef)
+    assert isinstance(tag_def.generator, comp.ast.FuncRef)
 
     # Should have one child (the Number value) in body_kids
     assert len(tag_def.body_kids) == 1
-    assert isinstance(tag_def.body_kids[0], comp.Number)
+    assert isinstance(tag_def.body_kids[0], comp.ast.Number)
 
     # Round-trip
     comptest.roundtrip(result)
@@ -112,7 +112,7 @@ def test_nested_tags_preserve_generators():
     tag_def = result.statements[0]
 
     # Outer tag should have generator
-    assert isinstance(tag_def.generator, comp.FuncRef)
+    assert isinstance(tag_def.generator, comp.ast.FuncRef)
 
     # Should have children
     assert len(tag_def.kids) > 0

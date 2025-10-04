@@ -18,7 +18,7 @@ def params(names, **cases):
     Example:
         @params("code count", empty=("{}", 0), pos1=("{42}", 1))
         def test_structures(key, code, count):
-            struct = parse_value(code, comp.Structure)
+            struct = parse_value(code, comp.ast.Structure)
             assert len(struct.kids) == count
     """
     keys = list(cases)
@@ -74,7 +74,7 @@ def roundtrip(ast):
     """Unparse and reparse an AST, asserting structural match.
 
     Args:
-        ast: An AstNode to round-trip test (Root or any other node)
+        ast: An Node to round-trip test (Root or any other node)
 
     Raises:
         AssertionError: If round-trip produces different structure
@@ -83,20 +83,20 @@ def roundtrip(ast):
         result = comp.parse_expr("{x=1}")
         roundtrip(result)  # Asserts result.matches(reparsed)
 
-        struct = parse_value("{x=1}", comp.Structure)
+        struct = parse_value("{x=1}", comp.ast.Structure)
         roundtrip(struct)  # Also works with non-Root nodes
     """
     unparsed = ast.unparse()
     
     # Choose parser based on AST type
-    if isinstance(ast, comp.Module):
+    if isinstance(ast, comp.ast.Module):
         reparsed = comp.parse_module(unparsed)
     else:
         reparsed = comp.parse_expr(unparsed)
     
         # If ast is not a Root node, wrap it in Root for comparison
-        if not isinstance(ast, comp.Root):
-            root = comp.Root()
+        if not isinstance(ast, comp.ast.Root):
+            root = comp.ast.Root()
             root.kids = [ast]
             ast = root
 
@@ -107,12 +107,12 @@ def roundtrip(ast):
     )
 
 
-def parse_value(expression, cls=comp.AstNode, index=0):
+def parse_value(expression, cls=comp.ast.Node, index=0):
     """Parse expression and return the specified child of Root with type check.
 
     Args:
         expression: Source code to parse
-        cls: Expected node type (default: any AstNode)
+        cls: Expected node type (default: any Node)
         index: Which child of Root to return (default: 0)
 
     Returns:
@@ -122,8 +122,8 @@ def parse_value(expression, cls=comp.AstNode, index=0):
         AssertionError: If node is not an instance of cls
 
     Example:
-        struct = parse_value("{x=1}", comp.Structure)
-        number = parse_value("42", comp.Number)
+        struct = parse_value("{x=1}", comp.ast.Structure)
+        number = parse_value("42", comp.ast.Number)
         binop = parse_value("a + b", comp.BinaryOp)
     """
     result = comp.parse_expr(expression)
@@ -161,10 +161,10 @@ def parse_number(expression, index=0):
     node = result.kids[index] if result.kids else result
 
     # Handle UnaryOp("-", Number) or UnaryOp("+", Number)
-    if isinstance(node, comp.UnaryOp):
+    if isinstance(node, comp.ast.UnaryOp):
         operand = node.kids[0]   # The Number node
 
-        assert isinstance(operand, comp.Number), (
+        assert isinstance(operand, comp.ast.Number), (
             f"Expected UnaryOp operand to be Number, got {type(operand).__name__}\n"
             f"  Expression: {expression}"
         )
@@ -175,7 +175,7 @@ def parse_number(expression, index=0):
             return operand.value
 
     # Handle direct Number
-    assert isinstance(node, comp.Number), (
+    assert isinstance(node, comp.ast.Number), (
         f"Expected Number or UnaryOp, got {type(node).__name__}\n"
         f"  Expression: {expression}"
     )
@@ -186,7 +186,7 @@ def assert_unparse(ast, expression):
     """Assert that AST unpars to expected expression string.
 
     Args:
-        ast: AstNode to unparse
+        ast: Node to unparse
         expression: Expected unparsed string
 
     Raises:
@@ -215,29 +215,29 @@ def structure_field(struct, index, cls=None):
     Returns:
         Tuple of (key, value) where:
         - key is the field name string for StructAssign (or None for StructUnnamed)
-        - value is the field value AstNode
+        - value is the field value Node
 
     Raises:
         AssertionError: If struct is not a Structure, index out of range,
                        or value doesn't match cls type
 
     Example:
-        struct = parse_value("{outer={inner=42}}", comp.Structure)
+        struct = parse_value("{outer={inner=42}}", comp.ast.Structure)
         key, value = structure_field(struct, 0)
         assert key == "outer"
-        assert isinstance(value, comp.Structure)
+        assert isinstance(value, comp.ast.Structure)
 
         # With type checking:
-        struct = parse_value("{x = data |process}", comp.Structure)
+        struct = parse_value("{x = data |process}", comp.ast.Structure)
         key, value = structure_field(struct, 0, comp.Pipeline)
         # Automatically asserts isinstance(value, comp.Pipeline)
 
-        struct = parse_value("{1 {2 3} 4}", comp.Structure)
+        struct = parse_value("{1 {2 3} 4}", comp.ast.Structure)
         key, value = structure_field(struct, 1)
         assert key is None  # positional field
-        assert isinstance(value, comp.Structure)
+        assert isinstance(value, comp.ast.Structure)
     """
-    assert isinstance(struct, comp.Structure), (
+    assert isinstance(struct, comp.ast.Structure), (
         f"Expected Structure, got {type(struct).__name__}"
     )
     assert -len(struct.kids) <= index < len(struct.kids), (
@@ -248,12 +248,12 @@ def structure_field(struct, index, cls=None):
 
     # StructAssign: kids[0] is key (Identifier), kids[1] is value
     # StructUnnamed: kids[0] is value
-    if isinstance(field, comp.StructAssign):
+    if isinstance(field, comp.ast.StructAssign):
         key_node = field.kids[0]
         # Extract the string name from the Identifier
         key = key_node.kids[0].value if key_node.kids else None
         value = field.kids[1]
-    elif isinstance(field, comp.StructUnnamed):
+    elif isinstance(field, comp.ast.StructUnnamed):
         key = None
         value = field.kids[0]
     else:

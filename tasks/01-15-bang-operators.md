@@ -116,7 +116,7 @@ The following operators need grammar rules and AST nodes:
 ## Success Criteria
 
 - [ ] Grammar rules for all 6 bang operators
-- [ ] AST nodes created with proper `fromGrammar()` methods
+- [ ] AST nodes created with proper `from_grammar()` methods
 - [ ] Parser handles all operator variants
 - [ ] Unit tests for each operator type
 - [ ] Roundtrip (parse → unparse → parse) works correctly

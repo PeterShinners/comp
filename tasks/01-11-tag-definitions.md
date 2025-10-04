@@ -531,7 +531,7 @@ This ensures both styles produce identical AST structures.
    - Added `Module` class with `statements` property
    - Added `TagDefinition` class with `tokens` list and children
    - Implemented `unparse(is_child=False)` to handle nested vs top-level
-   - Implemented `fromGrammar()` to handle both grammar rule types
+   - Implemented `from_grammar()` to handle both grammar rule types
 
 4. **Tests** (`tests/test_parse_tags.py`):
    - 4 valid cases: simple, nested, deep_nested, flat

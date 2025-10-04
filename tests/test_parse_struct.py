@@ -20,8 +20,6 @@ AST NODES: Structure, StructAssign, StructUnnamed, etc.
 NOTE: Refactored to use comptest helpers and matches() for clean testing.
 """
 
-import pytest
-
 import comp
 import comptest
 
@@ -48,7 +46,7 @@ import comptest
 )
 def test_valid_structures(key, code, count):
     """Test that valid structure syntax parses and round-trips correctly."""
-    struct = comptest.parse_value(code, comp.Structure)
+    struct = comptest.parse_value(code, comp.ast.Structure)
     assert len(struct.kids) == count, (
         f"Expected {count} children in structure for {key}, got {len(struct.kids)}\n"
         f"  Code: {code}"
@@ -59,11 +57,11 @@ def test_valid_structures(key, code, count):
         case 'nestn':
             key, value = comptest.structure_field(struct, 0)
             assert key == "outer"
-            assert isinstance(value, comp.Structure)
+            assert isinstance(value, comp.ast.Structure)
         case 'nestp':
             key, value = comptest.structure_field(struct, 1)
             assert key is None
-            assert isinstance(value, comp.Structure)
+            assert isinstance(value, comp.ast.Structure)
 
 
 # Invalid structure literal test cases - should fail with parse errors
@@ -108,7 +106,7 @@ def test_invalid_structures(key, code):
 def test_valid_block(key, code, count):
     """Test that valid structure syntax parses and round-trips correctly."""
     # Parse the code
-    struct = comptest.parse_value(code, comp.Block)
+    struct = comptest.parse_value(code, comp.ast.Block)
     assert len(struct.kids) == count, (
         f"Expected {count} children in structure for {key}, got {len(struct.kids)}\n"
         f"  Code: {code}"

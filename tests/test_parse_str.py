@@ -32,7 +32,7 @@ import comptest
 )
 def test_parse_basic_strings(key, code, value):
     """Basic string literals."""
-    result = comptest.parse_value(code, comp.String)
+    result = comptest.parse_value(code, comp.ast.String)
     assert result.value == value
     comptest.roundtrip(result)
 
@@ -48,7 +48,7 @@ def test_parse_basic_strings(key, code, value):
 )
 def test_parse_escaped_strings(key, code, value):
     """Strings with standard escape sequences."""
-    result = comptest.parse_value(code, comp.String)
+    result = comptest.parse_value(code, comp.ast.String)
     assert result.value == value
     comptest.roundtrip(result)
 
@@ -63,7 +63,7 @@ def test_parse_escaped_strings(key, code, value):
 )
 def test_null_characters(key, code, value):
     """Null characters \\0 should be handled correctly."""
-    result = comptest.parse_value(code, comp.String)
+    result = comptest.parse_value(code, comp.ast.String)
     assert result.value == value
     comptest.roundtrip(result)
 
@@ -78,7 +78,7 @@ def test_null_characters(key, code, value):
 )
 def test_unicode_escape_sequences(key, code, value):
     """Unicode escape sequences \\u and \\U."""
-    result = comptest.parse_value(code, comp.String)
+    result = comptest.parse_value(code, comp.ast.String)
     assert result.value == value
     comptest.roundtrip(result)
 
@@ -90,7 +90,7 @@ def test_unicode_escape_sequences(key, code, value):
 )
 def test_mixed_escape_sequences(key, code, value):
     """Strings with mixed escape types."""
-    result = comptest.parse_value(code, comp.String)
+    result = comptest.parse_value(code, comp.ast.String)
     assert result.value == value
     comptest.roundtrip(result)
 
@@ -104,7 +104,7 @@ def test_mixed_escape_sequences(key, code, value):
 )
 def test_empty_and_whitespace_strings(key, code, value):
     """Empty strings and strings with only whitespace."""
-    result = comptest.parse_value(code, comp.String)
+    result = comptest.parse_value(code, comp.ast.String)
     assert result.value == value
     comptest.roundtrip(result)
 
@@ -118,7 +118,7 @@ def test_empty_and_whitespace_strings(key, code, value):
 )
 def test_utf8_literal_strings(key, code, value):
     """Strings with literal UTF-8 characters."""
-    result = comptest.parse_value(code, comp.String)
+    result = comptest.parse_value(code, comp.ast.String)
     #assert result.value == value
     #comptest.roundtrip(result)
 
@@ -134,7 +134,7 @@ def test_utf8_literal_strings(key, code, value):
 )
 def test_string_vs_number_disambiguation(key, code, value):
     """Ensure strings that look like numbers are parsed as strings."""
-    result = comptest.parse_value(code, comp.String)
+    result = comptest.parse_value(code, comp.ast.String)
     assert result.value == value
     comptest.roundtrip(result)
 
@@ -149,7 +149,7 @@ def test_string_vs_number_disambiguation(key, code, value):
 def test_invalid_escape_sequences(key, code, value):
     """Invalid escape sequences should be treated as literals (Python behavior)."""
     # Python's ast.literal_eval converts invalid escapes to literal characters
-    result = comptest.parse_value(code, comp.String)
+    result = comptest.parse_value(code, comp.ast.String)
     assert result.value == value
     comptest.roundtrip(result)
 
@@ -198,6 +198,6 @@ def test_unterminated_strings(key, code):
 )
 def test_triple_quoted_strings(key, code, value):
     """Triple-quoted strings with newlines and embedded quotes."""
-    result = comptest.parse_value(code, comp.String)
+    result = comptest.parse_value(code, comp.ast.String)
     assert result.value == value
     comptest.roundtrip(result)

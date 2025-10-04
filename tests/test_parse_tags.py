@@ -42,7 +42,7 @@ def test_valid_tag_definitions(key, code):
     result = comp.parse_module(code)
 
     # Should parse as a Module
-    assert isinstance(result, comp.Module), (
+    assert isinstance(result, comp.ast.Module), (
         f"Expected Module, got {type(result).__name__}\n"
         f"  Code: {code}"
     )
@@ -55,7 +55,7 @@ def test_valid_tag_definitions(key, code):
 
     # First statement should be a TagDefinition
     first_stmt = result.statements[0]
-    assert isinstance(first_stmt, comp.TagDefinition), (
+    assert isinstance(first_stmt, comp.ast.TagDefinition), (
         f"Expected TagDefinition, got {type(first_stmt).__name__}\n"
         f"  Code: {code}"
     )
@@ -79,14 +79,14 @@ def test_tag_literal_values(key, code):
     result = comp.parse_module(code)
     tag_def = result.statements[0]
 
-    assert isinstance(tag_def, comp.TagDefinition)
+    assert isinstance(tag_def, comp.ast.TagDefinition)
 
     # Should have exactly one child (the value) in body_kids
     assert len(tag_def.body_kids) == 1, f"Expected 1 value child, got {len(tag_def.body_kids)}"
 
     # Value should be Number or String
     value = tag_def.body_kids[0]
-    assert isinstance(value, (comp.Number, comp.String)), (
+    assert isinstance(value, (comp.ast.Number, comp.ast.String)), (
         f"Expected Number or String, got {type(value).__name__}"
     )
 
@@ -120,14 +120,14 @@ def test_tag_expression_values(key, code):
     result = comp.parse_module(code)
     tag_def = result.statements[0]
 
-    assert isinstance(tag_def, comp.TagDefinition)
+    assert isinstance(tag_def, comp.ast.TagDefinition)
 
     # Should have at least one child (the expression) in body_kids
     assert len(tag_def.body_kids) >= 1, f"Expected at least 1 child, got {len(tag_def.body_kids)}"
 
     # First body child should be an expression node (BinaryOp, UnaryOp) or literal
     value = tag_def.body_kids[0]
-    assert isinstance(value, (comp.BinaryOp, comp.UnaryOp, comp.Number, comp.String)), (
+    assert isinstance(value, (comp.ast.BinaryOp, comp.ast.UnaryOp, comp.ast.Number, comp.ast.String)), (
         f"Expected expression node, got {type(value).__name__}"
     )
 
@@ -148,7 +148,7 @@ def test_tag_values_with_children(key, code):
     result = comp.parse_module(code)
     tag_def = result.statements[0]
 
-    assert isinstance(tag_def, comp.TagDefinition)
+    assert isinstance(tag_def, comp.ast.TagDefinition)
 
     # Should have multiple children (value + tag children) in body_kids
     assert len(tag_def.body_kids) > 1, f"Expected multiple children, got {len(tag_def.body_kids)}"
@@ -172,13 +172,13 @@ def test_tag_generators(key, code):
     result = comp.parse_module(code)
     tag_def = result.statements[0]
 
-    assert isinstance(tag_def, comp.TagDefinition)
+    assert isinstance(tag_def, comp.ast.TagDefinition)
 
     # Should have a generator (FuncRef or Block, not Placeholder)
-    assert not isinstance(tag_def.generator, comp.Placeholder), f"Expected real generator, got Placeholder for {code}"
+    assert not isinstance(tag_def.generator, comp.ast.Placeholder), f"Expected real generator, got Placeholder for {code}"
 
     # Generator should be FuncRef or Block
-    assert isinstance(tag_def.generator, (comp.FuncRef, comp.Block)), (
+    assert isinstance(tag_def.generator, (comp.ast.FuncRef, comp.ast.Block)), (
         f"Expected FuncRef or Block, got {type(tag_def.generator).__name__}"
     )
 
@@ -196,7 +196,7 @@ def test_tag_generator_func_ref():
     tag_def = result.statements[0]
 
     # Generator should be a FuncRef
-    assert isinstance(tag_def.generator, comp.FuncRef)
+    assert isinstance(tag_def.generator, comp.ast.FuncRef)
     assert tag_def.generator.tokens == ('name',)
     assert tag_def.generator.namespace == 'tag'
 
@@ -208,7 +208,7 @@ def test_tag_generator_inline_block():
     tag_def = result.statements[0]
 
     # Generator should be a Block
-    assert isinstance(tag_def.generator, comp.Block)
+    assert isinstance(tag_def.generator, comp.ast.Block)
     # Block should have pipeline content
     assert len(tag_def.generator.kids) > 0
 
@@ -248,12 +248,12 @@ def test_multiple_tag_definitions():
 !tag #priority"""
 
     result = comp.parse_module(code)
-    assert isinstance(result, comp.Module)
+    assert isinstance(result, comp.ast.Module)
     assert len(result.statements) == 2
 
     # Both should be TagDefinitions
     for stmt in result.statements:
-        assert isinstance(stmt, comp.TagDefinition)
+        assert isinstance(stmt, comp.ast.TagDefinition)
 
     comptest.roundtrip(result)
 
@@ -269,7 +269,7 @@ def test_multiple_tags_with_values():
 
     # All should be TagDefinitions
     for stmt in result.statements:
-        assert isinstance(stmt, comp.TagDefinition)
+        assert isinstance(stmt, comp.ast.TagDefinition)
         # Each should have a value
         assert len(stmt.kids) >= 1
 
@@ -301,13 +301,13 @@ def test_tag_definition_with_nested_hierarchy():
     result = comp.parse_module(code)
     tag_def = result.statements[0]
 
-    assert isinstance(tag_def, comp.TagDefinition)
+    assert isinstance(tag_def, comp.ast.TagDefinition)
     assert tag_def.tokens is not None
     assert len(tag_def.body_kids) == 3  # active, inactive, error
 
     # The third child (#error) should itself have children (as TagChild)
     error_child = tag_def.body_kids[2]
-    assert isinstance(error_child, comp.TagChild)
+    assert isinstance(error_child, comp.ast.TagChild)
     assert len(error_child.body_kids) == 1  # timeout
 
 
@@ -318,7 +318,7 @@ def test_nested_tags_preserve_generators():
     tag_def = result.statements[0]
 
     # Outer tag should have generator
-    assert isinstance(tag_def.generator, comp.FuncRef)
+    assert isinstance(tag_def.generator, comp.ast.FuncRef)
 
     # Should have children in body_kids
     assert len(tag_def.body_kids) > 0
@@ -338,14 +338,14 @@ def test_bit_flags_realistic_example():
     result = comp.parse_module(code)
     tag_def = result.statements[0]
 
-    assert isinstance(tag_def, comp.TagDefinition)
+    assert isinstance(tag_def, comp.ast.TagDefinition)
     assert len(tag_def.body_kids) == 3
 
     # Each child should have a bit shift expression (as TagChild)
     for child in tag_def.body_kids:
-        assert isinstance(child, comp.TagChild)
+        assert isinstance(child, comp.ast.TagChild)
         assert len(child.body_kids) == 1
-        assert isinstance(child.body_kids[0], comp.BinaryOp)
+        assert isinstance(child.body_kids[0], comp.ast.BinaryOp)
         assert child.body_kids[0].op == "<<"
 
     comptest.roundtrip(result)
@@ -358,17 +358,17 @@ def test_tag_all_features_combined():
     tag_def = result.statements[0]
 
     # Should have generator
-    assert isinstance(tag_def.generator, comp.FuncRef)
+    assert isinstance(tag_def.generator, comp.ast.FuncRef)
 
     # Should have value (1<<0) plus 3 children in body_kids
     assert len(tag_def.body_kids) == 4
 
     # First body kid is the expression
-    assert isinstance(tag_def.body_kids[0], comp.BinaryOp)
+    assert isinstance(tag_def.body_kids[0], comp.ast.BinaryOp)
 
     # Rest are tag children (TagChild nodes)
     for kid in tag_def.body_kids[1:]:
-        assert isinstance(kid, comp.TagChild)
+        assert isinstance(kid, comp.ast.TagChild)
 
     comptest.roundtrip(result)
 

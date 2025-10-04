@@ -32,7 +32,7 @@ import comptest
 )
 def test_identifiers(key, identifier):
     """Test valid identifier."""
-    result = comptest.parse_value(identifier, comp.Identifier)
+    result = comptest.parse_value(identifier, comp.ast.Identifier)
     # Verify the identifier unparsed back to the same value
     assert result.unparse() == identifier
 
@@ -50,7 +50,7 @@ def test_identifiers(key, identifier):
 )
 def test_unicode_identifiers(key, identifier):
     """Unicode identifiers following UAX #31."""
-    result = comptest.parse_value(identifier, comp.Identifier)
+    result = comptest.parse_value(identifier, comp.ast.Identifier)
     # Verify the identifier unparsed back to the same value
     assert result.unparse() == identifier
 

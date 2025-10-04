@@ -99,15 +99,15 @@ def test_scope_unparse_matches():
 def test_scope_in_binary_operations():
     """Test scopes work correctly in binary operations."""
     result = comp.parse_expr("$ctx + $mod")
-    assert isinstance(result, comp.Root)
+    assert isinstance(result, comp.ast.Root)
     assert len(result.kids) == 1
 
     binary = result.kids[0]
-    assert isinstance(binary, comp.BinaryOp)
+    assert isinstance(binary, comp.ast.BinaryOp)
 
     # Both operands should be identifiers with scope fields
-    assert isinstance(binary.kids[0], comp.Identifier)
-    assert isinstance(binary.kids[1], comp.Identifier)
+    assert isinstance(binary.kids[0], comp.ast.Identifier)
+    assert isinstance(binary.kids[1], comp.ast.Identifier)
 
     comptest.roundtrip(result)
 
@@ -115,9 +115,9 @@ def test_scope_in_binary_operations():
 def test_scope_in_structures():
     """Test scopes work in structure assignments."""
     result = comp.parse_expr("{result = $in.data}")
-    assert isinstance(result, comp.Root)
+    assert isinstance(result, comp.ast.Root)
     struct = result.kids[0]
-    assert isinstance(struct, comp.Structure)
+    assert isinstance(struct, comp.ast.Structure)
 
     comptest.roundtrip(result)
 

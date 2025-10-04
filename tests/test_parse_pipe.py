@@ -8,7 +8,7 @@ SPECIFICATION:
 - All assignments must be within {} braces
 
 PARSER EXPECTATIONS:
-- comptest.parse_value("{x = data}", comp.Structure) → Structure with StructAssign
+- comptest.parse_value("{x = data}", comp.ast.Structure) → Structure with StructAssign
 - Structure assignments contain Pipeline nodes for piped values
 - Tests should use unparse() for string matching rather than deep tree inspection
 
@@ -23,25 +23,25 @@ import comptest
 
 def test_pipeline_in_struct():
     """Test pipeline without explicit seed (starts with pipe operator)."""
-    struct = comptest.parse_value("{x = [|process]}", comp.Structure)
+    struct = comptest.parse_value("{x = [|process]}", comp.ast.Structure)
     comptest.roundtrip(struct)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     # Pipeline without seed should have None as seed
     assert value.seed is None
-    assert isinstance(value.operations[0], comp.PipeFunc)
+    assert isinstance(value.operations[0], comp.ast.PipeFunc)
     assert "|process" in value.unparse()
 
 
 def test_pipeline_with_seed():
     """Test pipeline with explicit seed expression."""
-    struct = comptest.parse_value("{x = [data |process]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [data |process]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     # Pipeline with seed should have the seed expression as first child (not None)
-    assert isinstance(value.seed, comp.Identifier)
+    assert isinstance(value.seed, comp.ast.Identifier)
     assert value.seed.unparse() == "data"
-    assert isinstance(value.operations[0], comp.PipeFunc)
+    assert isinstance(value.operations[0], comp.ast.PipeFunc)
     assert "data" in value.unparse()
     assert "|process" in value.unparse()
     comptest.roundtrip(struct)
@@ -49,8 +49,8 @@ def test_pipeline_with_seed():
 
 def test_multi_stage_pipeline():
     """Test pipeline with multiple stages."""
-    struct = comptest.parse_value("{x = [data |validate |transform]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [data |validate |transform]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     # Check it has multiple stages
     unparsed = value.unparse()
     assert "data" in unparsed
@@ -61,8 +61,8 @@ def test_multi_stage_pipeline():
 
 def test_pipeline_with_scope():
     """Test pipeline using scope references."""
-    struct = comptest.parse_value("{x = [$in |process]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [$in |process]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     unparsed = value.unparse()
     assert "$in" in unparsed
     assert "process" in unparsed
@@ -71,24 +71,24 @@ def test_pipeline_with_scope():
 
 def test_pipeline_with_numbers():
     """Test pipeline starting with number literal."""
-    struct = comptest.parse_value("{x = [42 |double]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [42 |double]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert "42" in value.unparse()
     comptest.roundtrip(struct)
 
 
 def test_pipeline_with_strings():
     """Test pipeline starting with string literal."""
-    struct = comptest.parse_value('{x = ["hello" |upper]}', comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value('{x = ["hello" |upper]}', comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert "hello" in value.unparse()
     comptest.roundtrip(struct)
 
 
 def test_pipeline_with_field_access():
     """Test pipeline with field access (dot notation)."""
-    struct = comptest.parse_value("{x = [obj.field |process]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [obj.field |process]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     unparsed = value.unparse()
     assert "obj" in unparsed
@@ -99,8 +99,8 @@ def test_pipeline_with_field_access():
 
 def test_pipeline_failure_operator():
     """Test pipeline failure operator |?"""
-    struct = comptest.parse_value("{x = [data |? fallback]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [data |? fallback]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     unparsed = value.unparse()
     assert "|?" in unparsed
@@ -112,8 +112,8 @@ def test_pipeline_failure_operator():
 @pytest.mark.skip(reason="Wrench not ready for parsing")
 def test_pipeline_wrench_operator():
     """Test pipeline wrench/modifier operator |-|"""
-    struct = comptest.parse_value("{x = [data |-| modifier]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [data |-| modifier]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     unparsed = value.unparse()
     assert "|-|" in unparsed
@@ -125,8 +125,8 @@ def test_pipeline_wrench_operator():
 @pytest.mark.skip(reason="Wrench not ready for parsing")
 def test_chained_wrench_operator():
     """Test chained wrench operations."""
-    struct = comptest.parse_value("{x = [data |-| optimize |-| debug]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [data |-| optimize |-| debug]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     unparsed = value.unparse()
     assert "|-|" in unparsed
@@ -138,8 +138,8 @@ def test_chained_wrench_operator():
 @pytest.mark.skip(reason="Wrench not ready for parsing")
 def test_wrench_with_field_access():
     """Test wrench operator with field access on left side."""
-    struct = comptest.parse_value("{x = [obj.field |-| modifier]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [obj.field |-| modifier]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     unparsed = value.unparse()
     assert "obj.field" in unparsed or ("obj" in unparsed and "field" in unparsed)
@@ -150,8 +150,8 @@ def test_wrench_with_field_access():
 @pytest.mark.skip(reason="Wrench not ready for parsing")
 def test_combined_pipeline_failure_and_wrench():
     """Test combining |? and |-| operators."""
-    struct = comptest.parse_value("{x = [data |? fallback |-| debug]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [data |? fallback |-| debug]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     unparsed = value.unparse()
     assert "data" in unparsed
@@ -162,8 +162,8 @@ def test_combined_pipeline_failure_and_wrench():
 
 def test_pipeline_with_regular_and_failure():
     """Test regular pipeline with failure fallback."""
-    struct = comptest.parse_value("{x = [data |process |? fallback]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [data |process |? fallback]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     unparsed = value.unparse()
     assert "data" in unparsed
@@ -175,8 +175,8 @@ def test_pipeline_with_regular_and_failure():
 
 def test_pipeline_with_struct_literal():
     """Test pipeline with struct literal."""
-    struct = comptest.parse_value("{x = [data |{field = value}]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [data |{field = value}]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     unparsed = value.unparse()
     assert "data" in unparsed
@@ -186,7 +186,7 @@ def test_pipeline_with_struct_literal():
 
 def test_pipeline_with_block_literal():
     """Test pipeline with block literal :{...}"""
-    struct = comptest.parse_value("{x = :{expression}}", comp.Structure)
+    struct = comptest.parse_value("{x = :{expression}}", comp.ast.Structure)
     key, value = comptest.structure_field(struct, 0)
     assert key == "x"
     unparsed = value.unparse()
@@ -198,7 +198,7 @@ def test_pipeline_with_block_literal():
 @pytest.mark.skip(reason="Comma-separated assignments not yet supported")
 def test_multiple_assignments_with_pipelines():
     """Test multiple assignments in same structure."""
-    struct = comptest.parse_value("{x = [data |process], y = [$in |validate]}", comp.Structure)
+    struct = comptest.parse_value("{x = [data |process], y = [$in |validate]}", comp.ast.Structure)
     assert len(struct.kids) >= 2  # At least 2 assignments
     unparsed = struct.unparse()
     assert "x" in unparsed
@@ -210,7 +210,7 @@ def test_multiple_assignments_with_pipelines():
 
 def test_nested_structures_with_pipelines():
     """Test nested structures containing pipelines."""
-    struct = comptest.parse_value("{outer = {inner = [data |process]}}", comp.Structure)
+    struct = comptest.parse_value("{outer = {inner = [data |process]}}", comp.ast.Structure)
     unparsed = struct.unparse()
     assert "outer" in unparsed
     assert "inner" in unparsed
@@ -222,8 +222,8 @@ def test_nested_structures_with_pipelines():
 def test_pipeline_precedence_with_operators():
     """Test that pipeline binds correctly with other operators."""
     # Pipeline should bind tighter than fallback (??)
-    struct = comptest.parse_value("{x = [data |process] ?? fallback}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [data |process] ?? fallback}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     unparsed = value.unparse()
     # Should have both pipeline and fallback
@@ -234,8 +234,8 @@ def test_pipeline_precedence_with_operators():
 
 def test_long_pipeline_chain():
     """Test a long chain of pipeline operations."""
-    struct = comptest.parse_value("{x = [data |func1 |func2 |func3 |func4 |func5]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [data |func1 |func2 |func3 |func4 |func5]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     unparsed = value.unparse()
     assert "data" in unparsed
@@ -247,28 +247,28 @@ def test_long_pipeline_chain():
 def test_pipeline_roundtrip():
     """Test that pipelines can be unparsed and reparsed."""
     original = "{x = [data |process |validate]}"
-    struct1 = comptest.parse_value(original, comp.Structure)
+    struct1 = comptest.parse_value(original, comp.ast.Structure)
     unparsed = struct1.unparse()
-    struct2 = comptest.parse_value(unparsed, comp.Structure)
+    struct2 = comptest.parse_value(unparsed, comp.ast.Structure)
 
     # Both should have pipelines as values
-    key1, value1 = comptest.structure_field(struct1, 0, comp.Pipeline)
-    key2, value2 = comptest.structure_field(struct2, 0, comp.Pipeline)
+    key1, value1 = comptest.structure_field(struct1, 0, comp.ast.Pipeline)
+    key2, value2 = comptest.structure_field(struct2, 0, comp.ast.Pipeline)
     comptest.roundtrip(struct1)
 
 
 def test_empty_pipeline():
     """Test assignment without pipeline (just a value)."""
-    struct = comptest.parse_value("{x = 42}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Number)
+    struct = comptest.parse_value("{x = 42}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Number)
     assert key == "x"
     comptest.roundtrip(struct)
 
 
 def test_pipeline_with_tag():
     """Test pipeline with tag reference."""
-    struct = comptest.parse_value("{x = [#mytag |process]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [#mytag |process]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     unparsed = value.unparse()
     assert "#mytag" in unparsed or "#my" in unparsed
@@ -278,8 +278,8 @@ def test_pipeline_with_tag():
 
 def test_pipeline_with_parenthesized_expression():
     """Test pipeline starting with parenthesized expression."""
-    struct = comptest.parse_value("{x = [(a + b) |double]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{x = [(a + b) |double]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "x"
     unparsed = value.unparse()
     # Note: parentheses are not preserved in unparse (they're structural, not textual)
@@ -291,8 +291,8 @@ def test_pipeline_with_parenthesized_expression():
 @pytest.mark.skip(reason="Wrench not ready for parsing")
 def test_complex_pipeline_expression():
     """Test complex pipeline with multiple operator types."""
-    struct = comptest.parse_value("{result = [$in |filter |? backup |-| progressbar]}", comp.Structure)
-    key, value = comptest.structure_field(struct, 0, comp.Pipeline)
+    struct = comptest.parse_value("{result = [$in |filter |? backup |-| progressbar]}", comp.ast.Structure)
+    key, value = comptest.structure_field(struct, 0, comp.ast.Pipeline)
     assert key == "result"
     unparsed = value.unparse()
     assert "$in" in unparsed

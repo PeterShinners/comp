@@ -4,8 +4,10 @@ Comp Programming Language Implementation
 A functional, interpreted programming language designed for general purpose computing.
 """
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 
 
-from ._ast import *
+from . import ast
+from . import run
+from ._error import *
 from ._parser import *

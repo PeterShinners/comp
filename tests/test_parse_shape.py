@@ -1,9 +1,7 @@
 """Test shape definition parsing."""
 
-import pytest
-
 import comp
-from tests import comptest
+import comptest
 
 
 @comptest.params(
@@ -29,9 +27,9 @@ from tests import comptest
 def test_valid_shape_definitions(key, code):
     """Test valid shape definitions parse and roundtrip correctly."""
     result = comp.parse_module(code)
-    assert isinstance(result, comp.Module)
+    assert isinstance(result, comp.ast.Module)
     assert len(result.statements) == 1
-    assert isinstance(result.statements[0], comp.ShapeDefinition)
+    assert isinstance(result.statements[0], comp.ast.ShapeDefinition)
     comptest.roundtrip(result)
 
 
@@ -80,7 +78,7 @@ def test_predicate_field_names(key, code):
     # Find fields with ? in the name
     predicate_fields = [
         f for f in shape_def.kids
-        if isinstance(f, comp.ShapeField) and '?' in f.name
+        if isinstance(f, comp.ast.ShapeField) and '?' in f.name
     ]
     assert len(predicate_fields) > 0, "Should have at least one predicate field"
 
@@ -105,7 +103,7 @@ def test_default_values(key, code):
     # Check that fields have defaults
     fields_with_defaults = [
         f for f in shape_def.kids
-        if isinstance(f, comp.ShapeField) and f.default is not None
+        if isinstance(f, comp.ast.ShapeField) and f.default is not None
     ]
     assert len(fields_with_defaults) > 0, "Should have fields with defaults"
 
@@ -124,7 +122,7 @@ def test_shape_spread(key, code):
     shape_def = result.statements[0]
 
     # Check that there's at least one spread
-    spreads = [k for k in shape_def.kids if isinstance(k, comp.ShapeSpread)]
+    spreads = [k for k in shape_def.kids if isinstance(k, comp.ast.ShapeSpread)]
     assert len(spreads) > 0, "Should have at least one spread"
 
     comptest.roundtrip(result)
@@ -165,7 +163,7 @@ def test_positional_fields(key, code):
     # Find positional fields (fields with no name)
     positional_fields = [
         f for f in shape_def.kids
-        if isinstance(f, comp.ShapeField) and f.name is None
+        if isinstance(f, comp.ast.ShapeField) and f.name is None
     ]
     assert len(positional_fields) > 0, "Should have at least one positional field"
 
@@ -186,7 +184,7 @@ def test_shape_aliases(key, code):
     result = comp.parse_module(code)
     shape_def = result.statements[0]
 
-    assert isinstance(shape_def, comp.ShapeDefinition)
+    assert isinstance(shape_def, comp.ast.ShapeDefinition)
     comptest.roundtrip(result)
 
 
@@ -222,14 +220,14 @@ def test_complex_shape_definition():
     result = comp.parse_module(normalized)
     shape_def = result.statements[0]
 
-    assert isinstance(shape_def, comp.ShapeDefinition)
+    assert isinstance(shape_def, comp.ast.ShapeDefinition)
     assert shape_def.tokens == ["entity"]
     assert len(shape_def.kids) == 5  # 4 fields + 1 spread
 
     # Find different field types
-    all_fields = [k for k in shape_def.kids if isinstance(k, comp.ShapeField)]
+    all_fields = [k for k in shape_def.kids if isinstance(k, comp.ast.ShapeField)]
     predicate_fields = [f for f in all_fields if '?' in f.name]
-    spreads = [k for k in shape_def.kids if isinstance(k, comp.ShapeSpread)]
+    spreads = [k for k in shape_def.kids if isinstance(k, comp.ast.ShapeSpread)]
 
     assert len(all_fields) == 4  # id, name, pos, found?
     assert len(predicate_fields) == 1  # found?

@@ -359,7 +359,7 @@ Phase 11 introduces **module-level grammar** to the Comp language, establishing 
 **Issue**: Module objects need `parse_module()` for round-trip validation.  
 **Solution**: Updated `roundtrip()` to detect Module vs Root and use appropriate parser.
 
-### Challenge 5: TagDefinition.fromGrammar() Context
+### Challenge 5: TagDefinition.from_grammar() Context
 **Problem**: Called with both `tag_definition` and `tag_child` grammar rules with different structures.  
 **Error**: `AttributeError: 'Token' object has no attribute 'children'`  
 **Solution**: Check `tree.data` to handle both rule types with different child indexing.

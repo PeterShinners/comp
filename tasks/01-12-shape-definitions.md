@@ -395,7 +395,7 @@ class ShapeDefinition(AstNode):
         return result
     
     @classmethod
-    def fromGrammar(cls, tree):
+    def from_grammar(cls, tree):
         # Extract shape name and body from grammar tree
         pass
 

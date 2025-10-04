@@ -12,14 +12,14 @@ from pathlib import Path
 
 import lark
 
-from . import _ast
+import comp
 
 # Global parser instances
 _module_parser: lark.Lark | None = None
 _expr_parser: lark.Lark | None = None
 
 
-def parse_module(text: str) -> _ast.Module:
+def parse_module(text: str) -> comp.ast.Module:
     """Parse a complete Comp module.
 
     Parses module-level statements including tag definitions, function
@@ -32,23 +32,22 @@ def parse_module(text: str) -> _ast.Module:
         Module AST node containing all module statements
 
     Raises:
-        ParseError: If the text contains invalid syntax
+        comp.ParseError: If the text contains invalid syntax
     """
     try:
         parser = _get_module_parser()
         tree = parser.parse(text)
-        module = _create_node([].append, tree, _ast.Module)
-        ast = generate_ast(module, tree.children)
-        return ast
+        module = _create_node([].append, tree, comp.ast.Module)
+        return generate_ast(module, tree.children)
     except lark.exceptions.LarkError as e:
         error_msg = str(e)
         # Improve error messages for common cases
         if "DUBQUOTE" in error_msg and "$END" in error_msg:
             error_msg = "Unterminated string literal"
-        raise _ast.ParseError(error_msg) from e
+        raise comp.ParseError(error_msg) from e
 
 
-def parse_expr(text: str) -> _ast.Root:
+def parse_expr(text: str) -> comp.ast.Root:
     """Parse a single Comp expression.
 
     Parses expression-level constructs like numbers, strings, structures,
@@ -61,27 +60,26 @@ def parse_expr(text: str) -> _ast.Root:
         Root AST node containing the expression
 
     Raises:
-        ParseError: If the text contains invalid syntax
+        comp.ParseError: If the text contains invalid syntax
     """
     try:
         parser = _get_expr_parser()
         tree = parser.parse(text)
-        root = _create_node([].append, tree, _ast.Root)
-        ast = generate_ast(root, tree.children)
-        return ast
+        root = _create_node([].append, tree, comp.ast.Root)
+        return generate_ast(root, tree.children)
     except lark.exceptions.LarkError as e:
         error_msg = str(e)
         # Improve error messages for common cases
         if "DUBQUOTE" in error_msg and "$END" in error_msg:
             error_msg = "Unterminated string literal"
-        raise _ast.ParseError(error_msg) from e
+        raise comp.ParseError(error_msg) from e
 
 
-def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -> _ast.AstNode:
+def generate_ast(parent: comp.ast.Node, children: list[lark.Tree | lark.Token]) -> comp.ast.Node:
     """Convert Lark parse tree children to Comp AST.
 
     Args:
-        parent: AstNode to add children to
+        parent: Node to add children to
         children: List of lark.Tree or lark.Token objects to process
 
     Returns:
@@ -94,7 +92,7 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
         # child is a lark.Tree - determine which AST node to create
         assert isinstance(child, lark.Tree)
         kids = child.children
-        _node = functools.partial(_create_node, parent.kids.append, child)
+        _create = functools.partial(_create_node, parent.kids.append, child)
         match child.data:
             # Skips
             case 'start' | 'module':
@@ -112,23 +110,23 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
             case 'pipeline_expr' | 'pipeline_seeded' | 'pipeline_unseeded':
                 # LBRACKET [seed] pipeline RBRACKET
                 # Create a Pipeline node and process children
-                _node(_ast.Pipeline, walk=kids)
+                _create(comp.ast.Pipeline, walk=kids)
             case 'atom_field':
                 # atom_field: atom_in_expr "." identifier_next_field
                 # This is field access on an expression: (expr).field
                 # Children: [expr_tree, DOT, field_tree]
-                _node(_ast.FieldAccess, walk=kids)
+                _create(comp.ast.FieldAccess, walk=kids)
 
             # Tag definitions
             case 'tag_definition' | 'tag_simple' | 'tag_gen_val_body' | 'tag_gen_val' | 'tag_gen_body' | 'tag_val_body' | 'tag_val' | 'tag_body_only':
-                _node(_ast.TagDefinition, walk=kids)
+                _create(comp.ast.TagDefinition, walk=kids)
             case 'tag_generator':
                 generate_ast(parent, kids)  # pass through function or block ref
                 continue
             case 'tag_body':
-                _node(_ast.TagBody, walk=kids)
+                _create(comp.ast.TagBody, walk=kids)
             case 'tag_child' | 'tagchild_simple' | 'tagchild_val_body' | 'tagchild_val' | 'tagchild_body':
-                _node(_ast.TagChild, walk=kids)
+                _create(comp.ast.TagChild, walk=kids)
             case 'tag_value' | 'tag_arithmetic' | 'tag_term' | 'tag_bitwise' | 'tag_comparison' | 'tag_unary' | 'tag_atom':
                 generate_ast(parent, kids)  # pass through value literals (and exprs)
                 continue
@@ -137,7 +135,7 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
 
             # Shape definitions
             case 'shape_definition':
-                _node(_ast.ShapeDefinition, walk=kids)
+                _create(comp.ast.ShapeDefinition, walk=kids)
             case 'shape_body':
                 # shape_body: LBRACE shape_field* RBRACE | shape_type
                 # If it's a body with braces, pass through children (shape_field nodes)
@@ -146,20 +144,20 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 continue
             case 'shape_field_def':
                 # shape_field_def: TOKEN QUESTION? shape_type? (ASSIGN expression)?
-                _node(_ast.ShapeField, walk=kids)
+                _create(comp.ast.ShapeField, walk=kids)
             case 'shape_spread':
                 # shape_spread: SPREAD shape_type
-                _node(_ast.ShapeSpread, walk=kids)
+                _create(comp.ast.ShapeSpread, walk=kids)
             case 'shape_path':
-                # This is handled by ShapeDefinition.fromGrammar
+                # This is handled by ShapeDefinition.from_grammar
                 # Should not appear as standalone in AST
                 pass
 
             # Function definitions
             case 'function_definition' | 'func_with_args' | 'func_no_args':
-                _node(_ast.FunctionDefinition, walk=kids)
+                _create(comp.ast.FunctionDefinition, walk=kids)
             case 'function_path':
-                # This is handled by FunctionDefinition.fromGrammar
+                # This is handled by FunctionDefinition.from_grammar
                 # Should not appear as standalone in AST
                 pass
             case 'function_shape':
@@ -170,7 +168,7 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 # arg_shape_inline: CARET LBRACE shape_field* RBRACE
                 # Convert shape_body content into a Structure node
                 # The shape_body will have ShapeField children which we wrap in Structure
-                _node(_ast.Structure, walk=kids)
+                _create(comp.ast.Structure, walk=kids)
                 continue
             case 'arg_shape_ref':
                 # arg_shape_ref: CARET reference_identifiers reference_namespace?
@@ -184,7 +182,7 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                     ns_tree = child.children[2]
                     if len(ns_tree.children) > 1:  # Has TOKEN after /
                         namespace = ns_tree.children[1].value
-                node = _ast.ShapeRef(tokens=tokens, namespace=namespace)
+                node = comp.ast.ShapeRef(tokens=tokens, namespace=namespace)
                 parent.kids.append(node)
                 continue
             case 'arg_shape_typed':
@@ -196,15 +194,15 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
             case 'shape_union':
                 # shape_union: shape_type_atom (PIPE shape_type_atom)+
                 # Creates a ShapeUnion with all atoms as direct children
-                _node(_ast.ShapeUnion, walk=kids)
+                _create(comp.ast.ShapeUnion, walk=kids)
             case 'shape_inline':
                 # shape_inline: TILDE LBRACE shape_field* RBRACE
                 # Creates a ShapeInline with all fields as children
-                _node(_ast.ShapeInline, walk=kids)
+                _create(comp.ast.ShapeInline, walk=kids)
             case 'morph_inline':
                 # morph_inline: LBRACE shape_field* RBRACE (without ~)
                 # Creates a ShapeInline for morph context
-                _node(_ast.ShapeInline, walk=kids)
+                _create(comp.ast.ShapeInline, walk=kids)
             case 'shape_type' | 'shape_type_atom':
                 # Just pass through - the actual nodes are created by their specific rules
                 generate_ast(parent, kids)
@@ -212,47 +210,47 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
 
             # Leafs
             case 'string':
-                _node(_ast.String)
+                _create(comp.ast.String)
             case 'number':
-                _node(_ast.Number)
+                _create(comp.ast.Number)
             case 'placeholder':
-                _node(_ast.Placeholder)
+                _create(comp.ast.Placeholder)
 
             # References
             case 'tag_reference':
-                _node(_ast.TagRef)
+                _create(comp.ast.TagRef)
             case 'shape_reference':
-                _node(_ast.ShapeRef)
+                _create(comp.ast.ShapeRef)
             case 'function_reference':
-                _node(_ast.FuncRef)
+                _create(comp.ast.FuncRef)
             case 'reference_identifiers':
                 # Used in morph_type to build a ShapeRef without the ~ prefix
-                _node(_ast.ShapeRef, walk=kids)
+                _create(comp.ast.ShapeRef, walk=kids)
 
             # Identifiers - need custom handling to process fields
             case 'identifier':
-                _node(_ast.Identifier, walk=kids)
+                _create(comp.ast.Identifier, walk=kids)
             case 'tokenfield':
-                _node(_ast.TokenField)
+                _create(comp.ast.TokenField)
             case 'indexfield':
-                _node(_ast.IndexField)
+                _create(comp.ast.IndexField)
             case 'string':
-                _node(_ast.StringField)
+                _create(comp.ast.StringField)
             case 'localscope' | 'argscope' | 'namescope':
-                _node(_ast.ScopeField)
+                _create(comp.ast.ScopeField)
             case 'computefield':
                 # computefield: "'" expression "'" - create node and process expression
-                _node(_ast.ComputeField, walk=child.children)
+                _create(comp.ast.ComputeField, walk=child.children)
 
             # General Operators (not including assignment)
             case 'binary_op':
-                _node(_ast.BinaryOp, walk=kids)
+                _create(comp.ast.BinaryOp, walk=kids)
             case 'unary_op':
-                _node(_ast.UnaryOp, walk=kids)
+                _create(comp.ast.UnaryOp, walk=kids)
 
             # Shape morph operators
             case 'morph_op' | 'strong_morph_op' | 'weak_morph_op':
-                _node(_ast.MorphOp, walk=kids)
+                _create(comp.ast.MorphOp, walk=kids)
 
             # Morph type handling
             case 'morph_type':
@@ -260,26 +258,26 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 # If it's just reference_identifiers, create a ShapeRef
                 if len(kids) >= 1 and kids[0].data == 'reference_identifiers':
                     # This is a shape reference (without the ~ prefix)
-                    _node(_ast.ShapeRef, walk=kids)
+                    _create(comp.ast.ShapeRef, walk=kids)
                 else:
                     # tag_reference, shape_inline, or morph_union - pass through
                     generate_ast(parent, kids)
                     continue
             case 'morph_union':
                 # morph_union: morph_type (PIPE morph_type)+
-                _node(_ast.ShapeUnion, walk=kids)
+                _create(comp.ast.ShapeUnion, walk=kids)
 
             # Structures (including function arguments)
             case 'block':
-                _node(_ast.Block, walk=kids)
+                _create(comp.ast.Block, walk=kids)
             case 'structure' | 'function_arguments':
-                _node(_ast.Structure, walk=kids)
+                _create(comp.ast.Structure, walk=kids)
             case 'structure_assign':
-                _node(_ast.StructAssign, walk=kids)
+                _create(comp.ast.StructAssign, walk=kids)
             case 'structure_unnamed':
-                _node(_ast.StructUnnamed, walk=kids)
+                _create(comp.ast.StructUnnamed, walk=kids)
             case 'structure_spread':
-                _node(_ast.StructSpread, walk=kids)
+                _create(comp.ast.StructSpread, walk=kids)
 
             # Pipelines
             case 'pipeline_expr' | 'pipeline_seeded' | 'pipeline_unseeded':
@@ -291,15 +289,15 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 # The Pipeline node is created by pipeline_expr
                 generate_ast(parent, kids)
             case 'pipe_fallback':
-                _node(_ast.PipeFallback, walk=kids)
+                _create(comp.ast.PipeFallback, walk=kids)
             case 'pipe_struct':
-                _node(_ast.PipeStruct, walk=kids)
+                _create(comp.ast.PipeStruct, walk=kids)
             case 'pipe_block':
-                _node(_ast.PipeBlock, walk=kids)
+                _create(comp.ast.PipeBlock, walk=kids)
             case 'pipe_func':
-                _node(_ast.PipeFunc, walk=kids)
+                _create(comp.ast.PipeFunc, walk=kids)
             case 'pipe_wrench':
-                _node(_ast.PipeWrench, walk=kids)
+                _create(comp.ast.PipeWrench, walk=kids)
 
             case _:
                 raise ValueError(f"Unimplemented grammar rule {child.data} at {parent}")
@@ -309,7 +307,7 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
 
 def _create_node(parent_append, tree: lark.Tree, cls, walk=None):
     """Helper to create ast nodes and recurse"""
-    node = cls.fromGrammar(tree)
+    node = cls.from_grammar(tree)
     meta = tree.meta
     if tree.children:
         node.position = ((meta.line, meta.column), (meta.end_line, meta.end_column))

@@ -344,7 +344,7 @@ class TagSpread(AstNode):
 
 ### 3. AST Node Updates
 - [ ] Add `value_expr`, `generator`, `is_extension` to `TagDefinition.__init__`
-- [ ] Update `TagDefinition.fromGrammar` to extract new fields
+- [ ] Update `TagDefinition.from_grammar` to extract new fields
 - [ ] Update `TagDefinition.unparse` to handle all syntax variations
 - [ ] Create `TagSpread` class similar to `ShapeSpread`
 - [ ] Add properties for accessing value vs children
