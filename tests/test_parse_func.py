@@ -87,3 +87,26 @@ class TestFunctionDefinition:
         assert "~num" in unparsed
         assert "^{" in unparsed  # Arg shape
         assert "{" in unparsed  # Structure syntax
+
+    def test_function_with_shape_reference_args(self):
+        """Test function with args as a shape reference (^shape-ref syntax)."""
+        source = "!func |stab ~stab-shape ^stab-args = {???}"
+        mod = parse_module(source)
+
+        assert len(mod.kids) == 1
+        func = mod.kids[0]
+        assert isinstance(func, FunctionDefinition)
+        assert func.tokens == ["stab"]
+        assert func.name == "stab"
+        assert isinstance(func.shape, ShapeRef)
+        # Args should be a ShapeRef now, not a Structure
+        assert isinstance(func.args, ShapeRef)
+        assert func.args.tokens == ["stab-args"]
+        assert isinstance(func.body, Structure)
+
+        # Test unparse
+        unparsed = func.unparse()
+        assert "!func |stab" in unparsed
+        assert "~stab-shape" in unparsed
+        assert "^~stab-args" in unparsed  # Should unparse with ~ prefix
+        assert "???" in unparsed

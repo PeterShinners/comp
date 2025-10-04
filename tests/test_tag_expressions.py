@@ -51,15 +51,15 @@ class TestTagExpressions:
         """Test tag with left bit shift (useful for flags)."""
         code = "!tag #flag1 = 1 << 0"
         result = parse_module(code)
-        
+
         tag = result.kids[0]
         assert isinstance(tag, TagDefinition)
         assert tag.tokens == ["flag1"]
-        
+
         # First body kid should be a BinaryOp with << operator
         assert isinstance(tag.body_kids[0], BinaryOp)
         assert tag.body_kids[0].op == "<<"
-        
+
         assert result.unparse() == "!tag #flag1 = 1 << 0"
 
     def test_tag_bitshift_right(self):
@@ -114,22 +114,22 @@ class TestTagExpressions:
         """Test tag with unary plus."""
         code = "!tag #positive = +42"
         result = parse_module(code)
-        
+
         tag = result.kids[0]
         assert isinstance(tag.body_kids[0], UnaryOp)
         assert tag.body_kids[0].op == "+"
-        
+
         assert result.unparse() == "!tag #positive = +42"
 
     def test_tag_unary_minus(self):
         """Test tag with unary minus."""
         code = "!tag #negative = -100"
         result = parse_module(code)
-        
+
         tag = result.kids[0]
         assert isinstance(tag.body_kids[0], UnaryOp)
         assert tag.body_kids[0].op == "-"
-        
+
         assert result.unparse() == "!tag #negative = -100"
 
     def test_tag_unary_not(self):
@@ -142,7 +142,7 @@ class TestTagExpressions:
         """Test tag with complex nested expression."""
         code = "!tag #complex = (1 + 2) * 3"
         result = parse_module(code)
-        
+
         # Should parse and unparse
         unparsed = result.unparse()
         assert "1 + 2" in unparsed
@@ -168,15 +168,15 @@ class TestTagExpressions:
         """Test tag with generator, expression value, and children."""
         code = "!tag #flags |gen/flag = 1<<0 {#read #write #execute}"
         result = parse_module(code)
-        
+
         tag = result.kids[0]
         assert isinstance(tag, TagDefinition)
         assert not isinstance(tag.generator, Placeholder)
-        
+
         # Should have value + 3 children in body_kids
         assert len(tag.body_kids) == 4
         assert isinstance(tag.body_kids[0], BinaryOp)  # 1<<0
-        
+
         unparsed = result.unparse()
         assert "|gen/flag" in unparsed
         assert "1 << 0" in unparsed
@@ -192,11 +192,11 @@ class TestTagExpressions:
 }
 """
         result = parse_module(code)
-        
+
         tag = result.kids[0]
         assert isinstance(tag, TagDefinition)
         assert tag.tokens == ["permissions"]
-        
+
         # Should have 3 child tag definitions in body_kids
         assert len(tag.body_kids) == 3
 
@@ -226,7 +226,7 @@ class TestTagExpressions:
         """Test that operator precedence is respected in tag values."""
         code = "!tag #calc = 1 + 2 * 3"
         result = parse_module(code)
-        
+
         # Should parse correctly with * having higher precedence
         # Unparse may add parentheses for clarity: 1 + (2 * 3)
         unparsed = result.unparse()

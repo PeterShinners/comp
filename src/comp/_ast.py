@@ -28,7 +28,6 @@ __all__ = [
     "FieldAccess",
     "Placeholder",
     "Pipeline",
-    "EmptyPipelineSeed",
     "PipeFallback",
     "PipeStruct",
     "PipeBlock",
@@ -227,11 +226,49 @@ class TagChild(AstNode):
 
     @classmethod
     def fromGrammar(cls, tree):
+        """Parse TagChild from Lark tree using rule aliases."""
         kids = tree.children
         tokens = [t.value for t in kids[0].children[1].children[::2]]
-        assign_op = _tokenValue(kids, 1, "")
-        self = cls(tokens=tokens, assign_op=assign_op)
-        self._valIdx, self._bodIdx = _enumMatches(kids, 'tag_value', 'tag_body')
+
+        # Determine structure based on rule alias
+        # After walk, kids will contain: [value?, body?] in order
+        match tree.data:
+            case 'tagchild_simple':
+                # tag_path
+                # Kids after walk: []
+                self = cls(tokens=tokens, assign_op="")
+                self._valIdx = self._bodIdx = None
+
+            case 'tagchild_val_body':
+                # tag_path ASSIGN tag_value tag_body
+                # Kids after walk: [value, body]
+                # ASSIGN is at tree.children[1]
+                assign_op = kids[1].value
+                self = cls(tokens=tokens, assign_op=assign_op)
+                self._valIdx = 0
+                self._bodIdx = 1
+
+            case 'tagchild_val':
+                # tag_path ASSIGN tag_value
+                # Kids after walk: [value]
+                # ASSIGN is at tree.children[1]
+                assign_op = kids[1].value
+                self = cls(tokens=tokens, assign_op=assign_op)
+                self._valIdx = 0
+                self._bodIdx = None
+
+            case 'tagchild_body':
+                # tag_path ASSIGN tag_body
+                # Kids after walk: [body]
+                # ASSIGN is at tree.children[1]
+                assign_op = kids[1].value
+                self = cls(tokens=tokens, assign_op=assign_op)
+                self._valIdx = None
+                self._bodIdx = 0
+
+            case _:
+                raise ValueError(f"Unknown tag_child variant: {tree.data}")
+
         return self
 
 
@@ -284,12 +321,82 @@ class TagDefinition(AstNode):
 
     @classmethod
     def fromGrammar(cls, tree):
-        """Parse TagDefinition from Lark tree."""
+        """Parse TagDefinition from Lark tree using rule aliases."""
         kids = tree.children
         tokens = [t.value for t in kids[1].children[1].children[::2]]
-        assign_op = _tokenValue(kids, 2, "")
-        self = cls(tokens=tokens, assign_op=assign_op)
-        self._genIdx, self._valIdx, self._bodIdx = _enumMatches(kids, 'tag_generator', 'tag_value', 'tag_body')
+
+        # Determine structure based on rule alias
+        # After walk, kids will contain: [generator?, value?, body?] in order
+        match tree.data:
+            case 'tag_simple':
+                # BANG_TAG tag_path
+                # Kids after walk: []
+                self = cls(tokens=tokens, assign_op="")
+                self._genIdx = self._valIdx = self._bodIdx = None
+
+            case 'tag_gen_val_body':
+                # BANG_TAG tag_path tag_generator ASSIGN tag_value tag_body
+                # Kids after walk: [generator, value, body]
+                # ASSIGN is at tree.children[3]
+                assign_op = kids[3].value
+                self = cls(tokens=tokens, assign_op=assign_op)
+                self._genIdx = 0
+                self._valIdx = 1
+                self._bodIdx = 2
+
+            case 'tag_gen_val':
+                # BANG_TAG tag_path tag_generator ASSIGN tag_value
+                # Kids after walk: [generator, value]
+                # ASSIGN is at tree.children[3]
+                assign_op = kids[3].value
+                self = cls(tokens=tokens, assign_op=assign_op)
+                self._genIdx = 0
+                self._valIdx = 1
+                self._bodIdx = None
+
+            case 'tag_gen_body':
+                # BANG_TAG tag_path tag_generator ASSIGN tag_body
+                # Kids after walk: [generator, body]
+                # ASSIGN is at tree.children[3]
+                assign_op = kids[3].value
+                self = cls(tokens=tokens, assign_op=assign_op)
+                self._genIdx = 0
+                self._valIdx = None
+                self._bodIdx = 1
+
+            case 'tag_val_body':
+                # BANG_TAG tag_path ASSIGN tag_value tag_body
+                # Kids after walk: [value, body]
+                # ASSIGN is at tree.children[2]
+                assign_op = kids[2].value
+                self = cls(tokens=tokens, assign_op=assign_op)
+                self._genIdx = None
+                self._valIdx = 0
+                self._bodIdx = 1
+
+            case 'tag_val':
+                # BANG_TAG tag_path ASSIGN tag_value
+                # Kids after walk: [value]
+                # ASSIGN is at tree.children[2]
+                assign_op = kids[2].value
+                self = cls(tokens=tokens, assign_op=assign_op)
+                self._genIdx = None
+                self._valIdx = 0
+                self._bodIdx = None
+
+            case 'tag_body_only':
+                # BANG_TAG tag_path ASSIGN tag_body
+                # Kids after walk: [body]
+                # ASSIGN is at tree.children[2]
+                assign_op = kids[2].value
+                self = cls(tokens=tokens, assign_op=assign_op)
+                self._genIdx = None
+                self._valIdx = None
+                self._bodIdx = 0
+
+            case _:
+                raise ValueError(f"Unknown tag_definition variant: {tree.data}")
+
         return self
 
 
@@ -381,11 +488,13 @@ class FunctionDefinition(AstNode):
     Examples:
         !func |add ~num ^{a ~num b ~num} = {a + b}
         !func |process ~data = {data | validate | transform}
-        !func |greet ~nil ^greeting = {"Hello " + name}
+        !func |greet ~nil ^~greeting-args = {"Hello " + name}
+        !func |validate ~data ^~validator = {data | check}
 
     The function name is stored as a list of tokens (e.g., ["add"] or ["math", "add"]).
     The shape is always present (use ~nil if no input needed).
-    The args is always a Structure node (may be empty if no arguments).
+    The args can be any shape_type: shape reference (~args), inline shape (~{...}), 
+    tag reference (#tag), or union. It may be None if no arguments defined.
     The assignment_op can be "=", "=*", or "=?" for different assignment semantics.
     """
 
@@ -413,7 +522,7 @@ class FunctionDefinition(AstNode):
 
     @property
     def args(self):
-        """Get the args structure (second child, always present)."""
+        """Get the args shape (can be shape reference, inline shape, etc., or None)."""
         return self.kids[self._argIdx] if self._argIdx is not None else None
 
     @property
@@ -434,12 +543,24 @@ class FunctionDefinition(AstNode):
 
     @classmethod
     def fromGrammar(cls, tree):
+        """Parse from grammar tree using rule aliases to distinguish cases."""
         tokens = [t.value for t in tree.children[1].children[1::2]]
-        assign_op = tree.children[-2].value
-        self = cls(tokens=tokens, assign_op=assign_op)
 
-        self._argIdx, = _enumMatches(tree.children, 'arg_shape', offset=1)
-        self._bodIdx = -1
+        if tree.data == "func_with_args":
+            # After walk, kids will be: [shape, args, body]
+            assign_op_token = tree.children[4]  # Get from tree before walk
+            assign_op = assign_op_token.value if hasattr(assign_op_token, 'value') else str(assign_op_token)
+            self = cls(tokens=tokens, assign_op=assign_op)
+            self._argIdx = 1  # args is second in kids
+            self._bodIdx = 2  # body is third in kids
+        else:  # func_no_args
+            # After walk, kids will be: [shape, body]
+            assign_op_token = tree.children[3]  # Get from tree before walk
+            assign_op = assign_op_token.value if hasattr(assign_op_token, 'value') else str(assign_op_token)
+            self = cls(tokens=tokens, assign_op=assign_op)
+            self._argIdx = None  # No args
+            self._bodIdx = 1  # body is second in kids
+
         return self
 
 
@@ -1032,45 +1153,33 @@ class Placeholder(AstNode):
 # === PIPELINES ===
 
 
-class EmptyPipelineSeed(AstNode):
-    """Placeholder for pipelines without an explicit seed expression.
-
-    Used when a pipeline starts with a pipe operator like ( |process)
-    rather than having an explicit seed value like (data |process).
-    This ensures Pipeline.kids[0] is always the seed expression.
-    """
-
-    def __init__(self):
-        super().__init__()
-
-    def unparse(self) -> str:
-        return ""
-
-
 class Pipeline(AstNode):
-    """Pipeline expression: expr | op1 | op2
+    """Pipeline expression: [expr |op1 |op2] or [|op1 |op2]
 
-    The first child (kids[0]) is always the seed expression. If no explicit
-    seed is provided, an EmptyPipelineSeed node is inserted automatically.
+    If no explicit seed is provided (pipeline_unseeded), the seed property returns None.
     Remaining children are PipelineOp subclasses (PipeFunc, PipeFallback, etc).
     """
 
+    def __init__(self):
+        self._seedIdx = None
+        super().__init__()
+
     @property
     def seed(self):
-        """The seed expression (first child, may be EmptyPipelineSeed)."""
-        return self.kids[0] if self.kids else None
+        """The seed expression (None if unseeded pipeline)."""
+        return self.kids[self._seedIdx] if self._seedIdx is not None else None
 
     @property
     def operations(self):
-        """List of pipeline operations (all children after seed)."""
-        return self.kids[1:] if len(self.kids) > 1 else []
+        """List of pipeline operations (all children if no seed, or all after seed)."""
+        if self._seedIdx is not None:
+            return self.kids[self._seedIdx + 1:]
+        else:
+            return self.kids[:]
 
     def unparse(self) -> str:
-        # Skip EmptyPipelineSeed in output, but include other seeds
         parts = []
-        for i, kid in enumerate(self.kids):
-            if i == 0 and isinstance(kid, EmptyPipelineSeed):
-                continue
+        for kid in self.kids:
             parts.append(kid.unparse())
 
         value = " ".join(parts)
@@ -1079,32 +1188,21 @@ class Pipeline(AstNode):
 
     @classmethod
     def fromGrammar(cls, tree):
-        """Create Pipeline node, inserting EmptyPipelineSeed if needed.
+        """Create Pipeline node using rule alias to determine if seed is present.
 
-        Scans the lark tree to check if the first child is a pipe operation.
-        If so, inserts an EmptyPipelineSeed as the first child before the
-        tree is walked.
-
-        The tree passed is:
-        - 'pipeline_expr': LBRACKET pipeline RBRACKET or LBRACKET expression pipeline RBRACKET
+        Uses rule aliases:
+        - 'pipeline_unseeded': [|op ...] - no seed, operations start at kids[0]
+        - 'pipeline_seeded': [expr |op ...] - has seed at kids[0], operations after
         """
         node = cls()
 
-        # pipeline_expr has either:
-        # 1. LBRACKET, pipeline, RBRACKET (no seed - starts with pipe op)
-        # 2. LBRACKET, expression, pipeline, RBRACKET (has seed)
-
-        # Skip token children (LBRACKET, RBRACKET) and find the first non-token child
-        children = [c for c in tree.children if hasattr(c, 'data')]
-
-        if children:
-            first_child = children[0]
-            # Check if first child is a pipeline (contains pipe operations)
-            if first_child.data == 'pipeline':
-                # No seed - pipeline starts immediately
-                # Insert EmptyPipelineSeed
-                node.kids.append(EmptyPipelineSeed())
-            # Otherwise, first child is the seed expression, no EmptyPipelineSeed needed
+        # Check the rule alias to determine seed index
+        if tree.data == 'pipeline_unseeded':
+            # No seed - operations start at kids[0]
+            node._seedIdx = None
+        else:  # pipeline_seeded
+            # Seed at kids[0], operations start at kids[1]
+            node._seedIdx = 0
 
         return node
 class PipelineOp(AstNode):
@@ -1232,34 +1330,3 @@ def _maybe_unparse(parts, val):
     """Add unparsed value to array if not None"""
     if val is not None:
         parts.append(val.unparse())
-
-
-def _enumMatches(kids, *rules, offset=0):
-    """Find ordering of optional rules in tree children"""
-    ruleCount = len(rules)
-    found = [None] * ruleCount
-    rule = 0
-    count = 0
-    # print("MATCHES:", rules, len(kids), kids)
-    for kid in kids:
-        data = getattr(kid, 'data', None)
-        # print("  KID:", data, rule, count)
-        for hunt in range(rule, ruleCount):
-            if data == rules[hunt]:
-                rule = hunt + 1
-                found[hunt] = count
-                # print("MATCH:", hunt, found)
-                count += 1
-                break
-        if rule >= ruleCount:
-            break
-    found = [f + offset if f is not None else None for f in found]
-    return found
-
-
-def _tokenValue(kids, offset=0, default=None):
-    """Find first token value in tree children after offset"""
-    for kid in kids[offset:]:
-        if hasattr(kid, 'type'):
-            return kid.value
-    return default

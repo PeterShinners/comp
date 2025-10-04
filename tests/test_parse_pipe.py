@@ -27,8 +27,8 @@ def test_pipeline_in_struct():
     comptest.roundtrip(struct)
     key, value = comptest.structure_field(struct, 0, comp.Pipeline)
     assert key == "x"
-    # Pipeline without seed should have EmptyPipelineSeed as first child
-    assert isinstance(value.seed, comp.EmptyPipelineSeed)
+    # Pipeline without seed should have None as seed
+    assert value.seed is None
     assert isinstance(value.operations[0], comp.PipeFunc)
     assert "|process" in value.unparse()
 
@@ -38,7 +38,7 @@ def test_pipeline_with_seed():
     struct = comptest.parse_value("{x = [data |process]}", comp.Structure)
     key, value = comptest.structure_field(struct, 0, comp.Pipeline)
     assert key == "x"
-    # Pipeline with seed should have the seed expression as first child (not EmptyPipelineSeed)
+    # Pipeline with seed should have the seed expression as first child (not None)
     assert isinstance(value.seed, comp.Identifier)
     assert value.seed.unparse() == "data"
     assert isinstance(value.operations[0], comp.PipeFunc)

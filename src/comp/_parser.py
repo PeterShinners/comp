@@ -109,7 +109,7 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 middle_child = child.children[1]
                 generate_ast(parent, [middle_child])
                 continue
-            case 'pipeline_expr':
+            case 'pipeline_expr' | 'pipeline_seeded' | 'pipeline_unseeded':
                 # LBRACKET [seed] pipeline RBRACKET
                 # Create a Pipeline node and process children
                 _node(_ast.Pipeline, walk=kids)
@@ -120,14 +120,14 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 _node(_ast.FieldAccess, walk=kids)
 
             # Tag definitions
-            case 'tag_definition':
+            case 'tag_definition' | 'tag_simple' | 'tag_gen_val_body' | 'tag_gen_val' | 'tag_gen_body' | 'tag_val_body' | 'tag_val' | 'tag_body_only':
                 _node(_ast.TagDefinition, walk=kids)
             case 'tag_generator':
                 generate_ast(parent, kids)  # pass through function or block ref
                 continue
             case 'tag_body':
                 _node(_ast.TagBody, walk=kids)
-            case 'tag_child':
+            case 'tag_child' | 'tagchild_simple' | 'tagchild_val_body' | 'tagchild_val' | 'tagchild_body':
                 _node(_ast.TagChild, walk=kids)
             case 'tag_value' | 'tag_arithmetic' | 'tag_term' | 'tag_bitwise' | 'tag_comparison' | 'tag_unary' | 'tag_atom':
                 generate_ast(parent, kids)  # pass through value literals (and exprs)
@@ -156,7 +156,7 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 pass
 
             # Function definitions
-            case 'function_definition':
+            case 'function_definition' | 'func_with_args' | 'func_no_args':
                 _node(_ast.FunctionDefinition, walk=kids)
             case 'function_path':
                 # This is handled by FunctionDefinition.fromGrammar
@@ -166,11 +166,31 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 # function_shape: shape_type - just pass through the type
                 generate_ast(parent, kids)
                 continue
-            case 'arg_shape':
-                # arg_shape: CARET shape_body
+            case 'arg_shape' | 'arg_shape_inline':
+                # arg_shape_inline: CARET LBRACE shape_field* RBRACE
                 # Convert shape_body content into a Structure node
                 # The shape_body will have ShapeField children which we wrap in Structure
                 _node(_ast.Structure, walk=kids)
+                continue
+            case 'arg_shape_ref':
+                # arg_shape_ref: CARET reference_identifiers reference_namespace?
+                # Create a ShapeRef from the reference_identifiers
+                # Extract tokens from reference_identifiers (children[1])
+                # child.children: [CARET, reference_identifiers, reference_namespace?]
+                ref_ids = child.children[1]  # reference_identifiers tree
+                tokens = [t.value for t in ref_ids.children[::2]]  # Every other child (skip dots)
+                namespace = None
+                if len(child.children) > 2:  # Has reference_namespace
+                    ns_tree = child.children[2]
+                    if len(ns_tree.children) > 1:  # Has TOKEN after /
+                        namespace = ns_tree.children[1].value
+                node = _ast.ShapeRef(tokens=tokens, namespace=namespace)
+                parent.kids.append(node)
+                continue
+            case 'arg_shape_typed':
+                # arg_shape_typed: CARET shape_type
+                # Pass through the shape_type (ShapeRef, TagRef, etc.)
+                generate_ast(parent, kids)
                 continue
 
             case 'shape_union':
@@ -262,7 +282,7 @@ def generate_ast(parent: _ast.AstNode, children: list[lark.Tree | lark.Token]) -
                 _node(_ast.StructSpread, walk=kids)
 
             # Pipelines
-            case 'pipeline_expr':
+            case 'pipeline_expr' | 'pipeline_seeded' | 'pipeline_unseeded':
                 # LBRACKET [seed] pipeline RBRACKET
                 # Pipeline node created above in atom section
                 pass

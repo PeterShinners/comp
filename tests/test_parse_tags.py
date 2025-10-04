@@ -80,10 +80,10 @@ def test_tag_literal_values(key, code):
     tag_def = result.statements[0]
 
     assert isinstance(tag_def, comp.TagDefinition)
-    
+
     # Should have exactly one child (the value) in body_kids
     assert len(tag_def.body_kids) == 1, f"Expected 1 value child, got {len(tag_def.body_kids)}"
-    
+
     # Value should be Number or String
     value = tag_def.body_kids[0]
     assert isinstance(value, (comp.Number, comp.String)), (
@@ -121,10 +121,10 @@ def test_tag_expression_values(key, code):
     tag_def = result.statements[0]
 
     assert isinstance(tag_def, comp.TagDefinition)
-    
+
     # Should have at least one child (the expression) in body_kids
     assert len(tag_def.body_kids) >= 1, f"Expected at least 1 child, got {len(tag_def.body_kids)}"
-    
+
     # First body child should be an expression node (BinaryOp, UnaryOp) or literal
     value = tag_def.body_kids[0]
     assert isinstance(value, (comp.BinaryOp, comp.UnaryOp, comp.Number, comp.String)), (
@@ -149,7 +149,7 @@ def test_tag_values_with_children(key, code):
     tag_def = result.statements[0]
 
     assert isinstance(tag_def, comp.TagDefinition)
-    
+
     # Should have multiple children (value + tag children) in body_kids
     assert len(tag_def.body_kids) > 1, f"Expected multiple children, got {len(tag_def.body_kids)}"
 
@@ -359,13 +359,13 @@ def test_tag_all_features_combined():
 
     # Should have generator
     assert isinstance(tag_def.generator, comp.FuncRef)
-    
+
     # Should have value (1<<0) plus 3 children in body_kids
     assert len(tag_def.body_kids) == 4
-    
+
     # First body kid is the expression
     assert isinstance(tag_def.body_kids[0], comp.BinaryOp)
-    
+
     # Rest are tag children (TagChild nodes)
     for kid in tag_def.body_kids[1:]:
         assert isinstance(kid, comp.TagChild)
