@@ -1,6 +1,17 @@
 # Comp Implementation Tasks
 
-See `AGENT.md` for complete development process and workflow details.
+S**Chapter 01 Complete! We have a full parser for core Comp syntax.**
+
+## 02. Values and Expressions
+
+Initial runtime structures and evaluation
+
+[ ] 02-01. Runtime Values - Create value types (Number, String, Structure, etc.)
+[ ] 02-02. Expression Evaluation - Evaluate arithmetic and logical expressions
+[ ] 02-03. Identifier Resolution - Implement scope lookup (@, ^, $)
+[ ] 02-04. Structure Building - Create and manipulate structures
+[ ] 02-05. Pipeline Execution - Execute pipeline operations with seed/ops
+[ ] 02-06. Builtin Functions - Minimal set of core functionsfor complete development process and workflow details.
 
 This is a plan to reach the midpoint of the Comp language. This is broken into
 chapters split into a series of phases. Each phase will be represented by
@@ -25,9 +36,10 @@ Focused just on parsing the main language features into ast trees
 [X] 01-10. Rework grammar, astnodes, and unit tests
 [X] 01-11. Tag Definitions - Module-level grammar, parse tag definitions (no values yet)
 [X] 01-12. Shapes - Parse shape definitions
-[~] 01-13. Function - Parse function definitions
-[ ] 01-14. Tags Complete - Complete parsing of tags with values
-[ ] 01-15. Non-definition Bang Operators - Parse !delete, !doc, etc.
+[X] 01-13. Function - Parse function definitions
+[X] 01-14. Tags Complete - Complete parsing of tags with values, extensions, and generation functions
+
+**Chapter 01 Complete! We have a full parser for core Comp syntax.**
 
 ## 02. Values and Expressions
 
