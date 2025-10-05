@@ -110,4 +110,4 @@ class Value:
             return hash(self.str)
         if self.tag is not None:
             return hash(self.tag)
-        hash(tuple(self.struct.items()))
+        return hash(tuple(self.struct.items()) if self.struct else ())
