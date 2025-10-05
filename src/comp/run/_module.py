@@ -1,10 +1,12 @@
 """Runtime module with definitions and namespace mappings."""
 
-__all__ = ["Module", "TagDef", "FuncDef", "ShapeDef", "ShapeField", "FuncImpl"]
+__all__ = ["Module", "TagDef", "FuncDef", "ShapeDef", "ShapeField", "FuncImpl", "PythonFuncImpl"]
 
+
+from typing import Callable
 
 from .. import ast
-from . import _shape
+from . import _shape, _value
 
 
 class Module:
@@ -58,6 +60,124 @@ class Module:
         for func in self.funcs.values():
             for impl in func.implementations:
                 impl.resolve(self)
+
+    def process_builtins(self):
+        """Add builtin module namespace to this module.
+
+        Instead of copying builtin functions and tags into this module,
+        we add a reference to the shared builtin module in self.mods.
+        This ensures singleton tag behavior and proper namespace resolution.
+
+        References without a namespace (e.g., |print, #true) will search:
+        1. Current module first
+        2. Then all modules in self.mods (including builtin)
+
+        References with a namespace (e.g., |print/builtin) will only search
+        that specific namespace.
+        """
+        from . import _builtin
+
+        # Add reference to the shared builtin module
+        self.mods["builtin"] = _builtin.get_builtin_module()
+
+    def resolve_tag(self, tokens: list[str], namespace: str | None = None) -> 'TagDef | None':
+        """Resolve a tag reference with namespace support.
+
+        Args:
+            tokens: Tag identifier path (e.g., ["status", "active"])
+            namespace: Optional namespace (e.g., "builtin" for #tag/builtin)
+
+        Returns:
+            TagDef if found, None otherwise
+
+        Resolution rules:
+            - If namespace is specified: only search that namespace module
+            - If no namespace: search current module first, then all mods
+        """
+        tag_name = ".".join(tokens)
+
+        if namespace:
+            # Only search the specified namespace
+            if namespace in self.mods:
+                return self.mods[namespace].tags.get(tag_name)
+            return None
+
+        # No namespace: search current module first
+        if tag_name in self.tags:
+            return self.tags[tag_name]
+
+        # Then search all referenced modules
+        for mod in self.mods.values():
+            if tag_name in mod.tags:
+                return mod.tags[tag_name]
+
+        return None
+
+    def resolve_func(self, tokens: list[str], namespace: str | None = None) -> 'FuncDef | None':
+        """Resolve a function reference with namespace support.
+
+        Args:
+            tokens: Function identifier path (e.g., ["http", "get"])
+            namespace: Optional namespace (e.g., "builtin" for |func/builtin)
+
+        Returns:
+            FuncDef if found, None otherwise
+
+        Resolution rules:
+            - If namespace is specified: only search that namespace module
+            - If no namespace: search current module first, then all mods
+        """
+        func_name = ".".join(tokens)
+
+        if namespace:
+            # Only search the specified namespace
+            if namespace in self.mods:
+                return self.mods[namespace].funcs.get(func_name)
+            return None
+
+        # No namespace: search current module first
+        if func_name in self.funcs:
+            return self.funcs[func_name]
+
+        # Then search all referenced modules
+        for mod in self.mods.values():
+            if func_name in mod.funcs:
+                return mod.funcs[func_name]
+
+        return None
+
+    def resolve_shape(self, tokens: list[str], namespace: str | None = None) -> 'ShapeDef | None':
+        """Resolve a shape reference with namespace support.
+
+        Args:
+            tokens: Shape identifier path (e.g., ["user", "profile"])
+            namespace: Optional namespace (e.g., "models" for ~shape/models)
+
+        Returns:
+            ShapeDef if found, None otherwise
+
+        Resolution rules:
+            - If namespace is specified: only search that namespace module
+            - If no namespace: search current module first, then all mods
+        """
+        shape_name = ".".join(tokens)
+
+        if namespace:
+            # Only search the specified namespace
+            if namespace in self.mods:
+                return self.mods[namespace].shapes.get(shape_name)
+            return None
+
+        # No namespace: search current module first
+        if shape_name in self.shapes:
+            return self.shapes[shape_name]
+
+        # Then search all referenced modules
+        for mod in self.mods.values():
+            if shape_name in mod.shapes:
+                return mod.shapes[shape_name]
+
+        return None
 
     def _process_tag_definition(self, tag_def: 'ast.TagDefinition'):
         """Extract tag definitions from AST node."""
@@ -219,6 +339,45 @@ class FuncImpl:
     def __repr__(self):
         shape_str = f" shape={self.shape}" if self.shape else ""
         return f"FuncImpl({shape_str})"
+
+
+class PythonFuncImpl:
+    """Python-implemented function that can be called from Comp code.
+
+    This allows implementing built-in functions in Python that integrate
+    seamlessly with Comp's runtime system.
+    """
+
+    def __init__(self, python_func: 'Callable[[_value.Value, _value.Value], _value.Value]', name: str | None = None):
+        """Create a Python function implementation.
+
+        Args:
+            python_func: Python callable that takes (in_value, arg_value) and returns Value
+            name: Optional name for debugging/display
+        """
+        self.python_func = python_func
+        self.name = name or (python_func.__name__ if hasattr(python_func, '__name__') else "python_func")
+        self.shape: _shape.ShapeType | None = None
+        self._resolved = True  # Python funcs don't need resolution
+
+    def resolve(self, module: 'Module'):
+        """Resolve shape references in module context."""
+        # Python functions are already resolved
+        pass
+
+    def matches(self, value) -> tuple[int, int]:
+        """Check if this implementation matches the value's shape.
+
+        Returns (specificity, quality) tuple. Higher = better match.
+        """
+        if not self.shape:
+            return (0, 1)  # No shape = matches anything (low priority)
+
+        return self.shape.matches(value)
+
+    def __repr__(self):
+        shape_str = f" shape={self.shape}" if self.shape else ""
+        return f"PythonFuncImpl({self.name}{shape_str})"
 
 
 class ShapeDef:

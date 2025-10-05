@@ -13,6 +13,40 @@ recognize the emphasis on data transformation and uniform syntax.
 
 The language design is mature and documented in the `design/` directory. Implementation is currently underway using an agent-assisted development process with numbered phases. Each phase focuses on specific language features, starting with basic literals and building incrementally toward the complete language. Development is test-driven, with executable specifications defining behavior before implementation begins.
 
+## Quick Start
+
+Install and run Comp programs:
+
+```bash
+# Install with uv (recommended)
+uv pip install -e .
+
+# Run a Comp program
+comp examples/working/hello.comp
+
+# Or with uv run
+uv run comp examples/working/hello.comp
+```
+
+Create a simple Comp program (`hello.comp`):
+
+```comp
+!func |main ~_ = {
+    message = "Hello from Comp!"
+    result = [message |upper]
+}
+```
+
+Run it:
+
+```bash
+comp hello.comp
+```
+
+Output: `{message="Hello from Comp!" result="HELLO FROM COMP!"}`
+
+See the [examples/working](examples/working/) directory for runnable examples. The main `examples/` directory contains design demonstrations of future features.
+
 ## Introduction
 
 ```comp

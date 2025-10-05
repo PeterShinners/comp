@@ -5,10 +5,10 @@ __all__ = ["invoke"]
 from typing import TYPE_CHECKING
 
 from .. import ast
-from . import _eval, _scope, _struct, _value
+from . import _eval, _module, _scope, _struct, _value
 
 if TYPE_CHECKING:
-    from . import _module
+    pass
 
 
 def invoke(
@@ -37,6 +37,15 @@ def invoke(
         raise ValueError(f"Function {func_def.name} has no implementations")
 
     impl = func_def.implementations[0]
+    
+    # Check if this is a Python-implemented function
+    if isinstance(impl, _module.PythonFuncImpl):
+        # Call the Python function directly
+        in_value = input_value or _value.Value(None)
+        arg_val = arg_value or _value.Value(None)
+        return impl.python_func(in_value, arg_val)
+    
+    # Regular Comp function - execute the body
     body = impl._ast_node.body
 
     if body is None:
@@ -140,12 +149,12 @@ def _execute_structure(struct_node: ast.Structure, module: '_module.Module', sco
                 # Nested field assignment - walk down and create intermediate structures
                 if child.value:
                     field_value = _eval.evaluate(child.value, module, scopes)
-                    
+
                     # Build the nested structure incrementally
                     # Start from the root and walk down, creating structs as needed
                     current_dict = fields
                     is_scoped = False
-                    
+
                     # Check if first field is a scope reference
                     first_field = child.key.kids[0]
                     if isinstance(first_field, ast.ScopeField):
@@ -160,10 +169,10 @@ def _execute_structure(struct_node: ast.Structure, module: '_module.Module', sco
                             scope_name = 'chained'
                         else:
                             raise ValueError(f"Unknown scope: {scope_symbol}")
-                        
+
                         if scope_name not in scopes:
                             raise ValueError(f"Scope {scope_symbol} not defined")
-                        
+
                         # For mutable scopes, we can modify them
                         if scope_name in ('ctx', 'mod', 'arg', 'local'):
                             # Start from the scope's struct
@@ -178,7 +187,7 @@ def _execute_structure(struct_node: ast.Structure, module: '_module.Module', sco
                             current_dict = scope_value.struct
                         else:
                             raise ValueError(f"Cannot assign to immutable scope {scope_symbol}")
-                    
+
                     # Determine which fields to walk through
                     if is_scoped:
                         # Skip the scope field (first), walk up to but not including the last
@@ -188,12 +197,12 @@ def _execute_structure(struct_node: ast.Structure, module: '_module.Module', sco
                         # Walk all but the last field
                         walk_fields = child.key.kids[:-1]
                         final_field = child.key.kids[-1]
-                    
+
                     # Walk through intermediate fields
                     for field_node in walk_fields:
                         if isinstance(field_node, ast.TokenField):
                             field_key = _value.Value(field_node.value)
-                            
+
                             # Get or create intermediate structure
                             if field_key in current_dict:
                                 # Field exists, navigate into it
@@ -215,7 +224,7 @@ def _execute_structure(struct_node: ast.Structure, module: '_module.Module', sco
                         elif isinstance(field_node, ast.String):
                             # String field - same as TokenField but with string value
                             field_key = _value.Value(field_node.value)
-                            
+
                             # Get or create intermediate structure
                             if field_key in current_dict:
                                 # Field exists, navigate into it
@@ -312,13 +321,13 @@ def _execute_structure(struct_node: ast.Structure, module: '_module.Module', sco
                             raise ValueError("ComputeField missing expression")
                     else:
                         raise NotImplementedError(f"Final field {type(final_field).__name__} not yet supported")
-                    
+
                     # If this was a scoped assignment, update the chained scope
                     if is_scoped and scope_name in ('ctx', 'mod', 'arg'):
                         scopes['chained'] = _scope.ChainedScope(  # type: ignore
                             scopes['arg'], scopes['ctx'], scopes['mod']
                         )
-                    
+
                     # Update $out scope after adding nested field
                     update_out_scope()
             else:
@@ -369,7 +378,7 @@ def _execute_structure(struct_node: ast.Structure, module: '_module.Module', sco
                                     raise ValueError(f"Unsupported simple field type: {type(first_field).__name__}")
                             else:
                                 raise ValueError("Simple field key must be a single TokenField or String")
-                        
+
                         field_value = _eval.evaluate(child.value, module, scopes)
                         fields[key] = field_value
                         # Update $out scope after adding field

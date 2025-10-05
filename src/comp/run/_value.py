@@ -74,7 +74,18 @@ class Value:
             return self.str
         if self.tag is not None:
             return self.tag
-        return self.struct
+        if self.struct is not None:
+            # Recursively convert struct fields
+            result = {}
+            for key, val in self.struct.items():
+                if isinstance(key, _struct.Unnamed):
+                    # For unnamed keys, use numeric indices
+                    result[len(result)] = val.to_python()
+                else:
+                    # Convert Value keys to Python
+                    result[key.to_python()] = val.to_python()
+            return result
+        return None
 
     def __repr__(self) -> str:
         if self.num is not None:

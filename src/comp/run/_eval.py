@@ -40,12 +40,13 @@ def evaluate(expr, module: '_module.Module', scopes: dict[str, _value.Value] | N
         return _value.Value(expr.value)
 
     if isinstance(expr, ast.TagRef):
-        # Create a tag value from the reference
-        tag_name = ".".join(expr.tokens or [])
-        if tag_name in module.tags:
-            tag_def = module.tags[tag_name]
-            return _value.Value(tag_def)
-        # Unresolved tag reference - return tag value anyway
+        # Resolve tag reference with namespace support
+        tokens = expr.tokens or []
+        tag_def = module.resolve_tag(tokens, expr.namespace)
+        if tag_def and tag_def.value:
+            return tag_def.value
+        # Unresolved tag reference - return a basic tag value
+        tag_name = ".".join(tokens)
         return _value.Value(tag_name)
 
     # Binary operations
@@ -329,6 +330,10 @@ def evaluate(expr, module: '_module.Module', scopes: dict[str, _value.Value] | N
         result.struct = convert_to_value_struct(fields)
         return result
 
+    # Pipeline execution
+    if isinstance(expr, ast.Pipeline):
+        return _evaluate_pipeline(expr, module, scopes)
+
     raise NotImplementedError(f"Cannot evaluate {type(expr).__name__}")
 
 
@@ -452,21 +457,93 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
 
         return current_value
 
-    # No scope prefix - use unnamed scope (chains $out -> $in)
+    # No scope prefix - check if first field is IndexField (positional access)
+    # IndexField (#0, #1, etc.) should only look in $in, not the unnamed chained scope
+    first = expr.kids[0]
+    if isinstance(first, ast.IndexField):
+        # Bare positional access goes directly to $in scope
+        if 'in' not in scopes:
+            raise ValueError("$in scope not available")
+        
+        current_value = scopes['in']
+        
+        # Handle first field (IndexField)
+        if not current_value.is_struct or not current_value.struct:
+            raise ValueError("Cannot index non-struct value in $in")
+        
+        index = first.value
+        fields_list = list(current_value.struct.values())
+        if 0 <= index < len(fields_list):
+            current_value = fields_list[index]
+        else:
+            raise ValueError(f"Index #{index} out of bounds ($in has {len(fields_list)} fields)")
+        
+        # Walk through remaining fields
+        for field in expr.kids[1:]:
+            if not current_value.is_struct or not current_value.struct:
+                raise ValueError("Cannot access field on non-struct value")
+
+            if isinstance(field, ast.TokenField):
+                field_key = _value.Value(field.value)
+                if field_key in current_value.struct:
+                    current_value = current_value.struct[field_key]
+                else:
+                    raise ValueError(f"Field '{field.value}' not found in struct")
+            elif isinstance(field, ast.String):
+                field_key = _value.Value(field.value)
+                if field_key in current_value.struct:
+                    current_value = current_value.struct[field_key]
+                else:
+                    raise ValueError(f"Field '{field.value}' not found in struct")
+            elif isinstance(field, ast.IndexField):
+                index = field.value
+                if current_value.struct:
+                    fields_list = list(current_value.struct.values())
+                    if 0 <= index < len(fields_list):
+                        current_value = fields_list[index]
+                    else:
+                        raise ValueError(f"Index #{index} out of bounds (struct has {len(fields_list)} fields)")
+                else:
+                    raise ValueError("Cannot index empty struct")
+            elif isinstance(field, ast.ComputeField):
+                if field.expr:
+                    computed_key = evaluate(field.expr, module, scopes)
+                    if computed_key in current_value.struct:
+                        current_value = current_value.struct[computed_key]
+                    else:
+                        raise ValueError("Computed field not found in struct")
+                else:
+                    raise ValueError("ComputeField missing expression")
+            else:
+                raise ValueError(f"Unsupported field type: {type(field).__name__}")
+        
+        return current_value
+    
+    # Otherwise use unnamed scope (chains $out -> $in) for named field access
+    # But also check chained scope for function parameters
     if 'unnamed' not in scopes:
         raise ValueError("Unnamed scope not available")
 
     current_value = scopes['unnamed']
 
     # Walk through all fields (no scope prefix to skip)
-    for field in expr.kids:
+    for idx, field in enumerate(expr.kids):
         # Handle both regular Values and ChainedScope
         if isinstance(current_value, _scope.ChainedScope):
-            # ChainedScope has special lookup
+            # ChainedScope has special lookup for named fields only
+            # (IndexField is handled separately above - it goes directly to $in)
             if isinstance(field, ast.TokenField):
                 field_key = _value.Value(field.value)
                 result = current_value.lookup_field(field_key)
                 if result is None:
+                    # For FIRST field only, also try chained scope (for function parameters)
+                    if idx == 0 and 'chained' in scopes:
+                        chained = scopes['chained']
+                        if isinstance(chained, _scope.ChainedScope):
+                            result = chained.lookup_field(field_key)
+                            if result is not None:
+                                current_value = result
+                                continue
                     raise ValueError(f"Field '{field.value}' not found in unnamed scope")
                 current_value = result
             elif isinstance(field, ast.String):
@@ -476,17 +553,6 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
                 if result is None:
                     raise ValueError(f"Field '{field.value}' not found in unnamed scope")
                 current_value = result
-            elif isinstance(field, ast.IndexField):
-                # Look up by index in ChainedScope (unnamed scope)
-                index = field.value
-                if current_value.struct:
-                    fields_list = list(current_value.struct.values())
-                    if 0 <= index < len(fields_list):
-                        current_value = fields_list[index]
-                    else:
-                        raise ValueError(f"Index #{index} out of bounds (scope has {len(fields_list)} fields)")
-                else:
-                    raise ValueError("Cannot index empty scope")
             elif isinstance(field, ast.ComputeField):
                 # Computed field - evaluate expression to get field key
                 if field.expr:
@@ -498,7 +564,7 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
                 else:
                     raise ValueError("ComputeField missing expression")
             else:
-                raise ValueError(f"Unsupported field type: {type(field).__name__}")
+                raise ValueError(f"Unsupported field type in unnamed scope: {type(field).__name__}")
         else:
             # Regular Value lookup
             if not current_value.is_struct or not current_value.struct:
@@ -545,3 +611,165 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
                 raise ValueError(f"Unsupported field type: {type(field).__name__}")
 
     return current_value
+
+
+def _evaluate_pipeline(pipeline: ast.Pipeline, module: '_module.Module', scopes: dict[str, _value.Value]) -> _value.Value:
+    """Evaluate a pipeline expression.
+
+    Args:
+        pipeline: Pipeline AST node
+        module: Module context
+        scopes: Scope values dict
+
+    Returns:
+        Final value after all pipeline operations
+    """
+    from . import _invoke
+
+    # Start with the seed value (or None for unseeded pipelines)
+    if pipeline.seed is not None:
+        current_value = evaluate(pipeline.seed, module, scopes)
+    else:
+        # Unseeded pipeline - start with $in
+        current_value = scopes.get('in', _value.Value(None))
+
+    # Execute each pipeline operation in sequence
+    for operation in pipeline.operations:
+        if isinstance(operation, ast.PipeFunc):
+            # Function invocation: |func or |func {args}
+            current_value = _execute_pipe_func(operation, current_value, module, scopes)
+        elif isinstance(operation, ast.PipeFallback):
+            # Fallback operator: |? expr
+            # If current value is a failure, evaluate the fallback expression
+            if _is_failure(current_value):
+                # Fallback gets the ORIGINAL input, not the failure
+                # For now, we'll just evaluate the fallback expression with current scopes
+                current_value = evaluate(operation.fallback, module, scopes)
+        elif isinstance(operation, ast.PipeStruct):
+            # Inline struct transformation: |{field = expr}
+            current_value = _execute_pipe_struct(operation, current_value, module, scopes)
+        elif isinstance(operation, ast.PipeBlock):
+            # Block invocation: |: block
+            # Not implemented yet
+            raise NotImplementedError("PipeBlock not yet implemented")
+        elif isinstance(operation, ast.PipeWrench):
+            # Pipeline modifier: |-| func
+            # Not implemented yet
+            raise NotImplementedError("PipeWrench not yet implemented")
+        else:
+            raise ValueError(f"Unknown pipeline operation: {type(operation).__name__}")
+
+    return current_value
+
+
+def _execute_pipe_func(pipe_func: ast.PipeFunc, input_value: _value.Value, module: '_module.Module', scopes: dict[str, _value.Value]) -> _value.Value:
+    """Execute a pipeline function operation.
+
+    Args:
+        pipe_func: PipeFunc AST node
+        input_value: Current value in the pipeline
+        module: Module context
+        scopes: Scope values dict
+
+    Returns:
+        Result of function invocation
+    """
+    from . import _invoke
+
+    # Get the function reference
+    func_ref = pipe_func.func
+    if not isinstance(func_ref, ast.FuncRef):
+        raise ValueError(f"Expected FuncRef in PipeFunc, got {type(func_ref).__name__}")
+
+    # Look up the function using namespace resolution
+    tokens = func_ref.tokens or []
+    func_def = module.resolve_func(tokens, func_ref.namespace)
+    
+    if not func_def:
+        func_name = ".".join(tokens)
+        namespace_str = f"/{func_ref.namespace}" if func_ref.namespace else ""
+        raise ValueError(f"Function '|{func_name}{namespace_str}' not found")
+
+    # Create a new scope context for evaluating arguments
+    # The pipeline value should be available as $in when evaluating args
+    pipeline_scopes = scopes.copy()
+    pipeline_scopes['in'] = input_value
+    # Update unnamed scope to chain $out -> $in with the new $in value
+    pipeline_scopes['unnamed'] = _scope.ChainedScope(
+        pipeline_scopes.get('out', _value.Value(None)),
+        input_value
+    )
+
+    # Evaluate arguments if provided
+    if pipe_func.args and pipe_func.args.kids:
+        # Args is a Structure node - evaluate it with pipeline scopes
+        args_value = evaluate(pipe_func.args, module, pipeline_scopes)
+    else:
+        # No arguments - pass empty struct
+        args_value = _value.Value(None)
+        args_value.struct = {}
+
+    # Invoke the function with input_value as $in
+    # Function signature: invoke(func_def, module, input_value, ctx_value, mod_value, arg_value)
+    # For pipeline functions, we pass:
+    # - input_value as $in (pipeline value)
+    # - args_value as $arg (explicit arguments from function call)
+    # - empty for $ctx and $mod
+    result = _invoke.invoke(
+        func_def,
+        module,
+        input_value,  # $in
+        _value.Value(None),  # $ctx
+        _value.Value(None),  # $mod
+        args_value  # $arg
+    )
+
+    return result
+
+
+def _execute_pipe_struct(pipe_struct: ast.PipeStruct, input_value: _value.Value, module: '_module.Module', scopes: dict[str, _value.Value]) -> _value.Value:
+    """Execute a pipeline struct operation.
+
+    Args:
+        pipe_struct: PipeStruct AST node
+        input_value: Current value in the pipeline
+        module: Module context
+        scopes: Scope values dict
+
+    Returns:
+        Result of evaluating the structure
+    """
+    # Create a new scope context for evaluating the structure
+    # The pipeline value should be available as $in
+    pipe_scopes = scopes.copy()
+    pipe_scopes['in'] = input_value
+    # Update unnamed scope to chain $out -> $in with the new $in value
+    pipe_scopes['unnamed'] = _scope.ChainedScope(
+        pipe_scopes.get('out', _value.Value(None)),
+        input_value
+    )
+
+    # PipeStruct contains structure children (StructAssign, StructUnnamed, etc.)
+    # We need to evaluate them as a structure
+    # Create a temporary Structure node to evaluate
+    temp_struct = ast.Structure()
+    temp_struct.kids = pipe_struct.kids
+
+    # Evaluate the structure with the pipeline scopes
+    result = evaluate(temp_struct, module, pipe_scopes)
+
+    return result
+
+
+def _is_failure(value: _value.Value) -> bool:
+    """Check if a value represents a failure (has #fail tag).
+
+    Args:
+        value: Value to check
+
+    Returns:
+        True if value is a failure
+    """
+    # For now, just return False - we'll implement proper failure detection later
+    # when we have tag support in the runtime
+    return False

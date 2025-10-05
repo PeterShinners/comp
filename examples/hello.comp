@@ -1,0 +1,4 @@
+!func |main ~_ = {
+    message = "Hello from Comp!"
+    result = [message |upper]
+}

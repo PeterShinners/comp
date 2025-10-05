@@ -1,0 +1,10 @@
+!func |add-one ~{x ~num} = {
+    result = x + 1
+}
+
+!func |main ~_ = {
+    start = {x = 5}
+    step1 = [start |double]
+    step2 = [step1 |add-one]
+    final = [step2 |double]
+}
