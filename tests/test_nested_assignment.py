@@ -27,7 +27,7 @@ def _test_nested_assignment():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     # Create nested structure in $mod
     mod_val = run.Value({"parent": run.Value({"child": 11})})
 
@@ -36,7 +36,7 @@ def _test_nested_assignment():
     assert result.is_struct
     result_val = result.struct[run.Value("result")]
     assert result_val.is_struct
-    
+
     # Check if the nested value was modified
     parent = result_val.struct[run.Value("parent")]
     assert parent.is_struct
@@ -59,7 +59,7 @@ def _test_nested_assignment_creates_intermediate():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     # Start with empty $ctx
     ctx_val = run.Value({})
 
@@ -68,7 +68,7 @@ def _test_nested_assignment_creates_intermediate():
     assert result.is_struct
     result_val = result.struct[run.Value("result")]
     assert result_val.is_struct
-    
+
     # Check if intermediate structures were created
     new = result_val.struct[run.Value("new")]
     assert new.is_struct
@@ -95,7 +95,7 @@ def _test_multiple_nested_assignments():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     ctx_val = run.Value({})
 
     result = run.invoke(func_def, module, run.Value({}), ctx_val, run.Value({}), run.Value({}))
@@ -103,7 +103,7 @@ def _test_multiple_nested_assignments():
     assert result.is_struct
     config = result.struct[run.Value("result")]
     assert config.is_struct
-    
+
     # All three fields should be present
     assert config.struct[run.Value("timeout")].to_python() == 30
     assert config.struct[run.Value("retries")].to_python() == 3

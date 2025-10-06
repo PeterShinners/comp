@@ -22,9 +22,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/PeterShinners/comp"
 Repository = "https://github.com/PeterShinners/comp"
-Issues = "https://github.com/PeterShinners/comp/issues"
 
 [project.scripts]
 comp = "comp.cli:main"
@@ -40,9 +38,6 @@ build-backend = "hatchling.build"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-python_files = ["test_*.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/comp"]
@@ -64,16 +59,14 @@ select = [
 ]
 ignore = [
     "E501",  # line too long, handled by formatter
+    "W293",  # blank line contains whitespace
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "src/comp/__init__.py" = ["F403"]  # Allow wildcard imports in __init__.py
 
 [tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
 skip-magic-trailing-comma = false
-line-ending = "auto"
 
 [dependency-groups]
 dev = [

@@ -21,7 +21,7 @@ def test_scoped_assignment_via_spread():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     # Start with nested structure in $mod
     mod_val = run.Value({"parent": run.Value({"child": 11})})
 
@@ -30,7 +30,7 @@ def test_scoped_assignment_via_spread():
     assert result.is_struct
     result_val = result.struct[run.Value("result")]
     assert result_val.is_struct
-    
+
     # Check if the nested value was modified
     parent = result_val.struct[run.Value("parent")]
     assert parent.is_struct
@@ -53,7 +53,7 @@ def test_scoped_assignment_creates_path():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     # Start with empty $ctx
     ctx_val = run.Value({})
 
@@ -62,7 +62,7 @@ def test_scoped_assignment_creates_path():
     assert result.is_struct
     result_val = result.struct[run.Value("result")]
     assert result_val.is_struct
-    
+
     # Check if the nested structure was created
     config = result_val.struct[run.Value("config")]
     assert config.is_struct
@@ -87,7 +87,7 @@ def test_multiple_scoped_assignments():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     ctx_val = run.Value({})
 
     result = run.invoke(func_def, module, run.Value({}), ctx_val, run.Value({}), run.Value({}))
@@ -95,7 +95,7 @@ def test_multiple_scoped_assignments():
     assert result.is_struct
     config = result.struct[run.Value("result")]
     assert config.is_struct
-    
+
     # All three fields should be present
     assert config.struct[run.Value("timeout")].to_python() == 30
     assert config.struct[run.Value("retries")].to_python() == 3

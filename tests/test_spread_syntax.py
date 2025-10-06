@@ -20,7 +20,7 @@ def test_spread_only():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     ctx_val = run.Value({"server": {"host": "localhost", "port": 8080}})
 
     result = run.invoke(func_def, module, run.Value({}), ctx_val, run.Value({}), run.Value({}))

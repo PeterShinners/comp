@@ -227,9 +227,14 @@ class Module:
 
     def _process_shape_definition(self, shape_def):
         """Extract shape definition from AST node."""
+        from . import _shape_build
+        
         key = ".".join(shape_def.tokens)
-        self.shapes[key] = ShapeDef(identifier=shape_def.tokens)
-        # Walk to define all fields
+        runtime_shape = ShapeDef(identifier=shape_def.tokens)
+        self.shapes[key] = runtime_shape
+        
+        # Populate fields from the AST node
+        _shape_build.populate_shape_def_fields(runtime_shape, shape_def, self)
 
     def dump_contents(self):
         """Print formatted contents of this module."""
@@ -387,12 +392,17 @@ class ShapeDef:
         self.identifier = identifier
         self.name = ".".join(identifier)
         self.fields = {}
+        self.shape = None  # For non-structural shapes (TagRef, ShapeDefRef, etc.)
         self._resolved = False
 
     def resolve(self, module: 'Module'):
         """Resolve shape references and expand field definitions."""
         if self._resolved:
             return
+
+        # Resolve the base shape if this is a non-structural shape
+        if self.shape:
+            self.shape.resolve(module)
 
         # Resolve each field's shape type
         for _field_name, field in self.fields.items():

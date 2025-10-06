@@ -1,17 +1,6 @@
 # Comp Implementation Tasks
 
-S**Chapter 01 Complete! We have a full parser for core Comp syntax.**
-
-## 02. Values and Expressions
-
-Initial runtime structures and evaluation
-
-[ ] 02-01. Runtime Values - Create value types (Number, String, Structure, etc.)
-[ ] 02-02. Expression Evaluation - Evaluate arithmetic and logical expressions
-[ ] 02-03. Identifier Resolution - Implement scope lookup (@, ^, $)
-[ ] 02-04. Structure Building - Create and manipulate structures
-[ ] 02-05. Pipeline Execution - Execute pipeline operations with seed/ops
-[ ] 02-06. Builtin Functions - Minimal set of core functionsfor complete development process and workflow details.
+**Chapter 01 Complete! We have a full parser for core Comp syntax.**
 
 This is a plan to reach the midpoint of the Comp language. This is broken into
 chapters split into a series of phases. Each phase will be represented by
@@ -38,6 +27,7 @@ Focused just on parsing the main language features into ast trees
 [X] 01-12. Shapes - Parse shape definitions
 [X] 01-13. Function - Parse function definitions
 [X] 01-14. Tags Complete - Complete parsing of tags with values, extensions, and generation functions
+[X] 01-15. Multiline strings
 
 **Chapter 01 Complete! We have a full parser for core Comp syntax.**
 
@@ -45,30 +35,21 @@ Focused just on parsing the main language features into ast trees
 
 Initial runtime structures and data
 
-[ ] 02-PP. Evaluate numerical expression operators
-[ ] 02-PP. Implement scope referencing and overwriting
-[ ] 02-PP. Structure creation
-[ ] 02-PP. Structure operators
-[ ] 02-PP. Core builtin tag types
-[ ] 02-PP. Core builtin shapes
-[ ] 02-PP. Handful of builtin example functions
-[ ] 02-PP. Pipeline evaluation and failure propoagtion
-
-## 03. Language Definitions
-
-Allow creating the real object definitions for the language
-
-[ ] 03-PP. Tag definitions
-[ ] 03-PP. Shape Definitions and union shapes
-[ ] 03-PP. Function Definitions
-[ ] 03-PP. Placeholder operator ???
-[ ] 03-PP. Blocks
-[ ] 03-PP. Initial minimal conditional and iteration
-[ ] 03-PP. Streams
-[ ] 03-PP. Extended field name types, (numbers, tags)
-[ ] 03-PP. Shape matching and morphing
-[ ] 03-PP. String templates
-[ ] 03-PP. Pure functions
+[X] 02-01. Runtime Values - Create value types (Number, String, Structure, etc.)
+[X] 02-02. Expression Evaluation - Evaluate arithmetic and logical expressions
+[X] 02-03. Identifier Resolution - Implement scope lookup (@, ^, $)
+[X] 02-PP. Extended field name types, (numbers, tags)
+[X] 02-PP. Core builtin tag types
+[X] 02-PP. Core builtin shapes
+[X] 02-PP. Structure Building - Create and manipulate structures
+[X] 02-PP. Pipeline Execution - Execute pipeline operations with seed/ops
+[X] 02-PP. Function Definitions
+[~] 02-PP. Shape matching and morphing
+[ ] 02-PP. Placeholder operator ???
+[ ] 02-PP. Blocks (definition and shaping and invoke)
+[ ] 02-PP. Initial minimal conditional and iteration
+[ ] 02-PP. Failure and fallbacks
+[ ] 02-PP. Builtin Functions - Minimal set of core functionsfor complete development process and workflow details.
 
 ## CC. Library Incubation
 
@@ -84,7 +65,6 @@ These must be hardcoded into a global namespace until imports arrive
 
 Finish parsing all langauge features into ast nodes
 
-[ ] CC-PP. Multiline strings
 [ ] CC-PP. Docstrings
 [ ] CC-PP. Units
 [ ] CC-PP. Imports
@@ -103,6 +83,9 @@ Structure for code, no more "everything in one global"
 
 ## CC. Continued Core Language
 
+[ ] 02-PP. String templates
+[ ] 02-PP. Pure functions
+[ ] 02-PP. Streams
 [ ] CC-PP. Private data
 [ ] CC-PP. Function dispatch
 [ ] CC-PP. Tag polymorphic dispatch

@@ -20,7 +20,7 @@ def test_nested_identifier_access():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     # Create nested structure in $mod
     mod_val = run.Value({"parent": run.Value({"child": 11})})
 
@@ -45,7 +45,7 @@ def test_deeply_nested_identifier():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     # Create deeply nested structure
     ctx_val = run.Value({
         "level1": run.Value({
@@ -78,7 +78,7 @@ def test_nested_from_chained_scope():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     # Put config in $arg (highest priority in chained scope)
     arg_val = run.Value({"config": run.Value({"timeout": 30})})
 
@@ -126,7 +126,7 @@ def test_spread_nested_field():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     ctx_val = run.Value({
         "server": run.Value({
             "defaults": run.Value({

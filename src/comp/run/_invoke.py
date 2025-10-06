@@ -37,14 +37,14 @@ def invoke(
         raise ValueError(f"Function {func_def.name} has no implementations")
 
     impl = func_def.implementations[0]
-    
+
     # Check if this is a Python-implemented function
     if isinstance(impl, _module.PythonFuncImpl):
         # Call the Python function directly
         in_value = input_value or _value.Value(None)
         arg_val = arg_value or _value.Value(None)
         return impl.python_func(in_value, arg_val)
-    
+
     # Regular Comp function - execute the body
     body = impl._ast_node.body
 

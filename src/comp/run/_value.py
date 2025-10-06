@@ -1,4 +1,4 @@
-"""Rutnime value type for Comp."""
+"""Runtime value type for Comp."""
 
 
 __all__ = ["Value"]
@@ -43,7 +43,7 @@ class Value:
         elif isinstance(value, _tag.Tag):
             self.tag = value
         elif isinstance(value, dict):
-            self.struct = {Value(k): Value(v) for k, v in value.items()}
+            self.struct = {k if isinstance(k, _struct.Unnamed) else Value(k): Value(v) for k, v in value.items()}
         elif isinstance(value, (list, tuple)):
             self.struct = {_struct.Unnamed(): Value(v) for v in value}
         else:

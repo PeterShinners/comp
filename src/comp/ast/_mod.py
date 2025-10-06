@@ -18,7 +18,7 @@ __all__ = [
     "ShapeInline",
 ]
 
-from . import _ast, _node, _mod
+from . import _ast, _node
 
 
 class Module(_node.Node):

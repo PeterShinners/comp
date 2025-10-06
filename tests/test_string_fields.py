@@ -19,10 +19,10 @@ def test_string_field_access():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     # Create input with a string key
     input_val = run.Value({"Hello, World!": 42, "normal": 100})
-    
+
     result = run.invoke(func_def, module, input_val, run.Value({}), run.Value({}), run.Value({}))
 
     assert result.is_struct
@@ -68,12 +68,12 @@ def test_string_field_nested_access():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     # Create nested input
     input_val = run.Value({
         "parent": run.Value({"child-key": 123, "other": 456})
     })
-    
+
     result = run.invoke(func_def, module, input_val, run.Value({}), run.Value({}), run.Value({}))
 
     assert result.is_struct
@@ -117,9 +117,9 @@ def test_string_field_scoped():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     input_val = run.Value({"special key": 999})
-    
+
     result = run.invoke(func_def, module, input_val, run.Value({}), run.Value({}), run.Value({}))
 
     assert result.is_struct
@@ -143,13 +143,13 @@ def test_string_field_with_spaces():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     input_val = run.Value({
         "first name": "John",
         "last-name": "Doe",
         "email@address": "john@example.com"
     })
-    
+
     result = run.invoke(func_def, module, input_val, run.Value({}), run.Value({}), run.Value({}))
 
     assert result.is_struct
@@ -173,12 +173,12 @@ def test_string_field_mixed_with_index():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     # Create input with first element having a string key
     input_val = run.Value({
         "first": run.Value({"nested-key": 888})
     })
-    
+
     result = run.invoke(func_def, module, input_val, run.Value({}), run.Value({}), run.Value({}))
 
     assert result.is_struct

@@ -10,7 +10,7 @@ def test_simple_pipeline_with_func():
     !func |double ~{x ~num} = {
         result = x * 2
     }
-    
+
     !func |test ~_ = {
         value = [{x=5} |double]
     }
@@ -36,7 +36,7 @@ def test_unseeded_pipeline():
     !func |process ~{x ~num} = {
         result = x + 1
     }
-    
+
     !func |test ~_ = {
         value = [{x=10} |process]
     }
@@ -50,7 +50,7 @@ def test_unseeded_pipeline():
     func_def = module.funcs["test"]
     input_value = run.Value(None)
     input_value.struct = {run.Value("data"): run.Value(5)}
-    
+
     result = run.invoke(func_def, module, input_value, run.Value({}), run.Value({}), run.Value({}))
 
     assert result.is_struct
@@ -65,11 +65,11 @@ def test_multi_stage_pipeline():
     !func |add-one ~{x ~num} = {
         result = x + 1
     }
-    
+
     !func |double ~{x ~num} = {
         result = x * 2
     }
-    
+
     !func |test ~_ = {
         value = [{x=5} |add-one |double x=result]
     }
@@ -121,7 +121,7 @@ def test_pipe_struct_with_function():
     !func |double ~{x ~num} = {
         result = x * 2
     }
-    
+
     !func |test ~_ = {
         value = [{x=5} |double |{final = result * 3}]
     }

@@ -15,12 +15,18 @@ _true_tag = _tag.Tag(["true"], "builtin")
 _false_tag = _tag.Tag(["false"], "builtin")
 _skip_tag = _tag.Tag(["skip"], "builtin")
 _break_tag = _tag.Tag(["break"], "builtin")
+_fail_tag = _tag.Tag(["fail"], "builtin")
+_fail_syntax_tag = _tag.Tag(["fail", "syntax"], "builtin")
+_fail_missing_tag = _tag.Tag(["fail", "missing"], "builtin")
 
 # Expose as backwards-compatible names
 true = _true_tag
 false = _false_tag
 skip = _skip_tag
 break_ = _break_tag
+fail = _fail_tag
+fail_syntax = _fail_syntax_tag
+fail_undefined = _fail_missing_tag
 
 nil = _value.Value({})
 
@@ -78,6 +84,9 @@ BUILTIN_TAGS: dict[str, _value.Value] = {
     "false": _value.Value(_false_tag),
     "skip": _value.Value(_skip_tag),
     "break": _value.Value(_break_tag),
+    "fail": _value.Value(_fail_tag),
+    "fail.syntax": _value.Value(_fail_syntax_tag),
+    "fail.missing": _value.Value(_fail_missing_tag),
 }
 
 
@@ -87,25 +96,27 @@ _builtin_module: _module.Module | None = None
 
 def get_builtin_module() -> _module.Module:
     """Get or create the shared builtin module.
-    
+
     This module contains all builtin tags and functions. All user modules
     should reference this single instance to ensure singleton tag behavior.
     """
     global _builtin_module
-    
+
     if _builtin_module is None:
         _builtin_module = _module.Module("builtin")
-        
+
         # Add builtin tags
         for name, tag_value in BUILTIN_TAGS.items():
-            tag_def = _module.TagDef(identifier=[name])
+            # Split dotted names into identifier list (e.g., "fail.syntax" -> ["fail", "syntax"])
+            identifier = name.split(".")
+            tag_def = _module.TagDef(identifier=identifier)
             tag_def.value = tag_value
             _builtin_module.tags[name] = tag_def
-        
+
         # Add builtin functions
         for name, python_impl in BUILTIN_FUNCS.items():
             func_def = _module.FuncDef(identifier=[name])
             func_def.implementations.append(python_impl)
             _builtin_module.funcs[name] = func_def
-    
+
     return _builtin_module

@@ -32,8 +32,7 @@ import decimal
 
 import comp
 
-from . import _mod
-from . import _node
+from . import _mod, _node
 
 
 class Number(_node.Node):

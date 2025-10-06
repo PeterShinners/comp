@@ -20,7 +20,7 @@ def test_spread_from_ctx():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     ctx_val = run.Value({"config": {"timeout": 30, "retries": 3}})
 
     result = run.invoke(func_def, module, run.Value({}), ctx_val, run.Value({}), run.Value({}))
@@ -97,7 +97,7 @@ def test_spread_nested_field():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     ctx_val = run.Value({
         "database": {
             "settings": {
@@ -157,7 +157,7 @@ def test_spread_from_chained_scope():
     module.resolve_all()
 
     func_def = module.funcs["test-func"]
-    
+
     arg_val = run.Value({"from_arg": "arg_value"})
     ctx_val = run.Value({"from_ctx": "ctx_value"})
     mod_val = run.Value({"from_mod": "mod_value"})
@@ -167,7 +167,7 @@ def test_spread_from_chained_scope():
     assert result.is_struct
     result_val = result.struct[run.Value("result")]
     assert result_val.is_struct
-    
+
     # Chained scope prioritizes arg, then ctx, then mod
     # All should be present in the spread
     assert result_val.struct[run.Value("from_arg")].to_python() == "arg_value"

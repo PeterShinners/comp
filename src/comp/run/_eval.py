@@ -106,16 +106,16 @@ def evaluate(expr, module: '_module.Module', scopes: dict[str, _value.Value] | N
                     # Nested field assignment - walk down and create intermediate structures
                     if child.value:
                         field_value = evaluate(child.value, module, scopes)
-                        
+
                         # Build the nested structure incrementally
                         # Start from the root and walk down, creating dicts as needed
                         current_dict = fields
-                        
+
                         # Walk through all but the last field (these are all TokenFields for unscoped paths)
                         for field_node in child.key.kids[:-1]:
                             if isinstance(field_node, ast.TokenField):
                                 field_name = field_node.value
-                                
+
                                 # Get or create intermediate structure
                                 if field_name in current_dict:
                                     # Field exists, navigate into it
@@ -151,7 +151,7 @@ def evaluate(expr, module: '_module.Module', scopes: dict[str, _value.Value] | N
                             elif isinstance(field_node, ast.String):
                                 # String field - same as TokenField but with string value
                                 field_name = field_node.value
-                                
+
                                 # Get or create intermediate structure
                                 if field_name in current_dict:
                                     # Field exists, navigate into it
@@ -224,7 +224,7 @@ def evaluate(expr, module: '_module.Module', scopes: dict[str, _value.Value] | N
                             else:
                                 # Unsupported field type in nested assignment
                                 raise ValueError(f"Unsupported field type in nested assignment: {type(field_node).__name__}")
-                        
+
                         # Set the final field
                         last_field = child.key.kids[-1]
                         if isinstance(last_field, ast.TokenField):
@@ -266,7 +266,7 @@ def evaluate(expr, module: '_module.Module', scopes: dict[str, _value.Value] | N
                                     raise ValueError(f"Unsupported simple field type: {type(first_field).__name__}")
                             else:
                                 raise ValueError("Simple field key must be a single TokenField or String")
-                        
+
                         field_value = evaluate(child.value, module, scopes)
                         # Store in fields dict
                         fields[key] = field_value
@@ -299,7 +299,7 @@ def evaluate(expr, module: '_module.Module', scopes: dict[str, _value.Value] | N
                     field_value = evaluate(child.value, module, scopes)
                     # Use Unnamed key
                     fields[_struct.Unnamed()] = field_value
-        
+
         # Convert all string keys to Value keys for proper struct format
         # Also recursively convert any dict values to Value structs
         def convert_to_value_struct(d):
@@ -313,7 +313,7 @@ def evaluate(expr, module: '_module.Module', scopes: dict[str, _value.Value] | N
                     key = k
                 else:
                     key = k  # Already a Value
-                
+
                 # Convert value
                 if isinstance(v, dict):
                     # Recursively convert nested dicts
@@ -321,10 +321,10 @@ def evaluate(expr, module: '_module.Module', scopes: dict[str, _value.Value] | N
                     value.struct = convert_to_value_struct(v)
                 else:
                     value = v  # Already a Value
-                
+
                 result[key] = value
             return result
-        
+
         # Create Value and set struct directly
         result = _value.Value(None)
         result.struct = convert_to_value_struct(fields)
@@ -464,20 +464,20 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
         # Bare positional access goes directly to $in scope
         if 'in' not in scopes:
             raise ValueError("$in scope not available")
-        
+
         current_value = scopes['in']
-        
+
         # Handle first field (IndexField)
         if not current_value.is_struct or not current_value.struct:
             raise ValueError("Cannot index non-struct value in $in")
-        
+
         index = first.value
         fields_list = list(current_value.struct.values())
         if 0 <= index < len(fields_list):
             current_value = fields_list[index]
         else:
             raise ValueError(f"Index #{index} out of bounds ($in has {len(fields_list)} fields)")
-        
+
         # Walk through remaining fields
         for field in expr.kids[1:]:
             if not current_value.is_struct or not current_value.struct:
@@ -516,9 +516,9 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
                     raise ValueError("ComputeField missing expression")
             else:
                 raise ValueError(f"Unsupported field type: {type(field).__name__}")
-        
+
         return current_value
-    
+
     # Otherwise use unnamed scope (chains $out -> $in) for named field access
     # But also check chained scope for function parameters
     if 'unnamed' not in scopes:
@@ -684,7 +684,7 @@ def _execute_pipe_func(pipe_func: ast.PipeFunc, input_value: _value.Value, modul
     # Look up the function using namespace resolution
     tokens = func_ref.tokens or []
     func_def = module.resolve_func(tokens, func_ref.namespace)
-    
+
     if not func_def:
         func_name = ".".join(tokens)
         namespace_str = f"/{func_ref.namespace}" if func_ref.namespace else ""
