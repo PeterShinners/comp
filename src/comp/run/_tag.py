@@ -1,9 +1,11 @@
 """Tag types and operations."""
 
-__all__ = ["Tag", "is_parent_or_equal"]
+__all__ = ["TagValue", "TagDef", "is_parent_or_equal", "build_tags"]
+
+import comp
 
 
-class Tag:
+class TagValue:
     """Tag value in Comp.
 
     Tags use identity-based equality (default Python object equality).
@@ -18,7 +20,7 @@ class Tag:
         not create new Tag instances
     """
     __slots__ = ("name", "identifier", "namespace", "value")
-    def __init__(self, identifier: list[str], namespace: str, value: "Value | None" = None):
+    def __init__(self, identifier, namespace, value=None):
         self.name = "#" + ".".join(identifier)
         self.identifier = identifier
         self.namespace = namespace
@@ -36,7 +38,7 @@ class Tag:
     #     return hash((self.name, self.namespace))
 
 
-def is_parent_or_equal(parent: Tag, child: Tag) -> int:
+def is_parent_or_equal(parent, child):
     """Check hierarchical relationship between tags and return distance.
 
     Tags must be from the same namespace to have a parent-child relationship.
@@ -83,3 +85,148 @@ def is_parent_or_equal(parent: Tag, child: Tag) -> int:
     # If grandparent: len(child) - len(parent) = 2, etc.
     return len(child.identifier) - len(parent.identifier)
 
+
+class TagDef:
+    """Tag definition - immutable, belongs to defining module."""
+    def __init__(self, identifier):
+        self.identifier = identifier
+        self.name = ".".join(identifier)
+        self.value = None
+        self._value_expr = None
+        self._resolved = False
+
+    def resolve(self, module):
+        """Resolve tag value expression."""
+        if self._resolved:
+            return
+
+        if self._value_expr:
+            from . import evaluate
+            self.value = evaluate.evaluate(self._value_expr, module)
+
+        self._resolved = True
+
+    def __repr__(self):
+        if self.value is not None:
+            return f"TagDef(#{self.name} = {self.value!r})"
+        return f"TagDef(#{self.name})"
+
+
+def build_tags(module, namespace):
+    """Extract all tag definitions from a module and build explicit TagValue objects.
+
+    Creates a flat list of all tags including:
+    - Root tags from TagDef nodes
+    - Nested tags from TagBody children
+    - Implicit parent tags (e.g., #status from #status.active)
+
+    Args:
+        module: Parsed Module AST
+        namespace: Namespace identifier for these tags (default: "main")
+
+    Returns:
+        List of TagValue objects with unique identifiers
+
+    Examples:
+        >>> import comp
+        >>> mod = comp.parse_module("!tag #status.active")
+        >>> tags = build_tags(mod)
+        >>> [t.name for t in tags]
+        ['#status', '#status.active']
+    """
+    tags_dict = {}
+
+    # Walk module to find all TagDef nodes
+    for stmt in module.statements:
+        if isinstance(stmt, comp.ast.TagDef):
+            _extract_tag_definition(stmt, tags_dict, namespace)
+
+    # Return sorted list for deterministic output
+    return sorted(tags_dict.values(), key=lambda t: t.name)
+
+
+def _extract_tag_definition(tag_def, tags_dict, namespace):
+    """Extract tags from a TagDef node and add to tags_dict.
+
+    Args:
+        tag_def: TagDef AST node
+        tags_dict: Dictionary to accumulate tags (modified in place)
+        namespace: Namespace identifier
+    """
+    # Create tag for this definition and all its implicit parents
+    parent_path = tag_def.tokens
+    _ensure_tag_hierarchy(parent_path, tags_dict, namespace)
+
+    # Recursively extract tags from body children (relative to parent)
+    body = tag_def.body
+    if body:
+        for child in body.kids:
+            if isinstance(child, comp.ast.TagChild):
+                _extract_tag_child(child, parent_path, tags_dict, namespace)
+
+
+def _extract_tag_child(tag_child, parent_path, tags_dict, namespace):
+    """Extract tags from a TagChild node and add to tags_dict.
+
+    Tag children are relative to their parent path. Tokens are stored left-to-right (root-first).
+    For example, if parent is ["status"] and child is ["active"],
+    the full path is ["status", "active"] representing #status.active.
+
+    Args:
+        tag_child: TagChild AST node
+        parent_path: Parent tag path (e.g., ["status"])
+        tags_dict: Dictionary to accumulate tags (modified in place)
+        namespace: Namespace identifier
+    """
+    # Child paths are relative to parent - parent comes first (left-to-right storage)
+    child_tokens = tag_child.tokens
+    full_path = parent_path + child_tokens  # parent.child format
+
+    # Create hierarchy for child (ensures all parents exist)
+    _ensure_tag_hierarchy(full_path, tags_dict, namespace)
+
+    # Recursively extract tags from nested body
+    body = tag_child.body
+    if body:
+        for nested_child in body.kids:
+            if isinstance(nested_child, comp.ast.TagChild):
+                _extract_tag_child(nested_child, full_path, tags_dict, namespace)
+
+
+def _ensure_tag_hierarchy(identifier, tags_dict, namespace):
+    """Ensure a tag and all its parent tags exist in tags_dict.
+
+    Tokens are stored left-to-right (root-first).
+    For example, given identifier ["status", "active"],
+    ensures these tags exist:
+    - #status (["status"])
+    - #status.active (["status", "active"])
+
+    Args:
+        identifier: Tag path components left-to-right (e.g., ["status", "active"])
+        tags_dict: Dictionary to accumulate tags (modified in place)
+        namespace: Namespace identifier
+    """
+    # Create all parent paths from left to right
+    # For ["status", "active"], create: ["status"], then ["status", "active"]
+    for i in range(1, len(identifier) + 1):
+        path = identifier[:i]
+        _add_tag(path, tags_dict, namespace)
+
+
+def _add_tag(identifier, tags_dict, namespace):
+    """Add a single tag to tags_dict if it doesn't already exist.
+
+    Args:
+        identifier: Tag path components (e.g., ["status", "active"])
+        tags_dict: Dictionary to accumulate tags (modified in place)
+        namespace: Namespace identifier
+    """
+    key = ".".join(identifier)
+
+    if key not in tags_dict:
+        tags_dict[key] = TagValue(
+            identifier=identifier,
+            namespace=namespace,
+            value=None  # Ignoring values for now
+        )

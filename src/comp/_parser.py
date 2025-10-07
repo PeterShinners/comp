@@ -126,7 +126,7 @@ def generate_ast(parent: comp.ast.Node, children: list[lark.Tree | lark.Token]) 
 
             # Tag definitions
             case 'tag_definition' | 'tag_simple' | 'tag_gen_val_body' | 'tag_gen_val' | 'tag_gen_body' | 'tag_val_body' | 'tag_val' | 'tag_body_only':
-                _create(comp.ast.TagDefinition, walk=kids)
+                _create(comp.ast.TagDef, walk=kids)
             case 'tag_generator':
                 generate_ast(parent, kids)  # pass through function or block ref
                 continue

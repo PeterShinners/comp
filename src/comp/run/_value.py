@@ -1,12 +1,10 @@
-"""Runtime value type for Comp."""
+"""Runtime value for Comp."""
 
-
-__all__ = ["Value"]
+__all__ = ["Value", "Unnamed"]
 
 import decimal
-from typing import Any
 
-from . import _builtin, _struct, _tag
+from . import _tag
 
 
 class Value:
@@ -15,10 +13,10 @@ class Value:
 
     def __init__(self, value: object):
         """Create a value with the given python (with some best effort)."""
-        self.num: decimal.Decimal | None = None
-        self.str: str | None = None
-        self.tag: _tag.Tag | None = None
-        self.struct: dict[Value|_struct.Unnamed, Value] | None = None
+        self.num = None
+        self.str = None
+        self.tag = None
+        self.struct = None
 
         if isinstance(value, Value):
             self.num = value.num
@@ -30,7 +28,8 @@ class Value:
         if value is None:
             value = {}
         elif isinstance(value, bool):
-            value = _builtin.true if value else _builtin.false
+            from . import builtin
+            value = builtin.true if value else builtin.false
         elif isinstance(value, int):
             value = decimal.Decimal(value)
         elif isinstance(value, float):
@@ -40,12 +39,12 @@ class Value:
             self.num = value
         elif isinstance(value, str):
             self.str = value
-        elif isinstance(value, _tag.Tag):
+        elif isinstance(value, _tag.TagValue):
             self.tag = value
         elif isinstance(value, dict):
-            self.struct = {k if isinstance(k, _struct.Unnamed) else Value(k): Value(v) for k, v in value.items()}
+            self.struct = {k if isinstance(k, Unnamed) else Value(k): Value(v) for k, v in value.items()}
         elif isinstance(value, (list, tuple)):
-            self.struct = {_struct.Unnamed(): Value(v) for v in value}
+            self.struct = {Unnamed(): Value(v) for v in value}
         else:
             raise ValueError(f"Cannot convert Python {type(value)} to Comp Value")
 
@@ -66,7 +65,7 @@ class Value:
         """Check if this is a structure."""
         return self.struct is not None
 
-    def to_python(self) -> Any:
+    def to_python(self):
         """Convert this value to a Python equivalent."""
         if self.num is not None:
             return self.num
@@ -78,7 +77,7 @@ class Value:
             # Recursively convert struct fields
             result = {}
             for key, val in self.struct.items():
-                if isinstance(key, _struct.Unnamed):
+                if isinstance(key, Unnamed):
                     # For unnamed keys, use numeric indices
                     result[len(result)] = val.to_python()
                 else:
@@ -87,7 +86,7 @@ class Value:
             return result
         return None
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         if self.num is not None:
             return str(self.num)
         if self.str is not None:
@@ -96,7 +95,7 @@ class Value:
             return repr(self.tag)
         fields = []
         for key, val in self.struct.items():
-            if isinstance(key, _struct.Unnamed):
+            if isinstance(key, Unnamed):
                 fields.append(repr(val))
             elif key.is_str and key.str.isidentifier():
                 fields.append(f"{key.str}={val!r}")
@@ -104,7 +103,7 @@ class Value:
                 fields.append(f"{key!r}={val!r}")
         return f"{{{' '.join(fields)}}}"
 
-    def __eq__(self, other: Any) -> bool:
+    def __eq__(self, other):
         """Value equality."""
         if not isinstance(other, Value):
             return False
@@ -113,7 +112,7 @@ class Value:
                 and self.tag == other.tag
                 and self.struct == other.struct)
 
-    def __hash__(self) -> int:
+    def __hash__(self):
         """Hash for use in sets/dicts."""
         if self.num is not None:
             return hash(self.num)
@@ -122,3 +121,20 @@ class Value:
         if self.tag is not None:
             return hash(self.tag)
         return hash(tuple(self.struct.items()) if self.struct else ())
+
+
+class Unnamed:
+    """Unnamed placeholder for unnamed fields with unique identity"""
+    __slots__ = ()
+
+    def __init__(self):
+        pass
+
+    def __repr__(self):
+        return "???"
+
+    def __hash__(self):
+        return id(self)
+
+    def __eq__(self, other):
+        return False

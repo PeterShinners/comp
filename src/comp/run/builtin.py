@@ -1,23 +1,24 @@
 """Builtin constants and functions for Comp runtime."""
 
-__all__ = ["BUILTIN_FUNCS", "BUILTIN_TAGS", "get_builtin_module"]
+__all__ = ["get_builtin_module"]
 
-from . import _module, _tag, _value
+from . import _func, _mod, _tag, _value
 
 # Singleton builtin tag instances
 # TODO: When implementing comparison operators, these need special handling:
-#   - Comparison operators (==, <, etc.) should return these exact Tag instances
+#   - Comparison operators (==, <, etc.) should return these exact TagValue instances
 #   - Tag equality must be based on identity/definition, not name or identifier
 #   - Module namespace resolution needs to return references to these singletons
-#   - Each module importing builtins should reference the same Tag instances,
+#   - Each module importing builtins should reference the same TagValue instances,
 #     not create new ones with the same name
-_true_tag = _tag.Tag(["true"], "builtin")
-_false_tag = _tag.Tag(["false"], "builtin")
-_skip_tag = _tag.Tag(["skip"], "builtin")
-_break_tag = _tag.Tag(["break"], "builtin")
-_fail_tag = _tag.Tag(["fail"], "builtin")
-_fail_syntax_tag = _tag.Tag(["fail", "syntax"], "builtin")
-_fail_missing_tag = _tag.Tag(["fail", "missing"], "builtin")
+_true_tag = _tag.TagValue(["true"], "builtin")
+_false_tag = _tag.TagValue(["false"], "builtin")
+_skip_tag = _tag.TagValue(["skip"], "builtin")
+_break_tag = _tag.TagValue(["break"], "builtin")
+_fail_tag = _tag.TagValue(["fail"], "builtin")
+_fail_syntax_tag = _tag.TagValue(["fail", "syntax"], "builtin")
+_fail_missing_tag = _tag.TagValue(["fail", "missing"], "builtin")
+
 
 # Expose as backwards-compatible names
 true = _true_tag
@@ -26,7 +27,7 @@ skip = _skip_tag
 break_ = _break_tag
 fail = _fail_tag
 fail_syntax = _fail_syntax_tag
-fail_undefined = _fail_missing_tag
+fail_missing = _fail_missing_tag
 
 nil = _value.Value({})
 
@@ -70,11 +71,11 @@ def _lower_func(in_value: _value.Value, arg_value: _value.Value) -> _value.Value
 
 
 # Registry of builtin functions
-BUILTIN_FUNCS: dict[str, _module.PythonFuncImpl] = {
-    "print": _module.PythonFuncImpl(_print_func, "print"),
-    "double": _module.PythonFuncImpl(_double_func, "double"),
-    "upper": _module.PythonFuncImpl(_upper_func, "upper"),
-    "lower": _module.PythonFuncImpl(_lower_func, "lower"),
+BUILTIN_FUNCS: dict[str, _func.PythonFuncImpl] = {
+    "print": _func.PythonFuncImpl(_print_func, "print"),
+    "double": _func.PythonFuncImpl(_double_func, "double"),
+    "upper": _func.PythonFuncImpl(_upper_func, "upper"),
+    "lower": _func.PythonFuncImpl(_lower_func, "lower"),
 }
 
 # Registry of builtin tag values
@@ -91,10 +92,10 @@ BUILTIN_TAGS: dict[str, _value.Value] = {
 
 
 # Shared builtin module instance
-_builtin_module: _module.Module | None = None
+_builtin_module = None
 
 
-def get_builtin_module() -> _module.Module:
+def get_builtin_module() -> _mod.Module:
     """Get or create the shared builtin module.
 
     This module contains all builtin tags and functions. All user modules
@@ -103,20 +104,20 @@ def get_builtin_module() -> _module.Module:
     global _builtin_module
 
     if _builtin_module is None:
-        _builtin_module = _module.Module("builtin")
+        _builtin_module = _mod.Module("builtin")
 
         # Add builtin tags
         for name, tag_value in BUILTIN_TAGS.items():
             # Split dotted names into identifier list (e.g., "fail.syntax" -> ["fail", "syntax"])
             identifier = name.split(".")
-            tag_def = _module.TagDef(identifier=identifier)
-            tag_def.value = tag_value
-            _builtin_module.tags[name] = tag_def
+            tagdef = _tag.TagDef(identifier=identifier)
+            tagdef.value = tag_value
+            _builtin_module.tags[name] = tagdef
 
         # Add builtin functions
         for name, python_impl in BUILTIN_FUNCS.items():
-            func_def = _module.FuncDef(identifier=[name])
-            func_def.implementations.append(python_impl)
-            _builtin_module.funcs[name] = func_def
+            funcdef = _func.FuncDef(identifier=[name])
+            funcdef.implementations.append(python_impl)
+            _builtin_module.funcs[name] = funcdef
 
     return _builtin_module

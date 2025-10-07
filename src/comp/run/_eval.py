@@ -2,16 +2,11 @@
 
 __all__ = ["evaluate"]
 
-from typing import TYPE_CHECKING
-
-from .. import ast
-from . import _scope, _struct, _value
-
-if TYPE_CHECKING:
-    from . import _module
+import comp
+from . import _value, _invoke, _assign, _ops
 
 
-def evaluate(expr, module: '_module.Module', scopes: dict[str, _value.Value] | None = None) -> _value.Value:
+def evaluate(expr, module, scopes=None):
     """Evaluate an AST expression to a runtime Value.
 
     Args:
@@ -29,316 +24,106 @@ def evaluate(expr, module: '_module.Module', scopes: dict[str, _value.Value] | N
         return _value.Value(None)
 
     # Scope references and identifiers
-    if isinstance(expr, ast.Identifier):
+    if isinstance(expr, comp.ast.Identifier):
         return _evaluate_identifier(expr, module, scopes)
 
     # Literals
-    if isinstance(expr, ast.Number):
+    if isinstance(expr, comp.ast.Number):
         return _value.Value(expr.value)
 
-    if isinstance(expr, ast.String):
+    if isinstance(expr, comp.ast.String):
         return _value.Value(expr.value)
 
-    if isinstance(expr, ast.TagRef):
+    if isinstance(expr, comp.ast.TagRef):
         # Resolve tag reference with namespace support
         tokens = expr.tokens or []
         tag_def = module.resolve_tag(tokens, expr.namespace)
         if tag_def and tag_def.value:
             return tag_def.value
-        # Unresolved tag reference - return a basic tag value
+        # Unresolved tag reference - raise an error
         tag_name = ".".join(tokens)
-        return _value.Value(tag_name)
+        namespace_str = f"{expr.namespace}." if expr.namespace else ""
+        raise ValueError(f"Undefined tag reference: #{namespace_str}{tag_name}")
 
     # Binary operations
-    if isinstance(expr, ast.BinaryOp):
-        left = evaluate(expr.left, module, scopes)
-        right = evaluate(expr.right, module, scopes)
-
-        # Mathematical operations
-        if expr.op == "+":
-            if left.is_num and right.is_num:
-                return _value.Value(left.num + right.num)
-        elif expr.op == "-":
-            if left.is_num and right.is_num:
-                return _value.Value(left.num - right.num)
-        elif expr.op == "*":
-            if left.is_num and right.is_num:
-                return _value.Value(left.num * right.num)
-        elif expr.op == "/":
-            if left.is_num and right.is_num:
-                return _value.Value(left.num / right.num)
-        elif expr.op == "//":
-            if left.is_num and right.is_num:
-                return _value.Value(left.num // right.num)
-        elif expr.op == "%":
-            if left.is_num and right.is_num:
-                return _value.Value(left.num % right.num)
-        elif expr.op == "**":
-            if left.is_num and right.is_num:
-                return _value.Value(left.num ** right.num)
-
-        # String concatenation
-        if expr.op == "+" and left.is_str and right.is_str:
-            return _value.Value(left.str + right.str)
-
-        raise ValueError(f"Cannot apply operator {expr.op} to {left} and {right}")
+    if isinstance(expr, comp.ast.BinaryOp):
+        return _ops.evaluate_binary_op(expr, module, scopes, evaluate)
 
     # Unary operations
-    if isinstance(expr, ast.UnaryOp):
-        operand = evaluate(expr.operand, module, scopes)
-
-        if expr.op == "-":
-            if operand.is_num:
-                return _value.Value(-operand.num)
-        elif expr.op == "+":
-            if operand.is_num:
-                return _value.Value(+operand.num)
-
-        raise ValueError(f"Cannot apply unary operator {expr.op} to {operand}")
+    if isinstance(expr, comp.ast.UnaryOp):
+        return _ops.evaluate_unary_op(expr, module, scopes, evaluate)
 
     # Structure literal
-    if isinstance(expr, ast.Structure):
+    if isinstance(expr, comp.ast.Structure):
+        # BUILD MODE: Construct a new struct by evaluating field assignments.
+        # This code CREATES intermediate structures as needed when building nested paths.
+        # For example, {account.active = #true} creates the 'account' field if it doesn't exist.
+        # This is fundamentally different from _evaluate_identifier which READS from existing
+        # structures and fails if fields don't exist. Here we build; there we lookup.
+        # Note: Works with temporary Python dicts during construction, converts to Value at end.
         fields = {}
         for child in expr.kids:
-            if isinstance(child, ast.StructAssign):
+            if isinstance(child, comp.ast.StructAssign):
                 # Check if this is a nested field assignment (e.g., parent.child = value)
-                if child.key and isinstance(child.key, ast.Identifier) and len(child.key.kids) > 1:
-                    # Nested field assignment - walk down and create intermediate structures
+                if child.key and isinstance(child.key, comp.ast.Identifier) and len(child.key.kids) > 1:
+                    # Nested field assignment - delegate to shared helper
                     if child.value:
                         field_value = evaluate(child.value, module, scopes)
-
-                        # Build the nested structure incrementally
-                        # Start from the root and walk down, creating dicts as needed
-                        current_dict = fields
-
-                        # Walk through all but the last field (these are all TokenFields for unscoped paths)
-                        for field_node in child.key.kids[:-1]:
-                            if isinstance(field_node, ast.TokenField):
-                                field_name = field_node.value
-
-                                # Get or create intermediate structure
-                                if field_name in current_dict:
-                                    # Field exists, navigate into it
-                                    # In evaluate(), fields dict has string keys and Value/dict values
-                                    current_value = current_dict[field_name]
-                                    if isinstance(current_value, dict):
-                                        # Already a dict, use it
-                                        current_dict = current_value
-                                    elif isinstance(current_value, _value.Value) and current_value.is_struct:
-                                        # Need to convert Value to dict for modification
-                                        # Create new dict from Value's struct, preserving all existing fields
-                                        new_dict = {}
-                                        if current_value.struct:
-                                            for k, v in current_value.struct.items():
-                                                if isinstance(k, _value.Value):
-                                                    # Convert Value key to string for fields dict
-                                                    new_dict[str(k.to_python())] = v
-                                                else:
-                                                    # String key (shouldn't happen but handle it)
-                                                    new_dict[str(k)] = v
-                                        current_dict[field_name] = new_dict
-                                        current_dict = new_dict
-                                    else:
-                                        # Need to replace with a dict
-                                        new_dict = {}
-                                        current_dict[field_name] = new_dict
-                                        current_dict = new_dict
-                                else:
-                                    # Create new intermediate dict
-                                    new_dict = {}
-                                    current_dict[field_name] = new_dict
-                                    current_dict = new_dict
-                            elif isinstance(field_node, ast.String):
-                                # String field - same as TokenField but with string value
-                                field_name = field_node.value
-
-                                # Get or create intermediate structure
-                                if field_name in current_dict:
-                                    # Field exists, navigate into it
-                                    # In evaluate(), fields dict has string keys and Value/dict values
-                                    current_value = current_dict[field_name]
-                                    if isinstance(current_value, dict):
-                                        # Already a dict, use it
-                                        current_dict = current_value
-                                    elif isinstance(current_value, _value.Value) and current_value.is_struct:
-                                        # Need to convert Value to dict for modification
-                                        # Create new dict from Value's struct, preserving all existing fields
-                                        new_dict = {}
-                                        if current_value.struct:
-                                            for k, v in current_value.struct.items():
-                                                if isinstance(k, _value.Value):
-                                                    # Convert Value key to string for fields dict
-                                                    new_dict[str(k.to_python())] = v
-                                                else:
-                                                    # String key (shouldn't happen but handle it)
-                                                    new_dict[str(k)] = v
-                                        current_dict[field_name] = new_dict
-                                        current_dict = new_dict
-                                    else:
-                                        # Need to replace with a dict
-                                        new_dict = {}
-                                        current_dict[field_name] = new_dict
-                                        current_dict = new_dict
-                                else:
-                                    # Create new intermediate dict
-                                    new_dict = {}
-                                    current_dict[field_name] = new_dict
-                                    current_dict = new_dict
-                            elif isinstance(field_node, ast.ComputeField):
-                                # Computed field - evaluate expression to get field key
-                                if field_node.expr:
-                                    computed_key_value = evaluate(field_node.expr, module, scopes)
-                                    # Use Value directly as key (don't convert to string)
-                                    field_key = computed_key_value
-
-                                    # Get or create intermediate structure
-                                    if field_key in current_dict:
-                                        # Field exists, navigate into it
-                                        current_value = current_dict[field_key]
-                                        if isinstance(current_value, dict):
-                                            # Already a dict, use it
-                                            current_dict = current_value
-                                        elif isinstance(current_value, _value.Value) and current_value.is_struct:
-                                            # Need to convert Value to dict for modification
-                                            new_dict = {}
-                                            if current_value.struct:
-                                                for k, v in current_value.struct.items():
-                                                    if isinstance(k, _value.Value):
-                                                        new_dict[k] = v
-                                                    else:
-                                                        new_dict[str(k)] = v
-                                            current_dict[field_key] = new_dict
-                                            current_dict = new_dict
-                                        else:
-                                            # Need to replace with a dict
-                                            new_dict = {}
-                                            current_dict[field_key] = new_dict
-                                            current_dict = new_dict
-                                    else:
-                                        # Create new intermediate dict
-                                        new_dict = {}
-                                        current_dict[field_key] = new_dict
-                                        current_dict = new_dict
-                                else:
-                                    raise ValueError("ComputeField missing expression")
-                            else:
-                                # Unsupported field type in nested assignment
-                                raise ValueError(f"Unsupported field type in nested assignment: {type(field_node).__name__}")
-
-                        # Set the final field
-                        last_field = child.key.kids[-1]
-                        if isinstance(last_field, ast.TokenField):
-                            current_dict[last_field.value] = field_value
-                        elif isinstance(last_field, ast.String):
-                            # String field - same as TokenField but with string value
-                            current_dict[last_field.value] = field_value
-                        elif isinstance(last_field, ast.ComputeField):
-                            # Computed field - evaluate expression to get field key
-                            if last_field.expr:
-                                computed_key_value = evaluate(last_field.expr, module, scopes)
-                                # Use Value directly as key
-                                current_dict[computed_key_value] = field_value
-                            else:
-                                raise ValueError("ComputeField missing expression")
+                        _assign.assign_nested_field(
+                            child.key, field_value, fields, module, scopes, evaluate
+                        )
                 else:
                     # Simple field assignment
                     if child.key and child.value:
-                        # Check if key is a single ComputeField that needs evaluation
-                        if (isinstance(child.key, ast.Identifier) and
-                            len(child.key.kids) == 1 and
-                            isinstance(child.key.kids[0], ast.ComputeField)):
-                            # Evaluate the ComputeField expression to get the key
-                            compute_field = child.key.kids[0]
-                            if compute_field.expr:
-                                key = evaluate(compute_field.expr, module, scopes)
-                            else:
-                                raise ValueError("ComputeField missing expression")
-                        else:
-                            # Simple key - should be an Identifier with a single TokenField or String
-                            if (isinstance(child.key, ast.Identifier) and
-                                len(child.key.kids) == 1):
-                                first_field = child.key.kids[0]
-                                if isinstance(first_field, ast.TokenField):
-                                    key = first_field.value
-                                elif isinstance(first_field, ast.String):
-                                    key = first_field.value
-                                else:
-                                    raise ValueError(f"Unsupported simple field type: {type(first_field).__name__}")
-                            else:
-                                raise ValueError("Simple field key must be a single TokenField or String")
-
+                        # Extract field key using shared helper (always returns Value)
+                        key = _assign.extract_field_key(child.key, module, scopes, evaluate)
                         field_value = evaluate(child.value, module, scopes)
                         # Store in fields dict
                         fields[key] = field_value
-            elif isinstance(child, ast.StructSpread):
+            elif isinstance(child, comp.ast.StructSpread):
                 # Handle spread operator
                 if child.value:
                     spread_value = evaluate(child.value, module, scopes)
                     # Merge fields from the spread value
-                    if isinstance(spread_value, _scope.ChainedScope):
+                    if isinstance(spread_value, ChainedScope):
                         # ChainedScope: merge its virtual struct
                         if spread_value.struct:
-                            # Convert Value keys to strings
-                            for k, v in spread_value.struct.items():
-                                if isinstance(k, _value.Value):
-                                    fields[k.to_python()] = v
-                                elif isinstance(k, _struct.Unnamed):
-                                    # Keep Unnamed keys as-is
-                                    fields[k] = v
+                            fields.update(spread_value.struct)
                     elif spread_value.is_struct and spread_value.struct:
                         # Regular Value: merge its struct dict
-                        # Convert Value keys to strings, keep Unnamed as-is
-                        for k, v in spread_value.struct.items():
-                            if isinstance(k, _value.Value):
-                                fields[k.to_python()] = v
-                            elif isinstance(k, _struct.Unnamed):
-                                fields[k] = v
-            elif isinstance(child, ast.StructUnnamed):
+                        fields.update(spread_value.struct)
+            elif isinstance(child, comp.ast.StructUnnamed):
                 # Unnamed field: just an expression
                 if child.value:
                     field_value = evaluate(child.value, module, scopes)
                     # Use Unnamed key
-                    fields[_struct.Unnamed()] = field_value
-
-        # Convert all string keys to Value keys for proper struct format
-        # Also recursively convert any dict values to Value structs
-        def convert_to_value_struct(d):
-            """Recursively convert dict with string keys to Value struct format."""
-            result = {}
-            for k, v in d.items():
-                # Convert key
-                if isinstance(k, str):
-                    key = _value.Value(k)
-                elif isinstance(k, _struct.Unnamed):
-                    key = k
-                else:
-                    key = k  # Already a Value
-
-                # Convert value
-                if isinstance(v, dict):
-                    # Recursively convert nested dicts
-                    value = _value.Value(None)
-                    value.struct = convert_to_value_struct(v)
-                else:
-                    value = v  # Already a Value
-
-                result[key] = value
-            return result
+                    fields[_value.Unnamed()] = field_value
 
         # Create Value and set struct directly
+        # All keys are already Value or Unnamed objects
         result = _value.Value(None)
-        result.struct = convert_to_value_struct(fields)
+        result.struct = fields
         return result
 
     # Pipeline execution
-    if isinstance(expr, ast.Pipeline):
+    if isinstance(expr, comp.ast.Pipeline):
         return _evaluate_pipeline(expr, module, scopes)
 
     raise NotImplementedError(f"Cannot evaluate {type(expr).__name__}")
 
 
-def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes: dict[str, _value.Value]) -> _value.Value:
+def _evaluate_identifier(expr, module, scopes):
     """Evaluate an identifier with potential scope reference.
+    
+    READ MODE: Navigate through existing Value structures via field lookup.
+    This code READS from runtime Values and raises errors if fields don't exist.
+    For example, @user.account.active looks up 'user', then 'account', then 'active',
+    failing if any field is missing. This is fundamentally different from structure
+    construction which CREATES missing intermediate fields during building.
+    
+    Handles scope resolution (@, ^, $), ChainedScope special lookup, and various
+    field access types (named, indexed, computed). Works with runtime Value objects,
+    not temporary dicts.
 
     Args:
         expr: Identifier AST node
@@ -353,7 +138,7 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
 
     # Check if first field is a scope
     first = expr.kids[0]
-    if isinstance(first, ast.ScopeField):
+    if isinstance(first, comp.ast.ScopeField):
         scope_name = first.value
 
         # Map scope symbols to scope names
@@ -373,22 +158,22 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
         # Walk through remaining fields
         for field in expr.kids[1:]:
             # Handle both regular Values and ChainedScope
-            if isinstance(current_value, _scope.ChainedScope):
+            if isinstance(current_value, ChainedScope):
                 # ChainedScope has special lookup
-                if isinstance(field, ast.TokenField):
+                if isinstance(field, comp.ast.TokenField):
                     field_key = _value.Value(field.value)
                     result = current_value.lookup_field(field_key)
                     if result is None:
                         raise ValueError(f"Field '{field.value}' not found in chained scope")
                     current_value = result
-                elif isinstance(field, ast.String):
+                elif isinstance(field, comp.ast.String):
                     # String field - look up by string value
                     field_key = _value.Value(field.value)
                     result = current_value.lookup_field(field_key)
                     if result is None:
                         raise ValueError(f"Field '{field.value}' not found in chained scope")
                     current_value = result
-                elif isinstance(field, ast.IndexField):
+                elif isinstance(field, comp.ast.IndexField):
                     # Look up by index in ChainedScope
                     index = field.value
                     # Get the Nth field from the chained scope's virtual struct
@@ -400,7 +185,7 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
                             raise ValueError(f"Index #{index} out of bounds (scope has {len(fields_list)} fields)")
                     else:
                         raise ValueError(f"Cannot index empty chained scope")
-                elif isinstance(field, ast.ComputeField):
+                elif isinstance(field, comp.ast.ComputeField):
                     # Computed field - evaluate expression to get field key
                     if field.expr:
                         computed_key = evaluate(field.expr, module, scopes)
@@ -417,21 +202,21 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
                 if not current_value.is_struct or not current_value.struct:
                     raise ValueError("Cannot access field on non-struct value")
 
-                if isinstance(field, ast.TokenField):
+                if isinstance(field, comp.ast.TokenField):
                     # Look up field by name
                     field_key = _value.Value(field.value)
                     if field_key in current_value.struct:
                         current_value = current_value.struct[field_key]
                     else:
                         raise ValueError(f"Field '{field.value}' not found in struct")
-                elif isinstance(field, ast.String):
+                elif isinstance(field, comp.ast.String):
                     # String field - look up by string value
                     field_key = _value.Value(field.value)
                     if field_key in current_value.struct:
                         current_value = current_value.struct[field_key]
                     else:
                         raise ValueError(f"Field '{field.value}' not found in struct")
-                elif isinstance(field, ast.IndexField):
+                elif isinstance(field, comp.ast.IndexField):
                     # Look up by index (positional access to fields)
                     index = field.value
                     if current_value.struct:
@@ -442,7 +227,7 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
                             raise ValueError(f"Index #{index} out of bounds (struct has {len(fields_list)} fields)")
                     else:
                         raise ValueError("Cannot index empty struct")
-                elif isinstance(field, ast.ComputeField):
+                elif isinstance(field, comp.ast.ComputeField):
                     # Computed field - evaluate expression to get field key
                     if field.expr:
                         computed_key = evaluate(field.expr, module, scopes)
@@ -458,9 +243,9 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
         return current_value
 
     # No scope prefix - check if first field is IndexField (positional access)
-    # IndexField (#0, #1, etc.) should only look in $in, not the unnamed chained scope
+    # IndexField (#0, #1, etc.) should only look in $in, not the _value chained scope
     first = expr.kids[0]
-    if isinstance(first, ast.IndexField):
+    if isinstance(first, comp.ast.IndexField):
         # Bare positional access goes directly to $in scope
         if 'in' not in scopes:
             raise ValueError("$in scope not available")
@@ -483,19 +268,19 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
             if not current_value.is_struct or not current_value.struct:
                 raise ValueError("Cannot access field on non-struct value")
 
-            if isinstance(field, ast.TokenField):
+            if isinstance(field, comp.ast.TokenField):
                 field_key = _value.Value(field.value)
                 if field_key in current_value.struct:
                     current_value = current_value.struct[field_key]
                 else:
                     raise ValueError(f"Field '{field.value}' not found in struct")
-            elif isinstance(field, ast.String):
+            elif isinstance(field, comp.ast.String):
                 field_key = _value.Value(field.value)
                 if field_key in current_value.struct:
                     current_value = current_value.struct[field_key]
                 else:
                     raise ValueError(f"Field '{field.value}' not found in struct")
-            elif isinstance(field, ast.IndexField):
+            elif isinstance(field, comp.ast.IndexField):
                 index = field.value
                 if current_value.struct:
                     fields_list = list(current_value.struct.values())
@@ -505,7 +290,7 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
                         raise ValueError(f"Index #{index} out of bounds (struct has {len(fields_list)} fields)")
                 else:
                     raise ValueError("Cannot index empty struct")
-            elif isinstance(field, ast.ComputeField):
+            elif isinstance(field, comp.ast.ComputeField):
                 if field.expr:
                     computed_key = evaluate(field.expr, module, scopes)
                     if computed_key in current_value.struct:
@@ -521,70 +306,72 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
 
     # Otherwise use unnamed scope (chains $out -> $in) for named field access
     # But also check chained scope for function parameters
-    if 'unnamed' not in scopes:
+    # Note: In pipeline execution, this may be '_value' instead
+    scope_key = '_value' if '_value' in scopes else 'unnamed'
+    if scope_key not in scopes:
         raise ValueError("Unnamed scope not available")
 
-    current_value = scopes['unnamed']
+    current_value = scopes[scope_key]
 
     # Walk through all fields (no scope prefix to skip)
     for idx, field in enumerate(expr.kids):
         # Handle both regular Values and ChainedScope
-        if isinstance(current_value, _scope.ChainedScope):
+        if isinstance(current_value, ChainedScope):
             # ChainedScope has special lookup for named fields only
             # (IndexField is handled separately above - it goes directly to $in)
-            if isinstance(field, ast.TokenField):
+            if isinstance(field, comp.ast.TokenField):
                 field_key = _value.Value(field.value)
                 result = current_value.lookup_field(field_key)
                 if result is None:
                     # For FIRST field only, also try chained scope (for function parameters)
                     if idx == 0 and 'chained' in scopes:
                         chained = scopes['chained']
-                        if isinstance(chained, _scope.ChainedScope):
+                        if isinstance(chained, ChainedScope):
                             result = chained.lookup_field(field_key)
                             if result is not None:
                                 current_value = result
                                 continue
-                    raise ValueError(f"Field '{field.value}' not found in unnamed scope")
+                    raise ValueError(f"Field '{field.value}' not found in {scope_key} scope")
                 current_value = result
-            elif isinstance(field, ast.String):
+            elif isinstance(field, comp.ast.String):
                 # String field - look up by string value
                 field_key = _value.Value(field.value)
                 result = current_value.lookup_field(field_key)
                 if result is None:
-                    raise ValueError(f"Field '{field.value}' not found in unnamed scope")
+                    raise ValueError(f"Field '{field.value}' not found in {scope_key} scope")
                 current_value = result
-            elif isinstance(field, ast.ComputeField):
+            elif isinstance(field, comp.ast.ComputeField):
                 # Computed field - evaluate expression to get field key
                 if field.expr:
                     computed_key = evaluate(field.expr, module, scopes)
                     result = current_value.lookup_field(computed_key)
                     if result is None:
-                        raise ValueError("Computed field not found in unnamed scope")
+                        raise ValueError(f"Computed field not found in {scope_key} scope")
                     current_value = result
                 else:
                     raise ValueError("ComputeField missing expression")
             else:
-                raise ValueError(f"Unsupported field type in unnamed scope: {type(field).__name__}")
+                raise ValueError(f"Unsupported field type in {scope_key} scope: {type(field).__name__}")
         else:
             # Regular Value lookup
             if not current_value.is_struct or not current_value.struct:
                 raise ValueError("Cannot access field on non-struct value")
 
-            if isinstance(field, ast.TokenField):
+            if isinstance(field, comp.ast.TokenField):
                 # Look up field by name
                 field_key = _value.Value(field.value)
                 if field_key in current_value.struct:
                     current_value = current_value.struct[field_key]
                 else:
                     raise ValueError(f"Field '{field.value}' not found in struct")
-            elif isinstance(field, ast.String):
+            elif isinstance(field, comp.ast.String):
                 # String field - look up by string value
                 field_key = _value.Value(field.value)
                 if field_key in current_value.struct:
                     current_value = current_value.struct[field_key]
                 else:
                     raise ValueError(f"Field '{field.value}' not found in struct")
-            elif isinstance(field, ast.IndexField):
+            elif isinstance(field, comp.ast.IndexField):
                 # Look up by index (positional access to fields)
                 index = field.value
                 if current_value.struct:
@@ -595,7 +382,7 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
                         raise ValueError(f"Index #{index} out of bounds (struct has {len(fields_list)} fields)")
                 else:
                     raise ValueError("Cannot index empty struct")
-            elif isinstance(field, ast.ComputeField):
+            elif isinstance(field, comp.ast.ComputeField):
                 # Computed field - evaluate expression to get field key
                 if field.expr:
                     computed_key = evaluate(field.expr, module, scopes)
@@ -613,7 +400,7 @@ def _evaluate_identifier(expr: ast.Identifier, module: '_module.Module', scopes:
     return current_value
 
 
-def _evaluate_pipeline(pipeline: ast.Pipeline, module: '_module.Module', scopes: dict[str, _value.Value]) -> _value.Value:
+def _evaluate_pipeline(pipeline, module, scopes):
     """Evaluate a pipeline expression.
 
     Args:
@@ -624,8 +411,6 @@ def _evaluate_pipeline(pipeline: ast.Pipeline, module: '_module.Module', scopes:
     Returns:
         Final value after all pipeline operations
     """
-    from . import _invoke
-
     # Start with the seed value (or None for unseeded pipelines)
     if pipeline.seed is not None:
         current_value = evaluate(pipeline.seed, module, scopes)
@@ -635,24 +420,24 @@ def _evaluate_pipeline(pipeline: ast.Pipeline, module: '_module.Module', scopes:
 
     # Execute each pipeline operation in sequence
     for operation in pipeline.operations:
-        if isinstance(operation, ast.PipeFunc):
+        if isinstance(operation, comp.ast.PipeFunc):
             # Function invocation: |func or |func {args}
             current_value = _execute_pipe_func(operation, current_value, module, scopes)
-        elif isinstance(operation, ast.PipeFallback):
+        elif isinstance(operation, comp.ast.PipeFallback):
             # Fallback operator: |? expr
             # If current value is a failure, evaluate the fallback expression
             if _is_failure(current_value):
                 # Fallback gets the ORIGINAL input, not the failure
                 # For now, we'll just evaluate the fallback expression with current scopes
                 current_value = evaluate(operation.fallback, module, scopes)
-        elif isinstance(operation, ast.PipeStruct):
+        elif isinstance(operation, comp.ast.PipeStruct):
             # Inline struct transformation: |{field = expr}
             current_value = _execute_pipe_struct(operation, current_value, module, scopes)
-        elif isinstance(operation, ast.PipeBlock):
+        elif isinstance(operation, comp.ast.PipeBlock):
             # Block invocation: |: block
             # Not implemented yet
             raise NotImplementedError("PipeBlock not yet implemented")
-        elif isinstance(operation, ast.PipeWrench):
+        elif isinstance(operation, comp.ast.PipeWrench):
             # Pipeline modifier: |-| func
             # Not implemented yet
             raise NotImplementedError("PipeWrench not yet implemented")
@@ -662,7 +447,7 @@ def _evaluate_pipeline(pipeline: ast.Pipeline, module: '_module.Module', scopes:
     return current_value
 
 
-def _execute_pipe_func(pipe_func: ast.PipeFunc, input_value: _value.Value, module: '_module.Module', scopes: dict[str, _value.Value]) -> _value.Value:
+def _execute_pipe_func(pipe_func, input_value, module, scopes):
     """Execute a pipeline function operation.
 
     Args:
@@ -674,11 +459,9 @@ def _execute_pipe_func(pipe_func: ast.PipeFunc, input_value: _value.Value, modul
     Returns:
         Result of function invocation
     """
-    from . import _invoke
-
     # Get the function reference
     func_ref = pipe_func.func
-    if not isinstance(func_ref, ast.FuncRef):
+    if not isinstance(func_ref, comp.ast.FuncRef):
         raise ValueError(f"Expected FuncRef in PipeFunc, got {type(func_ref).__name__}")
 
     # Look up the function using namespace resolution
@@ -694,8 +477,8 @@ def _execute_pipe_func(pipe_func: ast.PipeFunc, input_value: _value.Value, modul
     # The pipeline value should be available as $in when evaluating args
     pipeline_scopes = scopes.copy()
     pipeline_scopes['in'] = input_value
-    # Update unnamed scope to chain $out -> $in with the new $in value
-    pipeline_scopes['unnamed'] = _scope.ChainedScope(
+    # Update _value scope to chain $out -> $in with the new $in value
+    pipeline_scopes['_value'] = ChainedScope(
         pipeline_scopes.get('out', _value.Value(None)),
         input_value
     )
@@ -727,7 +510,7 @@ def _execute_pipe_func(pipe_func: ast.PipeFunc, input_value: _value.Value, modul
     return result
 
 
-def _execute_pipe_struct(pipe_struct: ast.PipeStruct, input_value: _value.Value, module: '_module.Module', scopes: dict[str, _value.Value]) -> _value.Value:
+def _execute_pipe_struct(pipe_struct, input_value, module, scopes):
     """Execute a pipeline struct operation.
 
     Args:
@@ -743,8 +526,8 @@ def _execute_pipe_struct(pipe_struct: ast.PipeStruct, input_value: _value.Value,
     # The pipeline value should be available as $in
     pipe_scopes = scopes.copy()
     pipe_scopes['in'] = input_value
-    # Update unnamed scope to chain $out -> $in with the new $in value
-    pipe_scopes['unnamed'] = _scope.ChainedScope(
+    # Update _value scope to chain $out -> $in with the new $in value
+    pipe_scopes['_value'] = ChainedScope(
         pipe_scopes.get('out', _value.Value(None)),
         input_value
     )
@@ -752,7 +535,7 @@ def _execute_pipe_struct(pipe_struct: ast.PipeStruct, input_value: _value.Value,
     # PipeStruct contains structure children (StructAssign, StructUnnamed, etc.)
     # We need to evaluate them as a structure
     # Create a temporary Structure node to evaluate
-    temp_struct = ast.Structure()
+    temp_struct = comp.ast.Structure()
     temp_struct.kids = pipe_struct.kids
 
     # Evaluate the structure with the pipeline scopes
@@ -761,7 +544,7 @@ def _execute_pipe_struct(pipe_struct: ast.PipeStruct, input_value: _value.Value,
     return result
 
 
-def _is_failure(value: _value.Value) -> bool:
+def _is_failure(value):
     """Check if a value represents a failure (has #fail tag).
 
     Args:
@@ -773,3 +556,69 @@ def _is_failure(value: _value.Value) -> bool:
     # For now, just return False - we'll implement proper failure detection later
     # when we have tag support in the runtime
     return False
+
+
+
+class ChainedScope:
+    """A read-only scope that chains through multiple underlying scopes.
+
+    Used for ^ scope which looks up: $arg -> $ctx -> $mod
+    Acts like a Value with struct fields for evaluation purposes.
+    """
+
+    def __init__(self, *scopes: _value.Value):
+        """Create a chained scope from multiple Value scopes.
+
+        Args:
+            *scopes: Values to chain in lookup order (first has priority)
+        """
+        self.scopes = scopes
+
+    @property
+    def is_num(self):
+        return False
+
+    @property
+    def is_str(self):
+        return False
+
+    @property
+    def is_tag(self):
+        return False
+
+    @property
+    def is_struct(self):
+        return True
+
+    @property
+    def struct(self):
+        """Virtual struct that merges all scopes.
+
+        Returns fields from first scope that has them.
+        """
+        # Create a merged view (later scopes first, so earlier scopes override)
+        merged = {}
+
+        for scope in reversed(self.scopes):
+            if scope.is_struct and scope.struct:
+                merged.update(scope.struct)
+
+        return merged if merged else None
+
+    def lookup_field(self, field_key):
+        """Look up a field by walking through scopes.
+
+        Args:
+            field_key: The field key to look up
+
+        Returns:
+            Value from first scope that has the field, or None
+        """
+        for scope in self.scopes:
+            if scope.is_struct and scope.struct:
+                if field_key in scope.struct:
+                    return scope.struct[field_key]
+        return None
+
+    def __repr__(self) -> str:
+        return f"ChainedScope({len(self.scopes)} scopes)"
