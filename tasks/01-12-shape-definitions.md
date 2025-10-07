@@ -370,7 +370,7 @@ PIPE: "|"  // For union types
 ### Module-Level Nodes
 
 ```python
-class ShapeDefinition(AstNode):
+class ShapeDef(AstNode):
     """Shape definition at module level: !shape ~name = {...} or !shape ~name = ~type=default
     
     Can define:
@@ -507,7 +507,7 @@ class MorphOp(AstNode):
 ### Phase 1: Basic Infrastructure
 1. Add shape tokens to lexer (BANG_SHAPE, TILDE, etc.)
 2. Implement shape_definition grammar rule
-3. Create ShapeDefinition and ShapeReference AST nodes
+3. Create ShapeDef and ShapeReference AST nodes
 4. Add transformer cases for shape_definition
 5. Test simple shape definitions
 
@@ -561,7 +561,7 @@ def test_valid_shape_definitions(key, code):
     result = comp.parse_module(code)
     assert isinstance(result, comp.Module)
     assert len(result.statements) > 0
-    assert isinstance(result.statements[0], comp.ShapeDefinition)
+    assert isinstance(result.statements[0], comp.ShapeDef)
     comptest.roundtrip(result)
 ```
 

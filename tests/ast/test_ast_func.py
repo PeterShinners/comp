@@ -13,7 +13,7 @@ class TestFunctionDefinition:
 
         assert len(mod.kids) == 1
         func = mod.kids[0]
-        assert isinstance(func, comp.ast.FunctionDefinition)
+        assert isinstance(func, comp.ast.FuncDef)
         assert func.tokens == ["double"]
         assert func.name == "double"
         assert isinstance(func.shape, comp.ast.ShapeRef)
@@ -27,7 +27,7 @@ class TestFunctionDefinition:
 
         assert len(mod.kids) == 1
         func = mod.kids[0]
-        assert isinstance(func, comp.ast.FunctionDefinition)
+        assert isinstance(func, comp.ast.FuncDef)
         assert func.tokens == ["add"]
         assert func.name == "add"
         assert isinstance(func.shape, comp.ast.ShapeRef)
@@ -42,7 +42,7 @@ class TestFunctionDefinition:
 
         assert len(mod.kids) == 1
         func = mod.kids[0]
-        assert isinstance(func, comp.ast.FunctionDefinition)
+        assert isinstance(func, comp.ast.FuncDef)
         assert func.tokens == ["greet"]
         assert func.name == "greet"
         assert isinstance(func.shape, comp.ast.ShapeRef)
@@ -57,7 +57,7 @@ class TestFunctionDefinition:
 
         assert len(mod.kids) == 1
         func = mod.kids[0]
-        assert isinstance(func, comp.ast.FunctionDefinition)
+        assert isinstance(func, comp.ast.FuncDef)
         assert func.tokens == ["math", "add"]
         assert func.name == "math.add"
         assert isinstance(func.shape, comp.ast.ShapeRef)
@@ -94,7 +94,7 @@ class TestFunctionDefinition:
 
         assert len(mod.kids) == 1
         func = mod.kids[0]
-        assert isinstance(func, comp.ast.FunctionDefinition)
+        assert isinstance(func, comp.ast.FuncDef)
         assert func.tokens == ["stab"]
         assert func.name == "stab"
         assert isinstance(func.shape, comp.ast.ShapeRef)

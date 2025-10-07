@@ -113,9 +113,16 @@ def generate_ast(parent: comp.ast.Node, children: list[lark.Tree | lark.Token]) 
                 _create(comp.ast.Pipeline, walk=kids)
             case 'atom_field':
                 # atom_field: atom_in_expr "." identifier_next_field
-                # This is field access on an expression: (expr).field
-                # Children: [expr_tree, DOT, field_tree]
-                _create(comp.ast.FieldAccess, walk=kids)
+                # Recursive rule - flatten to: [base_expr, field1, field2, ...]
+                fields = []
+                current = child
+                while current.data == 'atom_field':
+                    fields.append(current.children[-1])  # identifier_next_field
+                    current = current.children[0]  # Recurse
+                fields.append(current)
+                fields.reverse()
+                node = _create(comp.ast.ExprIdentifier, walk=fields)
+                continue
 
             # Tag definitions
             case 'tag_definition' | 'tag_simple' | 'tag_gen_val_body' | 'tag_gen_val' | 'tag_gen_body' | 'tag_val_body' | 'tag_val' | 'tag_body_only':
@@ -135,7 +142,7 @@ def generate_ast(parent: comp.ast.Node, children: list[lark.Tree | lark.Token]) 
 
             # Shape definitions
             case 'shape_definition':
-                _create(comp.ast.ShapeDefinition, walk=kids)
+                _create(comp.ast.ShapeDef, walk=kids)
             case 'shape_body':
                 # shape_body: LBRACE shape_field* RBRACE | shape_type
                 # If it's a body with braces, pass through children (shape_field nodes)
@@ -149,15 +156,15 @@ def generate_ast(parent: comp.ast.Node, children: list[lark.Tree | lark.Token]) 
                 # shape_spread: SPREAD shape_type
                 _create(comp.ast.ShapeSpread, walk=kids)
             case 'shape_path':
-                # This is handled by ShapeDefinition.from_grammar
+                # This is handled by ShapeDef.from_grammar
                 # Should not appear as standalone in AST
                 pass
 
             # Function definitions
             case 'function_definition' | 'func_with_args' | 'func_no_args':
-                _create(comp.ast.FunctionDefinition, walk=kids)
+                _create(comp.ast.FuncDef, walk=kids)
             case 'function_path':
-                # This is handled by FunctionDefinition.from_grammar
+                # This is handled by FuncDef.from_grammar
                 # Should not appear as standalone in AST
                 pass
             case 'function_shape':

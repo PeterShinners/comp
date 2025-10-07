@@ -41,9 +41,9 @@ class Module:
         for stmt in module_ast.statements:
             if isinstance(stmt, ast.TagDefinition):
                 self._process_tag_definition(stmt)
-            elif isinstance(stmt, ast.FunctionDefinition):
+            elif isinstance(stmt, ast.FuncDef):
                 self._process_func_definition(stmt)
-            elif isinstance(stmt, ast.ShapeDefinition):
+            elif isinstance(stmt, ast.ShapeDef):
                 self._process_shape_definition(stmt)
 
     def resolve_all(self):
@@ -316,7 +316,7 @@ class FuncDef:
 class FuncImpl:
     """Implementation of a function for a specific shape."""
 
-    def __init__(self, ast_node: ast.FunctionDefinition):
+    def __init__(self, ast_node: ast.FuncDef):
         self._ast_node = ast_node
         self.shape: _shape.ShapeType | None = None
         self._resolved = False

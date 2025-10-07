@@ -6,10 +6,10 @@ operator behavior, precedence, and proper parsing.
 """
 
 import comp
-import comptest
+import asttest
 
 
-@comptest.params(
+@asttest.params(
     "expression, operator",
     add=("5 + 3", "+"),
     sub=("10 - 4", "-"),
@@ -26,7 +26,7 @@ def test_arithmetic_operators(key, expression, operator):
     assert result.op == operator
 
 
-@comptest.params(
+@asttest.params(
     "expression",
     plus=("+42",),
     minus=("-42",),
@@ -42,7 +42,7 @@ def test_unary_operators(key, expression):
     assert result.op in ["+", "-"]
 
 
-@comptest.params(
+@asttest.params(
     "expression, operator",
     equal=("a == b", "=="),
     not_equal=("a != b", "!="),
@@ -60,7 +60,7 @@ def test_comparison_operators(key, expression, operator):
     assert result.op == operator
 
 
-@comptest.params(
+@asttest.params(
     "expression, operator",
     logical_and=("true && false", "&&"),
     logical_or=("true || false", "||"),
@@ -74,7 +74,7 @@ def test_logical_operators(key, expression, operator):
     assert result.op == operator
 
 
-@comptest.params(
+@asttest.params(
     "expression",
     mult_before_add=("2 + 3 * 4", ),
     parens_override=("(2 + 3) * 4", ),
@@ -84,7 +84,7 @@ def test_logical_operators(key, expression, operator):
 def test_operator_precedence(key, expression):
     """Test operator precedence is handled correctly."""
     result = comp.parse_expr(expression)
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 def test_addition_multiplication_precedence():
@@ -127,7 +127,7 @@ def test_logical_comparison_precedence():
     assert result.kids[1].op == ">"
 
 
-@comptest.params(
+@asttest.params(
     "expression",
     chained_comparison=("a < b < c",),
     mixed_logical=("a && b || c",),
@@ -136,10 +136,10 @@ def test_logical_comparison_precedence():
 def test_operator_combinations(key, expression):
     """Test complex combinations of operators parse correctly."""
     result = comp.parse_expr(expression)
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "expression",
     double_unary=("--x",),
     nested_parens=("((((5))))",),
@@ -149,10 +149,10 @@ def test_operator_combinations(key, expression):
 def test_operator_edge_cases(key, expression):
     """Test edge cases in operator parsing."""
     result = comp.parse_expr(expression)
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "expression",
     triple_equal=("a === b",),
     single_and=("a & b",),
@@ -164,4 +164,4 @@ def test_operator_edge_cases(key, expression):
 )
 def test_invalid_operator_syntax(key, expression):
     """Test that invalid operator syntax fails to parse."""
-    comptest.invalid_parse(expression, match=r"parse error|unexpected")
+    asttest.invalid_parse(expression, match=r"parse error|unexpected")

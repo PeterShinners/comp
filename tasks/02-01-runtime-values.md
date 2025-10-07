@@ -60,14 +60,14 @@ class TagDef:
         
 class ShapeDef:
     """Runtime shape definition."""
-    def __init__(self, ast_node: comp.ast.ShapeDefinition):
+    def __init__(self, ast_node: comp.ast.ShapeDef):
         self.ast = ast_node
         self.name = ".".join(ast_node.tokens)
         self.fields = None  # Processed later
         
 class FuncDef:
     """Runtime function definition."""
-    def __init__(self, ast_node: comp.ast.FunctionDefinition):
+    def __init__(self, ast_node: comp.ast.FuncDef):
         self.ast = ast_node
         self.name = ".".join(ast_node.tokens)
         self.shape = None  # Input shape (processed later)
@@ -132,13 +132,13 @@ class TagDef:
         
 class ShapeDef:
     """Runtime representation of a shape definition."""
-    def __init__(self, ast_node: comp.ast.ShapeDefinition):
+    def __init__(self, ast_node: comp.ast.ShapeDef):
         self.ast = ast_node
         self.name = ".".join(ast_node.tokens)
         
 class FuncDef:
     """Runtime representation of a function definition."""
-    def __init__(self, ast_node: comp.ast.FunctionDefinition):
+    def __init__(self, ast_node: comp.ast.FuncDef):
         self.ast = ast_node
         self.name = ".".join(ast_node.tokens)
 ```
@@ -156,11 +156,11 @@ def build_namespace(module: comp.ast.Module) -> Namespace:
             tag_def = TagDef(child)
             ns.add_tag(tag_def)
             
-        elif isinstance(child, comp.ast.ShapeDefinition):
+        elif isinstance(child, comp.ast.ShapeDef):
             shape_def = ShapeDef(child)
             ns.add_shape(shape_def)
             
-        elif isinstance(child, comp.ast.FunctionDefinition):
+        elif isinstance(child, comp.ast.FuncDef):
             func_def = FuncDef(child)
             ns.add_func(func_def)
             

@@ -83,15 +83,15 @@ def _build_inline_shape(inline_node: ast.ShapeInline, module: _module.Module) ->
     return _shape.ShapeInline(fields=fields)
 
 
-def populate_shape_def_fields(shape_def: _module.ShapeDef, ast_node: ast.ShapeDefinition, module: _module.Module):
+def populate_shape_def_fields(shape_def: _module.ShapeDef, ast_node: ast.ShapeDef, module: _module.Module):
     """Populate a ShapeDef's fields from its AST definition.
 
     Args:
         shape_def: The ShapeDef to populate
-        ast_node: The AST ShapeDefinition node
+        ast_node: The AST ShapeDef node
         module: The module context
     """
-    # The ShapeDefinition.kids contains the shape fields directly
+    # The ShapeDef.kids contains the shape fields directly
     # (shape_body just passes through its children)
     if not ast_node.kids:
         return

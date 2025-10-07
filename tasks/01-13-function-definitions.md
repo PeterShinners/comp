@@ -314,7 +314,7 @@ The function definition integrates with Phase 12:
 ### Module-Level Nodes
 
 ```python
-class FunctionDefinition(AstNode):
+class FuncDef(AstNode):
     """Function definition at module level: !func |name ~input ^{args} = {body}
     
     A function always has an input shape (use ~nil if no input needed).
@@ -410,13 +410,13 @@ class FunctionDefinition(AstNode):
 1. Add `BANG_FUNC` token to lexer
 2. Implement `function_definition` grammar rule
 3. Implement `function_path` grammar rule
-4. Create `FunctionDefinition` AST node
+4. Create `FuncDef` AST node
 5. Add transformer case for `function_definition`
 6. Test simple functions without parameters
 
 ### Phase 2: Function Signatures
 1. Implement `function_signature` grammar rule (reuses `shape_body`)
-2. Update `FunctionDefinition` to handle signatures
+2. Update `FuncDef` to handle signatures
 3. Test functions with typed parameters
 4. Test functions with defaults
 5. Test functions with positional parameters
@@ -458,7 +458,7 @@ def test_valid_function_definitions(key, code):
     result = comp.parse_module(code)
     assert isinstance(result, comp.Module)
     assert len(result.statements) == 1
-    assert isinstance(result.statements[0], comp.FunctionDefinition)
+    assert isinstance(result.statements[0], comp.FuncDef)
     comptest.roundtrip(result)
 ```
 
@@ -521,7 +521,7 @@ def test_multiple_function_definitions():
     
     result = comp.parse_module(code)
     assert len(result.statements) == 2
-    assert all(isinstance(s, comp.FunctionDefinition) for s in result.statements)
+    assert all(isinstance(s, comp.FuncDef) for s in result.statements)
     assert all(s.name == "process" for s in result.statements)
     
     comptest.roundtrip(result)

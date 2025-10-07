@@ -1,7 +1,10 @@
-"""Comp Ast and parsing."""
+"""Ast and parsing."""
 
 
 from ._node import *
-from ._ast import *
-from ._mod import *
-from ._pipe import *
+from ._func import *
+from ._ident import *
+from ._ops import *
+from ._shape import *
+from ._struct import *
+from ._tag import *

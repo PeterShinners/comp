@@ -25,12 +25,12 @@ AST NODES: Module, TagDefinition, TagReference, Number, String, BinaryOp, UnaryO
 """
 
 import comp
-import comptest
+import asttest
 
 
 # === BASIC TAG DEFINITIONS ===
 
-@comptest.params(
+@asttest.params(
     "code",
     simple=("!tag #status",),
     nested=("!tag #status = {#active #inactive}",),
@@ -61,12 +61,12 @@ def test_valid_tag_definitions(key, code):
     )
 
     # Round-trip test
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 # === TAG VALUES (LITERALS) ===
 
-@comptest.params(
+@asttest.params(
     "code",
     number=("!tag #count = 42",),
     float_num=("!tag #ratio = 3.14",),
@@ -91,12 +91,12 @@ def test_tag_literal_values(key, code):
     )
 
     # Round-trip
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 # === TAG VALUES (EXPRESSIONS) ===
 
-@comptest.params(
+@asttest.params(
     "code",
     addition=("!tag #sum = 9 + 9",),
     subtraction=("!tag #diff = 100 - 42",),
@@ -132,12 +132,12 @@ def test_tag_expression_values(key, code):
     )
 
     # Round-trip
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 # === TAG VALUES WITH CHILDREN ===
 
-@comptest.params(
+@asttest.params(
     "code",
     value_and_children=("!tag #status = 1 {#active #inactive}",),
     expr_and_children=("!tag #flags = 1<<0 {#read #write}",),
@@ -154,12 +154,12 @@ def test_tag_values_with_children(key, code):
     assert len(tag_def.body_kids) > 1, f"Expected multiple children, got {len(tag_def.body_kids)}"
 
     # Round-trip
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 # === TAG GENERATORS ===
 
-@comptest.params(
+@asttest.params(
     "code",
     func_ref=("!tag #color |name/tag = {#red #green #blue}",),
     inline_block=("!tag #status :{[name |upper]} = {#active #inactive}",),
@@ -186,7 +186,7 @@ def test_tag_generators(key, code):
     assert len(tag_def.body_kids) > 0, f"Expected children for {code}"
 
     # Round-trip test
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 def test_tag_generator_func_ref():
@@ -225,7 +225,7 @@ def test_tag_without_generator():
 
 # === INVALID TAG SYNTAX ===
 
-@comptest.params(
+@asttest.params(
     "code",
     no_tag_reference=("!tag",),
     empty_braces=("!tag #status = {}",),
@@ -237,7 +237,7 @@ def test_tag_without_generator():
 )
 def test_invalid_tag_definitions(key, code):
     """Test that invalid tag definition syntax fails to parse."""
-    comptest.invalid_parse(code, match=r"parse error|unexpected|syntax error|expected")
+    asttest.invalid_parse(code, match=r"parse error|unexpected|syntax error|expected")
 
 
 # === MULTIPLE TAGS ===
@@ -255,7 +255,7 @@ def test_multiple_tag_definitions():
     for stmt in result.statements:
         assert isinstance(stmt, comp.ast.TagDefinition)
 
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 def test_multiple_tags_with_values():
@@ -273,7 +273,7 @@ def test_multiple_tags_with_values():
         # Each should have a value
         assert len(stmt.kids) >= 1
 
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 def test_multiple_generators():
@@ -289,7 +289,7 @@ def test_multiple_generators():
     assert result.statements[1].generator is not None
 
     # Round-trip
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 # === COMPLEX CASES ===
@@ -324,7 +324,7 @@ def test_nested_tags_preserve_generators():
     assert len(tag_def.body_kids) > 0
 
     # Round-trip
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 def test_bit_flags_realistic_example():
@@ -348,7 +348,7 @@ def test_bit_flags_realistic_example():
         assert isinstance(child.body_kids[0], comp.ast.BinaryOp)
         assert child.body_kids[0].op == "<<"
 
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 def test_tag_all_features_combined():
@@ -370,5 +370,5 @@ def test_tag_all_features_combined():
     for kid in tag_def.body_kids[1:]:
         assert isinstance(kid, comp.ast.TagChild)
 
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 

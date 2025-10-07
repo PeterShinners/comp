@@ -5,10 +5,10 @@ Tests identifiers through the main comp.parse_expr() method with proper parser f
 """
 
 import comp
-import comptest
+import asttest
 
 
-@comptest.params(
+@asttest.params(
     "identifier",
     hello=("hello",),
     single=("a",),
@@ -32,12 +32,12 @@ import comptest
 )
 def test_identifiers(key, identifier):
     """Test valid identifier."""
-    result = comptest.parse_value(identifier, comp.ast.Identifier)
+    result = asttest.parse_value(identifier, comp.ast.Identifier)
     # Verify the identifier unparsed back to the same value
     assert result.unparse() == identifier
 
 
-@comptest.params(
+@asttest.params(
     "identifier",
     chinese=("用户名",),  # Chinese characters
     latin=("naïve",),  # Latin with diacritics
@@ -50,12 +50,12 @@ def test_identifiers(key, identifier):
 )
 def test_unicode_identifiers(key, identifier):
     """Unicode identifiers following UAX #31."""
-    result = comptest.parse_value(identifier, comp.ast.Identifier)
+    result = asttest.parse_value(identifier, comp.ast.Identifier)
     # Verify the identifier unparsed back to the same value
     assert result.unparse() == identifier
 
 
-@comptest.params(
+@asttest.params(
     "code",
     emoji1=("😀hello",),  # Emoji (symbol, not letter)
     emoji2=("❤️love",),  # Emoji with modifier
@@ -66,5 +66,5 @@ def test_unicode_identifiers(key, identifier):
 )
 def test_invalid_unicode_characters(key, code):
     """Characters that should not be valid identifier starts."""
-    comptest.invalid_parse(code, match=r"parse error|unexpected")
+    asttest.invalid_parse(code, match=r"parse error|unexpected")
 

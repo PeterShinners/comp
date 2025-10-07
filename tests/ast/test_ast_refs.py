@@ -13,10 +13,10 @@ Shape (~) and function (|) references are not yet available as general expressio
 """
 
 import comp
-import comptest
+import asttest
 
 
-@comptest.params(
+@asttest.params(
     "expression",
     simple=("#active",),
     numeric=("#123",),
@@ -36,12 +36,12 @@ def test_valid_tag_references(key, expression):
     """Test that valid tag references parse and round-trip correctly."""
     result = comp.parse_expr(expression)
     # Verify it parsed successfully and round-trips
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
     # Verify unparsing gives back the original
-    comptest.assert_unparse(result, expression)
+    asttest.assert_unparse(result, expression)
 
 
-@comptest.params(
+@asttest.params(
     "expression",
     empty=("#",),
     starts_hyphen=("#-invalid",),
@@ -56,10 +56,10 @@ def test_valid_tag_references(key, expression):
 )
 def test_invalid_tag_references(key, expression):
     """Test that invalid tag reference syntax fails to parse."""
-    comptest.invalid_parse(expression, match=r"parse error|unexpected|syntax error")
+    asttest.invalid_parse(expression, match=r"parse error|unexpected|syntax error")
 
 
-@comptest.params(
+@asttest.params(
     "expression",
     exclamation=("!directive",),
     ampersand=("&privacy",),
@@ -68,7 +68,7 @@ def test_invalid_tag_references(key, expression):
 )
 def test_reserved_sigils(key, expression):
     """Test that reserved sigil characters are not valid reference prefixes."""
-    comptest.invalid_parse(expression, match=r"parse error|unexpected|syntax error")
+    asttest.invalid_parse(expression, match=r"parse error|unexpected|syntax error")
 
 
 def test_tag_reference_with_other_literals():
@@ -82,5 +82,5 @@ def test_tag_reference_with_other_literals():
 
     for expr in literals:
         result = comp.parse_expr(expr)
-        comptest.roundtrip(result)
+        asttest.roundtrip(result)
 

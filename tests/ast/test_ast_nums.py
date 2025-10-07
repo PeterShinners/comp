@@ -14,15 +14,15 @@ PARSER EXPECTATIONS:
 
 AST NODE: Number(value: Decimal)
 
-NOTE: Refactored to use comptest helpers for clean parametrized testing.
+NOTE: Refactored to use asttest helpers for clean parametrized testing.
 """
 
 from decimal import Decimal
 
-import comptest
+import asttest
 
 
-@comptest.params(
+@asttest.params(
     "code value",
     basic=("42", 42),
     zero=("0", 0),
@@ -34,12 +34,11 @@ import comptest
 )
 def test_parse_integers(key, code, value):
     """Integer literals should become decimal values."""
-    from decimal import Decimal
-    num_value = comptest.parse_number(code)
+    num_value = asttest.parse_number(code)
     assert num_value == Decimal(value)
 
 
-@comptest.params(
+@asttest.params(
     "code value",
     pi=("3.14", Decimal("3.14")),
     upi=("3.141_592", Decimal("3.141592")),
@@ -50,11 +49,11 @@ def test_parse_integers(key, code, value):
 )
 def test_parse_decimals(key, code, value):
     """Decimal literals."""
-    num_value = comptest.parse_number(code)
+    num_value = asttest.parse_number(code)
     assert num_value == value
 
 
-@comptest.params(
+@asttest.params(
     "code value",
     thousand=("1e3", 1000),
     small=("1.23e-4", Decimal("0.000123")),
@@ -62,12 +61,11 @@ def test_parse_decimals(key, code, value):
 )
 def test_parse_scientific_notation(key, code, value):
     """Scientific notation numbers."""
-    from decimal import Decimal
-    num_value = comptest.parse_number(code)
+    num_value = asttest.parse_number(code)
     assert num_value == Decimal(value)
 
 
-@comptest.params(
+@asttest.params(
     "code value",
     bbasic=("0b1010", 10),
     bunder=("0B11_11", 15),
@@ -81,12 +79,11 @@ def test_parse_scientific_notation(key, code, value):
 )
 def test_base_integers(key, code, value):
     """Binary number literals."""
-    from decimal import Decimal
-    num_value = comptest.parse_number(code)
+    num_value = asttest.parse_number(code)
     assert num_value == Decimal(value)
 
 
-@comptest.params(
+@asttest.params(
     "code match",
     binary=("0b789", r"binary|invalid"),
     octal=("-0o89", r"octal|invalid"),
@@ -96,10 +93,10 @@ def test_base_integers(key, code, value):
 )
 def test_invalid_number_bases(key, code, match):
     """Invalid digits for number bases should have specific error messages."""
-    comptest.invalid_parse(code, match)
+    asttest.invalid_parse(code, match)
 
 
-@comptest.params(
+@asttest.params(
     "code",
     double_decimal=("3.14.15",),
     incomplete_exp=("1e",),
@@ -108,7 +105,7 @@ def test_invalid_number_bases(key, code, match):
 )
 def test_invalid_numbers(key, code):
     """Invalid number formats should raise ParseError."""
-    comptest.invalid_parse(code)
+    asttest.invalid_parse(code)
 
 
 def test_precision_preservation():
@@ -116,7 +113,7 @@ def test_precision_preservation():
 
     # Test 1: Classic 0.1 precision case
     # Float representation of 0.1 is imprecise, but Decimal('0.1') is exact
-    num_value = comptest.parse_number("0.1")
+    num_value = asttest.parse_number("0.1")
     expected = Decimal("0.1")
     assert num_value == expected, f"Expected exact {expected}, got {num_value}"
 
@@ -128,7 +125,7 @@ def test_precision_preservation():
 
     # Test 2: High precision decimal that would lose digits through float
     high_precision = "3.14159265358979323846264338327950288419716939937510"
-    num_value = comptest.parse_number(high_precision)
+    num_value = asttest.parse_number(high_precision)
     expected = Decimal(high_precision)
     assert num_value == expected, "High precision not preserved"
 
@@ -140,7 +137,7 @@ def test_precision_preservation():
 
     # Test 3: Scientific notation precision
     scientific = "1.23456789012345678901234567890e-25"
-    num_value = comptest.parse_number(scientific)
+    num_value = asttest.parse_number(scientific)
     expected = Decimal(scientific)
     assert num_value == expected, "Scientific notation precision lost"
 
@@ -152,7 +149,7 @@ def test_bigint_support():
 
     # Test 1: Large positive integer (way beyond 64-bit)
     big_int = "123456789012345678901234567890"
-    num_value = comptest.parse_number(big_int)
+    num_value = asttest.parse_number(big_int)
     expected = Decimal(big_int)
     assert num_value == expected, (
         f"Large integer not preserved: {num_value} != {expected}"
@@ -163,21 +160,21 @@ def test_bigint_support():
     # Negating values larger than this can lose precision, so we use a
     # smaller number that still exceeds 64-bit range but fits in Decimal.
     big_negative = "-98765432109876543210"  # 20 digits, still > 64-bit
-    num_value = comptest.parse_number(big_negative)
+    num_value = asttest.parse_number(big_negative)
     expected = Decimal(big_negative)
     # Compare with proper context to avoid scientific notation comparison issues
     assert num_value == expected or str(num_value) == str(expected)
 
     # Test 3: Large hex number
     big_hex = "0x123456789ABCDEF0123456789ABCDEF"
-    num_value = comptest.parse_number(big_hex)
+    num_value = asttest.parse_number(big_hex)
     expected_int = int(big_hex, 16)
     expected = Decimal(expected_int)
     assert num_value == expected, "Large hex integer not preserved"
 
     # Test 4: Large binary number
     big_binary = "0b" + "1" * 100  # 100-bit number
-    num_value = comptest.parse_number(big_binary)
+    num_value = asttest.parse_number(big_binary)
     expected_int = int(big_binary, 2)
     expected = Decimal(expected_int)
     assert num_value == expected, "Large binary integer not preserved"

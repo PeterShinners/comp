@@ -13,16 +13,16 @@ PARSER EXPECTATIONS:
 
 AST NODE: String(value: str)
 
-NOTE: Refactored to use comptest helpers for clean parametrized testing.
+NOTE: Refactored to use asttest helpers for clean parametrized testing.
 """
 
 import pytest
 
 import comp
-import comptest
+import asttest
 
 
-@comptest.params(
+@asttest.params(
     "code value",
     hello=('"hello"', "hello"),
     empty=('""', ""),
@@ -32,12 +32,12 @@ import comptest
 )
 def test_parse_basic_strings(key, code, value):
     """Basic string literals."""
-    result = comptest.parse_value(code, comp.ast.String)
+    result = asttest.parse_value(code, comp.ast.String)
     assert result.value == value
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code value",
     quotes=(r'"say \"hi\""', 'say "hi"'),
     newlines=(r'"line1\nline2"', "line1\nline2"),
@@ -48,12 +48,12 @@ def test_parse_basic_strings(key, code, value):
 )
 def test_parse_escaped_strings(key, code, value):
     """Strings with standard escape sequences."""
-    result = comptest.parse_value(code, comp.ast.String)
+    result = asttest.parse_value(code, comp.ast.String)
     assert result.value == value
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code value",
     single=(r'"\0"', "\0"),
     middle=(r'"hello\0world"', "hello\0world"),
@@ -63,12 +63,12 @@ def test_parse_escaped_strings(key, code, value):
 )
 def test_null_characters(key, code, value):
     """Null characters \\0 should be handled correctly."""
-    result = comptest.parse_value(code, comp.ast.String)
+    result = asttest.parse_value(code, comp.ast.String)
     assert result.value == value
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code value",
     u4_A=(r'"\u0041"', "A"),
     u4_hello=(r'"\u0048\u0065\u006C\u006C\u006F"', "Hello"),
@@ -78,24 +78,24 @@ def test_null_characters(key, code, value):
 )
 def test_unicode_escape_sequences(key, code, value):
     """Unicode escape sequences \\u and \\U."""
-    result = comptest.parse_value(code, comp.ast.String)
+    result = asttest.parse_value(code, comp.ast.String)
     assert result.value == value
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code value",
     mixed1=(r'"Say \"Hello\n\u0041\U0001F600\""', 'Say "Hello\nA😀"'),
     mixed2=(r'"Path: C:\\folder\ttab\u0020end"', "Path: C:\\folder\ttab end"),
 )
 def test_mixed_escape_sequences(key, code, value):
     """Strings with mixed escape types."""
-    result = comptest.parse_value(code, comp.ast.String)
+    result = asttest.parse_value(code, comp.ast.String)
     assert result.value == value
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code value",
     empty=('""', ""),
     space=('" "', " "),
@@ -104,12 +104,12 @@ def test_mixed_escape_sequences(key, code, value):
 )
 def test_empty_and_whitespace_strings(key, code, value):
     """Empty strings and strings with only whitespace."""
-    result = comptest.parse_value(code, comp.ast.String)
+    result = asttest.parse_value(code, comp.ast.String)
     assert result.value == value
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code value",
     cafe=('"café"', "café"),
     chinese=('"用户名"', "用户名"),
@@ -118,12 +118,12 @@ def test_empty_and_whitespace_strings(key, code, value):
 )
 def test_utf8_literal_strings(key, code, value):
     """Strings with literal UTF-8 characters."""
-    result = comptest.parse_value(code, comp.ast.String)
+    result = asttest.parse_value(code, comp.ast.String)
     #assert result.value == value
-    #comptest.roundtrip(result)
+    #asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code value",
     int=('"42"', "42"),
     float=('"3.14"', "3.14"),
@@ -134,13 +134,13 @@ def test_utf8_literal_strings(key, code, value):
 )
 def test_string_vs_number_disambiguation(key, code, value):
     """Ensure strings that look like numbers are parsed as strings."""
-    result = comptest.parse_value(code, comp.ast.String)
+    result = asttest.parse_value(code, comp.ast.String)
     assert result.value == value
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 @pytest.mark.filterwarnings("ignore::SyntaxWarning")
-@comptest.params(
+@asttest.params(
     "code value",
     hex_esc=(r'"\x41"', "A"),  # Hex escape - now supported
     z_esc=('"\\z"', "\\z"),  # Invalid escape -> literal
@@ -149,12 +149,12 @@ def test_string_vs_number_disambiguation(key, code, value):
 def test_invalid_escape_sequences(key, code, value):
     """Invalid escape sequences should be treated as literals (Python behavior)."""
     # Python's ast.literal_eval converts invalid escapes to literal characters
-    result = comptest.parse_value(code, comp.ast.String)
+    result = asttest.parse_value(code, comp.ast.String)
     assert result.value == value
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code",
     u4_short1=(r'"\u123"',),   # Too short (need 4 hex digits)
     u4_short2=(r'"\u12"',),    # Too short
@@ -169,10 +169,10 @@ def test_invalid_escape_sequences(key, code, value):
 #@pytest.mark.xfail(reason="Unicode escaping not quite connected yet")
 def test_invalid_unicode_escapes(key, code):
     """Invalid Unicode escape sequences should raise ParseError."""
-    comptest.invalid_parse(code, match=r"unicode|escape")
+    asttest.invalid_parse(code, match=r"unicode|escape")
 
 
-@comptest.params(
+@asttest.params(
     "code",
     hello=('"hello',),         # Missing closing quote
     world=('"hello world',),   # Missing closing quote
@@ -180,10 +180,10 @@ def test_invalid_unicode_escapes(key, code):
 )
 def test_unterminated_strings(key, code):
     """Unterminated strings should raise ParseError."""
-    comptest.invalid_parse(code, match=r"unterminated|string")
+    asttest.invalid_parse(code, match=r"unterminated|string")
 
 
-@comptest.params(
+@asttest.params(
     "code value",
     empty=('""""""', ""),
     simple=('"""hello world"""', "hello world"),
@@ -198,6 +198,6 @@ def test_unterminated_strings(key, code):
 )
 def test_triple_quoted_strings(key, code, value):
     """Triple-quoted strings with newlines and embedded quotes."""
-    result = comptest.parse_value(code, comp.ast.String)
+    result = asttest.parse_value(code, comp.ast.String)
     assert result.value == value
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)

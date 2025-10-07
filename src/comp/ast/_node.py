@@ -1,15 +1,17 @@
-"""
-AST node definitions for Comp language
-
-This module defines a simplified Abstract Syntax Tree for the Comp language.
-
-"""
+"""Asst base nodes and types"""
 
 __all__ = [
     "Node",
     "Root",
+    "Module",
     "Placeholder",
+    "Number",
+    "String",
 ]
+
+import decimal
+import ast as python_ast
+import comp
 
 
 class Node:
@@ -131,4 +133,114 @@ class Placeholder(Node):
 
     def unparse(self) -> str:
         return "???"
+
+
+class Module(Node):
+    """Root of grammar Ast for modules."""
+
+    @property
+    def statements(self) -> list['Node']:
+        """Access module statements (alias for kids)."""
+        return self.kids
+
+    def unparse(self) -> str:
+        return "\n".join(kid.unparse() for kid in self.kids)
+
+
+class Number(Node):
+    """Numeric literal."""
+
+    def __init__(self, value: decimal.Decimal = decimal.Decimal(0)):
+        self.value = value
+        super().__init__()
+
+    def unparse(self) -> str:
+        return str(self.value)
+
+    @classmethod
+    def from_grammar(cls, tree):
+        """Parse number from Lark tree: number -> INTBASE | DECIMAL"""
+        token = tree.children[0]
+        try:
+            if token.type == "INTBASE":
+                python_int = int(token.value, 0)  # Auto-detect base
+                value = decimal.Decimal(python_int)
+            else:  # DECIMAL
+                value = decimal.Decimal(token.value)
+            return cls(value=value)
+        except (ValueError, decimal.InvalidOperation) as e:
+            raise comp.ParseError(f"Invalid number: {token.value}") from e
+
+
+class String(Node):
+    """String literal."""
+
+    def __init__(self, value: str = ""):
+        self.value = value
+        super().__init__()
+
+    def unparse(self) -> str:
+        # Use repr() for proper escaping, but force double quotes
+        # repr() may choose single quotes if the string contains double quotes,
+        # so we need to handle that case
+        r = repr(self.value)
+        if r.startswith("'"):
+            # repr chose single quotes, convert to double quotes
+            # Remove outer single quotes and escape inner double quotes
+            # Must also unescape single quotes since \' is not valid in double-quoted strings
+            inner = r[1:-1].replace('"', '\\"').replace("\\'", "'")
+            return f'"{inner}"'
+        else:
+            # Already using double quotes
+            return r
+
+    @classmethod
+    def from_grammar(cls, tree):
+        # [QUOTE, content, QUOTE] or [QUOTE, QUOTE] for empty string
+        kids = tree.children
+        if len(kids) == 3:
+            # Use Python's ast.literal_eval to decode escape sequences
+            # Wrap the content in quotes to make it a valid Python string literal
+            raw_value = kids[1].value
+            python_string = f'"{raw_value}"'
+            try:
+                decoded = python_ast.literal_eval(python_string)
+            except (ValueError, SyntaxError) as e:
+                # Check if this is a unicode escape error
+                error_msg = str(e)
+                if "unicode" in error_msg.lower() or "escape" in error_msg.lower():
+                    raise comp.ParseError(f"Invalid unicode escape sequence in string: {error_msg}") from e
+                # For other errors, keep the raw value
+                decoded = raw_value
+            return cls(value=decoded)
+        else:
+            return cls(value="")
+
+
+class BaseRef(Node):
+    """Base class for references: TagRef, ShapeRef, FuncRef."""
+
+    SYMBOL = "?"
+    def __init__(self, tokens:list[str]|None=None, namespace:str|None=None):
+        self.tokens = tokens
+        self.namespace = namespace
+        super().__init__()
+
+    def unparse(self) -> str:
+        path = ".".join(self.tokens)
+        full = "/".join((path, self.namespace)) if self.namespace else path
+        return f"{self.SYMBOL}{full}"
+
+    @classmethod
+    def from_grammar(cls, tree):
+        """Parse from Lark tree: tag_reference -> "#" _reference_path"""
+        tokens = []
+        namespace = None
+        for token in tree.children[1].children:
+            value = token.value
+            if value != ".":
+                tokens.append(value)
+        if len(tree.children) > 2:
+            namespace = tree.children[2].children[1].value
+        return cls(tokens=tuple(tokens), namespace=namespace)
 

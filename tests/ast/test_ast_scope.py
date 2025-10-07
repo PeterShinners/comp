@@ -18,10 +18,10 @@ NOTE: Scopes are implemented as special Identifier fields, not separate node typ
 """
 
 import comp
-import comptest
+import asttest
 
 
-@comptest.params(
+@asttest.params(
     "code",
     # Simple scope references
     ctx=("$ctx",),
@@ -59,10 +59,10 @@ def test_valid_scope_references(key, code):
     """Test that valid scope syntax parses and round-trips correctly."""
     result = comp.parse_expr(code)
     assert result is not None
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code",
     # Nested scopes (not allowed)
     nested1=("$ctx.$mod",),
@@ -73,7 +73,7 @@ def test_valid_scope_references(key, code):
 )
 def test_invalid_scope_syntax(key, code):
     """Test that invalid scope syntax fails to parse."""
-    comptest.invalid_parse(code, match=r"unexpected token")
+    asttest.invalid_parse(code, match=r"unexpected token")
 
 
 def test_scope_unparse_matches():
@@ -109,7 +109,7 @@ def test_scope_in_binary_operations():
     assert isinstance(binary.kids[0], comp.ast.Identifier)
     assert isinstance(binary.kids[1], comp.ast.Identifier)
 
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 def test_scope_in_structures():
@@ -119,7 +119,7 @@ def test_scope_in_structures():
     struct = result.kids[0]
     assert isinstance(struct, comp.ast.Structure)
 
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 if __name__ == "__main__":

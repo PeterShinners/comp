@@ -17,14 +17,14 @@ PARSER EXPECTATIONS:
 
 AST NODES: Structure, StructAssign, StructUnnamed, etc.
 
-NOTE: Refactored to use comptest helpers and matches() for clean testing.
+NOTE: Refactored to use asttest helpers and matches() for clean testing.
 """
 
 import comp
-import comptest
+import asttest
 
 
-@comptest.params(
+@asttest.params(
     "code count",
     empty=("{}", 0),
     pos1=("{42}", 1),
@@ -46,26 +46,26 @@ import comptest
 )
 def test_valid_structures(key, code, count):
     """Test that valid structure syntax parses and round-trips correctly."""
-    struct = comptest.parse_value(code, comp.ast.Structure)
+    struct = asttest.parse_value(code, comp.ast.Structure)
     assert len(struct.kids) == count, (
         f"Expected {count} children in structure for {key}, got {len(struct.kids)}\n"
         f"  Code: {code}"
     )
-    comptest.roundtrip(struct)
+    asttest.roundtrip(struct)
 
     match key:
         case 'nestn':
-            key, value = comptest.structure_field(struct, 0)
+            key, value = asttest.structure_field(struct, 0)
             assert key == "outer"
             assert isinstance(value, comp.ast.Structure)
         case 'nestp':
-            key, value = comptest.structure_field(struct, 1)
+            key, value = asttest.structure_field(struct, 1)
             assert key is None
             assert isinstance(value, comp.ast.Structure)
 
 
 # Invalid structure literal test cases - should fail with parse errors
-@comptest.params(
+@asttest.params(
     "code",
     unc="{",
     unop="}",
@@ -84,7 +84,7 @@ def test_valid_structures(key, code, count):
 )
 def test_invalid_structures(key, code):
     """Test that invalid structure syntax raises parse errors."""
-    error_msg = comptest.invalid_parse(code)
+    error_msg = asttest.invalid_parse(code)
 
     # Just verify we got a parse error with reasonable message
     error_lower = error_msg.lower()
@@ -94,7 +94,7 @@ def test_invalid_structures(key, code):
     ), f"Expected descriptive parse error for {key}: {code}\nGot: {error_msg}"
 
 
-@comptest.params(
+@asttest.params(
     "code count",
     empty=(":{}", 0),
     pos3=(":{1 2 3}", 3),
@@ -106,16 +106,16 @@ def test_invalid_structures(key, code):
 def test_valid_block(key, code, count):
     """Test that valid structure syntax parses and round-trips correctly."""
     # Parse the code
-    struct = comptest.parse_value(code, comp.ast.Block)
+    struct = asttest.parse_value(code, comp.ast.Block)
     assert len(struct.kids) == count, (
         f"Expected {count} children in structure for {key}, got {len(struct.kids)}\n"
         f"  Code: {code}"
     )
-    comptest.roundtrip(struct)
+    asttest.roundtrip(struct)
 
 
 # Invalid structure literal test cases - should fail with parse errors
-@comptest.params(
+@asttest.params(
     "code",
     unc=":{",
     unci="{:{}",
@@ -123,4 +123,4 @@ def test_valid_block(key, code, count):
 )
 def test_invalid_block(key, code):
     """Test that invalid structure syntax raises parse errors."""
-    error_msg = comptest.invalid_parse(code)
+    error_msg = asttest.invalid_parse(code)

@@ -19,7 +19,7 @@ class TestAssignmentOperators:
         source = "!shape ~point = {x ~num y ~num}"
         mod = comp.parse_module(source)
         shape = mod.kids[0]
-        assert isinstance(shape, comp.ast.ShapeDefinition)
+        assert isinstance(shape, comp.ast.ShapeDef)
         assert shape.assign_op == "="
 
     def test_function_default_assign(self):
@@ -27,7 +27,7 @@ class TestAssignmentOperators:
         source = "!func |add ~num ^{b ~num} = {@ + b}"
         mod = comp.parse_module(source)
         func = mod.kids[0]
-        assert isinstance(func, comp.ast.FunctionDefinition)
+        assert isinstance(func, comp.ast.FuncDef)
         assert func.assign_op == "="
 
     def test_function_strong_assign(self):
@@ -35,7 +35,7 @@ class TestAssignmentOperators:
         source = "!func |strict ~num =* {@ * 2}"
         mod = comp.parse_module(source)
         func = mod.kids[0]
-        assert isinstance(func, comp.ast.FunctionDefinition)
+        assert isinstance(func, comp.ast.FuncDef)
         assert func.assign_op == "=*"
 
     def test_function_weak_assign(self):
@@ -43,7 +43,7 @@ class TestAssignmentOperators:
         source = "!func |maybe ~num =? {@ + 1}"
         mod = comp.parse_module(source)
         func = mod.kids[0]
-        assert isinstance(func, comp.ast.FunctionDefinition)
+        assert isinstance(func, comp.ast.FuncDef)
         assert func.assign_op == "=?"
 
     def test_function_unparse_preserves_assign_op(self):

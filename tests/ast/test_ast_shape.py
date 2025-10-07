@@ -1,10 +1,10 @@
 """Test shape definition parsing."""
 
 import comp
-import comptest
+import asttest
 
 
-@comptest.params(
+@asttest.params(
     "code",
     simple=("!shape ~point = {x ~num y ~num}",),
     dotted_name=("!shape ~geo.point = {x ~num y ~num}",),
@@ -29,11 +29,11 @@ def test_valid_shape_definitions(key, code):
     result = comp.parse_module(code)
     assert isinstance(result, comp.ast.Module)
     assert len(result.statements) == 1
-    assert isinstance(result.statements[0], comp.ast.ShapeDefinition)
-    comptest.roundtrip(result)
+    assert isinstance(result.statements[0], comp.ast.ShapeDef)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code,expected_tokens",
     simple=("!shape ~point = {x ~num}", ["point"]),
     dotted=("!shape ~geo.point = {x ~num}", ["geo", "point"]),
@@ -44,10 +44,10 @@ def test_shape_name_tokens(key, code, expected_tokens):
     result = comp.parse_module(code)
     shape_def = result.statements[0]
     assert shape_def.tokens == expected_tokens
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code,expected_fields",
     two_fields=("!shape ~point = {x ~num y ~num}", 2),
     three_fields=("!shape ~point3d = {x ~num y ~num z ~num}", 3),
@@ -59,10 +59,10 @@ def test_shape_field_count(key, code, expected_fields):
     result = comp.parse_module(code)
     shape_def = result.statements[0]
     assert len(shape_def.kids) == expected_fields
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code",
     predicate_simple=("!shape ~user = {active? ~bool}",),
     predicate_mixed=("!shape ~user = {name ~str verified? ~bool id ~num}",),
@@ -86,10 +86,10 @@ def test_predicate_field_names(key, code):
     for field in predicate_fields:
         assert field.name.endswith('?'), f"Predicate field name should end with ?: {field.name}"
 
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code",
     simple_default=("!shape ~point = {x ~num = 0}",),
     multiple_defaults=("!shape ~point = {x ~num = 0 y ~num = 0}",),
@@ -107,10 +107,10 @@ def test_default_values(key, code):
     ]
     assert len(fields_with_defaults) > 0, "Should have fields with defaults"
 
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code",
     simple_spread=("!shape ~point3d = {..~point z ~num}",),
     multiple_spreads=("!shape ~combined = {..~base ..~extra id ~num}",),
@@ -125,10 +125,10 @@ def test_shape_spread(key, code):
     spreads = [k for k in shape_def.kids if isinstance(k, comp.ast.ShapeSpread)]
     assert len(spreads) > 0, "Should have at least one spread"
 
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code",
     simple_nested=("!shape ~circle = {pos ~{x ~num y ~num}}",),
     deep_nested=("!shape ~a = {b ~{c ~{d ~num}}}",),
@@ -142,10 +142,10 @@ def test_nested_inline_shapes(key, code):
     # The nested inline shape fields should be present as children of the field
     assert len(shape_def.kids) > 0
 
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code",
     two_positional=("!shape ~pair = {~num ~num}",),
     three_positional=("!shape ~triple = {~str ~num ~bool}",),
@@ -167,10 +167,10 @@ def test_positional_fields(key, code):
     ]
     assert len(positional_fields) > 0, "Should have at least one positional field"
 
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code",
     simple_alias=("!shape ~number = ~num",),
     alias_to_custom=("!shape ~coordinate = ~point",),
@@ -184,11 +184,11 @@ def test_shape_aliases(key, code):
     result = comp.parse_module(code)
     shape_def = result.statements[0]
 
-    assert isinstance(shape_def, comp.ast.ShapeDefinition)
-    comptest.roundtrip(result)
+    assert isinstance(shape_def, comp.ast.ShapeDef)
+    asttest.roundtrip(result)
 
 
-@comptest.params(
+@asttest.params(
     "code",
     simple_union=("!shape ~result = ~success | ~error",),
     multi_union=("!shape ~value = ~num | ~str | ~bool",),
@@ -201,7 +201,7 @@ def test_shape_unions(key, code):
     # Union creates a tree structure - should have children
     assert len(shape_def.kids) > 0
 
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
 
 
 def test_complex_shape_definition():
@@ -220,7 +220,7 @@ def test_complex_shape_definition():
     result = comp.parse_module(normalized)
     shape_def = result.statements[0]
 
-    assert isinstance(shape_def, comp.ast.ShapeDefinition)
+    assert isinstance(shape_def, comp.ast.ShapeDef)
     assert shape_def.tokens == ["entity"]
     assert len(shape_def.kids) == 5  # 4 fields + 1 spread
 
@@ -233,4 +233,4 @@ def test_complex_shape_definition():
     assert len(predicate_fields) == 1  # found?
     assert len(spreads) == 1  # ..~timestamped
 
-    comptest.roundtrip(result)
+    asttest.roundtrip(result)
