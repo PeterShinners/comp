@@ -88,12 +88,15 @@ def is_parent_or_equal(parent, child):
 
 class TagDef:
     """Tag definition - immutable, belongs to defining module."""
-    def __init__(self, identifier):
+    def __init__(self, identifier, namespace="main"):
         self.identifier = identifier
         self.name = ".".join(identifier)
+        self.namespace = namespace
         self.value = None
         self._value_expr = None
         self._resolved = False
+        # Create the TagValue once for identity-based comparison
+        self.tag_value = TagValue(identifier, namespace)
 
     def resolve(self, module):
         """Resolve tag value expression."""
@@ -101,8 +104,8 @@ class TagDef:
             return
 
         if self._value_expr:
-            from . import evaluate
-            self.value = evaluate.evaluate(self._value_expr, module)
+            from . import _eval  # local import untangles circular
+            self.value = _eval.evaluate(self._value_expr, module)
 
         self._resolved = True
 

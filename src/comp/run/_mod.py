@@ -80,7 +80,7 @@ class Module:
         """Resolve a tag reference with namespace support.
 
         Args:
-            tokens: Tag identifier path (e.g., ["status", "active"])
+            tokens: Tag identifier path in child-first order (e.g., ["error", "status"] for #error.status)
             namespace: Optional namespace (e.g., "builtin" for #tag/builtin)
 
         Returns:
@@ -89,24 +89,68 @@ class Module:
         Resolution rules:
             - If namespace is specified: only search that namespace module
             - If no namespace: search current module first, then all mods
+            - Partial names match if unambiguous (e.g., #cat matches #animal.pet.cat)
+            
+        Note: Tag references use child-first notation (#error.status) but are stored
+        parent-first ("status.error"), so we need to reverse the tokens.
         """
-        tag_name = ".".join(tokens)
+        # Reverse tokens from child-first to parent-first for storage lookup
+        reversed_tokens = tuple(reversed(tokens))
+        tag_name = ".".join(reversed_tokens)
 
         if namespace:
             # Only search the specified namespace
             if namespace in self.mods:
-                return self.mods[namespace].tags.get(tag_name)
+                return self._match_tag_in_dict(tag_name, self.mods[namespace].tags)
             return None
 
         # No namespace: search current module first
-        if tag_name in self.tags:
-            return self.tags[tag_name]
+        match = self._match_tag_in_dict(tag_name, self.tags)
+        if match:
+            return match
 
         # Then search all referenced modules
         for mod in self.mods.values():
-            if tag_name in mod.tags:
-                return mod.tags[tag_name]
+            match = self._match_tag_in_dict(tag_name, mod.tags)
+            if match:
+                return match
 
+        return None
+
+    def _match_tag_in_dict(self, partial_name, tags_dict):
+        """Match a partial tag name against a dictionary of tags.
+        
+        Args:
+            partial_name: Partial tag path (e.g., "cat" or "pet.cat")
+            tags_dict: Dictionary of tag definitions keyed by full path
+            
+        Returns:
+            TagDef if exactly one match found, None otherwise
+            
+        Matching rules:
+            - Exact match always wins
+            - Partial match from the end (suffix match)
+            - Must be unambiguous (only one match)
+        """
+        # Try exact match first
+        if partial_name in tags_dict:
+            return tags_dict[partial_name]
+        
+        # Try suffix matching: partial_name must match the end of the full path
+        # For example, "cat" matches "animal.pet.cat", "pet.cat" matches "animal.pet.cat"
+        matches = []
+        for full_name, tag_def in tags_dict.items():
+            if full_name == partial_name:
+                return tag_def  # Exact match
+            # Check if full_name ends with ".partial_name"
+            if full_name.endswith("." + partial_name):
+                matches.append(tag_def)
+        
+        # Return match only if unambiguous
+        if len(matches) == 1:
+            return matches[0]
+        
+        # Ambiguous or no match
         return None
 
     def resolve_func(self, tokens, namespace=None):
@@ -210,7 +254,7 @@ class Module:
             path = identifier[:i]
             key = ".".join(path)
             if key not in self.tags:
-                self.tags[key] = _tag.TagDef(identifier=path)
+                self.tags[key] = _tag.TagDef(identifier=path, namespace=self.identifier)
 
     def _process_func_definition(self, func_def: comp.ast.FuncDef):
         """Extract function definition from AST node."""

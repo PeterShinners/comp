@@ -38,8 +38,11 @@ def evaluate(expr, module, scopes=None):
         # Resolve tag reference with namespace support
         tokens = expr.tokens or []
         tag_def = module.resolve_tag(tokens, expr.namespace)
-        if tag_def and tag_def.value:
-            return tag_def.value
+        if tag_def:
+            # Always return the TagValue for the tag itself, not its associated value
+            # The associated value (tag_def.value) is used for type morphing/casting,
+            # but tag references always evaluate to the TagValue for comparison purposes
+            return _value.Value(tag_def.tag_value)
         # Unresolved tag reference - raise an error
         tag_name = ".".join(tokens)
         namespace_str = f"{expr.namespace}." if expr.namespace else ""

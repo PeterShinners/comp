@@ -61,7 +61,7 @@ All definition styles are equivalent and produce the same hierarchy. Choose the 
 
 ## Tag Reference and Notation
 
-Tags are referenced using reversed hierarchy notation with `.` as the separator for hierarchy levels. The most specific part comes first, with parent components added only when disambiguation is needed. When tags are imported from other modules, the full reference includes the module namespace using `/` as the separator.
+Tags are referenced using reversed hierarchy notation with `.` as the separator for hierarchy levels. The most specific part comes first, with parent components added only when disambiguation is needed. Partial names automatically match if unambiguous - for example, `#cat` will match `#animal.pet.cat` if there's only one tag named "cat" in the hierarchy. When tags are imported from other modules, the full reference includes the module namespace using `/` as the separator.
 
 ```comp
 ; Local hierarchy references
@@ -69,9 +69,14 @@ Tags are referenced using reversed hierarchy notation with `.` as the separator 
 @parent = #error.status         ; Parent of timeout
 @root = #status                 ; Root with value "unknown"
 
-; Short forms when unique
-state = #active                    ; If only one 'active' tag exists
-error = #timeout                   ; If unique, no parents needed
+; Short forms when unique - partial name matching
+state = #active                    ; Matches #status.active if unambiguous
+error = #timeout                   ; Matches #error.timeout if unique
+pet = #cat                         ; Matches #animal.pet.cat if only one 'cat'
+
+; Disambiguation with parent context when needed
+@color = #red.color                ; If #red and #red.color both exist
+@fruit = #red.fruit                ; Specify which 'red' is meant
 
 ; Cross-module references with namespace
 @imported = #active.status/other   ; Tag from "other" module
@@ -82,11 +87,13 @@ error = #timeout                   ; If unique, no parents needed
 ```
 
 The reference format follows the pattern `#tag.hierarchy/module` where:
-- `tag` is the most specific tag name
+- `tag` is the most specific tag name (leaf)
 - `hierarchy` (optional) provides parent context for disambiguation
 - `module` (optional) specifies the source module namespace
-- `.` separates hierarchy levels (parent.child)
+- `.` separates hierarchy levels (child.parent.grandparent)
 - `/` separates tag hierarchy from module namespace
+
+Partial name matching uses suffix matching from the tag's full path. The reference `#red` matches any tag whose full path ends with "red" (like `color.red`), and `#red.color` matches any tag ending with `color.red`. Matches must be unambiguous - if multiple tags match the partial name, an error is raised.
 
 ## Automatic Value Generation
 
@@ -155,24 +162,32 @@ The morphing operators (`~`, `*~`, `?~`) handle conversions between primitive ty
 
 This automatic casting makes tags seamless when working with external data sources that use numeric or string codes. JSON APIs returning status codes, database enums, and configuration files can all map naturally to tag hierarchies.
 
-## Hierarchical Comparison and Ordering
+## Tag Equality and Ordering
 
-Tags support comparison operators that respect their hierarchical structure. The ordering operators (`<`, `>`, `<=`, `>=`) establish a total order based on the hierarchy depth and definition order. Parents are less than their children, and siblings are ordered by their definition sequence.
+Tags support equality and ordering comparison operators. Equality (`==`, `!=`) compares tags by identity - two tag references are equal if they refer to the same tag definition. This means tag aliases (different names referring to the same tag) compare as equal.
+
+Ordering operators (`<`, `>`, `<=`, `>=`) establish a lexicographical sort order based on tag names. Tags are compared by their leaf name first, and ties are broken by walking up the hierarchy comparing parent names. This enables natural sorting of tagged data while remaining simple and deterministic.
 
 ```comp
-; Hierarchical ordering
-#status < #error.status              ; true - parent < child
-#error < #timeout.error              ; true - parent < child
-#active < #inactive                  ; true - definition order
+; Equality compares by identity
+#active == #active                  ; true - same tag
+#yes = #true                        ; Create alias
+#yes == #true                       ; true - aliases compare equal
+#active == #inactive                ; false - different tags
 
-; Siblings maintain definition order
-#low < #medium < #high              ; true
+; Lexicographical ordering by name
+#active < #inactive                 ; true - "active" < "inactive"
+#red < #green < #blue              ; true - alphabetical order
 
-; Cross-hierarchy comparison uses root order then depth
-#active.status < #low.priority      ; Depends on root definition order
+; Ties walk up hierarchy
+#alpha.x < #beta.x                  ; true - "alpha" < "beta" (parent comparison)
+#timeout.error < #parse.error       ; true - "timeout" < "parse" (sibling comparison)
+
+; Cross-hierarchy comparisons use root names
+#active.status < #low.priority      ; Depends on "status" vs "priority"
 ```
 
-This ordering enables natural sorting of tagged data and supports range-based operations in the standard library. The comparison is always deterministic and never fails, even for tags from different hierarchies.
+Tag comparison is always deterministic and never fails. For hierarchical relationship testing (parent-child relationships), use functions from the `tag/` standard library like `|is-parent` or `|get-parent` rather than comparison operators.
 
 ## Polymorphic Dispatch
 
@@ -241,6 +256,7 @@ The `tag/` module provides comprehensive utilities for working with tag hierarch
 (#high.priority |value/tag)             ; Returns 99
 
 ; Relationships
+[#timeout.error.status |is-a parent=#status]     ; Returns #true (checks if child is descendant of parent)
 (|is-parent/tag parent=#status child=#error.status)     ; Returns #true
 (|common-ancestor/tag a=#timeout.error b=#active) ; Returns #status
 

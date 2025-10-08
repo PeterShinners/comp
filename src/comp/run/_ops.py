@@ -172,17 +172,18 @@ def _values_equal(left, right):
     """Test if two values are equal (structural equality).
     
     Equality requires same type and same content.
+    Tags are compared by identity - aliases compare as equal.
     Note: For now, we only support basic types (not full struct comparison).
     """
-    # Different types are never equal
+    # Different types cannot be compared - raise error
     if left.is_num != right.is_num:
-        return False
+        raise ValueError(f"Cannot compare equality between different types: {left} and {right}")
     if left.is_str != right.is_str:
-        return False
+        raise ValueError(f"Cannot compare equality between different types: {left} and {right}")
     if left.is_tag != right.is_tag:
-        return False
+        raise ValueError(f"Cannot compare equality between different types: {left} and {right}")
     if left.is_struct != right.is_struct:
-        return False
+        raise ValueError(f"Cannot compare equality between different types: {left} and {right}")
     
     # Same type comparisons
     if left.is_num:
@@ -191,6 +192,7 @@ def _values_equal(left, right):
         return left.str == right.str
     elif left.is_tag:
         # Tag equality is by identity (same TagValue instance)
+        # This means aliases (different names, same tag) compare as equal
         return left.tag is right.tag
     elif left.is_struct:
         # TODO: Implement full struct comparison
@@ -267,23 +269,44 @@ def _compare_total_order(left, right):
             return 0
     
     elif left.is_tag:
-        # Tag ordering: #false < #true, then by tag path
+        # Tag ordering: identity-equal tags are equal (handles aliases)
         if left.tag is right.tag:
             return 0
+        
         # Special case for boolean tags
         if left.tag is builtin.false and right.tag is builtin.true:
             return -1
         if left.tag is builtin.true and right.tag is builtin.false:
             return 1
-        # Other tags: compare by path (lexicographic)
-        left_path = ".".join(left.tag.path)
-        right_path = ".".join(right.tag.path)
-        if left_path < right_path:
-            return -1
-        elif left_path > right_path:
-            return 1
-        else:
-            return 0
+        
+        # Lexicographical comparison: compare leaf names, then walk up hierarchy
+        # Tag identifiers are stored left-to-right (root first)
+        # e.g., ["status", "error", "timeout"] for #timeout.error.status
+        left_id = left.tag.identifier
+        right_id = right.tag.identifier
+        
+        # Compare from leaf (rightmost) to root (leftmost)
+        max_depth = max(len(left_id), len(right_id))
+        for i in range(1, max_depth + 1):
+            # Get component from the right (leaf first)
+            left_component = left_id[-i] if i <= len(left_id) else None
+            right_component = right_id[-i] if i <= len(right_id) else None
+            
+            # If one ran out of components, shorter is less
+            if left_component is None:
+                return -1  # left is shorter (parent)
+            if right_component is None:
+                return 1   # right is shorter (parent)
+            
+            # Compare components lexicographically
+            if left_component < right_component:
+                return -1
+            elif left_component > right_component:
+                return 1
+            # If equal, continue to next level up
+        
+        # All components equal (shouldn't happen if not identity-equal)
+        return 0
     
     elif left.is_struct:
         # TODO: Implement full struct ordering

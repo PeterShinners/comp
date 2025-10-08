@@ -70,12 +70,57 @@ def _lower_func(in_value: _value.Value, arg_value: _value.Value) -> _value.Value
     return in_value
 
 
+def _is_a_func(in_value: _value.Value, arg_value: _value.Value) -> _value.Value:
+    """Check if input tag is-a (child of or equal to) the parent tag in args.
+    
+    Args:
+        in_value: Tag to check (child)
+        arg_value: Struct with 'parent' field containing the parent tag
+        
+    Returns:
+        #true if child is-a parent (including if equal), #false otherwise
+        
+    Examples:
+        [#timeout.error.status |is-a parent=#status]  ; Returns #true
+        [#active.status |is-a parent=#status]          ; Returns #true
+        [#status |is-a parent=#status]                 ; Returns #true (equal)
+        [#red |is-a parent=#status]                    ; Returns #false
+    """
+    # Check if input is a tag
+    if not in_value.is_tag:
+        return _value.Value(_false_tag)
+    
+    # Extract parent tag from arguments
+    if not arg_value.is_struct or not arg_value.struct:
+        return _value.Value(_false_tag)
+    
+    # Find the 'parent' field in the struct
+    parent_value = None
+    for key, val in arg_value.struct.items():
+        if isinstance(key, _value.Value) and key.is_str and key.str == "parent":
+            parent_value = val
+            break
+    
+    if parent_value is None or not parent_value.is_tag:
+        return _value.Value(_false_tag)
+    
+    # Use the existing is_parent_or_equal function
+    result = _tag.is_parent_or_equal(parent_value.tag, in_value.tag)
+    
+    # result >= 0 means parent is an ancestor or equal
+    if result >= 0:
+        return _value.Value(_true_tag)
+    else:
+        return _value.Value(_false_tag)
+
+
 # Registry of builtin functions
 BUILTIN_FUNCS: dict[str, _func.PythonFuncImpl] = {
     "print": _func.PythonFuncImpl(_print_func, "print"),
     "double": _func.PythonFuncImpl(_double_func, "double"),
     "upper": _func.PythonFuncImpl(_upper_func, "upper"),
     "lower": _func.PythonFuncImpl(_lower_func, "lower"),
+    "is-a": _func.PythonFuncImpl(_is_a_func, "is-a"),
 }
 
 # Registry of builtin tag values
