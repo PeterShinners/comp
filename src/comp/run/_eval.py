@@ -1,6 +1,6 @@
 """Expression evaluation for runtime values."""
 
-__all__ = ["evaluate"]
+__all__ = ["evaluate", "is_failure"]
 
 import comp
 from . import _value, _invoke, _assign, _ops
@@ -8,6 +8,28 @@ from . import _value, _invoke, _assign, _ops
 
 def evaluate(expr, module, scopes=None):
     """Evaluate an AST expression to a runtime Value.
+    
+    This is the main entry point for evaluation. It catches all Python exceptions
+    and converts them to Comp failure values instead of letting them escape.
+
+    Args:
+        expr: AST expression node to evaluate
+        module: Module context for resolving references
+        scopes: Scope values dict (in, ctx, mod, arg)
+
+    Returns:
+        Evaluated Value (may be a failure structure if an exception occurred)
+    """
+    try:
+        return _evaluate_impl(expr, module, scopes)
+    except Exception as exc:
+        # Convert Python exceptions to Comp failure structures
+        from . import builtin
+        return builtin.python_exception_to_comp_failure(exc)
+
+
+def _evaluate_impl(expr, module, scopes=None):
+    """Internal implementation of evaluate (without exception handling).
 
     Args:
         expr: AST expression node to evaluate
@@ -34,6 +56,10 @@ def evaluate(expr, module, scopes=None):
     if isinstance(expr, comp.ast.String):
         return _value.Value(expr.value)
 
+    if isinstance(expr, comp.ast.Placeholder):
+        from . import builtin
+        return _value.Value({_value.Unnamed(): builtin.fail_placeholder, "message": "???"})
+
     if isinstance(expr, comp.ast.TagRef):
         # Resolve tag reference with namespace support
         tokens = expr.tokens or []
@@ -46,7 +72,7 @@ def evaluate(expr, module, scopes=None):
         # Unresolved tag reference - raise an error
         tag_name = ".".join(tokens)
         namespace_str = f"{expr.namespace}." if expr.namespace else ""
-        raise ValueError(f"Undefined tag reference: #{namespace_str}{tag_name}")
+        return _fail(f"Undefined tag reference: #{namespace_str}{tag_name}")
 
     # Binary operations
     if isinstance(expr, comp.ast.BinaryOp):
@@ -72,6 +98,8 @@ def evaluate(expr, module, scopes=None):
                     # Nested field assignment - delegate to shared helper
                     if child.value:
                         field_value = evaluate(child.value, module, scopes)
+                        if is_failure(field_value):
+                            return field_value
                         _assign.assign_nested_field(
                             child.key, field_value, fields, module, scopes, evaluate
                         )
@@ -81,12 +109,16 @@ def evaluate(expr, module, scopes=None):
                         # Extract field key using shared helper (always returns Value)
                         key = _assign.extract_field_key(child.key, module, scopes, evaluate)
                         field_value = evaluate(child.value, module, scopes)
+                        if is_failure(field_value):
+                            return field_value
                         # Store in fields dict
                         fields[key] = field_value
             elif isinstance(child, comp.ast.StructSpread):
                 # Handle spread operator
                 if child.value:
                     spread_value = evaluate(child.value, module, scopes)
+                    if is_failure(spread_value):
+                        return spread_value
                     # Merge fields from the spread value
                     if isinstance(spread_value, ChainedScope):
                         # ChainedScope: merge its virtual struct
@@ -99,6 +131,8 @@ def evaluate(expr, module, scopes=None):
                 # Unnamed field: just an expression
                 if child.value:
                     field_value = evaluate(child.value, module, scopes)
+                    if is_failure(field_value):
+                        return field_value
                     # Use Unnamed key
                     fields[_value.Unnamed()] = field_value
 
@@ -137,7 +171,7 @@ def _evaluate_identifier(expr, module, scopes):
         Value from scope lookup
     """
     if not expr.kids:
-        raise ValueError("Empty identifier")
+        return _fail("Empty identifier")
 
     # Check if first field is a scope
     first = expr.kids[0]
@@ -154,7 +188,7 @@ def _evaluate_identifier(expr, module, scopes):
 
         # Get the scope value
         if scope_name not in scopes:
-            raise ValueError(f"Scope {first.value} not defined")
+            return _fail(f"Scope {first.value} not defined")
 
         current_value = scopes[scope_name]
 
@@ -167,14 +201,14 @@ def _evaluate_identifier(expr, module, scopes):
                     field_key = _value.Value(field.value)
                     result = current_value.lookup_field(field_key)
                     if result is None:
-                        raise ValueError(f"Field '{field.value}' not found in chained scope")
+                        return _fail(f"Field '{field.value}' not found in chained scope")
                     current_value = result
                 elif isinstance(field, comp.ast.String):
                     # String field - look up by string value
                     field_key = _value.Value(field.value)
                     result = current_value.lookup_field(field_key)
                     if result is None:
-                        raise ValueError(f"Field '{field.value}' not found in chained scope")
+                        return _fail(f"Field '{field.value}' not found in chained scope")
                     current_value = result
                 elif isinstance(field, comp.ast.IndexField):
                     # Look up by index in ChainedScope
@@ -185,25 +219,25 @@ def _evaluate_identifier(expr, module, scopes):
                         if 0 <= index < len(fields_list):
                             current_value = fields_list[index]
                         else:
-                            raise ValueError(f"Index #{index} out of bounds (scope has {len(fields_list)} fields)")
+                            return _fail(f"Index #{index} out of bounds (scope has {len(fields_list)} fields)")
                     else:
-                        raise ValueError(f"Cannot index empty chained scope")
+                        return _fail(f"Cannot index empty chained scope")
                 elif isinstance(field, comp.ast.ComputeField):
                     # Computed field - evaluate expression to get field key
                     if field.expr:
                         computed_key = evaluate(field.expr, module, scopes)
                         result = current_value.lookup_field(computed_key)
                         if result is None:
-                            raise ValueError(f"Computed field not found in chained scope")
+                            return _fail(f"Computed field not found in chained scope")
                         current_value = result
                     else:
-                        raise ValueError("ComputeField missing expression")
+                        return _fail("ComputeField missing expression")
                 else:
-                    raise ValueError(f"Unsupported field type: {type(field).__name__}")
+                    return _fail(f"Unsupported field type: {type(field).__name__}")
             else:
                 # Regular Value lookup
                 if not current_value.is_struct or not current_value.struct:
-                    raise ValueError("Cannot access field on non-struct value")
+                    return _fail("Cannot access field on non-struct value")
 
                 if isinstance(field, comp.ast.TokenField):
                     # Look up field by name
@@ -211,14 +245,14 @@ def _evaluate_identifier(expr, module, scopes):
                     if field_key in current_value.struct:
                         current_value = current_value.struct[field_key]
                     else:
-                        raise ValueError(f"Field '{field.value}' not found in struct")
+                        return _fail(f"Field '{field.value}' not found in struct")
                 elif isinstance(field, comp.ast.String):
                     # String field - look up by string value
                     field_key = _value.Value(field.value)
                     if field_key in current_value.struct:
                         current_value = current_value.struct[field_key]
                     else:
-                        raise ValueError(f"Field '{field.value}' not found in struct")
+                        return _fail(f"Field '{field.value}' not found in struct")
                 elif isinstance(field, comp.ast.IndexField):
                     # Look up by index (positional access to fields)
                     index = field.value
@@ -227,9 +261,9 @@ def _evaluate_identifier(expr, module, scopes):
                         if 0 <= index < len(fields_list):
                             current_value = fields_list[index]
                         else:
-                            raise ValueError(f"Index #{index} out of bounds (struct has {len(fields_list)} fields)")
+                            return _fail(f"Index #{index} out of bounds (struct has {len(fields_list)} fields)")
                     else:
-                        raise ValueError("Cannot index empty struct")
+                        return _fail("Cannot index empty struct")
                 elif isinstance(field, comp.ast.ComputeField):
                     # Computed field - evaluate expression to get field key
                     if field.expr:
@@ -237,11 +271,11 @@ def _evaluate_identifier(expr, module, scopes):
                         if computed_key in current_value.struct:
                             current_value = current_value.struct[computed_key]
                         else:
-                            raise ValueError("Computed field not found in struct")
+                            return _fail("Computed field not found in struct")
                     else:
-                        raise ValueError("ComputeField missing expression")
+                        return _fail("ComputeField missing expression")
                 else:
-                    raise ValueError(f"Unsupported field type: {type(field).__name__}")
+                    return _fail(f"Unsupported field type: {type(field).__name__}")
 
         return current_value
 
@@ -251,38 +285,38 @@ def _evaluate_identifier(expr, module, scopes):
     if isinstance(first, comp.ast.IndexField):
         # Bare positional access goes directly to $in scope
         if 'in' not in scopes:
-            raise ValueError("$in scope not available")
+            return _fail("$in scope not available")
 
         current_value = scopes['in']
 
         # Handle first field (IndexField)
         if not current_value.is_struct or not current_value.struct:
-            raise ValueError("Cannot index non-struct value in $in")
+            return _fail("Cannot index non-struct value in $in")
 
         index = first.value
         fields_list = list(current_value.struct.values())
         if 0 <= index < len(fields_list):
             current_value = fields_list[index]
         else:
-            raise ValueError(f"Index #{index} out of bounds ($in has {len(fields_list)} fields)")
+            return _fail(f"Index #{index} out of bounds ($in has {len(fields_list)} fields)")
 
         # Walk through remaining fields
         for field in expr.kids[1:]:
             if not current_value.is_struct or not current_value.struct:
-                raise ValueError("Cannot access field on non-struct value")
+                return _fail("Cannot access field on non-struct value")
 
             if isinstance(field, comp.ast.TokenField):
                 field_key = _value.Value(field.value)
                 if field_key in current_value.struct:
                     current_value = current_value.struct[field_key]
                 else:
-                    raise ValueError(f"Field '{field.value}' not found in struct")
+                    return _fail(f"Field '{field.value}' not found in struct")
             elif isinstance(field, comp.ast.String):
                 field_key = _value.Value(field.value)
                 if field_key in current_value.struct:
                     current_value = current_value.struct[field_key]
                 else:
-                    raise ValueError(f"Field '{field.value}' not found in struct")
+                    return _fail(f"Field '{field.value}' not found in struct")
             elif isinstance(field, comp.ast.IndexField):
                 index = field.value
                 if current_value.struct:
@@ -290,20 +324,20 @@ def _evaluate_identifier(expr, module, scopes):
                     if 0 <= index < len(fields_list):
                         current_value = fields_list[index]
                     else:
-                        raise ValueError(f"Index #{index} out of bounds (struct has {len(fields_list)} fields)")
+                        return _fail(f"Index #{index} out of bounds (struct has {len(fields_list)} fields)")
                 else:
-                    raise ValueError("Cannot index empty struct")
+                    return _fail("Cannot index empty struct")
             elif isinstance(field, comp.ast.ComputeField):
                 if field.expr:
                     computed_key = evaluate(field.expr, module, scopes)
                     if computed_key in current_value.struct:
                         current_value = current_value.struct[computed_key]
                     else:
-                        raise ValueError("Computed field not found in struct")
+                        return _fail("Computed field not found in struct")
                 else:
-                    raise ValueError("ComputeField missing expression")
+                    return _fail("ComputeField missing expression")
             else:
-                raise ValueError(f"Unsupported field type: {type(field).__name__}")
+                return _fail(f"Unsupported field type: {type(field).__name__}")
 
         return current_value
 
@@ -312,7 +346,7 @@ def _evaluate_identifier(expr, module, scopes):
     # Note: In pipeline execution, this may be '_value' instead
     scope_key = '_value' if '_value' in scopes else 'unnamed'
     if scope_key not in scopes:
-        raise ValueError("Unnamed scope not available")
+        return _fail("Unnamed scope not available")
 
     current_value = scopes[scope_key]
 
@@ -334,14 +368,14 @@ def _evaluate_identifier(expr, module, scopes):
                             if result is not None:
                                 current_value = result
                                 continue
-                    raise ValueError(f"Field '{field.value}' not found in {scope_key} scope")
+                    return _fail(f"Field '{field.value}' not found in {scope_key} scope")
                 current_value = result
             elif isinstance(field, comp.ast.String):
                 # String field - look up by string value
                 field_key = _value.Value(field.value)
                 result = current_value.lookup_field(field_key)
                 if result is None:
-                    raise ValueError(f"Field '{field.value}' not found in {scope_key} scope")
+                    return _fail(f"Field '{field.value}' not found in {scope_key} scope")
                 current_value = result
             elif isinstance(field, comp.ast.ComputeField):
                 # Computed field - evaluate expression to get field key
@@ -349,16 +383,16 @@ def _evaluate_identifier(expr, module, scopes):
                     computed_key = evaluate(field.expr, module, scopes)
                     result = current_value.lookup_field(computed_key)
                     if result is None:
-                        raise ValueError(f"Computed field not found in {scope_key} scope")
+                        return _fail(f"Computed field not found in {scope_key} scope")
                     current_value = result
                 else:
-                    raise ValueError("ComputeField missing expression")
+                    return _fail("ComputeField missing expression")
             else:
-                raise ValueError(f"Unsupported field type in {scope_key} scope: {type(field).__name__}")
+                return _fail(f"Unsupported field type in {scope_key} scope: {type(field).__name__}")
         else:
             # Regular Value lookup
             if not current_value.is_struct or not current_value.struct:
-                raise ValueError("Cannot access field on non-struct value")
+                return _fail("Cannot access field on non-struct value")
 
             if isinstance(field, comp.ast.TokenField):
                 # Look up field by name
@@ -366,14 +400,14 @@ def _evaluate_identifier(expr, module, scopes):
                 if field_key in current_value.struct:
                     current_value = current_value.struct[field_key]
                 else:
-                    raise ValueError(f"Field '{field.value}' not found in struct")
+                    return _fail(f"Field '{field.value}' not found in struct")
             elif isinstance(field, comp.ast.String):
                 # String field - look up by string value
                 field_key = _value.Value(field.value)
                 if field_key in current_value.struct:
                     current_value = current_value.struct[field_key]
                 else:
-                    raise ValueError(f"Field '{field.value}' not found in struct")
+                    return _fail(f"Field '{field.value}' not found in struct")
             elif isinstance(field, comp.ast.IndexField):
                 # Look up by index (positional access to fields)
                 index = field.value
@@ -382,9 +416,9 @@ def _evaluate_identifier(expr, module, scopes):
                     if 0 <= index < len(fields_list):
                         current_value = fields_list[index]
                     else:
-                        raise ValueError(f"Index #{index} out of bounds (struct has {len(fields_list)} fields)")
+                        return _fail(f"Index #{index} out of bounds (struct has {len(fields_list)} fields)")
                 else:
-                    raise ValueError("Cannot index empty struct")
+                    return _fail("Cannot index empty struct")
             elif isinstance(field, comp.ast.ComputeField):
                 # Computed field - evaluate expression to get field key
                 if field.expr:
@@ -394,11 +428,11 @@ def _evaluate_identifier(expr, module, scopes):
                     else:
                         # Better error message showing what keys exist
                         keys_str = ", ".join(str(k) for k in current_value.struct.keys())
-                        raise ValueError(f"Computed field key {computed_key} not found in struct (available keys: {keys_str})")
+                        return _fail(f"Computed field key {computed_key} not found in struct (available keys: {keys_str})")
                 else:
-                    raise ValueError("ComputeField missing expression")
+                    return _fail("ComputeField missing expression")
             else:
-                raise ValueError(f"Unsupported field type: {type(field).__name__}")
+                return _fail(f"Unsupported field type: {type(field).__name__}")
 
     return current_value
 
@@ -420,32 +454,24 @@ def _evaluate_pipeline(pipeline, module, scopes):
     else:
         # Unseeded pipeline - start with $in
         current_value = scopes.get('in', _value.Value(None))
+    current_fail = is_failure(current_value)
 
     # Execute each pipeline operation in sequence
     for operation in pipeline.operations:
-        if isinstance(operation, comp.ast.PipeFunc):
-            # Function invocation: |func or |func {args}
-            current_value = _execute_pipe_func(operation, current_value, module, scopes)
-        elif isinstance(operation, comp.ast.PipeFallback):
-            # Fallback operator: |? expr
-            # If current value is a failure, evaluate the fallback expression
-            if _is_failure(current_value):
-                # Fallback gets the ORIGINAL input, not the failure
-                # For now, we'll just evaluate the fallback expression with current scopes
-                current_value = evaluate(operation.fallback, module, scopes)
-        elif isinstance(operation, comp.ast.PipeStruct):
-            # Inline struct transformation: |{field = expr}
-            current_value = _execute_pipe_struct(operation, current_value, module, scopes)
-        elif isinstance(operation, comp.ast.PipeBlock):
-            # Block invocation: |: block
-            # Not implemented yet
-            raise NotImplementedError("PipeBlock not yet implemented")
-        elif isinstance(operation, comp.ast.PipeWrench):
-            # Pipeline modifier: |-| func
-            # Not implemented yet
-            raise NotImplementedError("PipeWrench not yet implemented")
+        if not current_fail:
+            if isinstance(operation, comp.ast.PipeFunc):
+                current_value = _execute_pipe_func(operation, current_value, module, scopes)
+                current_fail = is_failure(current_value)
+            elif isinstance(operation, comp.ast.PipeStruct):
+                current_value = _execute_pipe_struct(operation, current_value, module, scopes)
+                current_fail = is_failure(current_value)
+            elif isinstance(operation, (comp.ast.PipeBlock, comp.ast.PipeWrench)):
+                raise NotImplementedError(f"Pipeline op {operation} not yet implemented")
+
         else:
-            raise ValueError(f"Unknown pipeline operation: {type(operation).__name__}")
+            if isinstance(operation, comp.ast.PipeFallback):
+                current_value = evaluate(operation.fallback, current_value, scopes)
+                current_fail = is_failure(current_value)
 
     return current_value
 
@@ -465,7 +491,7 @@ def _execute_pipe_func(pipe_func, input_value, module, scopes):
     # Get the function reference
     func_ref = pipe_func.func
     if not isinstance(func_ref, comp.ast.FuncRef):
-        raise ValueError(f"Expected FuncRef in PipeFunc, got {type(func_ref).__name__}")
+        return _fail(f"Expected FuncRef in PipeFunc, got {type(func_ref).__name__}")
 
     # Look up the function using namespace resolution
     tokens = func_ref.tokens or []
@@ -474,7 +500,7 @@ def _execute_pipe_func(pipe_func, input_value, module, scopes):
     if not func_def:
         func_name = ".".join(tokens)
         namespace_str = f"/{func_ref.namespace}" if func_ref.namespace else ""
-        raise ValueError(f"Function '|{func_name}{namespace_str}' not found")
+        return _fail(f"Function '|{func_name}{namespace_str}' not found")
 
     # Create a new scope context for evaluating arguments
     # The pipeline value should be available as $in when evaluating args
@@ -547,17 +573,26 @@ def _execute_pipe_struct(pipe_struct, input_value, module, scopes):
     return result
 
 
-def _is_failure(value):
-    """Check if a value represents a failure (has #fail tag).
+def is_failure(value):
+    """Check if a value represents a failure.
 
     Args:
         value: Value to check
 
     Returns:
-        True if value is a failure
+        True if value is a tag that is-a #fail
     """
-    # For now, just return False - we'll implement proper failure detection later
-    # when we have tag support in the runtime
+    from . import _tag, builtin
+    
+    # Check if this value is a failure tag (almost want to remove this, it should never happen)
+    if value.is_tag and _tag.is_parent_or_equal(builtin.fail, value.tag) >= 0:
+        return True
+    # Or if a structure that cointains a failure tag
+    elif value.is_struct:
+        for val in value.struct.values():
+            if val.is_tag and _tag.is_parent_or_equal(builtin.fail, val.tag) >= 0:
+                return True
+
     return False
 
 
@@ -625,3 +660,13 @@ class ChainedScope:
 
     def __repr__(self) -> str:
         return f"ChainedScope({len(self.scopes)} scopes)"
+
+
+
+def _fail(msg):
+    """Helper to create an operator failure value."""
+    from . import builtin
+    return _value.Value({
+        _value.Unnamed(): builtin.fail_runtime,
+        "message": msg,
+    })

@@ -115,12 +115,8 @@ def test_pipeline_errors(key, expr, error_match, module, scopes):
     ast = comp.parse_expr(expr)
     pipeline = ast.find(comp.ast.Pipeline)
     
-    with pytest.raises(Exception) as exc_info:
-        comp.run._eval.evaluate(pipeline, module, scopes)
-    
-    if error_match:
-        import re
-        assert re.search(error_match, str(exc_info.value), re.IGNORECASE)
+    val = comp.run._eval.evaluate(pipeline, module, scopes)
+    runtest.assert_fails(val, match=error_match)
 
 
 @runtest.params(
@@ -141,12 +137,8 @@ def test_pipeline_errors(key, expr, error_match, module, scopes):
 )
 def test_pipeline_function_errors(key, code, input_data, error_match):
     """Test pipeline function invocation errors."""
-    with pytest.raises(Exception) as exc_info:
-        runtest.run_function(code, "test", input_data)
-    
-    if error_match:
-        import re
-        assert re.search(error_match, str(exc_info.value), re.IGNORECASE)
+    val = runtest.run_function(code, "test", input_data)
+    runtest.assert_fails(val, match=error_match)
 
 
 @runtest.params(

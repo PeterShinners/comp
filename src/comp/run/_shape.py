@@ -1,6 +1,6 @@
 """Build runtime shape structures from AST nodes."""
 
-__all__ = ["ShapeDef", "ShapeField"]
+__all__ = ["ShapeDef", "ShapeField", "ShapeType", "ShapeRef", "ShapeTagRef", "ShapeInline", "ShapeUnion"]
 
 import comp
 
@@ -28,7 +28,7 @@ class ShapeDef:
             self.shape.resolve(module)
 
         # Resolve each field's shape type
-        for _field_name, field in self.fields.items():
+        for _field_name, field in list(self.fields.items()):
             if field.shape:
                 field.shape.resolve(module)
                 # Expand fields from referenced shapes
@@ -52,7 +52,7 @@ class ShapeDef:
                         # Local reference
                         target_shape.resolve(module)
                 # Copy fields from referenced shape
-                for field_name, field in target_shape.fields.items():
+                for field_name, field in list(target_shape.fields.items()):
                     if field_name not in self.fields:
                         self.fields[field_name] = field
 
@@ -237,7 +237,7 @@ def _build_shape_from_ast(shape_node: comp.ast.Node, mod) -> ShapeType:
         variants = [_build_shape_from_ast(variant, mod) for variant in shape_node.kids]
         return ShapeUnion(variants)
     else:
-        raise ValueError(f"Unknown shape AST node type: {type(shape_node)}")
+        return _fail(f"Unknown shape AST node type: {type(shape_node)}")
 
 
 def _build_inline_shape(inline_node: comp.ast.ShapeInline, mod) -> ShapeInline:
@@ -328,3 +328,12 @@ def populate_shape_def_fields(shp_def, ast_node, mod):
 
     shp_def.fields.update(fields)
 
+
+
+def _fail(msg):
+    """Helper to create an operator failure value."""
+    from . import builtin
+    return _value.Value({
+        _value.Unnamed(): builtin.fail_runtime,
+        "message": msg,
+    })

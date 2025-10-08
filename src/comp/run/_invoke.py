@@ -22,7 +22,7 @@ def invoke(func, mod, input_value=None, ctx_value=None, mod_value=None, arg_valu
     """
     # For now, just use the first implementation
     if not func.implementations:
-        raise ValueError(f"Function {func.name} has no implementations")
+        return _fail(f"Function {func.name} has no implementations")
 
     impl = func.implementations[0]
 
@@ -111,6 +111,8 @@ def _execute_structure(struct_node, mod, scopes):
                         field_name = child.key.kids[1].value
                         if child.value:
                             field_value = _eval.evaluate(child.value, mod, scopes)
+                            if _eval.is_failure(field_value):
+                                return field_value
 
                             # Update local scope: spread existing locals, add new field
                             new_local_fields: dict[_value.Value | _value.Unnamed, _value.Value] = {}
@@ -137,6 +139,8 @@ def _execute_structure(struct_node, mod, scopes):
                 # Nested field assignment
                 if child.value:
                     field_value = _eval.evaluate(child.value, mod, scopes)
+                    if _eval.is_failure(field_value):
+                        return field_value
 
                     # Check if first field is a scope reference
                     first_field = child.key.kids[0]
@@ -150,10 +154,10 @@ def _execute_structure(struct_node, mod, scopes):
                         elif scope_symbol == '^':
                             scope_name = 'chained'
                         else:
-                            raise ValueError(f"Unknown scope: {scope_symbol}")
+                            return _fail(f"Unknown scope: {scope_symbol}")
 
                         if scope_name not in scopes:
-                            raise ValueError(f"Scope {scope_symbol} not defined")
+                            return _fail(f"Scope {scope_symbol} not defined")
 
                         # Only allow mutation of ctx, mod, arg, local scopes
                         if scope_name in ('ctx', 'mod', 'arg', 'local'):
@@ -181,7 +185,7 @@ def _execute_structure(struct_node, mod, scopes):
                                     scopes['arg'], scopes['ctx'], scopes['mod']
                                 )
                         else:
-                            raise ValueError(f"Cannot assign to immutable scope {scope_symbol}")
+                            return _fail(f"Cannot assign to immutable scope {scope_symbol}")
                     else:
                         # Unscoped nested assignment (e.g., account.active = 1)
                         # Use the shared helper
@@ -207,6 +211,8 @@ def _execute_structure(struct_node, mod, scopes):
                         # Only allow mutation of ctx, mod, arg (not in, out)
                         if scope_name in ('ctx', 'mod', 'arg') and child.value:
                             field_value = _eval.evaluate(child.value, mod, scopes)
+                            if _eval.is_failure(field_value):
+                                return field_value
                             # Update the scope
                             scopes[scope_name] = field_value
                             # Recreate chained scope with updated values
@@ -219,6 +225,8 @@ def _execute_structure(struct_node, mod, scopes):
                         # Extract field key using shared helper (always returns Value)
                         key = _assign.extract_field_key(child.key, mod, scopes, _eval.evaluate)
                         field_value = _eval.evaluate(child.value, mod, scopes)
+                        if _eval.is_failure(field_value):
+                            return field_value
                         fields[key] = field_value
                         # Update $out scope after adding field
                         update_out_scope()
@@ -227,6 +235,8 @@ def _execute_structure(struct_node, mod, scopes):
             # Unnamed field: just an expression
             if child.value:
                 field_value = _eval.evaluate(child.value, mod, scopes)
+                if _eval.is_failure(field_value):
+                    return field_value
                 # Use Unnamed key
                 fields[_value.Unnamed()] = field_value
                 # Update $out scope after adding field
@@ -236,6 +246,8 @@ def _execute_structure(struct_node, mod, scopes):
             # Spread operator: ..expr
             if child.value:
                 spread_value = _eval.evaluate(child.value, mod, scopes)
+                if _eval.is_failure(spread_value):
+                    return spread_value
 
                 # Handle both regular Values and ChainedScope
                 if isinstance(spread_value, _eval.ChainedScope):
@@ -253,3 +265,13 @@ def _execute_structure(struct_node, mod, scopes):
     result = _value.Value(None)  # Creates empty struct
     result.struct = fields
     return result
+
+
+
+def _fail(msg):
+    """Helper to create an operator failure value."""
+    from . import builtin
+    return _value.Value({
+        _value.Unnamed(): builtin.fail_runtime,
+        "message": msg,
+    })

@@ -39,8 +39,8 @@ def test_binary_math(key, expr, result, module, scopes):
     func = comp.run._eval.evaluate
     if result is None:
         # Parse succeeded but we expect runtime error
-        with pytest.raises((ZeroDivisionError, ValueError)):
-            comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
+        val = comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
+        runtest.assert_fails(val)
     else:
         value = comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
         expected = comp.run.Value(result)
@@ -74,8 +74,8 @@ def test_unary_math(key, expr, result, module, scopes):
     func = comp.run._eval.evaluate
     if result is None:
         # Parse succeeded but we expect runtime error
-        with pytest.raises(ValueError):
-            comp.run._ops.evaluate_unary_op(ast, module, scopes, func)
+        val = comp.run._ops.evaluate_unary_op(ast, module, scopes, func)
+        runtest.assert_fails(val)
     else:
         value = comp.run._ops.evaluate_unary_op(ast, module, scopes, func)
         expected = comp.run.Value(result)
@@ -106,8 +106,8 @@ def test_binary_boolean(key, expr, result, module, scopes):
 
     func = comp.run._eval.evaluate
     if result is None:
-        with pytest.raises(ValueError):
-            comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
+        val = comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
+        runtest.assert_fails(val)
     else:
         value = comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
         expected = comp.run.Value(result)
@@ -128,8 +128,8 @@ def test_unary_boolean(key, expr, result, module, scopes):
 
     func = comp.run._eval.evaluate
     if result is None:
-        with pytest.raises(ValueError):
-            comp.run._ops.evaluate_unary_op(ast, module, scopes, func)
+        val = comp.run._ops.evaluate_unary_op(ast, module, scopes, func)
+        runtest.assert_fails(val)
     else:
         value = comp.run._ops.evaluate_unary_op(ast, module, scopes, func)
         expected = comp.run.Value(result)
@@ -154,8 +154,8 @@ def test_binary_equality(key, expr, result, module, scopes):
 
     func = comp.run._eval.evaluate
     if result is None:
-        with pytest.raises(ValueError):
-            comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
+        val = comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
+        runtest.assert_fails(val)
     else:
         value = comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
         expected = comp.run.Value(result)
@@ -182,8 +182,8 @@ def test_binary_sort(key, expr, result, module, scopes):
 
     func = comp.run._eval.evaluate
     if result is None:
-        with pytest.raises(ValueError):
-            comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
+        val = comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
+        runtest.assert_fails(val)
     else:
         value = comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
         expected = comp.run.Value(result)
@@ -202,8 +202,8 @@ def test_precedence(key, expr, result, module, scopes):
     ops = ast.kids[0]
 
     if result is None:
-        with pytest.raises(ValueError):
-            comp.run.evaluate(ops, module, scopes)
+        val = comp.run.evaluate(ops, module, scopes)
+        runtest.assert_fails(val)
     else:
         value = comp.run.evaluate(ops, module, scopes)
         expected = comp.run.Value(result)
@@ -225,8 +225,8 @@ def test_short_circuit(key, expr, result, module, scopes):
 
     func = comp.run._eval.evaluate
     if result is None:
-        with pytest.raises(decimal.DivisionUndefined):
-            comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
+        val = comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
+        runtest.assert_fails(val)
     else:
         value = comp.run._ops.evaluate_binary_op(ast, module, scopes, func)
         expected = comp.run.Value(result)

@@ -2,6 +2,7 @@
 
 __all__ = ["evaluate_binary_op", "evaluate_unary_op"]
 
+import decimal
 from . import _value, builtin
 
 
@@ -22,38 +23,48 @@ def evaluate_binary_op(expr, module, scopes, evaluate_func):
     
     Returns:
         Result Value from applying the operator
-        
-    Raises:
-        ValueError: If the operator cannot be applied to the operand types
     """
+    from . import _eval
     # Boolean operators - short-circuit evaluation
     if expr.op == "&&":
         left = evaluate_func(expr.left, module, scopes)
+        if _eval.is_failure(left):
+            return left
         if not _is_boolean_tag(left):
-            raise ValueError(f"Boolean operator && requires boolean operands, got {left}")
+            return _fail(f"Boolean operator && requires boolean operands, got {left}")
         # Short-circuit: if left is false, return false without evaluating right
         if left.tag is builtin.false:
             return left
         right = evaluate_func(expr.right, module, scopes)
+        if _eval.is_failure(right):
+            return right
         if not _is_boolean_tag(right):
-            raise ValueError(f"Boolean operator && requires boolean operands, got {right}")
+            return _fail(f"Boolean operator && requires boolean operands, got {right}")
         return right
     
     elif expr.op == "||":
         left = evaluate_func(expr.left, module, scopes)
+        if _eval.is_failure(left):
+            return left
         if not _is_boolean_tag(left):
-            raise ValueError(f"Boolean operator || requires boolean operands, got {left}")
+            return _fail(f"Boolean operator || requires boolean operands, got {left}")
         # Short-circuit: if left is true, return true without evaluating right
         if left.tag is builtin.true:
             return left
         right = evaluate_func(expr.right, module, scopes)
+        if _eval.is_failure(right):
+            return right
         if not _is_boolean_tag(right):
-            raise ValueError(f"Boolean operator || requires boolean operands, got {right}")
+            return _fail(f"Boolean operator || requires boolean operands, got {right}")
         return right
     
     # For all other operators, evaluate both operands
     left = evaluate_func(expr.left, module, scopes)
+    if _eval.is_failure(left):
+        return left
     right = evaluate_func(expr.right, module, scopes)
+    if _eval.is_failure(right):
+        return right
     
     # Comparison operators
     if expr.op in ("==", "!=", "<", "<=", ">", ">="):
@@ -68,9 +79,11 @@ def evaluate_binary_op(expr, module, scopes, evaluate_func):
         elif expr.op == "*":
             return _value.Value(left.num * right.num)
         elif expr.op == "/":
-            return _value.Value(left.num / right.num)
-        elif expr.op == "//":
-            return _value.Value(left.num // right.num)
+            try:
+                return _value.Value(left.num / right.num)
+            except (decimal.DivisionUndefined, ZeroDivisionError):
+                return _fail(f"Division by zero")
+
         elif expr.op == "%":
             return _value.Value(left.num % right.num)
         elif expr.op == "**":
@@ -80,7 +93,7 @@ def evaluate_binary_op(expr, module, scopes, evaluate_func):
     if expr.op == "+" and left.is_str and right.is_str:
         return _value.Value(left.str + right.str)
 
-    raise ValueError(f"Cannot apply operator {expr.op} to {left} and {right}")
+    return _fail(f"Cannot apply operator {expr.op} to {left} and {right}")
 
 
 def evaluate_unary_op(expr, module, scopes, evaluate_func):
@@ -107,7 +120,7 @@ def evaluate_unary_op(expr, module, scopes, evaluate_func):
     if expr.op == "!!":
         # Logical NOT on booleans
         if not _is_boolean_tag(operand):
-            raise ValueError(f"Logical NOT (!!) requires boolean operand, got {operand}")
+            return _fail(f"Logical NOT (!!) requires boolean operand, got {operand}")
         if operand.tag is builtin.true:
             return _value.Value(builtin.false)
         else:
@@ -119,7 +132,7 @@ def evaluate_unary_op(expr, module, scopes, evaluate_func):
         elif expr.op == "+":
             return _value.Value(+operand.num)
 
-    raise ValueError(f"Cannot apply unary operator {expr.op} to {operand}")
+    return _fail(f"Cannot apply unary operator {expr.op} to {operand}")
 
 
 def _is_boolean_tag(value):
@@ -143,19 +156,24 @@ def _compare_values(left, right, op):
     Returns:
         Value containing #true or #false tag
     """
+    from . import _eval
     # Equality operators
     if op == "==":
         result = _values_equal(left, right)
+        if not isinstance(result, bool) and _eval.is_failure(result):
+            return result
         return _value.Value(builtin.true if result else builtin.false)
     
     elif op == "!=":
         result = _values_equal(left, right)
+        if not isinstance(result, bool) and _eval.is_failure(result):
+            return result
         return _value.Value(builtin.false if result else builtin.true)
     
     # Ordering operators - use total ordering
     # Type ordering: {} < #false < #true < numbers < strings < non-empty structs < other tags
     cmp_result = _compare_total_order(left, right)
-    
+
     if op == "<":
         return _value.Value(builtin.true if cmp_result < 0 else builtin.false)
     elif op == "<=":
@@ -165,7 +183,7 @@ def _compare_values(left, right, op):
     elif op == ">=":
         return _value.Value(builtin.true if cmp_result >= 0 else builtin.false)
     
-    raise ValueError(f"Unknown comparison operator: {op}")
+    return _fail(f"Unknown comparison operator: {op}")
 
 
 def _values_equal(left, right):
@@ -177,13 +195,13 @@ def _values_equal(left, right):
     """
     # Different types cannot be compared - raise error
     if left.is_num != right.is_num:
-        raise ValueError(f"Cannot compare equality between different types: {left} and {right}")
+        return _fail(f"Cannot compare equality between different types: {left} and {right}")
     if left.is_str != right.is_str:
-        raise ValueError(f"Cannot compare equality between different types: {left} and {right}")
+        return _fail(f"Cannot compare equality between different types: {left} and {right}")
     if left.is_tag != right.is_tag:
-        raise ValueError(f"Cannot compare equality between different types: {left} and {right}")
+        return _fail(f"Cannot compare equality between different types: {left} and {right}")
     if left.is_struct != right.is_struct:
-        raise ValueError(f"Cannot compare equality between different types: {left} and {right}")
+        return _fail(f"Cannot compare equality between different types: {left} and {right}")
     
     # Same type comparisons
     if left.is_num:
@@ -319,3 +337,11 @@ def _compare_total_order(left, right):
             return 0
     
     return 0
+
+
+def _fail(msg):
+    """Helper to create an operator failure value."""
+    return _value.Value({
+        _value.Unnamed(): builtin.fail_runtime,
+        "message": msg,
+    })

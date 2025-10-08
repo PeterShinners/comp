@@ -40,8 +40,8 @@ def test_assignments(key, expr, result, mixed_data, module, scopes):
     func = comp.run._eval.evaluate
     wrapped = {comp.run.Value("x"): mixed_data}
     if result is None:
-        with pytest.raises(Exception):
-            comp.run._assign.assign_nested_field(ident, value, wrapped, module, scopes, func)
+        comp.run._assign.assign_nested_field(ident, value, wrapped, module, scopes, func)
+        runtest.assert_fails(comp.run.Value(wrapped))
     else:
         comp.run._assign.assign_nested_field(ident, value, wrapped, module, scopes, func)
         rep = repr(mixed_data)

@@ -58,7 +58,7 @@ import comp
         },
     ),
 )
-def test_shape_definitions(code, expected_shapes):
+def test_shape_definitions(key, code, expected_shapes):
     """Test basic shape definitions with various field types."""
     module = runtest.module_from_code(code)
     for shape_name, expected in expected_shapes.items():
@@ -90,7 +90,7 @@ def test_shape_definitions(code, expected_shapes):
         4,
     ),
 )
-def test_shape_spread(code, shape_name, expected_field_count):
+def test_shape_spread(key, code, shape_name, expected_field_count):
     """Test shape spreading and inheritance."""
     module = runtest.module_from_code(code)
     assert shape_name in module.shapes
@@ -128,7 +128,7 @@ def test_shape_spread(code, shape_name, expected_field_count):
         lambda shape: shape.shape is not None,
     ),
 )
-def test_shape_unions(code, shape_name, verify_union):
+def test_shape_unions(key, code, shape_name, verify_union):
     """Test shape union definitions."""
     module = runtest.module_from_code(code)
     assert shape_name in module.shapes
@@ -155,7 +155,7 @@ def test_shape_unions(code, shape_name, verify_union):
         "role",
     ),
 )
-def test_shape_tag_fields(code, shape_name):
+def test_shape_tag_fields(key, code, shape_name):
     """Test shapes with tag-typed fields."""
     module = runtest.module_from_code(code)
 

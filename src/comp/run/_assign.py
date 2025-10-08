@@ -37,17 +37,17 @@ def extract_field_key(identifier_node, module, scopes, evaluate_func):
         ValueError: If the identifier is not a simple single-field key
     """
     if not isinstance(identifier_node, comp.ast.Identifier):
-        raise ValueError(f"Expected Identifier, got {type(identifier_node).__name__}")
+        return _fail(f"Expected Identifier, got {type(identifier_node).__name__}")
     
     if len(identifier_node.kids) != 1:
-        raise ValueError(f"Expected single field in identifier, got {len(identifier_node.kids)}")
+        return _fail(f"Expected single field in identifier, got {len(identifier_node.kids)}")
     
     first_field = identifier_node.kids[0]
     
     # Handle ComputeField: [expr]
     if isinstance(first_field, comp.ast.ComputeField):
         if not first_field.expr:
-            raise ValueError("ComputeField missing expression")
+            return _fail("ComputeField missing expression")
         return evaluate_func(first_field.expr, module, scopes)
     
     # Handle TokenField: simple_name
@@ -58,7 +58,7 @@ def extract_field_key(identifier_node, module, scopes, evaluate_func):
     if isinstance(first_field, comp.ast.String):
         return _value.Value(first_field.value)
     
-    raise ValueError(f"Unsupported simple field type: {type(first_field).__name__}")
+    return _fail(f"Unsupported simple field type: {type(first_field).__name__}")
 
 
 def assign_nested_field(identifier_node, field_value, target_dict, module, scopes, evaluate_func):
@@ -87,11 +87,16 @@ def assign_nested_field(identifier_node, field_value, target_dict, module, scope
     Raises:
         ValueError: If the path is invalid or contains unsupported field types
     """
+    from . import _eval
     if not isinstance(identifier_node, comp.ast.Identifier):
-        raise ValueError(f"Expected Identifier, got {type(identifier_node).__name__}")
+        target_dict.clear()
+        target_dict.update(_fail(f"Expected Identifier, got {type(identifier_node).__name__}").struct)
+        return
     
     if len(identifier_node.kids) < 2:
-        raise ValueError("Nested assignment requires at least 2 fields in path")
+        target_dict.clear()
+        target_dict.update(_fail("Nested assignment requires at least 2 fields in path").struct)
+        return 
     
     # Determine if we're starting from a scope
     first_field = identifier_node.kids[0]
@@ -99,7 +104,9 @@ def assign_nested_field(identifier_node, field_value, target_dict, module, scope
     
     if is_scoped:
         # Scoped nested assignments in function bodies are handled separately in _invoke.py
-        raise ValueError("Scoped nested assignments should be handled by caller")
+        target_dict.clear()
+        target_dict.update(_fail("Scoped nested assignments should be handled by caller").struct)
+        return 
     
     # Determine which fields to walk and which is final
     walk_fields = identifier_node.kids[:-1]
@@ -110,6 +117,10 @@ def assign_nested_field(identifier_node, field_value, target_dict, module, scope
     # Walk through intermediate fields, creating structures as needed
     for field_node in walk_fields:
         field_key = _extract_single_field_key(field_node, current_dict, module, scopes, evaluate_func)
+        if _eval.is_failure(field_key):
+            target_dict.clear()
+            target_dict.update(field_key.struct)
+            return
         
         if field_key in current_dict:
             # Field exists, navigate into it
@@ -134,6 +145,11 @@ def assign_nested_field(identifier_node, field_value, target_dict, module, scope
     
     # Set the final field
     final_key = _extract_single_field_key(final_field, current_dict, module, scopes, evaluate_func)
+    if not isinstance(final_key, _value.Unnamed) and _eval.is_failure(final_key):
+        target_dict.clear()
+        target_dict.update(final_key.struct)
+        return
+
     current_dict[final_key] = field_value
 
 
@@ -163,20 +179,31 @@ def _extract_single_field_key(field_node, current_dict, module, scopes, evaluate
         # Index field: get the Nth key from current dict
         index = field_node.value
         if not current_dict:
-            raise ValueError("Cannot index empty struct in assignment")
+            return _fail("Cannot index empty struct in assignment")
         
-        keys_list = list(current_dict.keys())
-        if not (0 <= index < len(keys_list)):
-            raise ValueError(f"Index #{index} out of bounds (struct has {len(keys_list)} fields)")
+        if not (0 <= index < len(current_dict)):
+            return _fail(f"Index #{index} out of bounds (struct has {len(current_dict)} fields)")
         
+        keys_list = list(current_dict)
         return keys_list[index]
     
     elif isinstance(field_node, comp.ast.ComputeField):
         # Computed field: evaluate expression to get key
         if not field_node.expr:
-            raise ValueError("ComputeField missing expression")
+            return _fail("ComputeField missing expression")
         
         return evaluate_func(field_node.expr, module, scopes)
     
     else:
-        raise ValueError(f"Unsupported field type in nested assignment: {type(field_node).__name__}")
+        return _fail(f"Unsupported field type in nested assignment: {type(field_node).__name__}")
+
+
+
+
+def _fail(msg):
+    """Helper to create an operator failure value."""
+    from . import builtin
+    return _value.Value({
+        _value.Unnamed(): builtin.fail_runtime,
+        "message": msg,
+    })

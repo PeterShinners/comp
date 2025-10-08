@@ -18,6 +18,11 @@ _break_tag = _tag.TagValue(["break"], "builtin")
 _fail_tag = _tag.TagValue(["fail"], "builtin")
 _fail_syntax_tag = _tag.TagValue(["fail", "syntax"], "builtin")
 _fail_missing_tag = _tag.TagValue(["fail", "missing"], "builtin")
+_fail_type_tag = _tag.TagValue(["fail", "type"], "builtin")
+_fail_value_tag = _tag.TagValue(["fail", "value"], "builtin")
+_fail_index_tag = _tag.TagValue(["fail", "index"], "builtin")
+_fail_runtime_tag = _tag.TagValue(["fail", "runtime"], "builtin")
+_fail_placeholder_tag = _tag.TagValue(["fail", "placeholder"], "builtin")
 
 
 # Expose as backwards-compatible names
@@ -28,6 +33,11 @@ break_ = _break_tag
 fail = _fail_tag
 fail_syntax = _fail_syntax_tag
 fail_missing = _fail_missing_tag
+fail_type = _fail_type_tag
+fail_value = _fail_value_tag
+fail_index = _fail_index_tag
+fail_runtime = _fail_runtime_tag
+fail_placeholder = _fail_placeholder_tag
 
 nil = _value.Value({})
 
@@ -133,11 +143,63 @@ BUILTIN_TAGS: dict[str, _value.Value] = {
     "fail": _value.Value(_fail_tag),
     "fail.syntax": _value.Value(_fail_syntax_tag),
     "fail.missing": _value.Value(_fail_missing_tag),
+    "fail.type": _value.Value(_fail_type_tag),
+    "fail.value": _value.Value(_fail_value_tag),
+    "fail.index": _value.Value(_fail_index_tag),
+    "fail.runtime": _value.Value(_fail_runtime_tag),
+    "fail.placeholder": _value.Value(_fail_runtime_tag),
 }
 
 
 # Shared builtin module instance
 _builtin_module = None
+
+
+def python_exception_to_comp_failure(exc: Exception) -> _value.Value:
+    """Convert a Python exception to a Comp failure structure.
+    
+    Creates a struct with a failure tag as the first unnamed field, followed by
+    error details in named fields.
+    
+    Args:
+        exc: Python exception to convert
+        
+    Returns:
+        Value with structure: {#fail.type message ~str type ~str}
+        The failure tag is stored as an unnamed field, with message and type as named fields.
+        
+    Examples:
+        ValueError("bad value") -> {#fail.value message="bad value" type="ValueError"}
+        TypeError("wrong type") -> {#fail.type message="wrong type" type="TypeError"}
+        IndexError("out of bounds") -> {#fail.index message="out of bounds" type="IndexError"}
+    """
+    # Determine the appropriate failure tag based on exception type
+    if isinstance(exc, (TypeError, AttributeError)):
+        fail_tag = _fail_type_tag
+    elif isinstance(exc, (ValueError, KeyError)):
+        fail_tag = _fail_value_tag
+    elif isinstance(exc, (IndexError)):
+        fail_tag = _fail_index_tag
+    elif isinstance(exc, NotImplementedError):
+        fail_tag = _fail_runtime_tag
+    else:
+        # Default to generic #fail.runtime for unknown exception types
+        fail_tag = _fail_runtime_tag
+    
+    # Build the failure structure with the tag as the first unnamed field
+    failure_struct = {
+        _value.Unnamed(): fail_tag,
+        "message": str(exc),
+        "type": type(exc).__name__,
+    }
+    
+    # Add traceback details if available (optional, commented out for now to keep structs simpler)
+    # tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
+    # if tb_lines:
+    #     failure_struct[_value.Value("traceback")] = _value.Value("".join(tb_lines))
+    
+    failure_value = _value.Value(failure_struct)
+    return failure_value
 
 
 def get_builtin_module() -> _mod.Module:
@@ -155,8 +217,13 @@ def get_builtin_module() -> _mod.Module:
         for name, tag_value in BUILTIN_TAGS.items():
             # Split dotted names into identifier list (e.g., "fail.syntax" -> ["fail", "syntax"])
             identifier = name.split(".")
-            tagdef = _tag.TagDef(identifier=identifier)
+            tagdef = _tag.TagDef(identifier=identifier, namespace="builtin")
             tagdef.value = tag_value
+            # CRITICAL: Override the tag_value created in TagDef.__init__ with our singleton
+            # This ensures identity checks (value.tag is builtin.true) work correctly
+            # The tag_value in BUILTIN_TAGS is a Value wrapping a TagValue
+            if tag_value.is_tag:
+                tagdef.tag_value = tag_value.tag  # type: ignore[misc]
             _builtin_module.tags[name] = tagdef
 
         # Add builtin functions

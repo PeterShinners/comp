@@ -38,6 +38,31 @@ def params(names, **cases):
     return pytest.mark.parametrize(columns, params, ids=keys)
 
 
+def assert_fails(value, match=None):
+    """Assert that a value is a failure struct, optionally checking the tag.
+
+    Args:
+        value: A comp.run.Value to check
+
+    Raises:
+        AssertionError if value is not a failure struct or tag doesn't match
+
+    Example:
+        result = run_function(code, "test-func")
+        assert_fails(result)
+    """
+    assert comp.run.is_failure(value)
+    if match:
+        msg = None
+        if value.is_struct:
+            message = value.struct.get(comp.run.Value("message"))
+            if message and message.is_str:
+                msg = message.str
+        if msg is not None:
+            assert re.search(match, msg, re.IGNORECASE)
+    return value
+    
+
 def eval_binary_op(left, op, right):
     """Evaluate a binary operation directly using internal functions.
     
