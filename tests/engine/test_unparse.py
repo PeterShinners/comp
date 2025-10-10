@@ -1,9 +1,17 @@
 """Test unparse() methods on new AST nodes."""
 
-from src.comp.engine.ast import (
-    Number, String,
-    ArithmeticOp, ComparisonOp, BooleanOp, UnaryOp,
-    Identifier, ScopeField, TokenField, IndexField, ComputeField,
+from comp.engine.ast import (
+    ArithmeticOp,
+    BooleanOp,
+    ComparisonOp,
+    ComputeField,
+    Identifier,
+    IndexField,
+    Number,
+    ScopeField,
+    String,
+    TokenField,
+    UnaryOp,
 )
 
 

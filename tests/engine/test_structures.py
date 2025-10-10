@@ -1,12 +1,19 @@
 """Test structure literal evaluation."""
 
-from src.comp.engine.engine import Engine
-from src.comp.engine.ast import (
-    Structure, FieldOp, SpreadOp,
-    Number, String, Identifier, ScopeField, TokenField, IndexField, ComputeField,
-    ArithmeticOp
+from comp.engine.ast import (
+    ArithmeticOp,
+    ComputeField,
+    FieldOp,
+    Identifier,
+    IndexField,
+    Number,
+    ScopeField,
+    SpreadOp,
+    String,
+    Structure,
 )
-from src.comp.engine.value import Value, Unnamed
+from comp.engine.engine import Engine
+from comp.engine.value import Unnamed, Value
 
 
 def test_empty_structure():

@@ -20,6 +20,7 @@ from .identifiers import (
 )
 from .literals import Number, String
 from .operators import ArithmeticOp, BooleanOp, ComparisonOp, UnaryOp
+from .pipelines import PipeFallback, PipeFunc, Pipeline, PipelineOp, PipeStruct
 from .structures import FieldOp, SpreadOp, Structure, StructOp
 
 __all__ = [
@@ -42,4 +43,9 @@ __all__ = [
     "StructOp",
     "FieldOp",
     "SpreadOp",
+    "Pipeline",
+    "PipelineOp",
+    "PipeFunc",
+    "PipeStruct",
+    "PipeFallback",
 ]

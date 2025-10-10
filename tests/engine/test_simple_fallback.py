@@ -1,8 +1,8 @@
 """Simple test to verify fallback operator works correctly."""
 
-from src.comp.engine.engine import Engine
-from src.comp.engine.ast.literals import Number
-from src.comp.engine.ast.operators import ArithmeticOp, FallbackOp
+from comp.engine.ast.literals import Number
+from comp.engine.ast.operators import ArithmeticOp, FallbackOp
+from comp.engine.engine import Engine
 
 
 def test_simple_fallback():

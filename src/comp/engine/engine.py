@@ -51,6 +51,11 @@ class Engine:
         # Used for both variable bindings and parent→child coordination
         self._scope_stack = []
 
+        # Function registry: name -> Function
+        # Functions can be Python-implemented or Comp-defined
+        from .function import create_builtin_functions
+        self.functions = create_builtin_functions()
+
         # Failure handling
         from .value import FAIL
         self.fail_tag = FAIL
@@ -184,6 +189,44 @@ class Engine:
         finally:
             # Pop from stack when context exits
             self._generators_allowing_failures.pop()
+
+    # === Function Management ===
+
+    def get_function(self, name: str):
+        """Look up a function by name.
+
+        Args:
+            name: Function name (without | prefix)
+
+        Returns:
+            Function object or None if not found
+        """
+        return self.functions.get(name)
+
+    def register_function(self, func):
+        """Register a function in the engine.
+
+        Args:
+            func: Function object with .name attribute
+        """
+        self.functions[func.name] = func
+
+    def call_function(self, name: str, input_value: Value, args: Value | None = None):
+        """Call a function by name.
+
+        Args:
+            name: Function name (without | prefix)
+            input_value: Input value from pipeline
+            args: Optional argument structure
+
+        Returns:
+            Value result or fail value
+        """
+        func = self.get_function(name)
+        if func is None:
+            return self.fail(f"Unknown function: |{name}")
+
+        return func(self, input_value, args)
 
     # === Execution ===
 

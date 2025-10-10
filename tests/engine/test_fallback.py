@@ -1,9 +1,9 @@
 """Test the fallback operator (??) with fail propagation."""
 
-from src.comp.engine.engine import Engine
-from src.comp.engine.ast.literals import Number
-from src.comp.engine.ast.operators import ArithmeticOp, FallbackOp
-from src.comp.engine.value import Value
+from comp.engine.ast.literals import Number
+from comp.engine.ast.operators import ArithmeticOp, FallbackOp
+from comp.engine.engine import Engine
+from comp.engine.value import Value
 
 
 def test_fallback_left_succeeds():

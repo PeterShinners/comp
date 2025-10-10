@@ -1,12 +1,14 @@
 """Test the new Engine class with AST nodes."""
 
-from src.comp.engine.engine import Engine
-from src.comp.engine.ast import (
-    Number, String,
-    ArithmeticOp, ComparisonOp, BooleanOp,
-    Identifier, ScopeField, TokenField,
+from comp.engine.engine import Engine
+from comp.engine.ast import (
+    ArithmeticOp,
+    Identifier,
+    Number,
+    ScopeField,
+    TokenField,
 )
-from src.comp.engine.value import Value
+from comp.engine.value import Value
 
 
 def test_simple_literal():
