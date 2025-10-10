@@ -1,23 +1,20 @@
-"""Generator-based evaluation engine - proof of concept.
+"""Generator-based evaluation engine.
 
-This is a clean-room implementation to explore generator-based evaluation
-separate from the existing runtime. It demonstrates:
+This is a clean-room implementation focused on:
 
-- AST nodes with evaluate() generators
-- EvalContext managing execution (recursive or stackless)
-- Automatic skip value propagation
-- No manual short-circuit checks in AST nodes
+- Immutable AST nodes with evaluate() generators
+- Engine class with dual stacks (context + scope)
+- Stackless execution with explicit generator management
+- Elegant fail propagation with context managers
+- No AST mutation during evaluation
 """
 
-from .context import EvalContext
+from .engine import Engine
 from .value import Value
-from .nodes import Number, String, BinaryOp, UnaryOp
+from . import ast
 
 __all__ = [
-    "EvalContext",
-    "Value", 
-    "Number",
-    "String",
-    "BinaryOp",
-    "UnaryOp",
+    "Engine",
+    "Value",
+    "ast",
 ]

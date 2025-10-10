@@ -26,13 +26,13 @@ class UnaryOp(ValueNode):
             else:
                 return engine.fail(f"Cannot negate non-number: {operand_value.data}")
         
-        elif self.op == "!":
+        elif self.op == "!!":
             if operand_value.tag == TRUE:
                 return Value(FALSE, tag=FALSE)
             elif operand_value.tag == FALSE:
                 return Value(TRUE, tag=TRUE)
             else:
-                return engine.fail(f"Cannot apply ! to non-boolean: {operand_value}")
+                return engine.fail(f"Cannot apply !! to non-boolean: {operand_value}")
         
         else:
             return engine.fail(f"Unknown unary operator: {self.op}")
@@ -206,7 +206,7 @@ class BooleanOp(ValueNode):
         return f"({self.left.unparse()} {self.op} {self.right.unparse()})"
     
     def __repr__(self):
-        return f"BooleanOp({self.left}, {self.op!r}, {self.right})"
+        return f"BooleanOp({self.op!r}, {self.left}, {self.right})"
 
 
 class FallbackOp(ValueNode):
@@ -222,7 +222,7 @@ class FallbackOp(ValueNode):
     
     Examples:
         (1/0) ?? 42          # Returns 42 (left fails, fallback handles)
-        (1/0) ?? (2/0)       # Propagates fail (both fail)
+        (1/0) ?? (2/0)       # Propagates second fail (both fail)
         @x.undefined ?? 0    # Returns 0 if field undefined
     """
     

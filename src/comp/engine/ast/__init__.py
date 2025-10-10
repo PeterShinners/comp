@@ -10,18 +10,17 @@ Node hierarchies by coordination requirements:
 - ShapeNode: Type domain nodes
 """
 
-from .base import AstNode, ValueNode, FieldNode, ShapeNode
+from .base import AstNode, FieldNode, ShapeNode, ValueNode
 from .identifiers import (
+    ComputeField,
     Identifier,
-    Field,
+    IndexField,
     ScopeField,
     TokenField,
-    IndexField,
-    ComputeField,
-    ImplicitField,
 )
 from .literals import Number, String
-from .operators import ArithmeticOp, ComparisonOp, BooleanOp, UnaryOp
+from .operators import ArithmeticOp, BooleanOp, ComparisonOp, UnaryOp
+from .structures import FieldOp, SpreadOp, Structure, StructOp
 
 __all__ = [
     "AstNode",
@@ -29,16 +28,18 @@ __all__ = [
     "FieldNode",
     "ShapeNode",
     "Identifier",
-    "Field",
     "ScopeField",
     "TokenField",
     "IndexField",
     "ComputeField",
-    "ImplicitField",
     "Number",
     "String",
     "ArithmeticOp",
     "ComparisonOp",
     "BooleanOp",
     "UnaryOp",
+    "Structure",
+    "StructOp",
+    "FieldOp",
+    "SpreadOp",
 ]
