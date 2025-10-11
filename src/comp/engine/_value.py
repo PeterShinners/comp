@@ -4,6 +4,8 @@ __all__ = ["Tag", "Value", "fail", "Unnamed", "TRUE", "FALSE", "FAIL", "FAIL_TYP
 
 import decimal
 
+from ._entity import Entity
+
 
 class Tag:
     """A tag value (like #true, #false, #fail, etc)."""
@@ -21,12 +23,15 @@ class Tag:
         return hash(self.name)
 
 
-class Value:
+class Value(Entity):
     """Runtime value wrapper.
 
     Can hold Python primitives (int, float, str) or Comp values (Tag, dict).
     This is a simplified version for the new engine. Uses .data for the
     underlying value, and provides .struct as an alias when it's a dict.
+
+    Inherits from Entity, making it passable through scopes and returnable
+    from evaluate() methods.
     """
 
     def __init__(self, data: object, tag: Tag | None = None):

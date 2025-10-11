@@ -230,7 +230,8 @@ class _Frame:
     def is_fail(self, value):
         """Check if a value is a fail value."""
         # TODO one day perform this operation without an engine reference
-        return value.tag == self.engine.fail_tag
+        # Only Values can be failures - other Entities (Module, ShapeField, etc.) cannot
+        return hasattr(value, 'tag') and value.tag == self.engine.fail_tag
 
     def call_function(self, name: str, input_value, args=None):
         """Call a function by name."""
