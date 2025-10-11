@@ -1,18 +1,12 @@
-"""Identifier and field access nodes.
+"""Nodes for identifier and field lookups."""
 
-Identifiers are chains of field lookups: @user.account.name
-Each part of the chain is a different field type that knows how to
-navigate through Values.
+__all__ = ["Identifier", "ScopeField", "TokenField", "IndexField", "ComputeField"]
 
-Identifier is a ValueNode (self-contained coordinator).
-Field types are FieldNode (require field_value context from parent).
-"""
-
-from .base import ValueNode, FieldNode
-from ..value import Value
+import comp.engine as comp
+from . import _base
 
 
-class Identifier(ValueNode):
+class Identifier(_base.ValueNode):
     """Chain of field lookups: scope.field.field...
 
     The key insight: Identifier is NOT one massive evaluation function.
@@ -30,7 +24,7 @@ class Identifier(ValueNode):
     - First field can be ScopeField, TokenField, or IndexField
     """
 
-    def __init__(self, fields: list[FieldNode]):
+    def __init__(self, fields: list[_base.FieldNode]):
         """Create identifier from field chain.
 
         Args:
@@ -42,8 +36,8 @@ class Identifier(ValueNode):
         """
         if not fields:
             raise ValueError("Identifier requires at least one field")
-        if not all(isinstance(f, FieldNode) for f in fields):
-            raise TypeError("All fields must be FieldNode instances")
+        if not all(isinstance(f, _base.FieldNode) for f in fields):
+            raise TypeError("All fields must be _base.FieldNode instances")
 
         # ScopeField can ONLY be first (parser guarantees this, but validate anyway)
         for i, field in enumerate(fields):
@@ -57,7 +51,7 @@ class Identifier(ValueNode):
 
         self.fields = fields
 
-    def evaluate(self, engine):
+    def evaluate(self, frame):
         """Evaluate identifier by walking field chain.
 
         Creates an 'identifier' scope containing the current value being navigated.
@@ -67,15 +61,14 @@ class Identifier(ValueNode):
         """
         # First field evaluates without identifier scope
         # (it will look up in scopes if needed)
-        current_value = yield self.fields[0]
+        current_value = yield comp.Compute(self.fields[0])
 
         # Walk remaining fields, each uses current from identifier scope
         for field in self.fields[1:]:
             # Create identifier scope with current value
             # Note: dict keys must be Value objects
-            identifier_scope = Value({Value('current'): current_value})
-            with engine.scope_frame(identifier=identifier_scope):
-                current_value = yield field
+            identifier_scope = comp.Value({comp.Value('current'): current_value})
+            current_value = yield comp.Compute(field, identifier=identifier_scope)
 
         return current_value
 
@@ -84,7 +77,7 @@ class Identifier(ValueNode):
         return "".join(field.unparse() for field in self.fields)
 
 
-class ScopeField(FieldNode):
+class ScopeField(_base.FieldNode):
     """Scope reference: @, ^, $name
 
     This is always the first field in an identifier - looks up in engine's scopes.
@@ -114,12 +107,12 @@ class ScopeField(FieldNode):
             raise ValueError("Scope name cannot be empty")
         self.scope_name = scope_name
 
-    def evaluate(self, engine):
-        """Look up scope in engine.
+    def evaluate(self, frame):
+        """Look up scope in frame.
 
         Always called without field_value context (guaranteed by Identifier).
 
-        Runtime check: Scope must exist in engine.scopes.
+        Runtime check: Scope must exist in frame.scopes.
         """
         # Map symbols to names
         if self.scope_name == '@':
@@ -132,9 +125,9 @@ class ScopeField(FieldNode):
             scope_name = self.scope_name
 
         # Runtime check: scope must exist
-        scope = engine.get_scope(scope_name)
+        scope = frame.scope(scope_name)
         if scope is None:
-            return engine.fail(f"Scope {self.scope_name} not defined")
+            return comp.fail(f"Scope {self.scope_name} not defined")
         return scope
         yield  # Make it a generator
 
@@ -143,7 +136,7 @@ class ScopeField(FieldNode):
         return self.scope_name
 
 
-class TokenField(FieldNode):
+class TokenField(_base.FieldNode):
     """Named field access: .name
 
     Two modes:
@@ -169,7 +162,7 @@ class TokenField(FieldNode):
             raise ValueError("Field name cannot be empty")
         self.name = name
 
-    def evaluate(self, engine):
+    def evaluate(self, frame):
         """Look up named field.
 
         If no identifier scope: This is first field, use implicit scopes.
@@ -180,36 +173,36 @@ class TokenField(FieldNode):
         - Field must exist in struct
         """
         # Check if we're the first field (no identifier scope)
-        identifier_scope = engine.get_scope('identifier')
+        identifier_scope = frame.scope('identifier')
 
         if identifier_scope is None:
             # First field: use implicit scope lookup
-            current = engine.get_scope('unnamed')
+            current = frame.scope('unnamed')
             if current is None:
-                return engine.fail(f"No implicit scope available for field '{self.name}'")
+                return comp.fail(f"No implicit scope available for field '{self.name}'")
         else:
             # Later field: get current from identifier scope
-            current_key = Value('current')
+            current_key = comp.Value('current')
             if not identifier_scope.is_struct or current_key not in identifier_scope.struct:
-                return engine.fail("Invalid identifier scope structure")
+                return comp.fail("Invalid identifier scope structure")
             current = identifier_scope.struct[current_key]
 
         # Handle ChainedScope (special lookup)
         if hasattr(current, 'lookup_field'):
-            field_key = Value(self.name)
+            field_key = comp.Value(self.name)
             result = current.lookup_field(field_key)
             if result is None:
-                return engine.fail(f"Field '{self.name}' not found in chained scope")
+                return comp.fail(f"Field '{self.name}' not found in chained scope")
             return result
 
         # Runtime check: must be struct
         if not current.is_struct:
-            return engine.fail(f"Cannot access field '{self.name}' on non-struct value")
+            return comp.fail(f"Cannot access field '{self.name}' on non-struct value")
 
-        field_key = Value(self.name)
+        field_key = comp.Value(self.name)
         # Runtime check: field must exist
         if field_key not in current.struct:
-            return engine.fail(f"Field '{self.name}' not found in struct")
+            return comp.fail(f"Field '{self.name}' not found in struct")
 
         return current.struct[field_key]
         yield  # Make it a generator
@@ -219,7 +212,7 @@ class TokenField(FieldNode):
         return f".{self.name}"
 
 
-class IndexField(FieldNode):
+class IndexField(_base.FieldNode):
     """Positional field access: #0, #1, #2...
 
     Two modes:
@@ -245,7 +238,7 @@ class IndexField(FieldNode):
             raise ValueError("Index cannot be negative")
         self.index = index
 
-    def evaluate(self, engine):
+    def evaluate(self, frame):
         """Look up field by position.
 
         If no identifier scope: This is first field, use $in scope.
@@ -256,18 +249,18 @@ class IndexField(FieldNode):
         - Index must be in bounds
         """
         # Check if we're the first field (no identifier scope)
-        identifier_scope = engine.get_scope('identifier')
+        identifier_scope = frame.scope('identifier')
 
         if identifier_scope is None:
             # First field: use $in scope
-            if 'in' not in engine.scopes:
-                return engine.fail("$in scope not available for indexed access")
-            current = engine.scopes['in']
+            if 'in' not in frame.scopes:
+                return comp.fail("$in scope not available for indexed access")
+            current = frame.scopes['in']
         else:
             # Later field: get current from identifier scope
-            current_key = Value('current')
+            current_key = comp.Value('current')
             if not identifier_scope.is_struct or current_key not in identifier_scope.struct:
-                return engine.fail("Invalid identifier scope structure")
+                return comp.fail("Invalid identifier scope structure")
             current = identifier_scope.struct[current_key]
 
         # Handle ChainedScope
@@ -277,22 +270,22 @@ class IndexField(FieldNode):
                 if 0 <= self.index < len(fields_list):
                     return fields_list[self.index]
                 else:
-                    return engine.fail(
+                    return comp.fail(
                         f"Index #{self.index} out of bounds "
                         f"(scope has {len(fields_list)} fields)"
                     )
             else:
-                return engine.fail("Cannot index empty chained scope")
+                return comp.fail("Cannot index empty chained scope")
 
         # Handle regular Value struct
         if not current.is_struct or not current.struct:
-            return engine.fail("Cannot index non-struct value")
+            return comp.fail("Cannot index non-struct value")
 
         fields_list = list(current.struct.values())
         if 0 <= self.index < len(fields_list):
             return fields_list[self.index]
         else:
-            return engine.fail(
+            return comp.fail(
                 f"Index #{self.index} out of bounds "
                 f"(struct has {len(fields_list)} fields)"
             )
@@ -304,7 +297,7 @@ class IndexField(FieldNode):
         return f"#{self.index}"
 
 
-class ComputeField(FieldNode):
+class ComputeField(_base.FieldNode):
     """Computed field access: .[expr]
 
     Evaluates an expression to determine the field key.
@@ -313,7 +306,7 @@ class ComputeField(FieldNode):
     Correct by Construction: expr is a valid AstNode.
     """
 
-    def __init__(self, expr: 'ValueNode'):
+    def __init__(self, expr: '_base.ValueNode'):
         """Create computed field.
 
         Args:
@@ -322,12 +315,11 @@ class ComputeField(FieldNode):
         Raises:
             TypeError: If expr is not an AstNode
         """
-        from .base import AstNode
-        if not isinstance(expr, AstNode):
+        if not isinstance(expr, _base.AstNode):
             raise TypeError("ComputeField expression must be AstNode")
         self.expr = expr
 
-    def evaluate(self, engine):
+    def evaluate(self, frame):
         """Evaluate expression, then look up that field.
 
         Runtime checks:
@@ -336,33 +328,33 @@ class ComputeField(FieldNode):
         - Computed key must exist in struct
         """
         # Get current value from identifier scope (set by Identifier)
-        identifier_scope = engine.get_scope('identifier')
+        identifier_scope = frame.scope('identifier')
         if identifier_scope is None:
-            return engine.fail("ComputeField requires identifier scope")
+            return comp.fail("ComputeField requires identifier scope")
 
-        current_key = Value('current')
+        current_key = comp.Value('current')
         if not identifier_scope.is_struct or current_key not in identifier_scope.struct:
-            return engine.fail("Invalid identifier scope structure")
+            return comp.fail("Invalid identifier scope structure")
         current = identifier_scope.struct[current_key]
 
         # First evaluate the expression to get the key
-        field_key = yield self.expr
+        field_key = yield comp.Compute(self.expr)
 
         # Handle ChainedScope
         if hasattr(current, 'lookup_field'):
             result = current.lookup_field(field_key)
             if result is None:
-                return engine.fail("Computed field not found in chained scope")
+                return comp.fail("Computed field not found in chained scope")
             return result
 
         # Handle regular Value struct
         if not current.is_struct or not current.struct:
-            return engine.fail("Cannot access computed field on non-struct value")
+            return comp.fail("Cannot access computed field on non-struct value")
 
         if field_key not in current.struct:
             # Better error with available keys
             keys_str = ", ".join(str(k) for k in current.struct.keys())
-            return engine.fail(
+            return comp.fail(
                 f"Computed field key {field_key} not found in struct "
                 f"(available keys: {keys_str})"
             )

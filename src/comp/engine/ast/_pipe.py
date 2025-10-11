@@ -1,20 +1,13 @@
-"""Pipeline AST nodes for the engine.
+"""Pipeline AST nodes."""
 
-Pipelines are the core execution model in Comp. They thread a value through
-a sequence of operations, with each operation receiving the previous result
-as input.
-
-Syntax: [seed |op1 |op2 |op3]
-- seed: Initial value (optional - if missing, uses $in scope)
-- operations: List of pipeline operations that transform the value
-"""
+__all__ = ["Pipeline", "PipelineOp", "PipeFunc", "PipeStruct", "PipeFallback"]
 
 import comp.engine as comp
-from ._base import ValueNode
-from ._struct import Structure
+from . import _base
+from . import _struct
 
 
-class PipelineOp(ValueNode):
+class PipelineOp(_base.ValueNode):
     """Base class for pipeline operations.
 
     Pipeline operations transform the value flowing through a pipeline.
@@ -29,7 +22,7 @@ class PipelineOp(ValueNode):
     pass
 
 
-class Pipeline(ValueNode):
+class Pipeline(_base.ValueNode):
     """Pipeline expression: [seed |op1 |op2 ...]
 
     Evaluates seed (or uses $in if no seed) then evaluates each operation
@@ -41,16 +34,16 @@ class Pipeline(ValueNode):
         operations: List of PipelineOp nodes
     """
 
-    def __init__(self, seed: ValueNode | None, operations: list[PipelineOp]):
-        if seed is not None and not isinstance(seed, ValueNode):
-            raise TypeError("Pipeline seed must be ValueNode or None")
+    def __init__(self, seed: _base.ValueNode | None, operations: list[PipelineOp]):
+        if seed is not None and not isinstance(seed, _base.ValueNode):
+            raise TypeError("Pipeline seed must be _base.ValueNode or None")
         if not isinstance(operations, list):
             raise TypeError("Pipeline operations must be a list")
 
         self.seed = seed
         self.operations = operations
 
-    def evaluate(self, engine):
+    def evaluate(self, frame):
         # Get initial value
         if self.seed is not None:
             current = yield comp.Compute(self.seed)
@@ -58,11 +51,11 @@ class Pipeline(ValueNode):
             # But in case there are no calls in this pipeline do it here
             current = current.as_struct()
         else:
-            current = engine.scope('in')
+            current = frame.scope('in')
             if current is None:
                 return comp.fail("Unseeded pipeline requires $in scope")
 
-        current_is_fail = engine.is_fail(current)
+        current_is_fail = frame.is_fail(current)
 
         # Thread through each operation
         for op in self.operations:
@@ -72,9 +65,8 @@ class Pipeline(ValueNode):
             elif current_is_fail:
                 continue  # Failures skip everything else
 
-            with engine.scope_frame(in_=current):
-                current = yield comp.Compute(op, allow_failures=True, in_=current)
-                current_is_fail = engine.is_fail(current)
+            current = yield comp.Compute(op, allow_failures=True, in_=current)
+            current_is_fail = frame.is_fail(current)
 
         return current
 
@@ -98,18 +90,18 @@ class PipeFunc(PipelineOp):
         args: Optional argument struct value
     """
 
-    def __init__(self, func_name: str, args: ValueNode | None = None):
+    def __init__(self, func_name: str, args: _base.ValueNode | None = None):
         if not isinstance(func_name, str):
             raise TypeError("PipeFunc func_name must be string")
-        if args is not None and not isinstance(args, ValueNode):
-            raise TypeError("PipeFunc args must be ValueNode or None")
+        if args is not None and not isinstance(args, _base.ValueNode):
+            raise TypeError("PipeFunc args must be _base.ValueNode or None")
 
         self.func_name = func_name
         self.args = args
 
-    def evaluate(self, engine):
+    def evaluate(self, frame):
         # Get current pipeline value from $in scope
-        input_value = engine.scope('in')
+        input_value = frame.scope('in')
         if input_value is None:
             return comp.fail(f"PipeFunc |{self.func_name} requires $in scope")
 
@@ -117,11 +109,11 @@ class PipeFunc(PipelineOp):
         args_value = None
         if self.args is not None:
             args_value = yield comp.Compute(self.args)
-            if engine.is_fail(args_value):
+            if frame.is_fail(args_value):
                 return args_value
 
         # Call the function
-        result = engine.call_function(self.func_name, input_value, args_value)
+        result = frame.call_function(self.func_name, input_value, args_value)
         return result
 
     def unparse(self) -> str:
@@ -141,17 +133,17 @@ class PipeStruct(PipelineOp):
     Replace the current pipeline value with the given structure.
 
     Args:
-        struct: Structure expression to merge (typically a Structure node)
+        struct: _structures.Structure expression to merge (typically a _structures.Structure node)
 
     """
 
-    def __init__(self, struct: Structure):
-        if not isinstance(struct, Structure):
-            raise TypeError("PipeStruct struct must be Structure")
+    def __init__(self, struct: _struct.Structure):
+        if not isinstance(struct, _struct.Structure):
+            raise TypeError("PipeStruct struct must be _structures.Structure")
         self.struct = struct
 
-    def evaluate(self, engine):
-        input_value = engine.scope('in')
+    def evaluate(self, frame):
+        input_value = frame.scope('in')
 
         # Wrap scalars into structure
         input_value = input_value.as_struct()
@@ -180,12 +172,12 @@ class PipeFallback(PipelineOp):
         fallback: Expression to evaluate when handling a fail
     """
 
-    def __init__(self, fallback: ValueNode):
-        if not isinstance(fallback, ValueNode):
-            raise TypeError("PipeFallback fallback must be ValueNode")
+    def __init__(self, fallback: _base.ValueNode):
+        if not isinstance(fallback, _base.ValueNode):
+            raise TypeError("PipeFallback fallback must be _base.ValueNode")
         self.fallback = fallback
 
-    def evaluate(self, engine):
+    def evaluate(self, frame):
         value = (yield comp.Compute(self.fallback))
         value = value.as_struct()
         return value

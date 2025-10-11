@@ -1,116 +1,94 @@
 """Test function system."""
 
-from comp.engine.engine import Engine
-from comp.engine.function import PythonFunction
-from comp.engine.value import Value
+import comp.engine as comp
 
 
 def test_builtin_double():
     """Test |double function."""
-    engine = Engine()
+    engine = comp.Engine()
 
-    result = engine.call_function("double", Value(5))
-    assert result == Value(10)
-    print("✓ |double works")
+    result = engine.call_function("double", comp.Value(5))
+    assert result == comp.Value(10)
 
 
 def test_builtin_print():
     """Test |print function (passes through)."""
-    engine = Engine()
+    engine = comp.Engine()
 
-    result = engine.call_function("print", Value(42))
-    assert result == Value(42)
-    print("✓ |print works")
+    result = engine.call_function("print", comp.Value(42))
+    assert result == comp.Value(42)
 
 
 def test_builtin_identity():
     """Test |identity function."""
-    engine = Engine()
+    engine = comp.Engine()
 
-    result = engine.call_function("identity", Value("hello"))
-    assert result == Value("hello")
-    print("✓ |identity works")
+    result = engine.call_function("identity", comp.Value("hello"))
+    assert result == comp.Value("hello")
 
 
 def test_builtin_add():
     """Test |add function with arguments."""
-    engine = Engine()
+    engine = comp.Engine()
 
     # |add requires ^{n=...} argument
-    args = Value({Value("n"): Value(3)})
-    result = engine.call_function("add", Value(5), args)
-    assert result == Value(8)
-    print("✓ |add works")
+    args = comp.Value({comp.Value("n"): comp.Value(3)})
+    result = engine.call_function("add", comp.Value(5), args)
+    assert result == comp.Value(8)
 
 
 def test_builtin_wrap():
     """Test |wrap function."""
-    engine = Engine()
+    engine = comp.Engine()
 
     # |wrap requires ^{key=...} argument
-    args = Value({Value("key"): Value("x")})
-    result = engine.call_function("wrap", Value(5), args)
+    args = comp.Value({comp.Value("key"): comp.Value("x")})
+    result = engine.call_function("wrap", comp.Value(5), args)
 
     assert result.is_struct
-    assert result.struct[Value("x")] == Value(5)
-    print("✓ |wrap works")
+    assert result.struct[comp.Value("x")] == comp.Value(5)
 
 
 def test_function_not_found():
     """Test calling non-existent function."""
-    engine = Engine()
+    engine = comp.Engine()
 
-    result = engine.call_function("nonexistent", Value(5))
+    result = engine.call_function("nonexistent", comp.Value(5))
     assert result.tag and result.tag.name == "fail"
-    print("✓ Unknown function returns fail")
 
 
 def test_custom_python_function():
     """Test registering custom Python function."""
-    engine = Engine()
+    engine = comp.Engine()
 
     def triple(engine, input_value, args):
         if not input_value.is_number:
             return engine.fail("triple expects number")
-        return Value(input_value.data * 3)
+        return comp.Value(input_value.data * 3)
 
     # Register custom function
-    engine.register_function(PythonFunction("triple", triple))
+    engine.register_function(comp.PythonFunction("triple", triple))
 
     # Call it
-    result = engine.call_function("triple", Value(4))
-    assert result == Value(12)
-    print("✓ Custom Python function works")
+    result = engine.call_function("triple", comp.Value(4))
+    assert result == comp.Value(12)
 
 
 def test_function_with_wrong_input_type():
     """Test function with wrong input type."""
-    engine = Engine()
+    engine = comp.Engine()
 
     # |double expects number
-    result = engine.call_function("double", Value("not a number"))
+    result = engine.call_function("double", comp.Value("not a number"))
     assert result.tag and result.tag.name == "fail"
-    print("✓ Function type checking works")
 
 
 def test_function_missing_required_arg():
     """Test function with missing required argument."""
-    engine = Engine()
+    engine = comp.Engine()
 
     # |add requires ^{n=...}
-    result = engine.call_function("add", Value(5), None)
+    result = engine.call_function("add", comp.Value(5), None)
     assert result.tag and result.tag.name == "fail"
     print("✓ Missing argument handling works")
 
-
-if __name__ == "__main__":
-    test_builtin_double()
-    test_builtin_print()
-    test_builtin_identity()
-    test_builtin_add()
-    test_builtin_wrap()
-    test_function_not_found()
-    test_custom_python_function()
-    test_function_with_wrong_input_type()
-    test_function_missing_required_arg()
-    print("\n✅ All function tests passed!")

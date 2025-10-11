@@ -1,6 +1,6 @@
 """Runtime values for the generator-based engine."""
 
-from typing import Any
+__all__ = ["Tag", "Value", "fail", "Unnamed", "TRUE", "FALSE", "FAIL", "FAIL_TYPE", "FAIL_DIV_ZERO"]
 
 
 class Tag:
@@ -27,7 +27,7 @@ class Value:
     underlying value, and provides .struct as an alias when it's a dict.
     """
 
-    def __init__(self, data: Any, tag: Tag | None = None):
+    def __init__(self, data: int | float | str | dict['Value | Unnamed', 'Value'], tag: Tag | None = None):
         """Create a value.
 
         Args:
@@ -58,6 +58,21 @@ class Value:
         """Alias for .data when it's a dict (for compatibility with AST nodes)."""
         return self.data if isinstance(self.data, dict) else None
 
+    def as_scalar(self):
+        """Return value as a scalar value or itself."""
+        if self.is_struct:
+            if len(self.data) == 1:
+                return next(iter(self.data.values()))
+            # By returning self we are still a struct, which users who use this will ignore
+            return self
+        return self
+
+    def as_struct(self):
+        """Wrap scalar values into single field structure."""
+        if self.is_struct:
+            return self
+        return Value({Unnamed(): self})
+
     def __repr__(self):
         if self.tag:
             return f"Value({self.data!r}, tag={self.tag})"
@@ -76,6 +91,11 @@ class Value:
         return hash((self.data, self.tag))
 
 
+def fail(message: str) -> Value:
+    """Create a failure structure with the given message."""
+    return Value({'type': Value('fail'), 'message': Value(message)}, tag=FAIL)
+
+
 class Unnamed:
     """Marker for unnamed/positional fields in structures.
 
@@ -89,7 +109,7 @@ class Unnamed:
     __slots__ = ()
 
     def __repr__(self):
-        return "???"
+        return "_"
 
     def __hash__(self):
         """Use object identity for hashing - each instance is unique."""

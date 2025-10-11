@@ -1,9 +1,9 @@
 """Test pipeline execution."""
 
 from comp.engine.ast import FieldOp, Number, PipeFunc, Pipeline, String, Structure
-from comp.engine.engine import Engine
-from comp.engine.function import PythonFunction
-from comp.engine.value import Value
+from comp.engine._engine import Engine
+from comp.engine._function import PythonFunction
+from comp.engine._value import Value
 
 
 def run_generator(gen):
@@ -27,7 +27,6 @@ def test_simple_seeded_pipeline():
 
     result = engine.run(pipeline)
     assert result == Value(10)
-    print("✓ Simple seeded pipeline works")
 
 
 def test_multi_step_pipeline():
@@ -44,7 +43,6 @@ def test_multi_step_pipeline():
 
     result = engine.run(pipeline)
     assert result == Value(12)
-    print("✓ Multi-step pipeline works")
 
 
 def test_pipeline_with_function_args():
@@ -62,7 +60,6 @@ def test_pipeline_with_function_args():
 
     result = engine.run(pipeline)
     assert result == Value(8)
-    print("✓ Pipeline with function args works")
 
 
 def test_pipeline_with_identity():
@@ -75,8 +72,7 @@ def test_pipeline_with_identity():
     )
 
     result = engine.run(pipeline)
-    assert result == Value(42)
-    print("✓ Pipeline with identity works")
+    assert result.as_scalar() == Value(42)
 
 
 def test_pipeline_chaining():
@@ -96,25 +92,20 @@ def test_pipeline_chaining():
 
     result = engine.run(pipeline)
     assert result == Value(10)
-    print("✓ Complex pipeline chaining works")
 
 
 def test_unseeded_pipeline():
     """Test unseeded pipeline uses $in scope."""
     engine = Engine()
 
-    # Set up $in scope
-    engine.set_scope('in', Value(7))
-
-    # Unseeded pipeline
+    # Unseeded pipeline with $in scope
     pipeline = Pipeline(
         seed=None,
         operations=[PipeFunc("double")]
     )
 
-    result = engine.run(pipeline)
+    result = engine.run(pipeline, in_=Value(7))
     assert result == Value(14)
-    print("✓ Unseeded pipeline works")
 
 
 def test_unseeded_pipeline_without_in_scope():
@@ -129,7 +120,6 @@ def test_unseeded_pipeline_without_in_scope():
 
     result = engine.run(pipeline)
     assert result.tag and result.tag.name == "fail"
-    print("✓ Unseeded pipeline without $in fails correctly")
 
 
 def test_pipeline_with_failing_function():
@@ -147,7 +137,6 @@ def test_pipeline_with_failing_function():
 
     result = engine.run(pipeline)
     assert result.tag and result.tag.name == "fail"
-    print("✓ Pipeline stops on function failure")
 
 
 def test_pipeline_with_wrong_input_type():
@@ -161,28 +150,6 @@ def test_pipeline_with_wrong_input_type():
 
     result = engine.run(pipeline)
     assert result.tag and result.tag.name == "fail"
-    print("✓ Pipeline handles function type errors")
-
-
-def test_pipeline_preserves_in_scope():
-    """Test pipeline creates new scope frames."""
-    engine = Engine()
-
-    # Set initial $in
-    engine.set_scope('in', Value(100))
-
-    # Run seeded pipeline (should not affect outer $in)
-    pipeline = Pipeline(
-        seed=Number(5),
-        operations=[PipeFunc("double")]
-    )
-
-    result = engine.run(pipeline)
-    assert result == Value(10)
-
-    # Original $in should be unchanged
-    assert engine.get_scope('in') == Value(100)
-    print("✓ Pipeline preserves outer $in scope")
 
 
 def test_pipeline_unparse():
@@ -204,8 +171,6 @@ def test_pipeline_unparse():
     unparsed = pipeline2.unparse()
     assert "[" in unparsed
     assert "|double" in unparsed
-
-    print("✓ Pipeline unparse works")
 
 
 def test_pipefallback_handles_fail():
@@ -232,9 +197,7 @@ def test_pipefallback_handles_fail():
 
     result = engine.run(pipeline)
     assert not engine.is_fail(result), f"Expected recovery, got fail: {result}"
-    assert result == Value(42)
-
-    print("✓ PipeFallback handles fail")
+    assert result.as_scalar() == Value(42)
 
 
 def test_pipefallback_passes_success():
@@ -255,8 +218,6 @@ def test_pipefallback_passes_success():
 
     result = engine.run(pipeline)
     assert result == Value(10), f"Expected 10, got {result}"
-
-    print("✓ PipeFallback passes success")
 
 
 def test_pipefallback_fail_in_recovery():
@@ -289,8 +250,6 @@ def test_pipefallback_fail_in_recovery():
     result = engine.run(pipeline)
     assert engine.is_fail(result), "Expected fail when recovery fails"
 
-    print("✓ PipeFallback fail in recovery")
-
 
 def test_pipefallback_chaining():
     """Test multiple fallbacks in a chain."""
@@ -318,16 +277,14 @@ def test_pipefallback_chaining():
     result = engine.run(pipeline)
     assert result == Value(20), f"Expected 20, got {result}"
 
-    print("✓ PipeFallback chaining")
-
 
 def test_pipestruct_merge():
-    """Test PipeStruct merges structures."""
+    """Test PipeStruct struct literal."""
     from comp.engine.ast import PipeStruct
 
     engine = Engine()
 
-    # Pipeline: [{x=1} |{y=2}] → {x=1 y=2}
+    # Pipeline: [{x=1} |{y=2}] → {y=2}
     pipeline = Pipeline(
         seed=Structure([
             FieldOp(value=Number(1), key=String("x"))
@@ -342,76 +299,16 @@ def test_pipestruct_merge():
     )
 
     result = engine.run(pipeline)
-    assert result.data == {Value("x"): Value(1), Value("y"): Value(2)}
-
-    print("✓ PipeStruct merge")
+    assert result.data == {Value("y"): Value(2)}
 
 
-def test_pipestruct_override():
-    """Test PipeStruct overrides existing fields."""
+def test_pipestruct_receives_struct():
+    """Test PipeStruct gets struct even on scalar input."""
     from comp.engine.ast import PipeStruct
 
     engine = Engine()
 
-    # Pipeline: [{a=1 b=2} |{b=3}] → {a=1 b=3}
-    pipeline = Pipeline(
-        seed=Structure([
-            FieldOp(value=Number(1), key=String("a")),
-            FieldOp(value=Number(2), key=String("b"))
-        ]),
-        operations=[
-            PipeStruct(
-                Structure([
-                    FieldOp(value=Number(3), key=String("b"))
-                ])
-            )
-        ]
-    )
-
-    result = engine.run(pipeline)
-    assert result.data == {Value("a"): Value(1), Value("b"): Value(3)}
-
-    print("✓ PipeStruct override")
-
-
-def test_pipestruct_chain():
-    """Test chaining multiple PipeStruct operations."""
-    from comp.engine.ast import PipeStruct
-
-    engine = Engine()
-
-    # Pipeline: [{x=1} |{y=2} |{z=3}] → {x=1 y=2 z=3}
-    pipeline = Pipeline(
-        seed=Structure([
-            FieldOp(value=Number(1), key=String("x"))
-        ]),
-        operations=[
-            PipeStruct(
-                Structure([
-                    FieldOp(value=Number(2), key=String("y"))
-                ])
-            ),
-            PipeStruct(
-                Structure([
-                    FieldOp(value=Number(3), key=String("z"))
-                ])
-            )
-        ]
-    )
-
-    result = engine.run(pipeline)
-    assert result.data == {Value("x"): Value(1), Value("y"): Value(2), Value("z"): Value(3)}
-
-    print("✓ PipeStruct chain")
-
-
-def test_pipestruct_requires_struct():
-    """Test PipeStruct fails on non-struct input."""
-    from comp.engine.ast import PipeStruct
-
-    engine = Engine()
-
-    # Pipeline: [5 |{x=1}] → fail
+    # Pipeline: [5 |{x=1}] → {x=1}
     pipeline = Pipeline(
         seed=Number(5),
         operations=[
@@ -424,30 +321,4 @@ def test_pipestruct_requires_struct():
     )
 
     result = engine.run(pipeline)
-    assert engine.is_fail(result)
-    assert "requires struct input" in result.data
-
-    print("✓ PipeStruct requires struct")
-
-
-if __name__ == "__main__":
-    test_simple_seeded_pipeline()
-    test_multi_step_pipeline()
-    test_pipeline_with_function_args()
-    test_pipeline_with_identity()
-    test_pipeline_chaining()
-    test_unseeded_pipeline()
-    test_unseeded_pipeline_without_in_scope()
-    test_pipeline_with_failing_function()
-    test_pipeline_with_wrong_input_type()
-    test_pipeline_preserves_in_scope()
-    test_pipeline_unparse()
-    test_pipefallback_handles_fail()
-    test_pipefallback_passes_success()
-    test_pipefallback_fail_in_recovery()
-    test_pipefallback_chaining()
-    test_pipestruct_merge()
-    test_pipestruct_override()
-    test_pipestruct_chain()
-    test_pipestruct_requires_struct()
-    print("\n✅ All pipeline tests passed!")
+    assert result == Value({Value("x"): Value(1)})

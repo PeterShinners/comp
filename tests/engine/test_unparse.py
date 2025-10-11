@@ -1,108 +1,82 @@
 """Test unparse() methods on new AST nodes."""
 
-from comp.engine.ast import (
-    ArithmeticOp,
-    BooleanOp,
-    ComparisonOp,
-    ComputeField,
-    Identifier,
-    IndexField,
-    Number,
-    ScopeField,
-    String,
-    TokenField,
-    UnaryOp,
-)
+import comp.engine as comp
 
 
 def test_literals():
     """Test unparsing literal values."""
-    assert Number(42).unparse() == "42"
-    assert Number(3.14).unparse() == "3.14"
-    assert String("hello").unparse() == '"hello"'
-    assert String('say "hi"').unparse() == '"say \\"hi\\""'
-    print("✓ Literals unparse correctly")
+    assert comp.ast.Number(42).unparse() == "42"
+    assert comp.ast.Number(3.14).unparse() == "3.14"
+    assert comp.ast.String("hello").unparse() == '"hello"'
+    assert comp.ast.String('say "hi"').unparse() == '"say \\"hi\\""'
 
 
 def test_operators():
     """Test unparsing operators."""
     # Arithmetic
-    expr = ArithmeticOp("+", Number(1), Number(2))
+    expr = comp.ast.ArithmeticOp("+", comp.ast.Number(1), comp.ast.Number(2))
     assert expr.unparse() == "(1 + 2)"
-    
+
     # Comparison
-    expr = ComparisonOp("==", Number(5), Number(5))
+    expr = comp.ast.ComparisonOp("==", comp.ast.Number(5), comp.ast.Number(5))
     assert expr.unparse() == "(5 == 5)"
-    
+
     # Boolean
-    expr = BooleanOp("&&", Number(1), Number(2))
+    expr = comp.ast.BooleanOp("&&", comp.ast.Number(1), comp.ast.Number(2))
     assert expr.unparse() == "(1 && 2)"
-    
+
     # Unary
-    expr = UnaryOp("-", Number(42))
+    expr = comp.ast.UnaryOp("-", comp.ast.Number(42))
     assert expr.unparse() == "-42"
-    
+
     # Nested
-    expr = ArithmeticOp("*", 
-        ArithmeticOp("+", Number(1), Number(2)),
-        Number(3)
+    expr = comp.ast.ArithmeticOp("*",
+        comp.ast.ArithmeticOp("+", comp.ast.Number(1), comp.ast.Number(2)),
+        comp.ast.Number(3)
     )
     assert expr.unparse() == "((1 + 2) * 3)"
-    
-    print("✓ Operators unparse correctly")
 
 
 def test_identifiers():
     """Test unparsing identifiers and fields."""
     # Simple scope reference
-    ident = Identifier([ScopeField("@")])
+    ident = comp.ast.Identifier([comp.ast.ScopeField("@")])
     assert ident.unparse() == "@"
-    
+
     # Scope with field
-    ident = Identifier([ScopeField("@"), TokenField("user")])
+    ident = comp.ast.Identifier([comp.ast.ScopeField("@"), comp.ast.TokenField("user")])
     assert ident.unparse() == "@.user"
-    
+
     # Multiple fields
-    ident = Identifier([
-        ScopeField("@"),
-        TokenField("user"),
-        TokenField("account"),
-        TokenField("name")
+    ident = comp.ast.Identifier([
+        comp.ast.ScopeField("@"),
+        comp.ast.TokenField("user"),
+        comp.ast.TokenField("account"),
+        comp.ast.TokenField("name")
     ])
     assert ident.unparse() == "@.user.account.name"
-    
+
     # Index field
-    ident = Identifier([ScopeField("$in"), IndexField(0)])
+    ident = comp.ast.Identifier([comp.ast.ScopeField("$in"), comp.ast.IndexField(0)])
     assert ident.unparse() == "$in#0"
-    
+
     # Computed field
-    ident = Identifier([
-        ScopeField("@"),
-        ComputeField(String("key"))
+    ident = comp.ast.Identifier([
+        comp.ast.ScopeField("@"),
+        comp.ast.ComputeField(comp.ast.String("key"))
     ])
     assert ident.unparse() == '@.["key"]'
-    
-    print("✓ Identifiers unparse correctly")
 
 
 def test_complex():
     """Test unparsing complex nested expressions."""
     # ((@.x + @.y) * 2)
-    expr = ArithmeticOp("*",
-        ArithmeticOp("+",
-            Identifier([ScopeField("@"), TokenField("x")]),
-            Identifier([ScopeField("@"), TokenField("y")])
+    expr = comp.ast.ArithmeticOp("*",
+        comp.ast.ArithmeticOp("+",
+            comp.ast.Identifier([comp.ast.ScopeField("@"), comp.ast.TokenField("x")]),
+            comp.ast.Identifier([comp.ast.ScopeField("@"), comp.ast.TokenField("y")])
         ),
-        Number(2)
+        comp.ast.Number(2)
     )
     assert expr.unparse() == "((@.x + @.y) * 2)"
-    
-    print("✓ Complex expressions unparse correctly")
 
-
-if __name__ == "__main__":
-    test_literals()
-    test_operators()
-    test_identifiers()
-    test_complex()
-    print("\n✅ All unparse tests passed!")

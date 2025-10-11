@@ -1,20 +1,10 @@
-"""Generator-based evaluation engine.
+"""Generator execution engine for comp.
 
-This is a clean-room implementation focused on:
+Use `import comp.engine as comp` to access.
 
-- Immutable AST nodes with evaluate() generators
-- Engine class with dual stacks (context + scope)
-- Stackless execution with explicit generator management
-- Elegant fail propagation with context managers
-- No AST mutation during evaluation
 """
 
-from .engine import Engine
-from .value import Value
+from ._value import *
+from ._function import *
+from ._engine import *
 from . import ast
-
-__all__ = [
-    "Engine",
-    "Value",
-    "ast",
-]
