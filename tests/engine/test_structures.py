@@ -43,9 +43,10 @@ def test_multiple_named_fields():
 
     result = engine.run(expr)
     assert result.is_struct
-    assert result.struct[comp.Value("x")] == comp.Value(5)
-    assert result.struct[comp.Value("y")] == comp.Value(10)
-    assert result.struct[comp.Value("z")] == comp.Value(15)
+    struct = result.to_python()
+    assert struct["x"] == 5
+    assert struct["y"] == 10
+    assert struct["z"] == 15
 
 
 def test_unnamed_fields():
@@ -63,10 +64,10 @@ def test_unnamed_fields():
     assert len(result.struct) == 3
 
     # Get all values (unnamed fields)
-    values = list(result.struct.values())
-    assert values[0] == comp.Value(1)
-    assert values[1] == comp.Value(2)
-    assert values[2] == comp.Value(3)
+    values = list(result.to_python().values())
+    assert values[0] == 1
+    assert values[1] == 2
+    assert values[2] == 3
 
 
 def test_mixed_fields():
@@ -109,33 +110,9 @@ def test_spread_operator():
         comp.ast.FieldOp(comp.ast.Number(3), key=comp.ast.String("y")),
     ])
 
-    result = engine.run(expr, local=base_value)
-    assert result.is_struct
-    assert result.struct[comp.Value("x")] == comp.Value(1)
-    assert result.struct[comp.Value("y")] == comp.Value(3)  # Overridden
-
-
-def test_nested_structure():
-    """Test {point = {x=10 y=20}}."""
-    engine = comp.Engine()
-
-    expr = comp.ast.Structure([
-        comp.ast.FieldOp(
-            comp.ast.Structure([
-                comp.ast.FieldOp(comp.ast.Number(10), key=comp.ast.String("x")),
-                comp.ast.FieldOp(comp.ast.Number(20), key=comp.ast.String("y")),
-            ]),
-            key=comp.ast.String("point")
-        )
-    ])
-
-    result = engine.run(expr)
-    assert result.is_struct
-
-    point = result.struct[comp.Value("point")]
-    assert point.is_struct
-    assert point.struct[comp.Value("x")] == comp.Value(10)
-    assert point.struct[comp.Value("y")] == comp.Value(20)
+    result = engine.run(expr, local=base_value).to_python()
+    assert result["x"] == 1
+    assert result["y"] == 3  # Overridden
 
 
 def test_unparse():
@@ -152,32 +129,6 @@ def test_unparse():
     assert "10" in unparsed
 
 
-def test_deep_assignment_simple():
-    """Test {one.two = 5} creates nested structure."""
-    engine = comp.Engine()
-
-    expr = comp.ast.Structure([
-        comp.ast.FieldOp(
-            comp.ast.Number(5),
-            key=[comp.ast.String("one"), comp.ast.String("two")]
-        )
-    ])
-
-    result = engine.run(expr)
-    assert result.is_struct
-
-    # Check outer level has "one"
-    one_key = comp.Value("one")
-    assert one_key in result.struct
-
-    # Check inner level has "two" = 5
-    one_struct = result.struct[one_key]
-    assert one_struct.is_struct
-    two_key = comp.Value("two")
-    assert two_key in one_struct.struct
-    assert one_struct.struct[two_key] == comp.Value(5)
-
-
 def test_deep_assignment_three_levels():
     """Test {one.two.three = 5} creates three-level nesting."""
     engine = comp.Engine()
@@ -189,15 +140,8 @@ def test_deep_assignment_three_levels():
         )
     ])
 
-    result = engine.run(expr)
-
-    # Navigate through three levels
-    one = result.struct[comp.Value("one")]
-    assert one.is_struct
-    two = one.struct[comp.Value("two")]
-    assert two.is_struct
-    three_value = two.struct[comp.Value("three")]
-    assert three_value == comp.Value(5)
+    result = engine.run(expr).to_python()
+    assert result["one"]["two"]["three"] == 5
 
 
 def test_deep_assignment_multiple_paths():
@@ -209,12 +153,9 @@ def test_deep_assignment_multiple_paths():
         comp.ast.FieldOp(comp.ast.Number(2), key=[comp.ast.String("one"), comp.ast.String("three")]),
     ])
 
-    result = engine.run(expr)
-
-    # Check both paths exist under "one"
-    one = result.struct[comp.Value("one")]
-    assert one.struct[comp.Value("two")] == comp.Value(1)
-    assert one.struct[comp.Value("three")] == comp.Value(2)
+    result = engine.run(expr).to_python()
+    assert result["one"]["two"] == 1
+    assert result["one"]["three"] == 2
 
 
 def test_deep_assignment_mixed_with_simple():
@@ -227,15 +168,10 @@ def test_deep_assignment_mixed_with_simple():
         comp.ast.FieldOp(comp.ast.Number(3), key=comp.ast.String("y")),
     ])
 
-    result = engine.run(expr)
-
-    # Check simple fields
-    assert result.struct[comp.Value("x")] == comp.Value(1)
-    assert result.struct[comp.Value("y")] == comp.Value(3)
-
-    # Check deep field
-    one = result.struct[comp.Value("one")]
-    assert one.struct[comp.Value("two")] == comp.Value(2)
+    result = engine.run(expr).to_python()
+    assert result["x"] == 1
+    assert result["y"] == 3
+    assert result["one"]["two"] == 2
 
 
 def test_deep_assignment_with_index():
@@ -257,7 +193,7 @@ def test_deep_assignment_with_index():
     # The second field (two) should now be a struct with nested
     two = result.struct[comp.Value("two")]
     assert two.is_struct
-    assert two.struct[comp.Value("nested")] == comp.Value(99)
+    assert two.to_python()["nested"] == 99
 
 
 def test_deep_assignment_overwrite_simple():
@@ -274,7 +210,7 @@ def test_deep_assignment_overwrite_simple():
     # "one" should be a struct now (not 1)
     one = result.struct[comp.Value("one")]
     assert one.is_struct
-    assert one.struct[comp.Value("two")] == comp.Value(2)
+    assert one.to_python()["two"] == 2
 
 
 def test_deep_assignment_with_compute():

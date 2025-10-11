@@ -8,7 +8,7 @@ def test_builtin_double():
     engine = comp.Engine()
 
     result = engine.call_function("double", comp.Value(5))
-    assert result == comp.Value(10)
+    assert result.data == 10
 
 
 def test_builtin_print():
@@ -16,7 +16,7 @@ def test_builtin_print():
     engine = comp.Engine()
 
     result = engine.call_function("print", comp.Value(42))
-    assert result == comp.Value(42)
+    assert result.data == 42
 
 
 def test_builtin_identity():
@@ -24,7 +24,7 @@ def test_builtin_identity():
     engine = comp.Engine()
 
     result = engine.call_function("identity", comp.Value("hello"))
-    assert result == comp.Value("hello")
+    assert result.data == "hello"
 
 
 def test_builtin_add():
@@ -32,9 +32,9 @@ def test_builtin_add():
     engine = comp.Engine()
 
     # |add requires ^{n=...} argument
-    args = comp.Value({comp.Value("n"): comp.Value(3)})
+    args = comp.Value({"n": 3})
     result = engine.call_function("add", comp.Value(5), args)
-    assert result == comp.Value(8)
+    assert result.data == 8
 
 
 def test_builtin_wrap():
@@ -42,7 +42,7 @@ def test_builtin_wrap():
     engine = comp.Engine()
 
     # |wrap requires ^{key=...} argument
-    args = comp.Value({comp.Value("key"): comp.Value("x")})
+    args = comp.Value({"key": "x"})
     result = engine.call_function("wrap", comp.Value(5), args)
 
     assert result.is_struct
@@ -71,7 +71,7 @@ def test_custom_python_function():
 
     # Call it
     result = engine.call_function("triple", comp.Value(4))
-    assert result == comp.Value(12)
+    assert result.to_python() == 12
 
 
 def test_function_with_wrong_input_type():
@@ -90,5 +90,3 @@ def test_function_missing_required_arg():
     # |add requires ^{n=...}
     result = engine.call_function("add", comp.Value(5), None)
     assert result.tag and result.tag.name == "fail"
-    print("✓ Missing argument handling works")
-

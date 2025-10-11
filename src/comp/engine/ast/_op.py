@@ -19,7 +19,6 @@ class UnaryOp(_base.ValueNode):
         self.operand = operand
 
     def evaluate(self, frame):
-        """Evaluate operand, then apply unary operator."""
         operand_value = yield comp.Compute(self.operand)
         operand_value = operand_value.as_scalar()
 
@@ -31,9 +30,9 @@ class UnaryOp(_base.ValueNode):
 
         elif self.op == "!!":
             if operand_value.tag == comp.TRUE:
-                return comp.Value(comp.FALSE, tag=comp.FALSE)
+                return comp.Value(False, tag=comp.FALSE)
             elif operand_value.tag == comp.FALSE:
-                return comp.Value(comp.TRUE, tag=comp.TRUE)
+                return comp.Value(True, tag=comp.TRUE)
             else:
                 return comp.fail(f"Cannot apply !! to non-boolean: {operand_value}")
 
@@ -41,7 +40,6 @@ class UnaryOp(_base.ValueNode):
             return comp.fail(f"Unknown unary operator: {self.op}")
 
     def unparse(self) -> str:
-        """Convert back to source code."""
         return f"{self.op}{self.operand.unparse()}"
 
     def __repr__(self):
@@ -68,7 +66,6 @@ class ArithmeticOp(_base.ValueNode):
         self.right = right
 
     def evaluate(self, frame):
-        """Evaluate both operands, then apply arithmetic operation."""
         left_value = yield comp.Compute(self.left)
         left_value = left_value.as_scalar()
         right_value = yield comp.Compute(self.right)
@@ -94,11 +91,10 @@ class ArithmeticOp(_base.ValueNode):
             return comp.Value(left_num / right_num)
 
     def unparse(self) -> str:
-        """Convert back to source code."""
         return f"({self.left.unparse()} {self.op} {self.right.unparse()})"
 
     def __repr__(self):
-        return f"ArithmeticOp({self.left}, {self.op!r}, {self.right})"
+        return f"ArithmeticOp({self.op!r}, {self.left}, {self.right})"
 
 
 class ComparisonOp(_base.ValueNode):
@@ -123,7 +119,6 @@ class ComparisonOp(_base.ValueNode):
         self.right = right
 
     def evaluate(self, frame):
-        """Evaluate both operands, then apply comparison."""
         left_value = yield comp.Compute(self.left)
         left_value = left_value.as_scalar()
         right_value = yield comp.Compute(self.right)
@@ -132,10 +127,10 @@ class ComparisonOp(_base.ValueNode):
         # Equality comparisons work on any values
         if self.op == "==":
             result = left_value.data == right_value.data
-            return comp.Value(comp.TRUE if result else comp.FALSE, tag=comp.TRUE if result else comp.FALSE)
+            return comp.Value(True if result else False, tag=comp.TRUE if result else comp.FALSE)
         elif self.op == "!=":
             result = left_value.data != right_value.data
-            return comp.Value(comp.TRUE if result else comp.FALSE, tag=comp.TRUE if result else comp.FALSE)
+            return comp.Value(True if result else False, tag=comp.TRUE if result else comp.FALSE)
 
         # Ordering comparisons require numbers
         if not (left_value.is_number and right_value.is_number):
@@ -155,14 +150,13 @@ class ComparisonOp(_base.ValueNode):
         elif self.op == ">=":
             result = left_num >= right_num
 
-        return comp.Value(comp.TRUE if result else comp.FALSE, tag=comp.TRUE if result else comp.FALSE)
+        return comp.Value(True if result else False, tag=comp.TRUE if result else comp.FALSE)
 
     def unparse(self) -> str:
-        """Convert back to source code."""
         return f"({self.left.unparse()} {self.op} {self.right.unparse()})"
 
     def __repr__(self):
-        return f"ComparisonOp({self.left}, {self.op!r}, {self.right})"
+        return f"ComparisonOp({self.op!r}, {self.left}, {self.right})"
 
 
 class BooleanOp(_base.ValueNode):
@@ -212,7 +206,6 @@ class BooleanOp(_base.ValueNode):
             return right_value
 
     def unparse(self) -> str:
-        """Convert back to source code."""
         return f"({self.left.unparse()} {self.op} {self.right.unparse()})"
 
     def __repr__(self):
@@ -246,7 +239,6 @@ class FallbackOp(_base.ValueNode):
         self.right = right
 
     def evaluate(self, frame):
-        """Evaluate left, handle fail by evaluating right."""
         # allow_failures while evaluating left
         left_value = yield comp.Compute(self.left, allow_failures=True)
 
@@ -260,7 +252,6 @@ class FallbackOp(_base.ValueNode):
         return right_value
 
     def unparse(self) -> str:
-        """Convert back to source code."""
         return f"({self.left.unparse()} ?? {self.right.unparse()})"
 
     def __repr__(self):

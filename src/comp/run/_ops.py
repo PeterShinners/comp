@@ -160,15 +160,19 @@ def _compare_values(left, right, op):
     # Equality operators
     if op == "==":
         result = _values_equal(left, right)
-        if not isinstance(result, bool) and _eval.is_failure(result):
-            return result
-        return _value.Value(builtin.true if result else builtin.false)
+        # result is already a Value (#true, #false, or failure)
+        return result
     
     elif op == "!=":
         result = _values_equal(left, right)
-        if not isinstance(result, bool) and _eval.is_failure(result):
+        # Negate the boolean result (or propagate failure)
+        if _eval.is_failure(result):
             return result
-        return _value.Value(builtin.false if result else builtin.true)
+        # Flip true/false
+        if result.tag is builtin.true:
+            return _value.Value(builtin.false)
+        else:
+            return _value.Value(builtin.true)
     
     # Ordering operators - use total ordering
     # Type ordering: {} < #false < #true < numbers < strings < non-empty structs < other tags
@@ -191,9 +195,11 @@ def _values_equal(left, right):
     
     Equality requires same type and same content.
     Tags are compared by identity - aliases compare as equal.
-    Note: For now, we only support basic types (not full struct comparison).
+    
+    Returns:
+        Value: #true, #false, or a failure value
     """
-    # Different types cannot be compared - raise error
+    # Different types cannot be compared - return failure
     if left.is_num != right.is_num:
         return _fail(f"Cannot compare equality between different types: {left} and {right}")
     if left.is_str != right.is_str:
@@ -203,29 +209,34 @@ def _values_equal(left, right):
     if left.is_struct != right.is_struct:
         return _fail(f"Cannot compare equality between different types: {left} and {right}")
     
-    # Same type comparisons
+    # Same type comparisons - return Value not bool
     if left.is_num:
-        return left.num == right.num
+        return _value.Value(builtin.true if left.num == right.num else builtin.false)
     elif left.is_str:
-        return left.str == right.str
+        return _value.Value(builtin.true if left.str == right.str else builtin.false)
     elif left.is_tag:
         # Tag equality is by identity (same TagValue instance)
         # This means aliases (different names, same tag) compare as equal
-        return left.tag is right.tag
+        return _value.Value(builtin.true if left.tag is right.tag else builtin.false)
     elif left.is_struct:
         # TODO: Implement full struct comparison
         # For now, just do basic comparison
         if len(left.struct) != len(right.struct):
-            return False
+            return _value.Value(builtin.false)
         # Simple key-value comparison (not handling all edge cases yet)
         for key, val in left.struct.items():
             if key not in right.struct:
-                return False
-            if not _values_equal(val, right.struct[key]):
-                return False
-        return True
+                return _value.Value(builtin.false)
+            result = _values_equal(val, right.struct[key])
+            # Check if comparison failed or returned false
+            from . import _eval
+            if _eval.is_failure(result):
+                return result  # Propagate failure
+            if result.tag is builtin.false:
+                return _value.Value(builtin.false)
+        return _value.Value(builtin.true)
     
-    return False
+    return _value.Value(builtin.false)
 
 
 def _compare_total_order(left, right):

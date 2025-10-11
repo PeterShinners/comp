@@ -43,7 +43,7 @@ def test_fallback_both_fail():
 
     result = engine.run(expr)
     assert engine.is_fail(result)
-    assert "Division by zero" in result.data['message'].data
+    assert "Division by zero" in result.data[comp.Value('message')].data
 
 
 def test_fallback_nested():

@@ -42,13 +42,19 @@ class Structure(_base.ValueNode):
         """
         struct_dict = {}
 
+        # Create a Value that directly wraps the dict without conversion
+        # (the dict will be populated with already-converted Values)
+        accumulator = comp.Value.__new__(comp.Value)
+        accumulator.data = struct_dict
+        accumulator.tag = None
+
         # Push accumulator onto scope stack so operations can access it
         # Evaluate each operation - they will populate the accumulator
         for op in self.ops:
-            yield comp.Compute(op, struct_accumulator=comp.Value(struct_dict))
+            yield comp.Compute(op, struct_accumulator=accumulator)
 
         # All operations evaluated successfully - return the struct
-        return comp.Value(struct_dict)
+        return accumulator
 
     def unparse(self) -> str:
         """Convert back to source code."""
@@ -89,6 +95,10 @@ class StructOp(_base.ValueNode):
 class FieldOp(StructOp):
     """Field assignment operation: key=value or just value
 
+    Args:
+        value: Expression that evaluates to field value
+        key: None (unnamed), _base.ValueNode (simple), or list of field nodes (deep path)
+
     Represents a field assignment in a structure literal. Can be:
     - Named: key=value (key is single _base.ValueNode or list for deep paths)
     - comp.Unnamed: value (key is None)
@@ -103,15 +113,6 @@ class FieldOp(StructOp):
     """
 
     def __init__(self, value: _base.ValueNode, key: _base.ValueNode | list | None = None):
-        """Create field assignment operation.
-
-        Args:
-            value: Expression that evaluates to field value
-            key: None (unnamed), _base.ValueNode (simple), or list of field nodes (deep path)
-
-        Raises:
-            TypeError: If value is not a _base.ValueNode, or key type is invalid
-        """
         if not isinstance(value, _base.AstNode):
             raise TypeError("Field value must be AstNode")
 
@@ -128,13 +129,10 @@ class FieldOp(StructOp):
         self.value = value
 
     def evaluate(self, frame):
-        """Evaluate field assignment and add to struct accumulator.
-
-        Handles three cases:
-        1. comp.Unnamed: key is None, use comp.Unnamed() as key
-        2. Simple named: key is single _base.ValueNode, evaluate and use
-        3. Deep path: key is list, walk path creating nested structs
-        """
+        # Handles three cases:
+        # 1. comp.Unnamed: key is None, use comp.Unnamed() as key
+        # 2. Simple named: key is single _base.ValueNode, evaluate and use
+        # 3. Deep path: key is list, walk path creating nested structs
         # Get the accumulator from scope stack
         accumulator = frame.scope('struct_accumulator')
         if accumulator is None or not accumulator.is_struct:
@@ -232,7 +230,6 @@ class FieldOp(StructOp):
             return key_value
 
     def unparse(self) -> str:
-        """Convert back to source code."""
         if self.key is None:
             # comp.Unnamed field
             return self.value.unparse()
@@ -259,25 +256,16 @@ class SpreadOp(StructOp):
     Evaluates expression (must be a struct) and merges its fields into
     the struct accumulator.
 
-    Correct by Construction:
-    - expr is a _base.ValueNode instance
+    Args:
+        expr: Expression that evaluates to a struct to spread
     """
 
     def __init__(self, expr: _base.ValueNode):
-        """Create spread operation.
-
-        Args:
-            expr: Expression that evaluates to a struct to spread
-
-        Raises:
-            TypeError: If expr is not a _base.ValueNode
-        """
         if not isinstance(expr, _base.AstNode):
             raise TypeError("Spread expression must be AstNode")
         self.expr = expr
 
     def evaluate(self, frame):
-        """Evaluate expression, merge its struct into accumulator."""
         # Get the accumulator from scope stack
         accumulator = frame.scope('struct_accumulator')
         if accumulator is None or not accumulator.is_struct:
@@ -297,7 +285,6 @@ class SpreadOp(StructOp):
         return comp.Value(True)
 
     def unparse(self) -> str:
-        """Convert back to source code."""
         return f"..{self.expr.unparse()}"
 
     def __repr__(self):

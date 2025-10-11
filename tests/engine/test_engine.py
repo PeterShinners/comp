@@ -34,7 +34,7 @@ def test_scope_access():
     engine = comp.Engine()
 
     # Set up a local scope with a value
-    local_scope = comp.Value({comp.Value('x'): comp.Value(42)})
+    local_scope = comp.Value({'x': 42})
 
     # @ (just get the scope)
     expr = comp.ast.Identifier([comp.ast.ScopeField('@')])
@@ -48,9 +48,7 @@ def test_field_access():
 
     # Set up scope with nested structure
     local_scope = comp.Value({
-        comp.Value('user'): comp.Value({
-            comp.Value('name'): comp.Value('Alice')
-        })
+        'user': comp.Value({'name': 'Alice'})
     })
 
     # @.user.name
@@ -68,10 +66,7 @@ def test_complex_expression():
     engine = comp.Engine()
 
     # Set up scope
-    local_scope = comp.Value({
-        comp.Value('x'): comp.Value(10),
-        comp.Value('y'): comp.Value(20)
-    })
+    local_scope = comp.Value({'x': 10, 'y': 20})
 
     # (@.x + @.y) * 2
     expr = comp.ast.ArithmeticOp("*",
@@ -83,6 +78,6 @@ def test_complex_expression():
     )
 
     result = engine.run(expr, local=local_scope)
-    assert result == comp.Value(60)
+    assert result.data == 60
 
 

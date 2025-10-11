@@ -90,13 +90,17 @@ class Engine:
 
         Args:
             node: AST node to evaluate
-            scopes: Keyword arguments to define initial scopes
+            scopes: Keyword arguments to define initial scopes (in_ becomes in)
 
         Returns:
             Final Value result from node evaluation
         """
         result = _value.Value({})  # Set by first StopIteration before use
         result_is_fail = False  # Track if result contains a failure
+
+        # Handle Python keyword workarounds: in_ -> in
+        if 'in_' in scopes:
+            scopes['in'] = scopes.pop('in_')
 
         # Create initial frame
         newest = _Frame(node, None, scopes, False, self)

@@ -26,7 +26,7 @@ def test_simple_seeded_pipeline():
     )
 
     result = engine.run(pipeline)
-    assert result == Value(10)
+    assert result.to_python() == 10
 
 
 def test_multi_step_pipeline():
@@ -42,7 +42,7 @@ def test_multi_step_pipeline():
     )
 
     result = engine.run(pipeline)
-    assert result == Value(12)
+    assert result.to_python() == 12
 
 
 def test_pipeline_with_function_args():
@@ -59,7 +59,7 @@ def test_pipeline_with_function_args():
     )
 
     result = engine.run(pipeline)
-    assert result == Value(8)
+    assert result.to_python() == 8
 
 
 def test_pipeline_with_identity():
@@ -72,7 +72,7 @@ def test_pipeline_with_identity():
     )
 
     result = engine.run(pipeline)
-    assert result.as_scalar() == Value(42)
+    assert result.as_scalar().to_python() == 42
 
 
 def test_pipeline_chaining():
@@ -91,7 +91,7 @@ def test_pipeline_chaining():
     )
 
     result = engine.run(pipeline)
-    assert result == Value(10)
+    assert result.to_python() == 10
 
 
 def test_unseeded_pipeline():
@@ -105,7 +105,7 @@ def test_unseeded_pipeline():
     )
 
     result = engine.run(pipeline, in_=Value(7))
-    assert result == Value(14)
+    assert result.to_python() == 14
 
 
 def test_unseeded_pipeline_without_in_scope():
@@ -197,7 +197,7 @@ def test_pipefallback_handles_fail():
 
     result = engine.run(pipeline)
     assert not engine.is_fail(result), f"Expected recovery, got fail: {result}"
-    assert result.as_scalar() == Value(42)
+    assert result.as_scalar().to_python() == 42
 
 
 def test_pipefallback_passes_success():
@@ -217,7 +217,7 @@ def test_pipefallback_passes_success():
     )
 
     result = engine.run(pipeline)
-    assert result == Value(10), f"Expected 10, got {result}"
+    assert result.to_python() == 10, f"Expected 10, got {result}"
 
 
 def test_pipefallback_fail_in_recovery():
@@ -275,7 +275,7 @@ def test_pipefallback_chaining():
     )
 
     result = engine.run(pipeline)
-    assert result == Value(20), f"Expected 20, got {result}"
+    assert result.to_python() == 20, f"Expected 20, got {result}"
 
 
 def test_pipestruct_merge():
@@ -299,7 +299,7 @@ def test_pipestruct_merge():
     )
 
     result = engine.run(pipeline)
-    assert result.data == {Value("y"): Value(2)}
+    assert result.to_python() == {"y": 2}
 
 
 def test_pipestruct_receives_struct():
@@ -321,4 +321,4 @@ def test_pipestruct_receives_struct():
     )
 
     result = engine.run(pipeline)
-    assert result == Value({Value("x"): Value(1)})
+    assert result.to_python() == {"x": 1}
