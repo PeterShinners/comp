@@ -7,7 +7,12 @@ A functional, interpreted programming language designed for general purpose comp
 __version__ = "0.0.2"
 
 
-from . import ast
-from . import run
 from ._error import *
+from ._entity import *
+from ._value import *
+from ._function import *
+from ._engine import *
+from ._module import *
+from ._builtin import *
 from ._parser import *
+from . import ast

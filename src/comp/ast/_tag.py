@@ -1,234 +1,350 @@
-"""Ast nodes for tags"""
+"""AST nodes for tag definitions and references."""
 
-__all__ = [
-    "TagChild",
-    "TagBody",
-    "TagDef",
-    "TagRef",
-]
+__all__ = ["Module", "ModuleOp", "TagDef", "TagChild", "TagValueRef"]
 
-from . import _node
+
 import comp
 
-
-class TagChild(_node.Node):
-    """Nested tag child in a tag hierarchy (no !tag prefix)."""
-
-    def __init__(self, tokens: list[str] | None = None, assign_op: str = "="):
-        self.tokens = list(tokens) if tokens else []
-        self.assign_op = assign_op
-        self._valIdx = self._bodIdx = None
-        super().__init__()
-
-    @property
-    def value(self):
-        return self.kids[self._valIdx] if self._valIdx is not None else None
-
-    @property
-    def body(self):
-        return self.kids[self._bodIdx] if self._bodIdx is not None else None
-
-    @property
-    def body_kids(self):
-        """Get all children after the assignment (value + body children)."""
-        kids = []
-        if self.value is not None:
-            kids.append(self.value)
-        body = self.body
-        if body:
-            kids.extend(body.kids)
-        return kids
-
-    def unparse(self) -> str:
-        parts = ["#" + ".".join(self.tokens)]
-        if self.assign_op:
-            parts.append(self.assign_op)
-        if self.value:
-            parts.append(self.value.unparse())
-        if self.body:
-            parts.append(self.body.unparse())
-        return " ".join(parts)
-
-    @classmethod
-    def from_grammar(cls, tree):
-        """Parse TagChild from Lark tree using rule aliases."""
-        kids = tree.children
-        tokens = [t.value for t in kids[0].children[1].children[::2]]
-
-        # Determine structure based on rule alias
-        # After walk, kids will contain: [value?, body?] in order
-        match tree.data:
-            case 'tagchild_simple':
-                # tag_path
-                # Kids after walk: []
-                self = cls(tokens=tokens, assign_op="")
-                self._valIdx = self._bodIdx = None
-
-            case 'tagchild_val_body':
-                # tag_path ASSIGN tag_value tag_body
-                # Kids after walk: [value, body]
-                # ASSIGN is at tree.children[1]
-                assign_op = kids[1].value
-                self = cls(tokens=tokens, assign_op=assign_op)
-                self._valIdx = 0
-                self._bodIdx = 1
-
-            case 'tagchild_val':
-                # tag_path ASSIGN tag_value
-                # Kids after walk: [value]
-                # ASSIGN is at tree.children[1]
-                assign_op = kids[1].value
-                self = cls(tokens=tokens, assign_op=assign_op)
-                self._valIdx = 0
-                self._bodIdx = None
-
-            case 'tagchild_body':
-                # tag_path ASSIGN tag_body
-                # Kids after walk: [body]
-                # ASSIGN is at tree.children[1]
-                assign_op = kids[1].value
-                self = cls(tokens=tokens, assign_op=assign_op)
-                self._valIdx = None
-                self._bodIdx = 0
-
-            case _:
-                raise ValueError(f"Unknown tag_child variant: {tree.data}")
-
-        return self
+from . import _base
 
 
-class TagBody(_node.Node):
-    def unparse(self):
-        tags = " ".join(t.unparse() for t in self.kids)
-        return f"{{{tags}}}"
+class Module(_base.AstNode):
+    """Module node: collection of module-level definitions.
 
+    Evaluates all module operations (tag definitions, function definitions, etc.)
+    and builds a runtime Module object. The module operations are evaluated in
+    order, allowing later definitions to reference earlier ones.
 
-class TagDef(_node.Node):
-    """Tag definition at module level (with !tag prefix)."""
+    Args:
+        operations: List of module-level operations (TagDef, FuncDef, etc.)
+    """
 
-    def __init__(self, tokens: list[str] | None = None, assign_op: str = "="):
-        self.tokens = list(tokens) if tokens else []
-        self.assign_op = assign_op
-        self._genIdx = self._valIdx = self._bodIdx = None
-        super().__init__()
+    def __init__(self, operations: list['ModuleOp']):
+        if not isinstance(operations, list):
+            raise TypeError("Module operations must be a list")
+        if not all(isinstance(op, ModuleOp) for op in operations):
+            raise TypeError("All operations must be ModuleOp instances")
 
-    @property
-    def generator(self):
-        return self.kids[self._genIdx] if self._genIdx is not None else None
+        self.operations = operations
 
-    @property
-    def value(self):
-        return self.kids[self._valIdx] if self._valIdx is not None else None
+    def evaluate(self, frame):
+        """Evaluate all module operations to build the runtime module.
 
-    @property
-    def body(self):
-        return self.kids[self._bodIdx] if self._bodIdx is not None else None
+        Creates a new Module and passes it through the mod_* scopes
+        so operations can register their definitions.
 
-    @property
-    def body_kids(self):
-        """Get all children after the assignment (value + body children)."""
-        kids = []
-        if self.value is not None:
-            kids.append(self.value)
-        body = self.body
-        if body:
-            kids.extend(body.kids)
-        return kids
+        Returns:
+            Module entity containing all registered definitions
+        """
+        # Create runtime module
+        module = comp.Module()
+
+        # Evaluate each operation with module in scope
+        for op in self.operations:
+            result = yield comp.Compute(op, mod_tags=module, mod_funcs=module, mod_shapes=module)
+            if frame.is_fail(result):
+                return result
+
+        # Return the populated module
+        return module
 
     def unparse(self) -> str:
-        parts = ["!tag", "#" + ".".join(self.tokens)]
+        """Convert back to source code."""
+        return "\n".join(op.unparse() for op in self.operations)
+
+    def __repr__(self):
+        return f"Module({len(self.operations)} ops)"
+
+
+class ModuleOp(_base.AstNode):
+    """Base class for module-level operations.
+
+    Module operations register definitions in the module being built.
+    They receive scope(s) containing the runtime module components:
+    - 'mod_tags': Runtime Module for tag definitions
+    - 'mod_funcs': Function registry (future)
+    - 'mod_shapes': Shape registry (future)
+
+    Subclasses:
+    - TagDef: Tag definitions
+    - FuncDef: Function definitions (future)
+    - ShapeDef: Shape definitions (future)
+    """
+    pass
+
+
+class TagDef(ModuleOp):
+    """Tag definition: !tag #path.to.tag = value {...}
+
+    Defines a tag in the module hierarchy. Tags can have:
+    - A value (any expression that evaluates to a Value)
+    - Children (nested tag definitions)
+    - A generator function (for auto-generating values) - not implemented yet
+
+    The path is stored in definition order (root to leaf), e.g.,
+    ["status", "error", "timeout"] for !tag #timeout.error.status
+
+    Multiple definitions of the same tag merge - later values override earlier ones.
+
+    Args:
+        path: Full path in definition order, e.g., ["status", "error", "timeout"]
+        value: Optional expression that evaluates to tag's value
+        children: List of nested TagChild definitions
+        generator: Optional generator function (not implemented)
+    """
+
+    def __init__(self, path: list[str], value: _base.ValueNode | None = None,
+                 children: list['TagChild'] | None = None,
+                 generator: _base.ValueNode | None = None):
+        if not path:
+            raise ValueError("Tag path cannot be empty")
+        if not all(isinstance(name, str) for name in path):
+            raise TypeError("Tag path must be list of strings")
+        if value is not None and not isinstance(value, _base.ValueNode):
+            raise TypeError("Tag value must be ValueNode or None")
+        if children is not None:
+            if not isinstance(children, list):
+                raise TypeError("Tag children must be list or None")
+            if not all(isinstance(c, TagChild) for c in children):
+                raise TypeError("All children must be TagChild instances")
+        if generator is not None and not isinstance(generator, _base.ValueNode):
+            raise TypeError("Tag generator must be ValueNode or None")
+
+        self.path = path
+        self.value = value
+        self.children = children or []
+        self.generator = generator
+
+    def evaluate(self, frame):
+        """Register this tag and its children in the module.
+
+        1. Get module from mod_tags scope
+        2. Evaluate value expression if present
+        3. Register tag in module
+        4. Recursively process children
+        """
+        # Get module from scope
+        module = frame.scope('mod_tags')
+        if module is None:
+            return comp.fail("TagDef requires mod_tags scope")
+
+        # Evaluate value if present
+        tag_value = None
+        if self.value is not None:
+            tag_value = yield comp.Compute(self.value)
+            if frame.is_fail(tag_value):
+                return tag_value
+
+        # Register this tag
+        module.define_tag(self.path, tag_value)
+
+        # Process children - they extend the path
+        if self.children:
+            for child in self.children:
+                # Child paths are relative to this tag
+                result = yield comp.Compute(child, mod_tags=module, parent_path=self.path)
+                if frame.is_fail(result):
+                    return result
+
+        return comp.Value(True)
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        parts = ["!tag", "#" + ".".join(reversed(self.path))]  # Reverse for reference notation
+
         if self.generator:
             parts.append(self.generator.unparse())
-        if self.assign_op:
-            parts.append(self.assign_op)
+
+        if self.value or self.children:
+            parts.append("=")
+
         if self.value:
             parts.append(self.value.unparse())
-        if self.body:
-            parts.append(self.body.unparse())
+
+        if self.children:
+            children_str = " ".join(c.unparse() for c in self.children)
+            parts.append(f"{{{children_str}}}")
+
         return " ".join(parts)
 
-    @classmethod
-    def from_grammar(cls, tree):
-        """Parse TagDef from Lark tree using rule aliases."""
-        kids = tree.children
-        tokens = [t.value for t in kids[1].children[1].children[::2]]
-
-        # Determine structure based on rule alias
-        # After walk, kids will contain: [generator?, value?, body?] in order
-        match tree.data:
-            case 'tag_simple':
-                # BANG_TAG tag_path
-                # Kids after walk: []
-                self = cls(tokens=tokens, assign_op="")
-                self._genIdx = self._valIdx = self._bodIdx = None
-
-            case 'tag_gen_val_body':
-                # BANG_TAG tag_path tag_generator ASSIGN tag_value tag_body
-                # Kids after walk: [generator, value, body]
-                # ASSIGN is at tree.children[3]
-                assign_op = kids[3].value
-                self = cls(tokens=tokens, assign_op=assign_op)
-                self._genIdx = 0
-                self._valIdx = 1
-                self._bodIdx = 2
-
-            case 'tag_gen_val':
-                # BANG_TAG tag_path tag_generator ASSIGN tag_value
-                # Kids after walk: [generator, value]
-                # ASSIGN is at tree.children[3]
-                assign_op = kids[3].value
-                self = cls(tokens=tokens, assign_op=assign_op)
-                self._genIdx = 0
-                self._valIdx = 1
-                self._bodIdx = None
-
-            case 'tag_gen_body':
-                # BANG_TAG tag_path tag_generator ASSIGN tag_body
-                # Kids after walk: [generator, body]
-                # ASSIGN is at tree.children[3]
-                assign_op = kids[3].value
-                self = cls(tokens=tokens, assign_op=assign_op)
-                self._genIdx = 0
-                self._valIdx = None
-                self._bodIdx = 1
-
-            case 'tag_val_body':
-                # BANG_TAG tag_path ASSIGN tag_value tag_body
-                # Kids after walk: [value, body]
-                # ASSIGN is at tree.children[2]
-                assign_op = kids[2].value
-                self = cls(tokens=tokens, assign_op=assign_op)
-                self._genIdx = None
-                self._valIdx = 0
-                self._bodIdx = 1
-
-            case 'tag_val':
-                # BANG_TAG tag_path ASSIGN tag_value
-                # Kids after walk: [value]
-                # ASSIGN is at tree.children[2]
-                assign_op = kids[2].value
-                self = cls(tokens=tokens, assign_op=assign_op)
-                self._genIdx = None
-                self._valIdx = 0
-                self._bodIdx = None
-
-            case 'tag_body_only':
-                # BANG_TAG tag_path ASSIGN tag_body
-                # Kids after walk: [body]
-                # ASSIGN is at tree.children[2]
-                assign_op = kids[2].value
-                self = cls(tokens=tokens, assign_op=assign_op)
-                self._genIdx = None
-                self._valIdx = None
-                self._bodIdx = 0
-
-            case _:
-                raise ValueError(f"Unknown tag_definition variant: {tree.data}")
-
-        return self
+    def __repr__(self):
+        path_str = ".".join(self.path)
+        return f"TagDef({path_str})"
 
 
-class TagRef(_node.BaseRef):
-    """Tag reference: #path"""
-    SYMBOL = "#"
+class TagChild(ModuleOp):
+    """Nested tag definition within a tag body.
+
+    Similar to TagDef but used inside tag bodies. The path is relative
+    to the parent tag's path.
+
+    Example:
+        !tag #status = {
+            #active = 1      <- TagChild with path=["active"]
+            #error = {       <- TagChild with path=["error"], has children
+                #timeout     <- TagChild with path=["timeout"]
+            }
+        }
+
+    Args:
+        path: Relative path (single name or multiple for deep nesting)
+        value: Optional expression for the tag's value
+        children: Nested children (for hierarchies)
+    """
+
+    def __init__(self, path: list[str], value: _base.ValueNode | None = None,
+                 children: list['TagChild'] | None = None):
+        if not path:
+            raise ValueError("TagChild path cannot be empty")
+        if not all(isinstance(name, str) for name in path):
+            raise TypeError("TagChild path must be list of strings")
+        if value is not None and not isinstance(value, _base.ValueNode):
+            raise TypeError("TagChild value must be ValueNode or None")
+        if children is not None:
+            if not isinstance(children, list):
+                raise TypeError("TagChild children must be list or None")
+            if not all(isinstance(c, TagChild) for c in children):
+                raise TypeError("All children must be TagChild instances")
+
+        self.path = path
+        self.value = value
+        self.children = children or []
+
+    def evaluate(self, frame):
+        """Register this child tag in the module.
+
+        Combines parent_path from scope with this child's relative path.
+        """
+        # Get module and parent path from scope
+        module = frame.scope('mod_tags')
+        parent_path = frame.scope('parent_path')
+
+        if module is None:
+            return comp.fail("TagChild requires mod_tags scope")
+        if parent_path is None:
+            return comp.fail("TagChild requires parent_path scope")
+
+        # Build full path: parent + child
+        full_path = parent_path + self.path
+
+        # Evaluate value if present
+        tag_value = None
+        if self.value is not None:
+            tag_value = yield comp.Compute(self.value)
+            if frame.is_fail(tag_value):
+                return tag_value
+
+        # Register tag
+        module.define_tag(full_path, tag_value)
+
+        # Process children
+        if self.children:
+            for child in self.children:
+                result = yield comp.Compute(child, mod_tags=module, parent_path=full_path)
+                if frame.is_fail(result):
+                    return result
+
+        return comp.Value(True)
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        parts = ["#" + ".".join(reversed(self.path))]  # Reverse for reference notation
+
+        if self.value or self.children:
+            parts.append("=")
+
+        if self.value:
+            parts.append(self.value.unparse())
+
+        if self.children:
+            children_str = " ".join(c.unparse() for c in self.children)
+            parts.append(f"{{{children_str}}}")
+
+        return " ".join(parts)
+
+    def __repr__(self):
+        path_str = ".".join(self.path)
+        return f"TagChild({path_str})"
+
+
+class TagValueRef(_base.ValueNode):
+    """Tag reference as a value: #timeout.error.status
+
+    References are written in reverse order (leaf first), but stored
+    as a list for matching. The lookup uses partial suffix matching.
+
+    Examples:
+        #active              -> ["active"]
+        #timeout.error       -> ["timeout", "error"]
+        #timeout.error.status -> ["timeout", "error", "status"]
+
+    Args:
+        path: Reversed path (leaf first), e.g., ["timeout", "error", "status"]
+        namespace: Optional module namespace for cross-module refs (future)
+    """
+
+    def __init__(self, path: list[str], namespace: str | None = None):
+        if not path:
+            raise ValueError("Tag reference path cannot be empty")
+        if not all(isinstance(name, str) for name in path):
+            raise TypeError("Tag path must be list of strings")
+        if namespace is not None and not isinstance(namespace, str):
+            raise TypeError("Tag namespace must be string or None")
+
+        self.path = path
+        self.namespace = namespace
+
+    def evaluate(self, frame):
+        """Look up tag in module and return as a Value.
+
+        Uses partial path matching to find the tag. If the reference is
+        ambiguous (multiple matches), returns a failure.
+
+        If namespace is provided (/namespace), searches only in that namespace.
+        Otherwise, searches local module first, then all imported namespaces.
+        """
+        # Get module from frame
+        module = frame.scope('mod_tags')
+        if module is None:
+            return comp.fail("Tag references require mod_tags scope")
+
+        # Look up tag by partial path with namespace support
+        try:
+            tag_def = module.lookup_tag_with_namespace(self.path, self.namespace)
+        except ValueError as e:
+            # Ambiguous reference
+            return comp.fail(str(e))
+
+        if tag_def is None:
+            path_str = ".".join(reversed(self.path))
+            if self.namespace:
+                return comp.fail(f"Tag not found: #{path_str}/{self.namespace}")
+            return comp.fail(f"Tag not found: #{path_str}")
+
+        # Create a Value representing this tag
+        # For now, return a struct with tag metadata
+        # TODO: Create proper Tag value type
+        tag_struct = {
+            comp.Value('name'): comp.Value(tag_def.name),
+            comp.Value('path'): comp.Value([comp.Value(p) for p in tag_def.path]),
+        }
+
+        if tag_def.value is not None:
+            tag_struct[comp.Value('value')] = tag_def.value
+
+        return comp.Value(tag_struct)
+        yield  # Make this a generator (unreachable)
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        ref = "#" + ".".join(reversed(self.path))
+        if self.namespace:
+            ref += "/" + self.namespace
+        return ref
+
+    def __repr__(self):
+        path_str = ".".join(reversed(self.path))
+        if self.namespace:
+            return f"TagValueRef(#{path_str}/{self.namespace})"
+        return f"TagValueRef(#{path_str})"
 

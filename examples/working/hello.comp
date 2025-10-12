@@ -1,4 +1,4 @@
-!func |main ~_ = {
-    message = "Hello from Comp!"
-    result = [message |upper]
+!func |main ~{} = {
+    x = 5
+    result = [x |double]
 }
