@@ -31,8 +31,10 @@ class ShapeDef:
         for _field_name, field in list(self.fields.items()):
             if field.shape:
                 field.shape.resolve(module)
-                # Expand fields from referenced shapes
-                self._expand_shape_fields(field.shape, module)
+                # NOTE: Field expansion removed - it was incorrectly copying fields
+                # from nested shape references. Field expansion should ONLY happen
+                # for explicit spread operators (..~shape), which are handled during
+                # shape definition parsing, not during resolution.
 
         self._resolved = True
 
@@ -80,19 +82,22 @@ class ShapeDef:
 class ShapeField:
     """Field within a shape definition."""
 
-    def __init__(self, name, shape: "ShapeType | None" = None):
+    def __init__(self, name, shape: "ShapeType | None" = None, default: "_value.Value | None" = None):
         """Create a shape field.
-        
+
         Args:
             name: Field name as a Value (or Unnamed for positional fields)
             shape: Optional shape type constraint for this field
+            default: Optional default value for this field
         """
         self.name = name  # Value or Unnamed
         self.shape = shape
+        self.default = default  # Value or None
 
     def __repr__(self):
         shape_str = f": {self.shape}" if self.shape else ""
-        return f"ShapeField({self.name!r}{shape_str})"
+        default_str = f" = {self.default}" if self.default else ""
+        return f"ShapeField({self.name!r}{shape_str}{default_str})"
 
 
 class ShapeType:
@@ -320,14 +325,44 @@ def populate_shape_def_fields(shp_def, ast_node, mod):
             if child.type_ref:
                 field_shape = _build_shape_from_ast(child.type_ref, mod)
 
+            # Extract default value if present
+            # NOTE: Defaults in AST are expressions that need evaluation
+            # For now, we only support literal defaults (numbers, strings, tags)
+            field_default = None
+            if child.default:
+                # Evaluate simple literal defaults
+                field_default = _evaluate_literal_default(child.default, mod)
+
             # Create ShapeField object with Value/Unnamed as name
-            fields[field_key] = ShapeField(name=field_key, shape=field_shape)
+            fields[field_key] = ShapeField(name=field_key, shape=field_shape, default=field_default)
         # elif isinstance(child, comp.ast.ShapeSpread):
         #     # TODO: Handle shape spreads
         #     pass
 
     shp_def.fields.update(fields)
 
+
+
+def _evaluate_literal_default(ast_node, mod):
+    """Evaluate a literal default value from AST.
+
+    Supports numbers, strings, and tag references.
+    For complex expressions, returns None (not yet supported).
+    """
+    # Check node type
+    if isinstance(ast_node, comp.ast.Number):
+        return _value.Value(ast_node.value)
+    elif isinstance(ast_node, comp.ast.String):
+        return _value.Value(ast_node.value)
+    elif isinstance(ast_node, comp.ast.TagRef):
+        # Look up tag in module
+        tag_def = mod.resolve_tag(ast_node.tokens, namespace=None)
+        if tag_def:
+            return _value.Value(tag_def.tag_value)
+        return None  # Unresolved tag
+    else:
+        # Complex expression - not yet supported
+        return None
 
 
 def _fail(msg):

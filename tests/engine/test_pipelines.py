@@ -183,7 +183,8 @@ def test_pipefallback_handles_fail():
     def fail_func(engine, input_value, args):
         return engine.fail("Something went wrong")
 
-    engine.register_function(PythonFunction("fail_func", fail_func))
+    # Directly add to builtin function registry for testing
+    engine.functions["fail_func"] = PythonFunction("fail_func", fail_func)
 
     # Pipeline: [5 |fail_func |? 42]
     # Should recover with 42
@@ -230,7 +231,8 @@ def test_pipefallback_fail_in_recovery():
     def fail_func(engine, input_value, args):
         return engine.fail("Fail!")
 
-    engine.register_function(PythonFunction("fail_func", fail_func))
+    # Directly add to builtin function registry for testing
+    engine.functions["fail_func"] = PythonFunction("fail_func", fail_func)
 
     # Pipeline: [5 |fail_func |? [1 |fail_func]]
     # First fails, fallback also fails
@@ -261,7 +263,8 @@ def test_pipefallback_chaining():
     def fail_func(engine, input_value, args):
         return engine.fail("Fail!")
 
-    engine.register_function(PythonFunction("fail_func", fail_func))
+    # Directly add to builtin function registry for testing
+    engine.functions["fail_func"] = PythonFunction("fail_func", fail_func)
 
     # Pipeline: [5 |fail_func |? 10 |double]
     # Recovers to 10, then doubles to 20

@@ -164,9 +164,11 @@ The morphing process follows these phases:
 
 ## Shape Application Operators
 
-Different morphing operators control strictness and error handling. Morphing transforms data to match shape specifications, with the morph operation either succeeding with a typed value or failing with an error structure.
+Comp provides two distinct categories of shape operations: **morphing** for data transformation and validation, and **masking** for scope filtering and argument validation. Each serves different purposes in the type system.
 
-### Morphing Operators
+### Morphing Operators (`~`)
+
+Morphing transforms data to match shape specifications, restructuring and validating as needed:
 
 ```comp
 data ~shape             ; Normal morph - apply defaults, allow extra fields
@@ -174,7 +176,92 @@ data ~* shape           ; Strong morph - no extra fields allowed, strict matchin
 data ~? shape           ; Weak morph - missing fields acceptable, partial matching
 ```
 
-The tilde (`~`) connects directly to the shape reference in normal morphing, while strong (`~*`) and weak (`~?`) variants include a space before the shape name.
+**Normal morph (`~`)** is the default for function parameters and data transformation:
+- Applies default values for missing fields
+- Ignores extra fields not in the shape
+- Restructures data to match the shape (named↔positional)
+- Fails if required fields are missing or type mismatches occur
+
+**Strong morph (`~*`)** enforces exact structural conformance:
+- Applies default values for missing fields
+- **Rejects extra fields** - structure must match shape exactly
+- Fails if any fields don't match the shape
+- Used for configuration validation and security-critical inputs
+
+**Weak morph (`~?`)** enables partial matching and type testing:
+- Does **not** apply default values
+- Allows missing fields - partial match is acceptable
+- Ignores extra fields not in the shape
+- Used primarily for pattern matching and type tests
+
+### Masking Operators (`^`)
+
+Masking filters structures to expose only fields defined in a shape, without transformation or defaults:
+
+```comp
+data ^ shape            ; Permissive mask - intersection filter
+data ^* shape           ; Strict mask - exact validation with defaults
+```
+
+**Permissive mask (`^`)** filters to the intersection of data and shape fields:
+- Returns only fields present in **both** the data and the shape
+- Does **not** apply defaults for missing fields
+- Ignores extra fields silently
+- Never fails - returns empty structure if no fields match
+- Used for filtering scopes (`$ctx`, `$mod`) to function argument shapes
+
+**Strict mask (`^*`)** validates and completes with defaults:
+- Applies default values for missing fields
+- **Rejects extra fields** - input must match shape exactly
+- Fails if required fields are missing
+- Equivalent to strong morph but semantically for "filtering" contexts
+- Used automatically for function argument validation
+
+### Comparison: Morph vs Mask
+
+| Feature | Normal Morph `~` | Strong Morph `~*` | Permissive Mask `^` | Strict Mask `^*` |
+|---------|------------------|-------------------|---------------------|------------------|
+| **Purpose** | Transform data | Exact validation | Filter fields | Exact validation |
+| **Extra fields** | Ignore | **FAIL** | **Ignore** | **FAIL** |
+| **Missing required** | **FAIL** | **FAIL** | **Ignore** | **FAIL** |
+| **Missing + default** | Add default | Add default | **Ignore** | Add default |
+| **Restructuring** | Yes | Yes | **No** | **No** |
+| **Use case** | Function params | Config validation | Scope filtering | Arg validation |
+
+**Key distinction:** Morphing is about transformation (can restructure data), while masking is about filtering (preserves structure, only removes/validates fields).
+
+### Usage Examples
+
+```comp
+!shape ~user = {name ~str email ~str age ~num = 0}
+
+; Normal morph - flexible, forward-compatible
+{name="Alice" email="a@example.com"} ~user
+; ✅ Result: {name="Alice" email="a@example.com" age=0}
+
+{name="Alice" email="a@example.com" extra="data"} ~user
+; ✅ Result: {name="Alice" email="a@example.com" age=0}
+; Extra 'extra' field is ignored
+
+; Strong morph - exact structure required
+{name="Alice" email="a@example.com" extra="data"} ~* user
+; ❌ FAILS: Extra field 'extra' not in shape
+
+; Weak morph - partial matching for tests
+{name="Alice"} ~? user
+; ✅ Result: {name="Alice"}
+; Missing fields acceptable, no defaults applied
+
+; Permissive mask - filter to intersection
+{name="Alice" email="a@example.com" extra="data"} ^ user
+; ✅ Result: {name="Alice" email="a@example.com"}
+; Only fields in both data and shape (no defaults, no 'age')
+
+; Strict mask - validate and complete
+{name="Alice" email="a@example.com"} ^* user
+; ✅ Result: {name="Alice" email="a@example.com" age=0}
+; Adds default, would fail if 'extra' present
+```
 
 **Validation is handled through fallback operators**, not separate check operators:
 
@@ -264,7 +351,7 @@ The tuple is compared lexicographically: earlier components are more important t
 
 ; For input: {state=#network.error}
 ; ~generic:    {named=1, tag=0, weight=0, pos=0}
-; ~error-case: {named=1, tag=1, weight=0, pos=0}  
+; ~error-case: {named=1, tag=1, weight=0, pos=0}
 ; ~network:    {named=1, tag=2, weight=0, pos=0}  ; WINS - deepest tag
 ```
 
@@ -363,7 +450,7 @@ maintaining composability.
 ; Constraint functions for complex validation
 !pure
 !func |valid-username ~{name ~str} = {
-    ($in |length/str) >= 3 && 
+    ($in |length/str) >= 3 &&
     ($in |match/str "^[a-z][a-z0-9_]*$") &&
     !($in |contains/reserved-words)
 }
@@ -507,6 +594,122 @@ The spread operation is purely mechanical - "copy all fields that have defaults"
 For detailed information about spread operations and structure composition, see
 [Structures, Spreads, and Lazy Evaluation](structure.md).
 
+## Shape Masking and Scope Filtering
+
+Shape masking provides a mechanism for filtering structures to only expose fields defined in a shape. Unlike morphing, which transforms and validates data, masking purely filters - keeping the intersection of available fields and shape-defined fields without applying defaults or restructuring.
+
+Masking is central to function argument handling, where it filters the module scope (`$mod`) and context scope (`$ctx`) to only expose fields declared in the function's argument shape. This creates disciplined function boundaries while maintaining flexibility in scope access.
+
+### Permissive Mask (`^`)
+
+The permissive mask operator filters a structure to only include fields present in both the data and the shape:
+
+```comp
+!shape ~api-fields = {user ~str session ~str timeout ~num}
+
+; Large scope with many fields
+full-scope = {
+    user="alice"
+    session="abc123"
+    timeout=30
+    debug=#true
+    api-key="secret"
+    internal-state="xyz"
+}
+
+; Filter to only API-relevant fields
+filtered = full-scope ^ ~api-fields
+; Result: {user="alice" session="abc123" timeout=30}
+; Removed: debug, api-key, internal-state (not in shape)
+
+; No defaults applied for missing fields
+partial-data = {user="bob"} ^ ~api-fields
+; Result: {user="bob"}
+; Missing: session, timeout (not in data, no defaults)
+
+; Empty result if no overlap
+{a=1 b=2 c=3} ^ ~api-fields
+; Result: {}
+```
+
+**Permissive mask behavior:**
+- Returns intersection of data fields and shape fields
+- Never applies defaults for missing fields
+- Never fails - returns empty structure if no matches
+- Preserves field values and structure exactly
+- Used for scope filtering in function contexts
+
+### Strict Mask (`^*`)
+
+The strict mask operator validates that data exactly matches a shape, applying defaults and failing on mismatches:
+
+```comp
+!shape ~config = {host ~str port ~num = 8080 timeout ~num = 30}
+
+; Valid input with defaults
+validated = {host="localhost" port=3000} ^* ~config
+; ✅ Result: {host="localhost" port=3000 timeout=30}
+; Default 'timeout' applied
+
+; Fails on extra fields
+{host="localhost" port=3000 debug=#true} ^* ~config
+; ❌ FAILS: Extra field 'debug' not in shape
+
+; Fails on missing required fields
+{port=8080} ^* ~config
+; ❌ FAILS: Missing required field 'host'
+```
+
+**Strict mask behavior:**
+- Validates exact shape conformance
+- Applies defaults for missing fields with defaults
+- Fails if extra fields present
+- Fails if required fields missing
+- Functionally equivalent to strong morph (`~*`)
+- Used for function argument validation
+
+### Mask vs Morph Semantics
+
+While strict mask (`^*`) and strong morph (`~*`) are currently functionally equivalent, they represent different semantic intentions:
+
+**Morphing** implies transformation:
+- Can restructure data (named ↔ positional fields)
+- Emphasis on "converting to match shape"
+- Used for data transformation and API boundaries
+
+**Masking** implies filtering:
+- Preserves structure, only filters fields
+- Emphasis on "exposing subset of available fields"
+- Used for scope management and access control
+
+```comp
+; Morph - may restructure
+{5 10} ~point-2d        ; Positional → named fields {x=5 y=10}
+
+; Mask - preserves structure
+{x=5 y=10 z=15} ^ point-2d   ; Removes z, keeps {x=5 y=10}
+```
+
+This semantic distinction guides appropriate use: morphing for data transformation, masking for scope discipline and argument validation.
+
+### Masking in Function Contexts
+
+Function argument shapes automatically apply masking to create disciplined scope access. This is covered in detail in [Functions and Blocks](function.md), but the basic pattern is:
+
+```comp
+!func |process ^{x ~num y ~num timeout ~num = 30} = {
+    ; Automatic masking at function entry:
+    ; $arg = passed_args ^* {x ~num y ~num timeout ~num = 30}
+    ; $ctx_local = $ctx_shared ^ {x ~num y ~num timeout ~num = 30}
+    ; $mod_local = $mod_shared ^ {x ~num y ~num timeout ~num = 30}
+
+    ^x          ; Reads from union: $arg > $ctx > $mod
+    $ctx.data   ; Can write to $ctx (adds to both local and shared)
+}
+```
+
+The mask operators (`^` and `^*`) provide explicit access to the same filtering behavior used automatically in function argument processing, enabling manual scope filtering and validation patterns.
+
 ## Unit System Fundamentals
 
 Units provide semantic typing for primitive values through the tag system. Units
@@ -534,7 +737,7 @@ kelvin = temp ~num#kelvin        ; 293.15
 
 Units follow algebraic rules:
 - Addition/subtraction require compatible units
-- First operand's unit determines result unit  
+- First operand's unit determines result unit
 - Multiplication/division create compound units
 - Incompatible operations fail immediately
 

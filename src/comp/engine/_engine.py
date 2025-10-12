@@ -39,9 +39,13 @@ class Engine:
         # Failure handling
         self.fail_tag = _value.FAIL
 
-    # Function management is temporary until the module system can take over
+        # Context scope storage - persistent across function calls
+        # Value(None) creates an empty struct
+        self.ctx_scope = _value.Value(None)
+
+    # Builtin function lookup (Python-implemented functions only)
     def get_function(self, name: str):
-        """Look up a function by name.
+        """Look up a builtin function by name.
 
         Args:
             name: Function name (without | prefix)
@@ -50,31 +54,6 @@ class Engine:
             Function object or None if not found
         """
         return self.functions.get(name)
-
-    def register_function(self, func):
-        """Register a function in the engine.
-
-        Args:
-            func: Function object with .name attribute
-        """
-        self.functions[func.name] = func
-
-    def call_function(self, name: str, input_value: _value.Value, args: _value.Value | None = None):
-        """Call a function by name.
-
-        Args:
-            name: Function name (without | prefix)
-            input_value: Input value from pipeline
-            args: Optional argument structure
-
-        Returns:
-            Value result or fail value
-        """
-        func = self.get_function(name)
-        if func is None:
-            return comp.fail(f"Unknown function: |{name}")
-
-        return func(self, input_value, args)
 
     def run(self, node, **scopes):
         """Run a node and return its result (frame-based evaluation).
@@ -234,9 +213,12 @@ class _Frame:
         return hasattr(value, 'tag') and value.tag == self.engine.fail_tag
 
     def call_function(self, name: str, input_value, args=None):
-        """Call a function by name."""
-        # TODO one day move this to a module lookup (from the scope, not part of frame)
-        func = self.engine.functions.get(name)
+        """Call a builtin function by name.
+
+        This is for legacy pipeline operations that call Python-implemented builtins.
+        For Comp-defined functions, use the module system with comp.run.invoke().
+        """
+        func = self.engine.get_function(name)
         if func is None:
             return comp.fail(f"Unknown function: |{name}")
         return func(self, input_value, args)

@@ -1,0 +1,676 @@
+"""Parser for converting Lark parse trees to engine AST nodes.
+
+This parser is designed for the engine's AST nodes which require:
+- Children to be converted before parent nodes are created
+- More runtime-focused node structure vs grammar structure
+"""
+
+__all__ = ["parse_module", "parse_expr"]
+
+from pathlib import Path
+from decimal import Decimal
+
+import lark
+
+import comp.engine as comp
+from comp.engine import ast
+
+
+# Global parser instances
+_module_parser: lark.Lark | None = None
+_expr_parser: lark.Lark | None = None
+
+
+def parse_module(text: str) -> ast.Module:
+    """Parse a complete Comp module.
+
+    Args:
+        text: Module source code
+
+    Returns:
+        Module AST node containing all module statements
+
+    Raises:
+        comp.ParseError: If the text contains invalid syntax
+    """
+    try:
+        parser = _get_module_parser()
+        tree = parser.parse(text)
+        ops = _convert_children(tree.children)
+        return ast.Module(ops)
+    except lark.exceptions.LarkError as e:
+        error_msg = str(e)
+        # Improve error messages for common cases
+        if "DUBQUOTE" in error_msg and "$END" in error_msg:
+            error_msg = "Unterminated string literal"
+        raise comp.ParseError(error_msg) from e
+
+
+def parse_expr(text: str):
+    """Parse a single Comp expression.
+
+    Args:
+        text: Expression source code
+
+    Returns:
+        The expression AST node
+
+    Raises:
+        comp.ParseError: If the text contains invalid syntax
+    """
+    try:
+        parser = _get_expr_parser()
+        tree = parser.parse(text)
+        # expression_start has one child: the actual expression
+        if tree.children:
+            result = _convert_tree(tree.children[0])
+            return result
+        return None
+    except lark.exceptions.LarkError as e:
+        error_msg = str(e)
+        # Improve error messages for common cases
+        if "DUBQUOTE" in error_msg and "$END" in error_msg:
+            error_msg = "Unterminated string literal"
+        raise comp.ParseError(error_msg) from e
+
+
+def _convert_tree(tree: lark.Tree | lark.Token):
+    """Convert a single Lark tree/token to an AST node.
+
+    This is the main dispatcher that handles all grammar rules.
+    Children are converted before the parent node is created.
+
+    Args:
+        tree: Lark Tree or Token to convert
+
+    Returns:
+        AST node instance
+    """
+    # Handle tokens (terminals)
+    if isinstance(tree, lark.Token):
+        match tree.type:
+            case 'NUMBER' | 'INTBASE' | 'DECIMAL':
+                return _convert_number(tree)
+            case 'TOKEN':
+                return tree.value
+            case 'INDEXFIELD':
+                # Extract number from #123 format
+                return int(tree.value[1:])
+            case _:
+                # Most tokens are just passed as strings
+                return tree.value
+
+    # Handle trees (non-terminals)
+    assert isinstance(tree, lark.Tree)
+    kids = tree.children
+
+    match tree.data:
+        # Pass-through rules (no node created, just process children)
+        case 'start' | 'module' | 'expression_start':
+            if kids:
+                return _convert_tree(kids[0]) if len(kids) == 1 else _convert_children(kids)
+            return []
+
+        case 'paren_expr':
+            # LPAREN expression RPAREN - return the expression
+            return _convert_tree(kids[1])
+
+        # === NUMBER LITERALS ===
+        case 'number':
+            return ast.Number(_convert_number(kids[0]))
+
+        # === STRING LITERALS ===
+        case 'string' | '_short_string' | '_long_string':
+            return ast.String(_convert_string(kids))
+
+        # === PLACEHOLDER ===
+        case 'placeholder':
+            return ast.Placeholder()
+
+        # === IDENTIFIERS ===
+        case 'identifier':
+            fields = _convert_identifier_fields(kids)
+            return ast.Identifier(fields)
+
+        case 'tokenfield':
+            return ast.TokenField(_convert_tree(kids[0]))
+
+        case 'indexfield':
+            return ast.IndexField(_convert_tree(kids[0]))
+
+        case 'stringfield':
+            # String used as a field - convert the string content
+            string_content = _convert_string(kids[0].children)
+            return ast.TokenField(string_content)
+
+        case 'computefield':
+            # "'" expression "'" - extract the expression (middle child)
+            expr = _convert_tree(kids[1])
+            return ast.ComputeField(expr)
+
+        case 'localscope':
+            return ast.ScopeField("local")
+
+        case 'argscope':
+            return ast.ScopeField("chained")
+
+        case 'namescope':
+            # "$" TOKEN - extract the scope name
+            scope_name = kids[1].value if len(kids) > 1 else "unknown"
+            return ast.ScopeField(scope_name)
+
+        # === REFERENCES ===
+        case 'tag_reference':
+            # "#" _reference_path
+            path, namespace = _extract_reference_path(kids)
+            return ast.TagValueRef(path, namespace)
+
+        case 'shape_reference':
+            # "~" _reference_path - Shape references aren't valid as standalone values
+            # They can only be used in specific contexts like morphing
+            raise comp.ParseError("Shape reference cannot be used as a standalone value")
+
+        case 'function_reference' | '_function_piped':
+            # "|" _reference_path - Function references aren't valid as standalone values
+            # They can only be used in pipeline operations
+            raise comp.ParseError("Function reference cannot be used as a standalone value")
+
+        # === OPERATORS ===
+        case 'binary_op':
+            left = _convert_tree(kids[0])
+            op = _extract_operator(kids[1])
+            right = _convert_tree(kids[2])
+            return _create_binary_op(op, left, right)
+
+        case 'unary_op':
+            op = _extract_operator(kids[0])
+            operand = _convert_tree(kids[1])
+            return _create_unary_op(op, operand)
+
+        case 'atom_fallback':
+            # atom_in_expr FALLBACK expression
+            left = _convert_tree(kids[0])
+            right = _convert_tree(kids[2])
+            return ast.FallbackOp(left, right)
+
+        # === MORPH OPERATORS ===
+        case 'morph_op':
+            expr = _convert_tree(kids[0])
+            # kids[1] is TILDE/WEAK_MORPH token, kids[2] is reference_identifiers or morph_type
+            shape = _convert_tree(kids[2])
+            return ast.MorphOp(expr, shape, mode="normal")
+
+        case 'strong_morph_op':
+            expr = _convert_tree(kids[0])
+            shape = _convert_tree(kids[2])
+            return ast.MorphOp(expr, shape, mode="strong")
+
+        case 'weak_morph_op':
+            expr = _convert_tree(kids[0])
+            shape = _convert_tree(kids[2])
+            return ast.MorphOp(expr, shape, mode="weak")
+
+        case 'reference_identifiers':
+            # Simple dotted identifier path (e.g., "num" or "http.request")
+            # Used in morph operations for shape references
+            # Collect all TOKEN children
+            path = []
+            for kid in kids:
+                if isinstance(kid, lark.Token) and kid.type == 'TOKEN':
+                    path.append(kid.value)
+            # Return as ShapeRef with reversed path (leaf-first)
+            return ast.ShapeRef(list(reversed(path)))
+
+        # === STRUCTURES ===
+        case 'structure':
+            # LBRACE structure_op* RBRACE
+            # Filter out the braces (tokens) and convert the structure_op children
+            ops = [_convert_tree(kid) for kid in kids if isinstance(kid, lark.Tree)]
+            return ast.Structure(ops)
+
+        case 'structure_assign':
+            # _qualified _assignment_op expression
+            key = _convert_tree(kids[0])
+            # Skip assignment operator (kids[1])
+            value = _convert_tree(kids[2])
+            return ast.FieldOp(value, key)
+
+        case 'structure_unnamed':
+            # expression
+            value = _convert_tree(kids[0])
+            return ast.FieldOp(value, None)
+
+        case 'structure_spread':
+            # SPREAD expression
+            expr = _convert_tree(kids[1])
+            return ast.SpreadOp(expr)
+
+        # === PIPELINES ===
+        case 'pipeline_seeded':
+            # LBRACKET _prepipeline_expression pipeline RBRACKET
+            seed = _convert_tree(kids[1])
+            ops = _convert_children(kids[2].children)
+            return ast.Pipeline(seed, ops)
+
+        case 'pipeline_unseeded':
+            # LBRACKET pipeline RBRACKET
+            ops = _convert_children(kids[1].children)
+            return ast.Pipeline(None, ops)
+
+        case 'pipe_func':
+            # function_reference function_arguments
+            # Extract the function path directly without converting (function_reference isn't a value node)
+            func_path, func_namespace = _extract_reference_path(kids[0].children)
+            func_name = ".".join(func_path) if func_namespace is None else f"{func_namespace}.{'.'.join(func_path)}"
+            # function_arguments contains structure_op* - convert to Structure if non-empty
+            if len(kids) > 1 and kids[1].children:
+                ops = [_convert_tree(op) for op in kids[1].children]
+                args = ast.Structure(ops)
+            else:
+                args = None
+            return ast.PipeFunc(func_name, args)
+
+        case 'pipe_struct':
+            # PIPE_STRUCT structure_op* RBRACE
+            ops = _convert_children(kids[1:-1])  # Skip PIPE_STRUCT and RBRACE
+            struct = ast.Structure(ops)
+            return ast.PipeStruct(struct)
+
+        case 'pipe_fallback':
+            # PIPE_FALLBACK expression
+            fallback = _convert_tree(kids[1])
+            return ast.PipeFallback(fallback)
+
+        # === SHAPE DEFINITIONS ===
+        case 'shape_definition':
+            # BANG_SHAPE shape_path ASSIGN shape_body
+            path = _extract_path_from_tree(kids[1])
+            fields = _convert_shape_body(kids[3])
+            return ast.ShapeDef(path, fields)
+
+        case 'shape_field_def':
+            # TOKEN QUESTION? shape_type? (ASSIGN expression)?
+            name = None
+            shape_ref = None
+            default = None
+            optional = False
+
+            i = 0
+            if i < len(kids) and isinstance(kids[i], lark.Token) and kids[i].type == 'TOKEN':
+                name = kids[i].value
+                i += 1
+
+            if i < len(kids) and isinstance(kids[i], lark.Token) and kids[i].type == 'QUESTION':
+                optional = True
+                i += 1
+
+            # Look for shape_type (could be various shape-related rules)
+            if i < len(kids) and isinstance(kids[i], lark.Tree):
+                if kids[i].data in ('shape_type', 'shape_type_atom', 'shape_reference',
+                                   'tag_reference', 'shape_inline', 'shape_union'):
+                    shape_ref = _convert_tree(kids[i])
+                    i += 1
+
+            # Look for ASSIGN token and default value
+            if i < len(kids) and isinstance(kids[i], lark.Token) and kids[i].type == 'ASSIGN':
+                i += 1
+                if i < len(kids):
+                    default = _convert_tree(kids[i])
+
+            return ast.ShapeFieldDef(name, shape_ref, default, optional)
+
+        case 'shape_spread':
+            # SPREAD shape_type
+            # For now, we'll handle spreads as a special kind of field
+            # The actual spread expansion happens at runtime
+            shape = _convert_tree(kids[1])
+            return ast.ShapeFieldDef(None, shape, None, False)  # Positional with shape
+
+        case 'shape_reference':
+            # Already handled above, but repeated for completeness
+            path, namespace = _extract_reference_path(kids)
+            return ast.ShapeRef(path, namespace)
+
+        case 'shape_inline':
+            # TILDE LBRACE shape_field* RBRACE or morph_inline
+            fields = _convert_children(kids[2:-1])  # Skip TILDE, LBRACE, RBRACE
+            return ast.ShapeInline(fields)
+
+        case 'morph_inline':
+            # LBRACE shape_field* RBRACE (no tilde)
+            fields = _convert_children(kids[1:-1])  # Skip LBRACE, RBRACE
+            return ast.ShapeInline(fields)
+
+        case 'shape_union':
+            # shape_type_atom (PIPE shape_type_atom)+
+            members = []
+            for kid in kids:
+                if isinstance(kid, lark.Tree):
+                    members.append(_convert_tree(kid))
+            return ast.ShapeUnion(members)
+
+        # Pass-through for shape type wrappers
+        case 'shape_type' | 'shape_type_atom' | 'shape_body' | 'morph_type':
+            if len(kids) == 1:
+                return _convert_tree(kids[0])
+            # Multiple children means union or complex structure
+            return _convert_children(kids)
+
+        # === TAG DEFINITIONS ===
+        case 'tag_definition' | 'tag_simple' | 'tag_gen_val_body' | 'tag_gen_val' | 'tag_gen_body' | 'tag_val_body' | 'tag_val' | 'tag_body_only':
+            return _convert_tag_definition(kids)
+
+        case 'tag_child' | 'tagchild_simple' | 'tagchild_val_body' | 'tagchild_val' | 'tagchild_body':
+            return _convert_tag_child(kids)
+
+        # === FUNCTION DEFINITIONS ===
+        case 'function_definition' | 'func_with_args' | 'func_no_args':
+            return _convert_function_definition(tree)
+
+        # === PASS-THROUGH / UNWRAP ===
+        case ('tag_value' | 'tag_arithmetic' | 'tag_term' | 'tag_bitwise' |
+              'tag_comparison' | 'tag_unary' | 'tag_atom' |
+              'or_expr' | 'and_expr' | 'not_expr' | 'comparison' |
+              'morph_expr' | 'arith_expr' | 'term' | 'unary' | 'power' |
+              'atom_in_expr' | '_prepipeline_expression' | 'pipeline' |
+              'function_arguments' | '_structure_content'):
+            # These are just precedence/grouping rules - pass through
+            if len(kids) == 1:
+                return _convert_tree(kids[0])
+            # If multiple children, it's an operator that should have been caught above
+            return _convert_children(kids)
+
+        case 'atom_field':
+            # atom_in_expr "." identifier_next_field
+            # This is a field access on an expression result
+            # Recursively flatten: [base, field1, field2, ...]
+            fields = []
+            current = tree
+            while current.data == 'atom_field':
+                # Last child is the field
+                field_tree = current.children[-1]
+                field = _convert_identifier_next_field(field_tree)
+                fields.append(field)
+                current = current.children[0]
+
+            # Current is now the base atom - convert it
+            base_fields = []
+            if current.data == 'identifier':
+                # Base is already an identifier, extract its fields
+                base_id = _convert_tree(current)
+                base_fields = base_id.fields
+            else:
+                # Base is another expression - we need to treat this differently
+                # For now, just return the base and field access
+                # TODO: Handle this case properly
+                base = _convert_tree(current)
+                return base
+
+            # Combine base fields with additional fields
+            fields.reverse()
+            all_fields = base_fields + fields
+            return ast.Identifier(all_fields)
+
+        case _:
+            raise ValueError(f"Unhandled grammar rule: {tree.data}")
+
+
+def _convert_children(children: list) -> list:
+    """Convert a list of Lark trees/tokens to AST nodes."""
+    result = []
+    for child in children:
+        if isinstance(child, lark.Token):
+            # Skip most tokens (they're handled in parent rules)
+            continue
+        converted = _convert_tree(child)
+        if converted is not None:
+            if isinstance(converted, list):
+                result.extend(converted)
+            else:
+                result.append(converted)
+    return result
+
+
+def _convert_number(token: lark.Token) -> Decimal:
+    """Convert a number token to Decimal."""
+    value_str = token.value.replace('_', '')  # Remove underscores
+
+    if value_str.startswith(('0x', '0X')):
+        # Hexadecimal
+        return Decimal(int(value_str, 16))
+    elif value_str.startswith(('0b', '0B')):
+        # Binary
+        return Decimal(int(value_str, 2))
+    elif value_str.startswith(('0o', '0O')):
+        # Octal
+        return Decimal(int(value_str, 8))
+    else:
+        # Decimal (including scientific notation)
+        return Decimal(value_str)
+
+
+def _convert_string(kids: list) -> str:
+    """Extract string content from string children."""
+    # Find the content token
+    for kid in kids:
+        if isinstance(kid, lark.Token):
+            if kid.type in ('SHORT_STRING_CONTENT', 'LONG_STRING_CONTENT'):
+                # Unescape the string content
+                content = kid.value
+                # Basic unescaping (can be expanded)
+                content = content.replace('\\n', '\n')
+                content = content.replace('\\t', '\t')
+                content = content.replace('\\r', '\r')
+                content = content.replace('\\"', '"')
+                content = content.replace('\\\\', '\\')
+                return content
+    return ""
+
+
+def _convert_identifier_fields(kids: list) -> list:
+    """Convert identifier children to field nodes."""
+    fields = []
+    for kid in kids:
+        if isinstance(kid, lark.Token):
+            if kid.type == 'TOKEN':
+                fields.append(ast.TokenField(kid.value))
+            elif kid.type == 'INDEXFIELD':
+                index = int(kid.value[1:])  # Remove '#'
+                fields.append(ast.IndexField(index))
+            # Skip dots and other tokens
+        else:
+            # Tree node
+            field = _convert_tree(kid)
+            if field is not None:
+                fields.append(field)
+    return fields
+
+
+def _convert_identifier_next_field(tree: lark.Tree | lark.Token):
+    """Convert an identifier_next_field to a field node."""
+    if isinstance(tree, lark.Token):
+        if tree.type == 'TOKEN':
+            return ast.TokenField(tree.value)
+        elif tree.type == 'INDEXFIELD':
+            return ast.IndexField(int(tree.value[1:]))
+    else:
+        # Tree - could be string, computefield, etc.
+        return _convert_tree(tree)
+
+
+def _extract_reference_path(kids: list) -> tuple[list[str], str | None]:
+    """Extract path and namespace from reference children.
+
+    Returns:
+        (path, namespace) where path is list of strings, namespace is optional
+    """
+    path = []
+    namespace = None
+
+    for kid in kids:
+        if isinstance(kid, lark.Token):
+            if kid.type == 'TOKEN':
+                path.append(kid.value)
+        elif isinstance(kid, lark.Tree):
+            if kid.data == 'reference_identifiers':
+                # Extract tokens (skip dots)
+                for child in kid.children:
+                    if isinstance(child, lark.Token) and child.type == 'TOKEN':
+                        path.append(child.value)
+            elif kid.data == 'reference_namespace':
+                # "/" TOKEN?
+                if len(kid.children) > 1:
+                    namespace = kid.children[1].value
+
+    return path, namespace
+
+
+def _extract_path_from_tree(tree: lark.Tree) -> list[str]:
+    """Extract a dotted path from a tree (tag_path, shape_path, function_path)."""
+    path = []
+    for kid in tree.children:
+        if isinstance(kid, lark.Tree) and kid.data == 'reference_identifiers':
+            for child in kid.children:
+                if isinstance(child, lark.Token) and child.type == 'TOKEN':
+                    path.append(child.value)
+        elif isinstance(kid, lark.Token) and kid.type == 'TOKEN':
+            path.append(kid.value)
+    return path
+
+
+def _extract_operator(token: lark.Token) -> str:
+    """Extract operator string from token."""
+    return token.value
+
+
+def _create_binary_op(op: str, left, right):
+    """Create appropriate binary operator node."""
+    # Arithmetic operators (only +, -, *, / for now)
+    if op in ('+', '-', '*', '/'):
+        return ast.ArithmeticOp(op, left, right)
+    # Comparison operators
+    elif op in ('<', '>', '<=', '>=', '==', '!='):
+        return ast.ComparisonOp(op, left, right)
+    # Boolean operators
+    elif op in ('&&', '||'):
+        return ast.BooleanOp(op, left, right)
+    # Fallback operator
+    elif op == '??':
+        return ast.FallbackOp(left, right)
+    # Unsupported operators (may be added later)
+    elif op in ('%', '**', '+-'):
+        raise comp.ParseError(f"Operator {op} not yet implemented")
+    else:
+        raise comp.ParseError(f"Unknown binary operator: {op}")
+
+
+def _create_unary_op(op: str, operand):
+    """Create appropriate unary operator node."""
+    return ast.UnaryOp(op, operand)
+
+
+def _convert_shape_body(tree: lark.Tree) -> list:
+    """Convert shape_body to list of ShapeFieldDef nodes."""
+    if tree.data == 'shape_body':
+        # Could be LBRACE shape_field* RBRACE or shape_type
+        if tree.children and isinstance(tree.children[0], lark.Token):
+            # Has LBRACE - extract fields
+            return _convert_children(tree.children[1:-1])
+        else:
+            # Just a shape_type reference
+            return _convert_children(tree.children)
+    return []
+
+
+def _convert_tag_definition(kids: list):
+    """Convert tag definition to TagDef node."""
+    # Extract components based on what's present
+    path = []
+    value = None
+    generator = None
+    children = []
+
+    for kid in kids:
+        if isinstance(kid, lark.Tree):
+            if kid.data == 'tag_path':
+                path = _extract_path_from_tree(kid)
+            elif kid.data == 'tag_value' or kid.data in ('tag_arithmetic', 'tag_atom'):
+                value = _convert_tree(kid)
+            elif kid.data == 'tag_generator':
+                # Generator is either a function reference or block
+                generator = _convert_tree(kid.children[0])
+            elif kid.data == 'tag_body':
+                # Extract tag children
+                children = _convert_children(kid.children[1:-1])  # Skip LBRACE, RBRACE
+
+    return ast.TagDef(path, value, children, generator)
+
+
+def _convert_tag_child(kids: list):
+    """Convert tag child to TagChild node."""
+    path = []
+    value = None
+    children = []
+
+    for kid in kids:
+        if isinstance(kid, lark.Tree):
+            if kid.data == 'tag_path':
+                path = _extract_path_from_tree(kid)
+            elif kid.data == 'tag_value' or kid.data in ('tag_arithmetic', 'tag_atom'):
+                value = _convert_tree(kid)
+            elif kid.data == 'tag_body':
+                children = _convert_children(kid.children[1:-1])
+
+    return ast.TagChild(path, value, children)
+
+
+def _convert_function_definition(tree: lark.Tree):
+    """Convert function definition to FuncDef node."""
+    path = []
+    body = None
+    input_shape = None
+    arg_shape = None
+
+    kids = tree.children
+    for kid in kids:
+        if isinstance(kid, lark.Tree):
+            if kid.data == 'function_path':
+                path = _extract_path_from_tree(kid)
+            elif kid.data == 'function_shape':
+                input_shape = _convert_tree(kid.children[0]) if kid.children else None
+            elif kid.data in ('arg_shape', 'arg_shape_inline', 'arg_shape_ref', 'arg_shape_typed'):
+                arg_shape = _convert_tree(kid)
+            elif kid.data == 'structure':
+                body = _convert_tree(kid)
+
+    return ast.FuncDef(path, body, input_shape, arg_shape)
+
+
+def _get_module_parser() -> lark.Lark:
+    """Get the singleton Lark parser instance for module parsing."""
+    global _module_parser
+    if _module_parser is None:
+        grammar_path = Path(__file__).parent / "comp.lark"
+        _module_parser = lark.Lark(
+            grammar_path.read_text(encoding="utf-8"),
+            parser="lalr",
+            start="module",
+            propagate_positions=True,
+            keep_all_tokens=True,
+        )
+    return _module_parser
+
+
+def _get_expr_parser() -> lark.Lark:
+    """Get the singleton Lark parser instance for expression parsing."""
+    global _expr_parser
+    if _expr_parser is None:
+        grammar_path = Path(__file__).parent / "comp.lark"
+        _expr_parser = lark.Lark(
+            grammar_path.read_text(encoding="utf-8"),
+            parser="lalr",
+            start="expression_start",
+            propagate_positions=True,
+            keep_all_tokens=True,
+        )
+    return _expr_parser

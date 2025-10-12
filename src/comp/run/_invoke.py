@@ -6,15 +6,22 @@ import comp
 from . import _func, _value, _eval, _assign
 
 
-def invoke(func, mod, input_value=None, ctx_value=None, mod_value=None, arg_value=None):
+def invoke(func, mod, engine=None, input_value=None, ctx_value=None, arg_value=None):
     """Invoke a function and return its result.
+
+    Implements proper scope management with morphing and masking:
+    1. Morphs $in to function's input shape (if defined)
+    2. Morphs $arg to function's argument shape (if defined)
+    3. Creates masked copy of module's $mod scope
+    4. Creates masked copy of engine's $ctx scope (if engine provided)
+    5. Sets up proper scope chaining: ^ = $arg -> $ctx -> $mod
 
     Args:
         func: Function definition to invoke
         mod: Module context for evaluation
+        engine: Optional engine with $ctx storage
         input_value: Input value for $in scope
-        ctx_value: Context value for $ctx scope
-        mod_value: Module value for $mod scope
+        ctx_value: Override context value (if not using engine's)
         arg_value: Argument value for $arg scope
 
     Returns:
@@ -39,15 +46,60 @@ def invoke(func, mod, input_value=None, ctx_value=None, mod_value=None, arg_valu
     if body is None:
         return _value.Value(None)
 
-    # Build scope context
-    # $in is immutable (read-only)
-    in_scope = input_value or _value.Value(None)
+    # Import morph functions for argument processing
+    from . import _morph
 
-    # $ctx, $mod, $arg are mutable (can be overwritten in current implementation)
-    # In the future, we might want to make these immutable too
-    ctx_scope = ctx_value or _value.Value(None)
-    mod_scope = mod_value or _value.Value(None)
+    # STEP 1: Process $in with input shape morphing
+    in_scope = input_value or _value.Value(None)
+    if impl.input_shape:
+        # Morph input value to match function's expected input shape
+        morph_result = _morph.morph(in_scope, impl.input_shape)
+        if not morph_result.success:
+            return _fail(f"Input morphing failed for {func.name}: input does not match shape")
+        in_scope = morph_result.value
+
+    # STEP 2: Process $arg with argument shape morphing
     arg_scope = arg_value or _value.Value(None)
+    if impl.arg_shape:
+        # Morph argument value to match function's expected argument shape
+        morph_result = _morph.morph(arg_scope, impl.arg_shape)
+        if not morph_result.success:
+            return _fail(f"Argument morphing failed for {func.name}: arguments do not match shape")
+        arg_scope = morph_result.value
+
+    # STEP 3: Create masked $mod scope
+    # Filter module scope through function's arg shape (if defined)
+    if impl.arg_shape and mod.scope.is_struct:
+        # Create a masked copy of module scope
+        mask_result = _morph.mask(mod.scope, impl.arg_shape)
+        if mask_result.success:
+            mod_scope = mask_result.value
+        else:
+            mod_scope = _value.Value(None)  # Empty if masking fails
+    else:
+        # No arg shape - use empty mod scope for function
+        mod_scope = _value.Value(None)
+
+    # STEP 4: Create masked $ctx scope
+    # Get context from engine if available, otherwise use provided ctx_value
+    if ctx_value is not None:
+        engine_ctx = ctx_value
+    elif engine and hasattr(engine, 'ctx_scope'):
+        engine_ctx = engine.ctx_scope
+    else:
+        engine_ctx = _value.Value(None)
+
+    # Filter context through function's arg shape (if defined)
+    if impl.arg_shape and engine_ctx.is_struct:
+        # Create a masked copy of context
+        mask_result = _morph.mask(engine_ctx, impl.arg_shape)
+        if mask_result.success:
+            ctx_scope = mask_result.value
+        else:
+            ctx_scope = _value.Value(None)
+    else:
+        # No arg shape - use empty ctx scope for function
+        ctx_scope = _value.Value(None)
 
     # $out starts empty and gets updated as we build the result structure (read-only)
     out_scope = _value.Value(None)
@@ -68,8 +120,55 @@ def invoke(func, mod, input_value=None, ctx_value=None, mod_value=None, arg_valu
         'unnamed': unnamed_scope,  # Maps to unscoped identifiers
     }
 
+    # Track original scopes for write-through behavior
+    # When $ctx or $mod is modified in function, changes should propagate to:
+    # - Local masked copy (ctx_scope/mod_scope)
+    # - Original scope (engine.ctx_scope/mod.scope)
+    scope_writethrough = {
+        'ctx': (engine_ctx if engine else None, mod),
+        'mod': (mod.scope, mod),
+    }
+    scopes['_writethrough'] = scope_writethrough
+
     # Execute the function body
     return _execute_structure(body, mod, scopes)
+
+
+def _writethrough_scope(scope_name, scopes):
+    """Apply write-through for $ctx and $mod scope modifications.
+
+    When $ctx or $mod is modified in a function, the changes should be written
+    to both the local masked copy AND the original scope (engine or module).
+
+    Args:
+        scope_name: Name of scope ('ctx' or 'mod')
+        scopes: Scope dictionary containing '_writethrough' metadata
+    """
+    if '_writethrough' not in scopes:
+        return
+
+    writethrough = scopes['_writethrough']
+    if scope_name not in writethrough:
+        return
+
+    original_scope, mod = writethrough[scope_name]
+    if original_scope is None:
+        return
+
+    # Get the local masked copy
+    local_copy = scopes[scope_name]
+
+    # Write changes from local copy back to original
+    # This merges the local changes into the original scope
+    if local_copy.is_struct and local_copy.struct:
+        if not original_scope.is_struct:
+            original_scope.struct = {}
+        elif original_scope.struct is None:
+            original_scope.struct = {}
+
+        # Update original scope with changes from local copy
+        for key, value in local_copy.struct.items():
+            original_scope.struct[key] = value
 
 
 def _execute_structure(struct_node, mod, scopes):
@@ -169,16 +268,20 @@ def _execute_structure(struct_node, mod, scopes):
                                 scopes[scope_name] = scope_value
                             if scope_value.struct is None:
                                 scope_value.struct = {}
-                            
+
                             # Create an identifier without the scope prefix for the helper
                             remaining_path = comp.ast.Identifier()
                             remaining_path.kids = child.key.kids[1:]  # Skip the scope field
-                            
+
                             # Use the shared helper to handle the nested path
                             _assign.assign_nested_field(
                                 remaining_path, field_value, scope_value.struct, mod, scopes, _eval.evaluate
                             )
-                            
+
+                            # Write-through for $ctx and $mod
+                            if scope_name in ('ctx', 'mod'):
+                                _writethrough_scope(scope_name, scopes)
+
                             # Update chained scope if we modified ctx, mod, or arg
                             if scope_name in ('ctx', 'mod', 'arg'):
                                 scopes['chained'] = _eval.ChainedScope(  # type: ignore
@@ -215,6 +318,11 @@ def _execute_structure(struct_node, mod, scopes):
                                 return field_value
                             # Update the scope
                             scopes[scope_name] = field_value
+
+                            # Write-through for $ctx and $mod
+                            if scope_name in ('ctx', 'mod'):
+                                _writethrough_scope(scope_name, scopes)
+
                             # Recreate chained scope with updated values
                             scopes['chained'] = _eval.ChainedScope(  # type: ignore
                                 scopes['arg'], scopes['ctx'], scopes['mod']

@@ -4,6 +4,7 @@ __all__ = [
     "BinaryOp",
     "UnaryOp",
     "MorphOp",
+    "MaskOp",
 ]
 
 from . import _node, _shape
@@ -145,5 +146,82 @@ class MorphOp(_node.Node):
             mode = "weak"
         else:
             mode = "normal"
+        return cls(mode=mode)
+
+
+class MaskOp(_node.Node):
+    """Shape mask operation: expr ^shape, expr ^* shape
+
+    Filters a value to only include fields that match a shape specification.
+    Unlike morph, mask never fails and never adds defaults.
+
+    Examples:
+        data ^point           # Permissive mask - keep only matching fields
+        {x=1 y=2 z=3} ^* point-2d   # Strong mask - validate exact match with defaults
+
+    Children:
+        [0] - Expression to mask
+        [1] - Shape type (ShapeRef, ShapeUnion, ShapeInline, etc.)
+    """
+
+    def __init__(self, mode: str = "mask"):
+        """Initialize mask operation.
+
+        Args:
+            mode: "mask" (^) or "strong_mask" (^*)
+        """
+        self.mode = mode
+        super().__init__()
+
+    @property
+    def expr(self):
+        """The expression being masked (first child)."""
+        return self.kids[0] if self.kids else None
+
+    @property
+    def shape(self):
+        """The target shape (second child)."""
+        return self.kids[1] if len(self.kids) > 1 else None
+
+    def unparse(self) -> str:
+        """Unparse mask operation back to source code."""
+        if len(self.kids) != 2:
+            return "<?mask?>"
+
+        expr_str = self.expr.unparse()
+
+        # Handle different shape type formats
+        if isinstance(self.shape, _shape.ShapeUnion):
+            # For unions, keep ^ on each member: val ^cat | ^dog
+            shape_str = " | ".join(kid.unparse() for kid in self.shape.kids)
+            # Union already has ^ on members, so we need special formatting
+            if self.mode == "strong_mask":
+                return f"{expr_str} ^* {shape_str}"
+            else:
+                # For normal mask with union, no ^ prefix (members have it)
+                return f"{expr_str} {shape_str}"
+        else:
+            # Single shape reference or inline shape
+            shape_str = self.shape.unparse()
+            # Strip leading ^ since it's part of our operator
+            if (isinstance(self.shape, (_shape.ShapeRef, _shape.ShapeInline)) and
+                shape_str.startswith("^")):
+                shape_str = shape_str[1:]
+
+            if self.mode == "strong_mask":
+                return f"{expr_str} ^* {shape_str}"
+            else:
+                # Normal mask - no space between ^ and shape
+                return f"{expr_str} ^{shape_str}"
+
+    @classmethod
+    def from_grammar(cls, tree):
+        # mask_expr CARET shape_type -> mask_op
+        # mask_expr STRONG_MASK shape_type -> strong_mask_op
+        # Mode determined by which grammar rule matched
+        if tree.data == "strong_mask_op":
+            mode = "strong_mask"
+        else:
+            mode = "mask"
         return cls(mode=mode)
 

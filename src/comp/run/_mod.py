@@ -30,6 +30,12 @@ class Module:
         self.funcs = {}
         self.shapes = {}
         self.mods = {}
+        # Module scope storage for $mod namespace
+        # This is a Value with a struct containing module-level state
+        from . import _value
+        self.scope = _value.Value(None)  # Empty struct initially
+        if self.scope.struct is None:
+            self.scope.struct = {}
 
     def process_ast(self, module_ast):
         """Process a module AST and extract all definitions."""
@@ -90,7 +96,7 @@ class Module:
             - If namespace is specified: only search that namespace module
             - If no namespace: search current module first, then all mods
             - Partial names match if unambiguous (e.g., #cat matches #animal.pet.cat)
-            
+
         Note: Tag references use child-first notation (#error.status) but are stored
         parent-first ("status.error"), so we need to reverse the tokens.
         """
@@ -119,14 +125,14 @@ class Module:
 
     def _match_tag_in_dict(self, partial_name, tags_dict):
         """Match a partial tag name against a dictionary of tags.
-        
+
         Args:
             partial_name: Partial tag path (e.g., "cat" or "pet.cat")
             tags_dict: Dictionary of tag definitions keyed by full path
-            
+
         Returns:
             TagDef if exactly one match found, None otherwise
-            
+
         Matching rules:
             - Exact match always wins
             - Partial match from the end (suffix match)
@@ -135,7 +141,7 @@ class Module:
         # Try exact match first
         if partial_name in tags_dict:
             return tags_dict[partial_name]
-        
+
         # Try suffix matching: partial_name must match the end of the full path
         # For example, "cat" matches "animal.pet.cat", "pet.cat" matches "animal.pet.cat"
         matches = []
@@ -145,11 +151,11 @@ class Module:
             # Check if full_name ends with ".partial_name"
             if full_name.endswith("." + partial_name):
                 matches.append(tag_def)
-        
+
         # Return match only if unambiguous
         if len(matches) == 1:
             return matches[0]
-        
+
         # Ambiguous or no match
         return None
 

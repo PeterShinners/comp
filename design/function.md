@@ -76,7 +76,7 @@ file. A function is comprised of several required and optional parts.
 * **Name** Must be prefixed with `|` pipe, which matches how this
 function is referenced later. This immediately follows the `!func` operator.
 * **Body** The final part of the function definition is a regular structure
-definition. It's contents are not executed immediately but will be performed
+definition. Its contents are not executed immediately but will be performed
 when the function is invoked to create a new structure value.
 * **Documentation** The `!doc` operator is used before the function definition
 to attach an optional description. This is intended for a shorter summary
@@ -84,13 +84,14 @@ definition. Longer form descriptions and examples can be attached from other
 parts of the module.
 * **Shape** Either a shape reference or an inline shape definition. This
 describes the type of data the function expects to work on. The fields this
-provides will be available from the `$in` scope, or by using it's fields as
+provides will be available from the `$in` scope, or by using its fields as
 undecorated field names inside the function.
 * **Arguments** Is a secondary, optional shape definition that is used to
 provide arguments to the function. Arguments are intended to control the way a
 function behaves, not the data it works on. Arguments can also define special
-block values which are like callbacks. The arguments are available in the `^arg`
-namespace, which is normally accessed through the `^` operator.
+block values which are like callbacks. The argument shape also controls what
+fields are visible in `$mod`, `$ctx`, and the unified `^` scope through
+automatic shape masking.
 * **Pure** The function can be preceded with a `!pure` statement to guarantee
 it has no side effects and executes deterministically.
 
@@ -106,21 +107,200 @@ results it wants to become its value.
 !func |add ~{~num} ^{n ~num} = { $in + ^n }
 
 ; Multi-line for clarity
-!func |filter-items 
-    ~{items[]} 
+!func |filter-items
+    ~{items[]}
     ^{threshold ~num = 0} = {
     [items |filter :{$in > ^threshold}]
 }
 
 !func |process-order ~order-data ^process-config = {
     ; Implementation focuses on logic, not type declarations
-    validated = [^validate? |if :{#true} 
+    validated = [^validate? |if :{#true}
         :{[order |validate]}
         :{order}]
-    
+
     processed = [validated |apply-priority ^priority]
 }
 ```
+
+## Argument Shapes and Scope Masking
+
+Function argument shapes serve dual purposes: they validate passed arguments and control what fields are visible in the function's scope. This creates disciplined function boundaries where functions can only access the arguments they explicitly declare, preventing accidental coupling and making dependencies visible.
+
+### Automatic Scope Masking
+
+When a function is invoked, its argument shape automatically masks the module scope (`$mod`) and context scope (`$ctx`) to only expose fields defined in the argument shape. This happens in addition to validating the passed arguments:
+
+```comp
+!func |process ^{x ~num y ~num timeout ~num = 30} = {
+    ; At function entry, four automatic operations occur:
+
+    ; 1. Strict mask for passed arguments
+    ;    $arg = passed_args ^* {x ~num y ~num timeout ~num = 30}
+    ;    - Validates exact structure (fails on extra/missing fields)
+    ;    - Applies defaults (timeout=30)
+    ;    - Result: $arg is immutable, exactly matches arg shape
+
+    ; 2. Permissive mask for context scope
+    ;    $ctx_local = $ctx_shared ^ {x ~num y ~num timeout ~num = 30}
+    ;    - Filters to only fields in both $ctx and arg shape
+    ;    - No defaults applied
+    ;    - Example: $ctx={x=1, a=2, b=3} → $ctx_local={x=1}
+
+    ; 3. Permissive mask for module scope
+    ;    $mod_local = $mod_shared ^ {x ~num y ~num timeout ~num = 30}
+    ;    - Same filtering as $ctx
+
+    ; 4. Union for unified ^ scope
+    ;    ^ = $arg ∪ $ctx_local ∪ $mod_local
+    ;    - Read-only computed view
+    ;    - Precedence: $arg > $ctx > $mod
+}
+```
+
+This masking ensures that functions can only access the arguments they declare, making function signatures honest about their dependencies.
+
+### Scope Access and Precedence
+
+Functions have access to multiple scopes with well-defined semantics:
+
+| Scope | Access | Write | Masking | Description |
+|-------|--------|-------|---------|-------------|
+| **`^`** | Read-only | ❌ No | Automatic | Union of $arg, $ctx, $mod with precedence |
+| **`$arg`** | Read-only | ❌ No | Strict (`^*`) | Validated function arguments |
+| **`$ctx`** | Read-write | ✅ Yes | Permissive (`^`) | Local + shared context scope |
+| **`$mod`** | Read-write | ✅ Yes | Permissive (`^`) | Local + shared module scope |
+| **`$in`** | Read-only | ❌ No | None | Pipeline input data |
+| **`$out`** | Read-only | ❌ No | None | Computed output structure |
+| **Bare fields** | Read-write | ✅ Yes | None | Writes to $out, reads cascade |
+
+**Precedence for `^` union lookup:**
+1. `$arg` - Highest priority (explicit arguments always win)
+2. `$ctx` - Middle priority (context/environment)
+3. `$mod` - Lowest priority (module scope fallback)
+
+```comp
+!func |example ^{x ~num y ~num} = {
+    ; Given:
+    ; $arg = {x=5, y=10}
+    ; $ctx_local = {x=1, y=2} (after masking)
+    ; $mod_local = {y=3} (after masking)
+
+    ^x          ; Returns 5 (from $arg)
+    ^y          ; Returns 10 (from $arg, overrides $ctx and $mod)
+
+    $arg.x      ; Returns 5 (direct access)
+    $ctx.x      ; Returns 1 (from local $ctx)
+    $mod.y      ; Returns 3 (from local $mod)
+
+    ; Write operations
+    x = 100           ; Writes to $out.x
+    $ctx.x = 200      ; Writes to $ctx_local.x AND $ctx_shared.x
+    $mod.data = 300   ; Writes to $mod_local.data AND $mod_shared.data
+
+    ; Invalid operations
+    ^x = 100          ; ❌ ERROR: ^ is read-only
+    $arg.x = 100      ; ❌ ERROR: $arg is immutable
+}
+```
+
+### Write-Through Behavior
+
+Writes to `$ctx` and `$mod` update both the function's local masked view and the shared scope that persists across function calls:
+
+```comp
+!func |update-context ^{counter ~num} = {
+    ; $ctx_shared before call: {counter=0, other=10, data=20}
+    ; $ctx_local after mask: {counter=0} (only 'counter' in arg shape)
+
+    $ctx.counter = $ctx.counter + 1
+    ; Updates:
+    ;   - $ctx_local.counter = 1
+    ;   - $ctx_shared.counter = 1
+
+    ; Can write to fields not in arg shape - they're added to both
+    $ctx.timestamp = [|now/time]
+    ; Adds:
+    ;   - $ctx_local.timestamp = <time>
+    ;   - $ctx_shared.timestamp = <time>
+
+    ; Read from ^ reflects $arg first, then $ctx
+    ^counter    ; Returns value from $arg (passed argument)
+    $ctx.counter ; Returns 1 (updated local value)
+}
+
+; Subsequent call sees the updated shared context
+[|update-context counter=5]  ; $ctx_shared.counter is now 1
+```
+
+This write-through behavior enables functions to communicate through shared scopes while maintaining argument discipline through masking.
+
+### Explicit Masking Operations
+
+The mask operators used automatically in functions are also available for manual use:
+
+```comp
+; Permissive mask (^) - intersection filter
+!shape ~safe-fields = {user ~str session ~str}
+
+untrusted-data = {
+    user="alice"
+    session="abc123"
+    admin-key="secret"
+    internal-state="xyz"
+}
+
+safe-data = untrusted-data ^ ~safe-fields
+; Result: {user="alice" session="abc123"}
+; Filtered out: admin-key, internal-state
+
+; Strict mask (^*) - exact validation
+!shape ~api-request = {method ~str path ~str timeout ~num = 30}
+
+validated = {method="GET" path="/api"} ^* ~api-request
+; ✅ Result: {method="GET" path="/api" timeout=30}
+
+invalid = {method="GET" path="/api" hacker="code"} ^* ~api-request
+; ❌ FAILS: Extra field 'hacker' not in shape
+```
+
+For complete details on mask operators and their relationship to morph operators, see [Shapes, Units, and Type System](shape.md).
+
+### Isolated Function Boundaries
+
+The masking system creates true function isolation - each function only sees the arguments it declares:
+
+```comp
+$ctx = {
+    user="alice"
+    session="abc123"
+    admin-key="secret"
+    debug=#true
+}
+
+!func |safe-handler ^{user ~str} = {
+    ; $ctx_local = $ctx ^ {user ~str}
+    ; $ctx_local = {user="alice"} only
+
+    ^user           ; ✅ Can access 'user' (in arg shape)
+    $ctx.user       ; ✅ Can access through $ctx
+    $ctx.admin-key  ; ❌ Not visible (not in arg shape)
+    ^debug          ; ❌ Not visible (not in arg shape)
+
+    ; This function cannot accidentally access sensitive fields
+}
+
+!func |debug-handler ^{user ~str debug ~bool} = {
+    ; $ctx_local = $ctx ^ {user ~str debug ~bool}
+    ; $ctx_local = {user="alice" debug=#true}
+
+    ^debug          ; ✅ Can access 'debug' (explicitly declared)
+
+    ; Still cannot see admin-key (not declared)
+}
+```
+
+This approach makes function dependencies explicit and prevents accidental access to global state, while still allowing controlled access through declared arguments.
 
 ## Lazy Functions and Deferred Execution
 
@@ -158,7 +338,7 @@ Privacy structures solve the common problem of functions that need complex inter
 ; Regular function - every statement contributes to output
 !func |messy-calculation ~{data} = {
     validation = [data |validate]        ; This becomes output field
-    temp-result = [validation |process]  ; This becomes output field  
+    temp-result = [validation |process]  ; This becomes output field
     final = [temp-result |finalize]      ; This becomes output field
     ; Result: {validation=... temp-result=... final=...}
 }
@@ -168,7 +348,7 @@ Privacy structures solve the common problem of functions that need complex inter
     @validation = [data |validate]        ; Internal only
     @temp-result = [@validation |process]  ; Internal only
     @final = [@temp-result |finalize]     ; Internal only
-    
+
     ; Only these become output
     $out.result = @final
     $out.success = #true
@@ -179,7 +359,7 @@ Privacy structures solve the common problem of functions that need complex inter
 !func |filtered-sequence ^{filter-fn} = &{
     @raw-data = [|get-large-dataset]      ; Internal processing
     @processed = [@raw-data |expensive-transform]
-    
+
     ; Only expose the final filtered results
     $out.result = [data |^filter-fn @processed]
 }
@@ -193,11 +373,11 @@ Privacy structures work with all the same mechanisms as regular structures—sha
     @user-data = [user-id |database.fetch]
     @permissions = [@user-data |calculate-permissions]
     @preferences = [@user-data |load-preferences]
-    
+
     ; Automatic exports (these create output fields)
     display-name = @user-data.name
     avatar-url = @user-data.avatar
-    
+
     ; Controlled exports via $out
     $out.can-admin = (@permissions.admin?)
     $out ..= [@preferences |filter-public]
@@ -282,7 +462,7 @@ shapes can specify the expected input shape using `~:{shape}` syntax.
 
 !func |process-items ~{items[]} ^{
     transform ~:{~item}
-    validate ~:{~item} 
+    validate ~:{~item}
     callback ~:{~num ~num}
 } = {
     @processed = [items |map :{[$in |: ^transform]}]
@@ -300,7 +480,7 @@ shapes can specify the expected input shape using `~:{shape}` syntax.
 @variant = [priority |if :{$in == urgent} :"primary" :"secondary"]
 
 ; Named block arguments can use simple values too
-[items |process-items 
+[items |process-items
     transform:{[$in |enhance |normalize]}  ; explicit block
     validate=#true                         ; simple value for block parameter
     callback:{[@count @total |summarize]}] ; explicit block with two inputs
@@ -310,7 +490,7 @@ shapes can specify the expected input shape using `~:{shape}` syntax.
 [|prepare-data simple-value named=simple-named-value]
 
 ; Complex control flow with mixed block styles
-[items |process-batch 
+[items |process-batch
     transform:{[$in |enhance |normalize]}
     validate:{score > threshold}
     on-success="completed"]  ; Simple string wrapped automatically
@@ -350,7 +530,7 @@ Unlike complete pipelines that start with specific data, partial pipeline fragme
 ; Partial pipeline fragments for data processing
 @validation-chain = :{
     [$in |check-format
-         |validate-schema  
+         |validate-schema
          |sanitize-input]
 }
 
@@ -373,7 +553,7 @@ system-data = [raw-systems |: @validation-chain |: @output-chain]
 ; Compose fragments into complete workflows
 @complete-workflow = :{
     [$in |: @validation-chain
-         |: @enrichment-chain  
+         |: @enrichment-chain
          |: @output-chain]
 }
 
@@ -603,7 +783,7 @@ The security model is refreshingly honest: instead of pretending to offer fine-g
 !func |process-safely = {
     ; Validate with pure function first
     validated = [untrusted-input |validate-pure]
-    
+
     ; Then use resources if valid
     [validated |if :{$in} :{
         [$in |save-to-disk]

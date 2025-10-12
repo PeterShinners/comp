@@ -282,6 +282,13 @@ class Module(Entity):
         self.package_info: dict[str, Any] = {}
         self.is_builtin = is_builtin
 
+        # Module scope storage for $mod namespace
+        # This is a Value with a struct containing module-level state
+        from ._value import Value
+        self.scope = Value(None)  # Empty struct initially
+        if self.scope.struct is None:
+            self.scope.struct = {}
+
         # Add builtin namespace to all non-builtin modules
         if not is_builtin:
             # Import happens lazily to avoid circular dependency

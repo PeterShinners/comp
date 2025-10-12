@@ -22,14 +22,27 @@ class FuncImpl:
 
     def __init__(self, ast_node):
         self._ast_node = ast_node
-        self.shape = None
+        self.input_shape = None  # Shape for morphing $in
+        self.arg_shape = None    # Shape for morphing/masking $arg
         self._resolved = False
+
+        # Legacy: kept for compatibility
+        self.shape = None
 
     def resolve(self, module):
         """Resolve shape references in module context."""
         if self._resolved:
             return
 
+        # Resolve input shape
+        if self.input_shape:
+            self.input_shape.resolve(module)
+
+        # Resolve argument shape
+        if self.arg_shape:
+            self.arg_shape.resolve(module)
+
+        # Legacy: resolve old shape attribute
         if self.shape:
             self.shape.resolve(module)
 

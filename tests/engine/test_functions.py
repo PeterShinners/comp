@@ -1,6 +1,7 @@
 """Test function system."""
 
 import comp.engine as comp
+from comp.engine._engine import _Frame
 from comp.engine.ast._base import ValueNode
 from comp.engine.ast._function import FuncDef, FuncRef
 from comp.engine.ast._shape import ShapeRef
@@ -9,44 +10,55 @@ from comp.engine.ast._shape import ShapeRef
 def test_builtin_double():
     """Test |double function."""
     engine = comp.Engine()
+    # Create minimal frame for function calling
+    dummy_node = comp.ast.Number(0)
+    frame = _Frame(dummy_node, None, {}, False, engine)
 
-    result = engine.call_function("double", comp.Value(5))
+    result = frame.call_function("double", comp.Value(5))
     assert result.data == 10
 
 
 def test_builtin_print():
     """Test |print function (passes through)."""
     engine = comp.Engine()
+    dummy_node = comp.ast.Number(0)
+    frame = _Frame(dummy_node, None, {}, False, engine)
 
-    result = engine.call_function("print", comp.Value(42))
+    result = frame.call_function("print", comp.Value(42))
     assert result.data == 42
 
 
 def test_builtin_identity():
     """Test |identity function."""
     engine = comp.Engine()
+    dummy_node = comp.ast.Number(0)
+    frame = _Frame(dummy_node, None, {}, False, engine)
 
-    result = engine.call_function("identity", comp.Value("hello"))
+    result = frame.call_function("identity", comp.Value("hello"))
     assert result.data == "hello"
 
 
 def test_builtin_add():
     """Test |add function with arguments."""
     engine = comp.Engine()
+    dummy_node = comp.ast.Number(0)
+    frame = _Frame(dummy_node, None, {}, False, engine)
 
     # |add requires ^{n=...} argument
     args = comp.Value({"n": 3})
-    result = engine.call_function("add", comp.Value(5), args)
+    result = frame.call_function("add", comp.Value(5), args)
     assert result.data == 8
 
 
 def test_builtin_wrap():
     """Test |wrap function."""
     engine = comp.Engine()
+    dummy_node = comp.ast.Number(0)
+    frame = _Frame(dummy_node, None, {}, False, engine)
 
     # |wrap requires ^{key=...} argument
     args = comp.Value({"key": "x"})
-    result = engine.call_function("wrap", comp.Value(5), args)
+    result = frame.call_function("wrap", comp.Value(5), args)
 
     assert result.is_struct
     assert result.struct[comp.Value("x")] == comp.Value(5)
@@ -55,43 +67,44 @@ def test_builtin_wrap():
 def test_function_not_found():
     """Test calling non-existent function."""
     engine = comp.Engine()
+    dummy_node = comp.ast.Number(0)
+    frame = _Frame(dummy_node, None, {}, False, engine)
 
-    result = engine.call_function("nonexistent", comp.Value(5))
+    result = frame.call_function("nonexistent", comp.Value(5))
     assert result.tag and result.tag.name == "fail"
 
 
-def test_custom_python_function():
-    """Test registering custom Python function."""
+def test_builtin_lookup():
+    """Test engine.get_function() for builtins."""
     engine = comp.Engine()
 
-    def triple(engine, input_value, args):
-        if not input_value.is_number:
-            return engine.fail("triple expects number")
-        return comp.Value(input_value.data * 3)
+    func = engine.get_function("double")
+    assert func is not None
+    assert func.name == "double"
 
-    # Register custom function
-    engine.register_function(comp.PythonFunction("triple", triple))
-
-    # Call it
-    result = engine.call_function("triple", comp.Value(4))
-    assert result.to_python() == 12
+    # Non-existent function
+    assert engine.get_function("nonexistent") is None
 
 
 def test_function_with_wrong_input_type():
     """Test function with wrong input type."""
     engine = comp.Engine()
+    dummy_node = comp.ast.Number(0)
+    frame = _Frame(dummy_node, None, {}, False, engine)
 
     # |double expects number
-    result = engine.call_function("double", comp.Value("not a number"))
+    result = frame.call_function("double", comp.Value("not a number"))
     assert result.tag and result.tag.name == "fail"
 
 
 def test_function_missing_required_arg():
     """Test function with missing required argument."""
     engine = comp.Engine()
+    dummy_node = comp.ast.Number(0)
+    frame = _Frame(dummy_node, None, {}, False, engine)
 
     # |add requires ^{n=...}
-    result = engine.call_function("add", comp.Value(5), None)
+    result = frame.call_function("add", comp.Value(5), None)
     assert result.tag and result.tag.name == "fail"
 
 
