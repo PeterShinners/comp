@@ -1,9 +1,11 @@
-!func |greet ~{name ~str} = {
-    greeting = "Hello, " + name + "!"
-    formatted = [greeting |upper]
-}
+!import /test = comp "test"
+!import /str = stdlib "string"
 
-!func |main ~_ = {
-    result1 = [{name = "World"} |greet]
-    result2 = [{name = "Comp"} |greet]
+!func |main ~{} = {
+    @name = "world"
+    [|get-greeting|print]
+    [@name|upper|print]
+    @data = {bool=#true num=#answer~num}
+    [@data|print]
+
 }

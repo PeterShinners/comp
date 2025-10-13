@@ -23,7 +23,8 @@ def test_simple_seeded_pipeline():
     )
 
     result = engine.run(pipeline)
-    assert result.to_python() == 10
+    # Python functions now return structs, so result is {_: 10}
+    assert result.to_python()[0] == 10
 
 
 def test_multi_step_pipeline():
@@ -39,7 +40,8 @@ def test_multi_step_pipeline():
     )
 
     result = engine.run(pipeline)
-    assert result.to_python() == 12
+    # Python functions now return structs, so result is {_: 12}
+    assert result.to_python()[0] == 12
 
 
 def test_pipeline_with_function_args():
@@ -56,7 +58,8 @@ def test_pipeline_with_function_args():
     )
 
     result = engine.run(pipeline)
-    assert result.to_python() == 8
+    # Python functions now return structs, so result is {_: 8}
+    assert result.to_python()[0] == 8
 
 
 def test_pipeline_with_identity():
@@ -88,7 +91,8 @@ def test_pipeline_chaining():
     )
 
     result = engine.run(pipeline)
-    assert result.to_python() == 10
+    # Python functions now return structs, so result is {_: 10}
+    assert result.to_python()[0] == 10
 
 
 def test_unseeded_pipeline():
@@ -102,7 +106,8 @@ def test_unseeded_pipeline():
     )
 
     result = engine.run(pipeline, in_=comp.Value(7))
-    assert result.to_python() == 14
+    # Python functions now return structs, so result is {_: 14}
+    assert result.to_python()[0] == 14
 
 
 def test_unseeded_pipeline_without_in_scope():
@@ -211,7 +216,8 @@ def test_pipefallback_passes_success():
     )
 
     result = engine.run(pipeline)
-    assert result.to_python() == 10, f"Expected 10, got {result}"
+    # Python functions now return structs, so result is {_: 10}
+    assert result.to_python()[0] == 10, f"Expected 10, got {result}"
 
 
 def test_pipefallback_fail_in_recovery():
@@ -267,7 +273,8 @@ def test_pipefallback_chaining():
     )
 
     result = engine.run(pipeline)
-    assert result.to_python() == 20, f"Expected 20, got {result}"
+    # Python functions now return structs, so result is {_: 20}
+    assert result.to_python()[0] == 20, f"Expected 20, got {result}"
 
 
 def test_pipestruct_merge():

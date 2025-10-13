@@ -321,9 +321,14 @@ class TagValueRef(_base.ValueNode):
                 return comp.fail(f"Tag not found: #{path_str}/{self.namespace}")
             return comp.fail(f"Tag not found: #{path_str}")
 
-        # Create a Tag value with the full TagDefinition
-        tag = comp.Tag(tag_def)
-        return comp.Value(tag)
+        # Return the tag's value if it has one, otherwise return the TagRef itself
+        # Tag references like #greeting evaluate to the tag's associated value
+        # If the tag has no value (like #true, #false), return the TagRef as a Value
+        if tag_def.value is not None:
+            return tag_def.value
+        else:
+            # Tag has no value - return the TagRef itself wrapped in a Value
+            return comp.Value(comp.TagRef(tag_def))
         yield  # Make this a generator (unreachable)
 
     def unparse(self) -> str:

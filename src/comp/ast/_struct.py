@@ -55,6 +55,7 @@ class Structure(_base.ValueNode):
 
         # Push accumulator and chained scope onto scope stack
         # Evaluate each operation - they will populate the accumulator
+        # Note: local, mod, ctx scopes are managed by function invocation (PipeFunc)
         for op in self.ops:
             yield comp.Compute(op, struct_accumulator=accumulator, unnamed=chained)
 
@@ -134,10 +135,17 @@ class FieldOp(StructOp):
         self.value = value
 
     def evaluate(self, frame):
-        # Handles three cases:
+        # Handles multiple cases:
+        # 0. Scope assignment: key starts with ScopeField (e.g., @name = value)
         # 1. comp.Unnamed: key is None, use comp.Unnamed() as key
         # 2. Simple named: key is single _base.ValueNode, evaluate and use
         # 3. Deep path: key is list, walk path creating nested structs
+
+        # Check for scope assignment first (key is list starting with ScopeField)
+        if isinstance(self.key, list) and len(self.key) >= 2 and isinstance(self.key[0], _ident.ScopeField):
+            # This is a scope assignment like @name = value
+            return (yield from self._evaluate_scope_assignment(frame))
+
         # Get the accumulator from scope stack
         accumulator = frame.scope('struct_accumulator')
         if accumulator is None or not accumulator.is_struct:
@@ -238,6 +246,70 @@ class FieldOp(StructOp):
             key_value = yield comp.Compute(field_node)
             return key_value
 
+    def _evaluate_scope_assignment(self, frame):
+        """Handle scope assignment like @name = value or ^item = value.
+
+        The key is a list starting with ScopeField, followed by field names.
+        For example: [@, String('name')] for @name = value
+
+        Returns:
+            comp.Value(True) on success, fail value on error
+        """
+        # Evaluate the value to assign
+        value_result = yield comp.Compute(self.value)
+        if frame.is_fail(value_result):
+            return value_result
+
+        # First element is the ScopeField
+        scope_field = self.key[0]
+
+        # Evaluate the scope field to get the scope
+        scope_value = yield comp.Compute(scope_field)
+        if frame.is_fail(scope_value):
+            return scope_value
+
+        # Scope must be a struct
+        if not scope_value.is_struct:
+            return comp.fail(f"Scope '{scope_field.scope_name}' is not a struct")
+
+        # Rest of the key is the field path within the scope
+        field_path = self.key[1:]
+
+        # Simple case: single field name like @name
+        if len(field_path) == 1 and isinstance(field_path[0], comp.ast.String):
+            key = comp.Value(field_path[0].value)
+            scope_value.struct[key] = value_result
+            return comp.Value(True)
+
+        # Complex case: deep path like @user.name
+        # Walk the path, creating nested structs as needed
+        current_dict = scope_value.struct
+        for field_node in field_path[:-1]:
+            key_value = yield from self._evaluate_path_field(frame, field_node, current_dict)
+            if frame.is_fail(key_value):
+                return key_value
+
+            # Navigate or create nested struct
+            if key_value in current_dict:
+                current_value = current_dict[key_value]
+                if not current_value.is_struct:
+                    current_value = comp.Value({})
+                    current_dict[key_value] = current_value
+                current_dict = current_value.struct
+            else:
+                new_struct = comp.Value({})
+                current_dict[key_value] = new_struct
+                current_dict = new_struct.struct
+
+        # Assign to the final field
+        final_field = field_path[-1]
+        final_key = yield from self._evaluate_path_field(frame, final_field, current_dict)
+        if frame.is_fail(final_key):
+            return final_key
+
+        current_dict[final_key] = value_result
+        return comp.Value(True)
+
     def unparse(self) -> str:
         if self.key is None:
             # comp.Unnamed field
@@ -298,3 +370,63 @@ class SpreadOp(StructOp):
 
     def __repr__(self):
         return f"SpreadOp({self.expr})"
+
+
+class ScopeAssignOp(StructOp):
+    """Scope assignment operation: @name = value, ^name = value, $scope.name = value
+
+    Assigns a value to a named entry in a scope (local, arg, or named scope).
+    Unlike FieldOp which assigns to the struct accumulator, this assigns to a scope.
+
+    Args:
+        value: Expression that evaluates to the value to assign
+        scope_name: Name of the scope ('local' for @, 'arg' for ^, or custom for $name)
+        field_name: Name of the field within the scope
+    """
+
+    def __init__(self, value: _base.ValueNode, scope_name: str, field_name: str):
+        if not isinstance(value, _base.AstNode):
+            raise TypeError("Scope assign value must be AstNode")
+        if not isinstance(scope_name, str):
+            raise TypeError("Scope name must be string")
+        if not isinstance(field_name, str):
+            raise TypeError("Field name must be string")
+
+        self.value = value
+        self.scope_name = scope_name
+        self.field_name = field_name
+
+    def evaluate(self, frame):
+        # Evaluate the value to assign
+        value_result = yield comp.Compute(self.value)
+        if frame.is_fail(value_result):
+            return value_result
+
+        # Get the target scope
+        scope = frame.scope(self.scope_name)
+        if scope is None:
+            return comp.fail(f"Scope '{self.scope_name}' not defined")
+
+        # The scope should be a Value wrapping a struct (dict)
+        if not scope.is_struct:
+            return comp.fail(f"Scope '{self.scope_name}' is not a struct")
+
+        # Assign to the scope using a String key
+        key = comp.Value(self.field_name)
+        scope.struct[key] = value_result
+
+        # Return success marker
+        return comp.Value(True)
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        if self.scope_name == 'local':
+            prefix = '@'
+        elif self.scope_name == 'arg':
+            prefix = '^'
+        else:
+            prefix = f'${self.scope_name}.'
+        return f"{prefix}{self.field_name} = {self.value.unparse()}"
+
+    def __repr__(self):
+        return f"ScopeAssignOp({self.scope_name}.{self.field_name}, {self.value})"

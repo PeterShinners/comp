@@ -122,6 +122,8 @@ class Engine:
             except StopIteration as e:
                 # Handle returned value and step out to parent
                 result = e.value
+                if result is None:
+                    print("NONERESULT:", current, current.node)
                 result.ast = current.node  # Minimal temporary tracking of source
                 result_is_fail = current.is_fail(result)
                 current = current.previous
@@ -152,13 +154,13 @@ class Engine:
         """Check if a tag is #fail or a child of #fail hierarchy.
 
         Args:
-            tag: A Tag object to check
+            tag: A TagRef object to check
 
         Returns:
             True if tag is #fail or a descendant (e.g., #fail.syntax, #fail.network)
         """
         # Check if tag name is "fail" or starts with "fail."
-        return tag.name == self.fail_tag.name or tag.name.startswith(self.fail_tag.name + ".")
+        return tag.full_name == self.fail_tag.full_name or tag.full_name.startswith(self.fail_tag.full_name + ".")
 
 
 class Compute:

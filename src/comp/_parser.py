@@ -167,9 +167,10 @@ def _convert_tree(tree: lark.Tree | lark.Token):
             return comp.ast.TagValueRef(path, namespace)
 
         case 'shape_reference':
-            # "~" _reference_path - Shape references aren't valid as standalone values
-            # They can only be used in specific contexts like morphing
-            raise comp.ParseError("Shape reference cannot be used as a standalone value")
+            # "~" _reference_path
+            # Shape references are used in: function shapes, arg shapes, field types, morph/mask operations
+            path, namespace = _extract_reference_path(kids)
+            return comp.ast.ShapeRef(path, namespace)
 
         case 'function_reference' | '_function_piped':
             # "|" _reference_path - Function references aren't valid as standalone values
@@ -275,14 +276,14 @@ def _convert_tree(tree: lark.Tree | lark.Token):
             # function_reference function_arguments
             # Extract the function path directly without converting (function_reference isn't a value node)
             func_path, func_namespace = _extract_reference_path(kids[0].children)
-            func_name = ".".join(func_path) if func_namespace is None else f"{func_namespace}.{'.'.join(func_path)}"
+            func_name = ".".join(func_path)
             # function_arguments contains structure_op* - convert to Structure if non-empty
             if len(kids) > 1 and kids[1].children:
                 ops = [_convert_tree(op) for op in kids[1].children]
                 args = comp.ast.Structure(ops)
             else:
                 args = None
-            return comp.ast.PipeFunc(func_name, args)
+            return comp.ast.PipeFunc(func_name, args, func_namespace)
 
         case 'pipe_struct':
             # PIPE_STRUCT structure_op* RBRACE
@@ -347,13 +348,12 @@ def _convert_tree(tree: lark.Tree | lark.Token):
 
         case 'shape_inline':
             # TILDE LBRACE shape_field* RBRACE
-            # For now, create an anonymous ShapeRef that will need to be resolved
-            # TODO: Implement proper inline shape support
-            # Empty inline shape ~{} is treated as "any" shape
+            # Empty inline shape ~{} matches only empty structs (equivalent to ~nil)
+            # Non-empty inline shapes with fields are not yet fully implemented
             fields = _convert_children(kids[2:-1]) if len(kids) > 3 else []  # Skip TILDE, LBRACE, RBRACE
             if not fields:
-                # Empty shape ~{} - use "any" reference
-                return comp.ast.ShapeRef(["any"])
+                # Empty shape ~{} - equivalent to ~nil (matches only empty structs)
+                return comp.ast.ShapeRef(["nil"])
             # Non-empty inline shape - not yet implemented
             raise comp.ParseError("Inline shapes with fields (~{...}) not yet implemented")
 
@@ -531,6 +531,7 @@ def _convert_field_assignment_key(tree: lark.Tree):
     """Convert identifier to field assignment key.
 
     For simple identifiers like 'x', returns comp.ast.String("x").
+    For scope identifiers like '@name', returns comp.ast.ScopeField("@") followed by fields.
     For deep paths like 'one.two.three', returns [comp.ast.String("one"), comp.ast.String("two"), comp.ast.String("three")].
     For complex fields (index, compute, string), returns appropriate list.
     """
@@ -539,9 +540,29 @@ def _convert_field_assignment_key(tree: lark.Tree):
         # Fallback to regular conversion
         return _convert_tree(tree)
 
-    # Extract field keys from the identifier
+    # Check for scope markers first (localscope, argscope, namescope)
+    scope_marker = None
+    if tree.children and isinstance(tree.children[0], lark.Tree):
+        first_child = tree.children[0]
+        if first_child.data == 'localscope':
+            scope_marker = '@'
+        elif first_child.data == 'argscope':
+            scope_marker = '^'
+        elif first_child.data == 'namescope':
+            # $name format
+            if len(first_child.children) > 1 and isinstance(first_child.children[1], lark.Token):
+                scope_marker = f"${first_child.children[1].value}"
+
+    # Extract field keys from the identifier (skipping scope marker node)
     field_keys = []
+    skip_first = scope_marker is not None  # Skip the scope marker node itself
+
     for kid in tree.children:
+        # Skip the scope marker node
+        if skip_first and isinstance(kid, lark.Tree) and kid.data in ('localscope', 'argscope', 'namescope'):
+            skip_first = False
+            continue
+
         if isinstance(kid, lark.Token):
             if kid.type == 'TOKEN':
                 field_keys.append(comp.ast.String(kid.value))
@@ -573,8 +594,12 @@ def _convert_field_assignment_key(tree: lark.Tree):
                 field_keys.append(comp.ast.ComputeField(expr))
             # Skip other nodes
 
-    # Return single String for simple case, list for deep paths
-    if len(field_keys) == 1 and isinstance(field_keys[0], comp.ast.String):
+    # If we have a scope marker, prepend it as a ScopeField
+    if scope_marker:
+        field_keys.insert(0, comp.ast.ScopeField(scope_marker))
+
+    # Return single element for simple case, list for complex paths
+    if len(field_keys) == 1:
         return field_keys[0]
     else:
         return field_keys

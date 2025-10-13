@@ -68,12 +68,8 @@ class MorphOp(_base.ValueNode):
         if self.mode != "normal":
             return comp.fail(f"Morph mode '{self.mode}' not yet implemented")
 
-        # Get module context for tag value lookups
-        # Try to get from any of the module scopes
-        module = frame.scope('mod_tags') or frame.scope('mod_shapes') or frame.scope('mod_funcs')
-
-        # Call morph function with module context
-        result = comp.morph(value, shape_def, module)
+        # Call morph function
+        result = comp.morph(value, shape_def)
 
         # Step 4: Return result or fail
         if result.success:
@@ -82,6 +78,7 @@ class MorphOp(_base.ValueNode):
             # Morphing failed - return a failure
             # TODO: Better error messages with details about what didn't match
             return comp.fail("Failed to morph value to shape")
+        yield  # Unreachable, but makes this a proper generator
 
     def unparse(self) -> str:
         """Convert back to source code."""
@@ -165,6 +162,7 @@ class MaskOp(_base.ValueNode):
         else:
             # Masking failed
             return comp.fail("Failed to mask value to shape")
+        yield  # Unreachable, but makes this a proper generator
 
     def unparse(self) -> str:
         """Convert back to source code."""

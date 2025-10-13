@@ -271,7 +271,7 @@ class ShapeRef(_base.ShapeNode):
         # HACK: Return ShapeDefinition directly
         # This breaks evaluate() contract but matches our usage
         return shape_def
-        yield  # Make this a generator
+        yield  # Unreachable but makes this a generator
 
     def unparse(self) -> str:
         """Convert back to source code."""

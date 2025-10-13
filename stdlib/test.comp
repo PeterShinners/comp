@@ -1,0 +1,12 @@
+!tag #greeting = "Hello"
+
+!tag #answer = 42
+
+
+!func |get-greeting ~nil = {
+    #greeting ~str
+}
+
+!func |get-answer ~nil = {
+    #answer ~num
+}

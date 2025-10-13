@@ -87,16 +87,20 @@ class PipeFunc(PipelineOp):
 
     Args:
         func_name: Function name (without | prefix)
+        namespace: Optional namespace for the function reference
         args: Optional argument struct value
     """
 
-    def __init__(self, func_name: str, args: _base.ValueNode | None = None):
+    def __init__(self, func_name: str, args: _base.ValueNode | None = None, namespace: str | None = None):
         if not isinstance(func_name, str):
             raise TypeError("PipeFunc func_name must be string")
         if args is not None and not isinstance(args, _base.ValueNode):
             raise TypeError("PipeFunc args must be _base.ValueNode or None")
+        if namespace is not None and not isinstance(namespace, str):
+            raise TypeError("PipeFunc namespace must be string or None")
 
         self.func_name = func_name
+        self.namespace = namespace
         self.args = args
 
     def evaluate(self, frame):
@@ -127,10 +131,11 @@ class PipeFunc(PipelineOp):
         func_path = self.func_name.split('.')
         func_path_reversed = list(reversed(func_path))
 
-        # Look up function in module
-        func_defs = mod_funcs.lookup_function(func_path_reversed)
+        # Look up function in module (with optional namespace)
+        func_defs = mod_funcs.lookup_function_with_namespace(func_path_reversed, self.namespace)
         if func_defs is None or len(func_defs) == 0:
-            return comp.fail(f"Function |{self.func_name} not found")
+            ns_str = f"/{self.namespace}." if self.namespace else ""
+            return comp.fail(f"Function |{ns_str}{self.func_name} not found")
 
         # For now, use the first overload (TODO: implement shape matching)
         func_def = func_defs[0]

@@ -17,3 +17,4 @@ from ._morph import *
 from ._builtin import *
 from ._parser import *
 from . import ast
+from . import stdlib

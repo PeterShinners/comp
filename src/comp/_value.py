@@ -1,62 +1,46 @@
 """Runtime values for the generator-based engine."""
 
-__all__ = ["Tag", "Value", "fail", "Unnamed", "ChainedScope", "TRUE", "FALSE", "FAIL", "FAIL_TYPE", "FAIL_DIV_ZERO"]
+__all__ = ["TagRef", "Value", "fail", "Unnamed", "ChainedScope", "TRUE", "FALSE", "FAIL", "FAIL_TYPE", "FAIL_DIV_ZERO"]
 
 import decimal
 
 from ._entity import Entity
 
 
-class Tag:
-    """A tag value that references a TagDefinition.
+class TagRef:
+    """A tag reference value that points to a TagDefinition.
 
-    Tags carry a reference to their definition, allowing access to:
-    - Full hierarchical path
-    - Associated value (if any)
-    - Module context
-
-    For builtin tags (#true, #false, #fail), a simple name string is sufficient
-    since they have no associated values and are globally known.
+    TagRefs must be created from a TagDefinition - they are runtime references
+    to tags defined in modules. This ensures all tags have proper definitions
+    and are properly scoped.
 
     Attributes:
-        tag_def: Reference to the TagDefinition (if available)
-        name: Simple name string (for builtins or when definition unavailable)
+        tag_def: Reference to the TagDefinition
     """
 
-    def __init__(self, name_or_def):
-        """Create a tag from either a name string or TagDefinition.
+    def __init__(self, tag_def):
+        """Create a tag reference from a TagDefinition.
 
         Args:
-            name_or_def: Either a string name (for builtins) or a TagDefinition object
+            tag_def: A TagDefinition object from a module
         """
-        if isinstance(name_or_def, str):
-            # Simple name-based tag (for builtins)
-            self.tag_def = None
-            self.name = name_or_def
-        else:
-            # Tag with full definition
-            self.tag_def = name_or_def
-            self.name = name_or_def.name if hasattr(name_or_def, 'name') else str(name_or_def)
+        self.tag_def = tag_def
 
     @property
     def full_name(self) -> str:
         """Get the full hierarchical name (e.g., 'fail.syntax')."""
-        if self.tag_def and hasattr(self.tag_def, 'full_name'):
-            return self.tag_def.full_name
-        return self.name
+        return self.tag_def.full_name
 
     @property
     def value(self):
         """Get the associated value from the tag definition (if any)."""
-        if self.tag_def and hasattr(self.tag_def, 'value'):
-            return self.tag_def.value
-        return None
+        return self.tag_def.value
 
     def __repr__(self):
         return f"#{self.full_name}"
 
     def __eq__(self, other):
-        if not isinstance(other, Tag):
+        if not isinstance(other, TagRef):
             return False
         # Compare by full name for identity
         return self.full_name == other.full_name
@@ -68,7 +52,7 @@ class Tag:
 class Value(Entity):
     """Runtime value wrapper.
 
-    Can hold Python primitives (int, float, str) or Comp values (Tag, dict).
+    Can hold Python primitives (int, float, str) or Comp values (TagRef, dict).
     This is a simplified version for the new engine. Uses .data for the
     underlying value, and provides .struct as an alias when it's a dict.
 
@@ -87,7 +71,7 @@ class Value(Entity):
                 - int/float (converted to Decimal)
                 - Decimal (stored directly)
                 - str (stored directly)
-                - Tag (stored directly)
+                - TagRef (stored directly)
                 - dict (recursively converted)
                 - list/tuple (converted to unnamed struct fields)
         """
@@ -122,8 +106,8 @@ class Value(Entity):
             self.data = data
             return
 
-        # Handle Tag
-        if isinstance(data, Tag):
+        # Handle TagRef
+        if isinstance(data, TagRef):
             self.data = data
             return
 
@@ -156,7 +140,7 @@ class Value(Entity):
 
     @property
     def is_tag(self) -> bool:
-        return isinstance(self.data, Tag)
+        return isinstance(self.data, TagRef)
 
     @property
     def struct(self) -> dict | None:
@@ -178,16 +162,57 @@ class Value(Entity):
             return self
         return Value({Unnamed(): self})
 
+    def unparse(self) -> str:
+        """Convert value back to a source-like representation.
+
+        Similar to AST node unparse() methods, this produces a string that
+        represents the value in a human-readable form. For simple values
+        (numbers, strings, tags), returns the data. For structs with a single
+        unnamed field, extracts that field's representation.
+
+        Returns:
+            String representation suitable for display
+        """
+        if self.is_number:
+            return str(self.data)
+        if self.is_string:
+            return repr(self.data).replace('"', '\\"').replace("'", '"')
+        if self.is_tag:
+            return f"#{self.data.full_name}"
+        if self.is_struct:
+            fields = []
+            for k, v in self.data.items():
+                if isinstance(k, Unnamed):
+                    fields.append(v.unparse())
+                else:
+                    key = k.unparse()[1:-1]
+                    if not key.isidentifier():
+                        key = "'{key}'"
+                    fields.append(f"{key}={v.unparse()}")
+            return "{" + " ".join(fields) + "}"
+
+        # Return the data, converting tags and decimals to strings
+        if isinstance(self.data, TagRef):
+            return str(self.data)
+        if isinstance(self.data, decimal.Decimal):
+            return str(self.data)
+        if isinstance(self.data, str):
+            return self.data
+        if isinstance(self.data, dict):
+            # For complex structs, return the full representation
+            return str(self.data)
+        return str(self.data)
+
     def to_python(self):
         """Convert this value to a Python equivalent.
 
         Returns:
             - Decimal for numbers
             - str for strings
-            - Tag for tags
+            - TagRef for tags
             - dict for structures (with recursively converted keys/values)
         """
-        if isinstance(self.data, (decimal.Decimal, str, Tag)):
+        if isinstance(self.data, (decimal.Decimal, str, TagRef)):
             return self.data
         if isinstance(self.data, dict):
             # Recursively convert struct fields
@@ -224,10 +249,17 @@ def fail(message: str) -> Value:
     The structure has the #fail tag as an unnamed field, plus named fields
     for type and message. This allows morphing against #fail to detect failures.
     """
+    # Import here to avoid circular dependency
+    from ._builtin import get_builtin_module
+
+    # Get the #fail tag from builtin module
+    builtin = get_builtin_module()
+    fail_tag_def = builtin.lookup_tag(["fail"])
+
     # Create Value directly without going through constructor conversion
     result = Value.__new__(Value)
     result.data = {
-        Unnamed(): Value(FAIL),  # Tag as unnamed field for morphing
+        Unnamed(): Value(TagRef(fail_tag_def)),  # Tag as unnamed field for morphing
         Value('type'): Value('fail'),
         Value('message'): Value(message)
     }
@@ -290,9 +322,25 @@ class ChainedScope:
         return None
 
 
-# Builtin tags
-TRUE = Tag("true")
-FALSE = Tag("false")
-FAIL = Tag("fail")
-FAIL_TYPE = Tag("fail.type")
-FAIL_DIV_ZERO = Tag("fail.div_zero")
+# Builtin tag constants - initialized on first import
+# These are created by looking up tag definitions from the builtin module
+def _init_builtin_tags():
+    """Initialize builtin tag constants from the builtin module."""
+    from ._builtin import get_builtin_module
+    builtin = get_builtin_module()
+
+    return {
+        'TRUE': TagRef(builtin.lookup_tag(["true"])),
+        'FALSE': TagRef(builtin.lookup_tag(["false"])),
+        'FAIL': TagRef(builtin.lookup_tag(["fail"])),
+        'FAIL_TYPE': TagRef(builtin.lookup_tag(["fail", "type"])),
+        'FAIL_DIV_ZERO': TagRef(builtin.lookup_tag(["fail", "div_zero"])),
+    }
+
+# Initialize on module load
+_builtin_tags = _init_builtin_tags()
+TRUE = _builtin_tags['TRUE']
+FALSE = _builtin_tags['FALSE']
+FAIL = _builtin_tags['FAIL']
+FAIL_TYPE = _builtin_tags['FAIL_TYPE']
+FAIL_DIV_ZERO = _builtin_tags['FAIL_DIV_ZERO']

@@ -51,9 +51,10 @@ def load_comp_module(path: str, engine: 'comp.Engine') -> 'comp.Module':
     module_ast = comp.parse_module(source)
 
     # Evaluate the module to populate its definitions
+    # Module.evaluate() returns a bare Module entity (not wrapped in Value)
     result = engine.run(module_ast)
 
-    # The result should be a Module object
+    # The result should be a Module entity
     if not isinstance(result, comp.Module):
         raise TypeError(f"Expected Module from evaluation, got {type(result)}")
 

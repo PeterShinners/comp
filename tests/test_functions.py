@@ -11,7 +11,8 @@ def test_builtin_double():
     frame = comp._engine._Frame(dummy_node, None, {}, False, engine)
 
     result = frame.call_function("double", comp.Value(5))
-    assert result.data == 10
+    # Python functions now return structs, so extract scalar
+    assert result.as_scalar().data == 10
 
 
 def test_builtin_print():
@@ -21,7 +22,8 @@ def test_builtin_print():
     frame = comp._engine._Frame(dummy_node, None, {}, False, engine)
 
     result = frame.call_function("print", comp.Value(42))
-    assert result.data == 42
+    # Python functions now return structs, so extract scalar
+    assert result.as_scalar().data == 42
 
 
 def test_builtin_identity():
@@ -31,7 +33,8 @@ def test_builtin_identity():
     frame = comp._engine._Frame(dummy_node, None, {}, False, engine)
 
     result = frame.call_function("identity", comp.Value("hello"))
-    assert result.data == "hello"
+    # Python functions now return structs, so extract scalar
+    assert result.as_scalar().data == "hello"
 
 
 def test_builtin_add():
@@ -43,7 +46,8 @@ def test_builtin_add():
     # |add requires ^{n=...} argument
     args = comp.Value({"n": 3})
     result = frame.call_function("add", comp.Value(5), args)
-    assert result.data == 8
+    # Python functions now return structs, so extract scalar
+    assert result.as_scalar().data == 8
 
 
 def test_builtin_wrap():
@@ -57,7 +61,8 @@ def test_builtin_wrap():
     result = frame.call_function("wrap", comp.Value(5), args)
 
     assert result.is_struct
-    assert result.struct[comp.Value("x")] == comp.Value(5)
+    # The wrapped value is now also a struct {_: 5}
+    assert result.struct[comp.Value("x")].as_scalar().data == 5
 
 
 def test_function_not_found():

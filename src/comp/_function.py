@@ -62,10 +62,38 @@ class PythonFunction(Function):
         super().__init__(name)
         self.python_func = python_func
 
+    def evaluate(self, frame):
+        """Evaluate as a function body (when used in stdlib functions).
+
+        Extracts $in and ^arg from frame scopes and calls the Python function.
+        """
+        input_value = frame.scope('in')
+        args = frame.scope('arg')
+
+        # Python functions may not expect generator protocol, so don't yield
+        # Just call directly and return
+        result = self(frame, input_value, args)
+        return result
+        # Make this a generator by using yield (even though we don't yield anything)
+        yield  # This line is unreachable but makes this a generator function
+
     def __call__(self, frame, input_value: _value.Value, args: _value.Value | None = None):
-        """Invoke the Python function."""
+        """Invoke the Python function.
+
+        Ensures all values are structs both on input and output, maintaining
+        Comp's invariant that all Values are structs (scalars are wrapped in {_: value}).
+        """
         try:
-            return self.python_func(frame, input_value, args)
+            # Ensure input and args are structs
+            input_value = input_value.as_struct()
+            if args is not None:
+                args = args.as_struct()
+
+            # Call the Python function
+            result = self.python_func(frame, input_value, args)
+
+            # Ensure result is a struct
+            return result.as_struct()
         except Exception as e:
             return comp.fail(f"Error in function |{self.name}: {e}")
 
@@ -87,8 +115,8 @@ def builtin_double(frame, input_value: _value.Value, args: _value.Value | None =
 
 def builtin_print(frame, input_value: _value.Value, args: _value.Value | None = None):
     """Print a value and pass it through: [5 |print] → 5 (with side effect)"""
-    # Print the value
-    print(f"[PRINT] {input_value.data}")
+    # Print the value using unparse() for clean output
+    print(f"[PRINT] {input_value.as_scalar().unparse()}")
     # Pass through unchanged
     return input_value
 

@@ -39,34 +39,52 @@ class ImportDef(ModuleOp):
     def evaluate(self, frame):
         """Load and register the imported module.
 
-        For now, only 'comp' source is supported, reading from a hardcoded
-        directory location.
+        Supported sources:
+        - 'comp': Load from filesystem (.comp files)
+        - 'stdlib': Load from Python-implemented standard library modules
         """
         # Get the module we're importing into
         module = frame.scope('mod_tags') or frame.scope('mod_shapes') or frame.scope('mod_funcs')
         if module is None:
             return comp.fail("ImportDef requires module scope")
 
-        # For now, only support 'comp' source
-        if self.source != "comp":
-            return comp.fail(f"Import source '{self.source}' not yet implemented (only 'comp' supported)")
+        # Handle different import sources
+        if self.source == "stdlib":
+            # Load from Python-implemented stdlib
+            from comp.stdlib import get_stdlib_module
+            try:
+                imported_module = get_stdlib_module(self.path)
+                if imported_module is None:
+                    return comp.fail(f"Standard library module '{self.path}' not found")
 
-        # Load the module from filesystem
-        from ._loader import load_comp_module
-        try:
-            imported_module = load_comp_module(self.path, frame.engine)
-            if imported_module is None:
-                return comp.fail(f"Failed to load module from '{self.path}'")
+                # Register the module in our namespace
+                module.add_namespace(self.namespace, imported_module)
 
-            # Register the module in our namespace
-            module.add_namespace(self.namespace, imported_module)
+                return comp.Value(True)
 
-            return comp.Value(True)
+            except Exception as e:
+                return comp.fail(f"Error loading stdlib module: {e}")
 
-        except FileNotFoundError as e:
-            return comp.fail(f"Module not found: {e}")
-        except Exception as e:
-            return comp.fail(f"Error loading module: {e}")
+        elif self.source == "comp":
+            # Load the module from filesystem
+            from ._loader import load_comp_module
+            try:
+                imported_module = load_comp_module(self.path, frame.engine)
+                if imported_module is None:
+                    return comp.fail(f"Failed to load module from '{self.path}'")
+
+                # Register the module in our namespace
+                module.add_namespace(self.namespace, imported_module)
+
+                return comp.Value(True)
+
+            except FileNotFoundError as e:
+                return comp.fail(f"Module not found: {e}")
+            except Exception as e:
+                return comp.fail(f"Error loading module: {e}")
+
+        else:
+            return comp.fail(f"Import source '{self.source}' not supported (use 'comp' or 'stdlib')")
 
         # Make this a generator (needed for engine protocol)
         yield
