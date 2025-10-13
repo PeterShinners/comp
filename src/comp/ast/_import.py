@@ -1,0 +1,82 @@
+"""AST nodes for import statements."""
+
+__all__ = ["ImportDef"]
+
+import comp
+
+from ._tag import ModuleOp
+
+
+class ImportDef(ModuleOp):
+    """Import statement: !import /namespace = source "path"
+
+    Imports a module and registers it in the current module's namespace.
+
+    Examples:
+        !import /math = std "core/math"
+        !import /utils = comp "./lib/utils"
+        !import /numpy = python "numpy"
+
+    Args:
+        namespace: Namespace identifier (without leading /)
+        source: Source type ("std", "comp", "python", etc.)
+        path: Path string for the module location
+    """
+
+    def __init__(self, namespace: str, source: str, path: str):
+        if not isinstance(namespace, str):
+            raise TypeError(f"ImportDef namespace must be str, got {type(namespace)}")
+        if not isinstance(source, str):
+            raise TypeError(f"ImportDef source must be str, got {type(source)}")
+        if not isinstance(path, str):
+            raise TypeError(f"ImportDef path must be str, got {type(path)}")
+
+        self.namespace = namespace
+        self.source = source
+        self.path = path
+        super().__init__()
+
+    def evaluate(self, frame):
+        """Load and register the imported module.
+
+        For now, only 'comp' source is supported, reading from a hardcoded
+        directory location.
+        """
+        # Get the module we're importing into
+        module = frame.scope('mod_tags') or frame.scope('mod_shapes') or frame.scope('mod_funcs')
+        if module is None:
+            return comp.fail("ImportDef requires module scope")
+
+        # For now, only support 'comp' source
+        if self.source != "comp":
+            return comp.fail(f"Import source '{self.source}' not yet implemented (only 'comp' supported)")
+
+        # Load the module from filesystem
+        from ._loader import load_comp_module
+        try:
+            imported_module = load_comp_module(self.path, frame.engine)
+            if imported_module is None:
+                return comp.fail(f"Failed to load module from '{self.path}'")
+
+            # Register the module in our namespace
+            module.add_namespace(self.namespace, imported_module)
+
+            return comp.Value(True)
+
+        except FileNotFoundError as e:
+            return comp.fail(f"Module not found: {e}")
+        except Exception as e:
+            return comp.fail(f"Error loading module: {e}")
+
+        # Make this a generator (needed for engine protocol)
+        yield
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        # Reconstruct the string literal with quotes
+        path_str = f'"{self.path}"'
+        return f"!import /{self.namespace} = {self.source} {path_str}"
+
+    def __repr__(self):
+        return f"ImportDef(/{self.namespace} = {self.source} \"{self.path}\")"
+

@@ -13,6 +13,7 @@ from ._value import *
 from ._function import *
 from ._engine import *
 from ._module import *
+from ._morph import *
 from ._builtin import *
 from ._parser import *
 from . import ast

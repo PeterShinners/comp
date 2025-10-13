@@ -40,7 +40,7 @@ def test_tag_reference_with_namespace():
 
     # Should find the tag from lib namespace
     assert result.data is not None
-    assert isinstance(result.data, dict)
+    assert isinstance(result.data, comp.Tag)
 
 
 def test_tag_fallback_to_namespace():
@@ -99,7 +99,8 @@ def test_tag_local_overrides_namespace():
 
     # Should find local tag (value=999), not lib tag (value=200)
     assert result.data is not None
-    tag_value = result.data[comp.Value('value')]
+    assert isinstance(result.data, comp.Tag)
+    tag_value = result.data.value
     assert tag_value.data == 999
 
 
@@ -237,7 +238,7 @@ def test_namespace_not_found():
     result = engine.run(TestNode(), mod_tags=main_module)
 
     # Should fail - namespace not found
-    assert result.tag == comp.FAIL
+    assert engine.is_fail(result)
 
 
 def test_reference_unparse_with_namespace():

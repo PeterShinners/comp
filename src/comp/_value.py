@@ -8,19 +8,61 @@ from ._entity import Entity
 
 
 class Tag:
-    """A tag value (like #true, #false, #fail, etc)."""
+    """A tag value that references a TagDefinition.
 
-    def __init__(self, name: str):
-        self.name = name
+    Tags carry a reference to their definition, allowing access to:
+    - Full hierarchical path
+    - Associated value (if any)
+    - Module context
+
+    For builtin tags (#true, #false, #fail), a simple name string is sufficient
+    since they have no associated values and are globally known.
+
+    Attributes:
+        tag_def: Reference to the TagDefinition (if available)
+        name: Simple name string (for builtins or when definition unavailable)
+    """
+
+    def __init__(self, name_or_def):
+        """Create a tag from either a name string or TagDefinition.
+
+        Args:
+            name_or_def: Either a string name (for builtins) or a TagDefinition object
+        """
+        if isinstance(name_or_def, str):
+            # Simple name-based tag (for builtins)
+            self.tag_def = None
+            self.name = name_or_def
+        else:
+            # Tag with full definition
+            self.tag_def = name_or_def
+            self.name = name_or_def.name if hasattr(name_or_def, 'name') else str(name_or_def)
+
+    @property
+    def full_name(self) -> str:
+        """Get the full hierarchical name (e.g., 'fail.syntax')."""
+        if self.tag_def and hasattr(self.tag_def, 'full_name'):
+            return self.tag_def.full_name
+        return self.name
+
+    @property
+    def value(self):
+        """Get the associated value from the tag definition (if any)."""
+        if self.tag_def and hasattr(self.tag_def, 'value'):
+            return self.tag_def.value
+        return None
 
     def __repr__(self):
-        return f"#{self.name}"
+        return f"#{self.full_name}"
 
     def __eq__(self, other):
-        return isinstance(other, Tag) and self.name == other.name
+        if not isinstance(other, Tag):
+            return False
+        # Compare by full name for identity
+        return self.full_name == other.full_name
 
     def __hash__(self):
-        return hash(self.name)
+        return hash(self.full_name)
 
 
 class Value(Entity):
@@ -34,7 +76,7 @@ class Value(Entity):
     from evaluate() methods.
     """
 
-    def __init__(self, data: object, tag: Tag | None = None):
+    def __init__(self, data: object):
         """Create a value from Python types or Comp values.
 
         Args:
@@ -48,50 +90,41 @@ class Value(Entity):
                 - Tag (stored directly)
                 - dict (recursively converted)
                 - list/tuple (converted to unnamed struct fields)
-            tag: Optional side-tag for this value (will be removed in future)
         """
         # Handle Value copying
         if isinstance(data, Value):
             self.data = data.data
-            self.tag = data.tag if tag is None else tag
             return
 
         # Handle None -> empty struct
         if data is None:
             self.data = {}
-            self.tag = tag
             return
 
         # Handle bool -> Tag conversion
         if isinstance(data, bool):
             self.data = TRUE if data else FALSE
-            self.tag = tag
             return
 
         # Handle numeric types -> Decimal
         if isinstance(data, int):
             self.data = decimal.Decimal(data)
-            self.tag = tag
             return
         if isinstance(data, float):
             self.data = decimal.Decimal(str(data))  # Convert via string to avoid precision issues
-            self.tag = tag
             return
         if isinstance(data, decimal.Decimal):
             self.data = data
-            self.tag = tag
             return
 
         # Handle string
         if isinstance(data, str):
             self.data = data
-            self.tag = tag
             return
 
         # Handle Tag
         if isinstance(data, Tag):
             self.data = data
-            self.tag = tag
             return
 
         # Handle dict -> struct (recursively convert keys and values)
@@ -100,13 +133,11 @@ class Value(Entity):
                 k if isinstance(k, Unnamed) else Value(k): Value(v)
                 for k, v in data.items()
             }
-            self.tag = tag
             return
 
         # Handle list/tuple -> unnamed struct fields
         if isinstance(data, (list, tuple)):
             self.data = {Unnamed(): Value(v) for v in data}
-            self.tag = tag
             return
 
         raise ValueError(f"Cannot convert Python {type(data)} to Comp Value")
@@ -134,7 +165,7 @@ class Value(Entity):
 
     def as_scalar(self):
         """Return value as a scalar value or itself."""
-        if self.is_struct:
+        if self.is_struct and isinstance(self.data, dict):
             if len(self.data) == 1:
                 return next(iter(self.data.values()))
             # By returning self we are still a struct, which users who use this will ignore
@@ -172,29 +203,34 @@ class Value(Entity):
         return None
 
     def __repr__(self):
-        if self.tag:
-            return f"Value({self.data!r}, tag={self.tag})"
         return f"Value({self.data!r})"
 
     def __eq__(self, other):
         if not isinstance(other, Value):
             return False
-        return self.data == other.data and self.tag == other.tag
+        return self.data == other.data
 
     def __hash__(self):
         """Make Value hashable so it can be used as dict keys."""
         if isinstance(self.data, dict):
             # Dicts aren't hashable, use tuple of items
-            return hash((tuple(sorted(self.data.items())), self.tag))
-        return hash((self.data, self.tag))
+            return hash(tuple(sorted(self.data.items())))
+        return hash(self.data)
 
 
 def fail(message: str) -> Value:
-    """Create a failure structure with the given message."""
+    """Create a failure structure with the given message.
+
+    The structure has the #fail tag as an unnamed field, plus named fields
+    for type and message. This allows morphing against #fail to detect failures.
+    """
     # Create Value directly without going through constructor conversion
     result = Value.__new__(Value)
-    result.data = {Value('type'): Value('fail'), Value('message'): Value(message)}
-    result.tag = FAIL
+    result.data = {
+        Unnamed(): Value(FAIL),  # Tag as unnamed field for morphing
+        Value('type'): Value('fail'),
+        Value('message'): Value(message)
+    }
     return result
 
 

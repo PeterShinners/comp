@@ -2,19 +2,22 @@
 
 __all__ = ["Number", "String", "Placeholder"]
 
+import decimal
+
 import comp
+
 from . import _base
 
 
 class Number(_base.ValueNode):
     """Numeric literal."""
 
-    def __init__(self, value: int | float):
+    def __init__(self, value: int | decimal.Decimal):
         self.value = value
 
     def evaluate(self, frame):
         """Numbers evaluate to themselves."""
-        return comp.Value(self.value)
+        return comp.Value(decimal.Decimal(self.value))
         yield  # Make it a generator
 
     def unparse(self) -> str:

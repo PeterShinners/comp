@@ -10,7 +10,7 @@ AST nodes orchestrate everything using these tools.
 __all__ = ["Engine", "Compute"]
 
 import comp
-from . import _value, _function
+from . import _function, _value
 
 
 class Engine:
@@ -132,8 +132,33 @@ class Engine:
     # Later this should become a more generic "engine skip these shapes"
     # but for not its hardcoded to failures
     def is_fail(self, value):
-        """Check if a value is a fail value."""
-        return value.tag == self.fail_tag
+        """Check if a value is a fail value.
+
+        A fail value is a structure that contains a #fail tag (or any child of #fail)
+        as an unnamed field. This allows morphing against #fail to detect failures.
+
+        Supports hierarchical tags: #fail, #fail.syntax, #fail.network, etc.
+        """
+        if not value.is_struct:
+            return False
+
+        # Look for #fail tag or any child of #fail in unnamed fields
+        for val in value.struct.values():
+            if val.is_tag and self._is_fail_tag(val.data):
+                return True
+        return False
+
+    def _is_fail_tag(self, tag):
+        """Check if a tag is #fail or a child of #fail hierarchy.
+
+        Args:
+            tag: A Tag object to check
+
+        Returns:
+            True if tag is #fail or a descendant (e.g., #fail.syntax, #fail.network)
+        """
+        # Check if tag name is "fail" or starts with "fail."
+        return tag.name == self.fail_tag.name or tag.name.startswith(self.fail_tag.name + ".")
 
 
 class Compute:
@@ -210,7 +235,7 @@ class _Frame:
         """Check if a value is a fail value."""
         # TODO one day perform this operation without an engine reference
         # Only Values can be failures - other Entities (Module, ShapeField, etc.) cannot
-        return hasattr(value, 'tag') and value.tag == self.engine.fail_tag
+        return hasattr(value, 'is_struct') and self.engine.is_fail(value)
 
     def call_function(self, name: str, input_value, args=None):
         """Call a builtin function by name.

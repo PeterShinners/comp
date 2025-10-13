@@ -321,18 +321,9 @@ class TagValueRef(_base.ValueNode):
                 return comp.fail(f"Tag not found: #{path_str}/{self.namespace}")
             return comp.fail(f"Tag not found: #{path_str}")
 
-        # Create a Value representing this tag
-        # For now, return a struct with tag metadata
-        # TODO: Create proper Tag value type
-        tag_struct = {
-            comp.Value('name'): comp.Value(tag_def.name),
-            comp.Value('path'): comp.Value([comp.Value(p) for p in tag_def.path]),
-        }
-
-        if tag_def.value is not None:
-            tag_struct[comp.Value('value')] = tag_def.value
-
-        return comp.Value(tag_struct)
+        # Create a Tag value with the full TagDefinition
+        tag = comp.Tag(tag_def)
+        return comp.Value(tag)
         yield  # Make this a generator (unreachable)
 
     def unparse(self) -> str:

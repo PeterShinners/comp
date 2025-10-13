@@ -170,7 +170,7 @@ def test_shape_reference_not_found():
     result = engine.run(TestNode(), mod_shapes=module)
 
     # Should be a failure
-    assert result.tag == comp.FAIL
+    assert engine.is_fail(result)
 
 
 def test_spread_field():

@@ -67,7 +67,7 @@ def test_function_not_found():
     frame = comp._engine._Frame(dummy_node, None, {}, False, engine)
 
     result = frame.call_function("nonexistent", comp.Value(5))
-    assert result.tag and result.tag.name == "fail"
+    assert engine.is_fail(result)
 
 
 def test_builtin_lookup():
@@ -90,7 +90,7 @@ def test_function_with_wrong_input_type():
 
     # |double expects number
     result = frame.call_function("double", comp.Value("not a number"))
-    assert result.tag and result.tag.name == "fail"
+    assert engine.is_fail(result)
 
 
 def test_function_missing_required_arg():
@@ -101,7 +101,7 @@ def test_function_missing_required_arg():
 
     # |add requires ^{n=...}
     result = frame.call_function("add", comp.Value(5), None)
-    assert result.tag and result.tag.name == "fail"
+    assert engine.is_fail(result)
 
 
 # New AST-based function system tests
@@ -279,7 +279,7 @@ def test_function_reference_not_found():
     result = engine.run(TestNode(), mod_funcs=module)
 
     # Should be a failure
-    assert result.tag == comp.FAIL
+    assert engine.is_fail(result)
 
 
 def test_function_with_doc():

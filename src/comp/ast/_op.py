@@ -29,10 +29,11 @@ class UnaryOp(_base.ValueNode):
                 return comp.fail(f"Cannot negate non-number: {operand_value.data}")
 
         elif self.op == "!!":
-            if operand_value.tag == comp.TRUE:
-                return comp.Value(False, tag=comp.FALSE)
-            elif operand_value.tag == comp.FALSE:
-                return comp.Value(True, tag=comp.TRUE)
+            # Check if value is a tag by checking if it's exactly TRUE or FALSE
+            if operand_value.is_tag and operand_value.data == comp.TRUE:
+                return comp.Value(comp.FALSE)
+            elif operand_value.is_tag and operand_value.data == comp.FALSE:
+                return comp.Value(comp.TRUE)
             else:
                 return comp.fail(f"Cannot apply !! to non-boolean: {operand_value}")
 
@@ -127,10 +128,10 @@ class ComparisonOp(_base.ValueNode):
         # Equality comparisons work on any values
         if self.op == "==":
             result = left_value.data == right_value.data
-            return comp.Value(True if result else False, tag=comp.TRUE if result else comp.FALSE)
+            return comp.Value(comp.TRUE if result else comp.FALSE)
         elif self.op == "!=":
             result = left_value.data != right_value.data
-            return comp.Value(True if result else False, tag=comp.TRUE if result else comp.FALSE)
+            return comp.Value(comp.TRUE if result else comp.FALSE)
 
         # Ordering comparisons require numbers
         if not (left_value.is_number and right_value.is_number):
@@ -150,7 +151,7 @@ class ComparisonOp(_base.ValueNode):
         elif self.op == ">=":
             result = left_num >= right_num
 
-        return comp.Value(True if result else False, tag=comp.TRUE if result else comp.FALSE)
+        return comp.Value(comp.TRUE if result else comp.FALSE)
 
     def unparse(self) -> str:
         return f"({self.left.unparse()} {self.op} {self.right.unparse()})"
@@ -189,20 +190,28 @@ class BooleanOp(_base.ValueNode):
 
         if self.op == "&&":
             # Short-circuit: if left is comp.FALSE, return it without evaluating right
-            if left_value.tag == comp.FALSE:
+            if left_value.is_tag and left_value.data == comp.FALSE:
                 return left_value
+            if not (left_value.is_tag and left_value.data == comp.TRUE):
+                return comp.fail(f"Left operand of && is not boolean: {left_value}")
             # Otherwise evaluate and return right
             right_value = yield comp.Compute(self.right)
             right_value = right_value.as_scalar()
+            if not (right_value.is_tag and (right_value.data == comp.TRUE or right_value.data == comp.FALSE)):
+                return comp.fail(f"Right operand of && is not boolean: {right_value}")
             return right_value
 
         else:  # "||"
             # Short-circuit: if left is comp.TRUE, return it without evaluating right
-            if left_value.tag == comp.TRUE:
+            if left_value.is_tag and left_value.data == comp.TRUE:
                 return left_value
+            if not (left_value.is_tag and left_value.data == comp.FALSE):
+                return comp.fail(f"Left operand of || is not boolean: {left_value}")
             # Otherwise evaluate and return right
             right_value = yield comp.Compute(self.right)
             right_value = right_value.as_scalar()
+            if not (right_value.is_tag and (right_value.data == comp.TRUE or right_value.data == comp.FALSE)):
+                return comp.fail(f"Right operand of || is not boolean: {right_value}")
             return right_value
 
     def unparse(self) -> str:

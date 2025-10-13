@@ -97,10 +97,10 @@ def test_tag_reference():
     engine = comp.Engine()
     result = engine.run(tag_ref, mod_tags=module)
 
-    # Should return a struct with tag info
-    assert isinstance(result.data, dict)
-    # The struct has name and path fields
-    assert len(result.data) >= 2
+    # Should return a Tag value
+    assert isinstance(result.data, comp.Tag)
+    # The tag should have the correct name
+    assert result.data.name == "active"
 
 
 def test_partial_tag_matching():

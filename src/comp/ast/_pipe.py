@@ -135,20 +135,44 @@ class PipeFunc(PipelineOp):
         # For now, use the first overload (TODO: implement shape matching)
         func_def = func_defs[0]
 
-        # Prepare function scopes
-        # $in = input_value (already promoted to struct by pipeline)
-        # $arg = args_value (or empty struct if no args)
-        # $ctx = inherited from current frame
-        # $mod = module scope
-        # @local = empty struct for function temporaries
+        # Step 1: Morph input to function's input shape (if defined)
+        if func_def.input_shape is not None:
+            morph_result = comp.morph(input_value, func_def.input_shape)
+            if not morph_result.success:
+                return comp.fail(f"Function |{self.func_name}: input does not match shape")
+            input_value = morph_result.value
 
+        # Step 2: Prepare arg scope with strict mask (^*)
+        # Validates exact structure and applies defaults
         arg_scope = args_value if args_value is not None else comp.Value({})
-        ctx_scope = frame.scope('ctx')
-        if ctx_scope is None:
-            ctx_scope = frame.engine.ctx_scope
-        mod_scope = frame.scope('mod')
-        if mod_scope is None:
-            mod_scope = mod_funcs.scope
+        if func_def.arg_shape is not None:
+            arg_mask_result = comp.strict_mask(arg_scope, func_def.arg_shape)
+            if not arg_mask_result.success:
+                return comp.fail(f"Function |{self.func_name}: arguments do not match shape")
+            arg_scope = arg_mask_result.value
+
+        # Step 3: Get shared ctx and mod scopes
+        ctx_shared = frame.scope('ctx')
+        if ctx_shared is None:
+            ctx_shared = frame.engine.ctx_scope
+        mod_shared = frame.scope('mod')
+        if mod_shared is None:
+            mod_shared = mod_funcs.scope
+
+        # Step 4: Apply permissive masks to ctx and mod (^)
+        # Filter to only fields in arg shape (no defaults, no validation)
+        ctx_scope = ctx_shared
+        mod_scope = mod_shared
+        if func_def.arg_shape is not None:
+            # Permissive mask for $ctx
+            ctx_mask_result = comp.mask(ctx_shared, func_def.arg_shape)
+            if ctx_mask_result.success:
+                ctx_scope = ctx_mask_result.value
+
+            # Permissive mask for $mod
+            mod_mask_result = comp.mask(mod_shared, func_def.arg_shape)
+            if mod_mask_result.success:
+                mod_scope = mod_mask_result.value
 
         local_scope = comp.Value({})  # Empty local scope
 

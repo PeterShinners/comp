@@ -116,7 +116,7 @@ def test_unseeded_pipeline_without_in_scope():
     )
 
     result = engine.run(pipeline)
-    assert result.tag and result.tag.name == "fail"
+    assert engine.is_fail(result)
 
 
 def test_pipeline_with_failing_function():
@@ -133,7 +133,7 @@ def test_pipeline_with_failing_function():
     )
 
     result = engine.run(pipeline)
-    assert result.tag and result.tag.name == "fail"
+    assert engine.is_fail(result)
 
 
 def test_pipeline_with_wrong_input_type():
@@ -146,7 +146,7 @@ def test_pipeline_with_wrong_input_type():
     )
 
     result = engine.run(pipeline)
-    assert result.tag and result.tag.name == "fail"
+    assert engine.is_fail(result)
 
 
 def test_pipeline_unparse():
