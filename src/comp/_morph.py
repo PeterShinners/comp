@@ -70,6 +70,21 @@ def morph(value, shape):
             # Create a Block with the raw block and the shape fields as input shape
             block = comp.Block(value.data, input_shape=shape.fields)
             return MorphResult(named_matches=1, value=comp.Value(block))
+        
+        # Check if shape is a ShapeDefinition with a single positional BlockShapeDefinition field
+        # This handles: :{...} ~nil-block where ~nil-block = ~:{}
+        if isinstance(shape, comp.ShapeDefinition):
+            if len(shape.fields) == 1 and not shape.fields[0].is_named:
+                # The field shape might be wrapped in a Value
+                field_shape = shape.fields[0].shape
+                if isinstance(field_shape, comp.Value):
+                    field_shape = field_shape.data
+                
+                if isinstance(field_shape, comp.BlockShapeDefinition):
+                    # Extract the BlockShapeDefinition from the shape field
+                    block = comp.Block(value.data, input_shape=field_shape.fields)
+                    return MorphResult(named_matches=1, value=comp.Value(block))
+        
         # If shape is not a block type, morphing RawBlock fails
         return MorphResult()  # No match
     
@@ -156,6 +171,19 @@ def _morph_primitive(value, type_name):
         single_key = next(iter(value.data.keys()))
         # Unwrap regardless of whether field is named or unnamed
         value = value.data[single_key]
+
+    # Step 1b: Extract tag value if morphing a tag to a primitive type
+    if value.is_tag:
+        tag_ref = value.data
+        if tag_ref.tag_def.value is not None:
+            # Use the tag's associated value (ensure it's wrapped in Value)
+            tag_value = tag_ref.tag_def.value
+            if not isinstance(tag_value, comp.Value):
+                tag_value = comp.Value(tag_value)
+            value = tag_value
+        else:
+            # Tag has no value - can't morph to primitive
+            return MorphResult()
 
     # Step 2: Check if value matches the expected type
     if type_name == "num":

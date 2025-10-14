@@ -97,10 +97,11 @@ def test_tag_reference():
     engine = comp.Engine()
     result = engine.run(tag_ref, mod_tags=module)
 
-    # Should return the tag's value (not a Tag object)
-    # Tag references now evaluate to their associated values
-    assert result.is_number
-    assert result.data == 1
+    # Should return the TagRef itself (not the tag's value)
+    # Tag references evaluate to TagRef objects
+    assert result.is_tag
+    assert isinstance(result.data, comp.TagRef)
+    assert result.data.tag_def.value.data == 1
 
 
 def test_partial_tag_matching():

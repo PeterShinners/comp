@@ -1,0 +1,15 @@
+; !doc "Iteration and looping functions"
+
+
+!shape ~nil-block = ~:{}
+
+
+; !doc "Infinite counter stream"
+!func |infinite ~{} = {
+    @count = 0
+    :{
+        @count 
+        @count = @count + 1
+    } ~nil-block
+}
+

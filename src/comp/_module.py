@@ -883,24 +883,33 @@ class Module(Entity):
         for op in ast_module.operations:
             if isinstance(op, ast.TagDef):
                 # Create tag definition (value will be None initially)
-                self.define_tag(op.path, value=None)
+                # Skip if already exists (module was already evaluated)
+                full_name = ".".join(op.path)
+                if full_name not in self.tags:
+                    self.define_tag(op.path, value=None)
 
             elif isinstance(op, ast.ShapeDef):
                 # Create shape definition with empty fields initially
                 # Fields will be resolved in phase 4
-                self.define_shape(op.path, fields=[])
+                # Skip if already exists (module was already evaluated)
+                full_name = ".".join(op.path)
+                if full_name not in self.shapes:
+                    self.define_shape(op.path, fields=[])
 
             elif isinstance(op, ast.FuncDef):
                 # Create function definition with AST body (not evaluated)
-                self.define_function(
-                    path=op.path,
-                    body=op.body,
-                    input_shape=None,  # Will be resolved in phase 4
-                    arg_shape=None,    # Will be resolved in phase 4
-                    is_pure=op.is_pure,
-                    doc=op.doc,
-                    impl_doc=op.impl_doc
-                )
+                # Skip if already exists (module was already evaluated)
+                full_name = ".".join(op.path)
+                if full_name not in self.functions:
+                    self.define_function(
+                        path=op.path,
+                        body=op.body,
+                        input_shape=None,  # Will be resolved in phase 4
+                        arg_shape=None,    # Will be resolved in phase 4
+                        is_pure=op.is_pure,
+                        doc=op.doc,
+                        impl_doc=op.impl_doc
+                    )
 
             # ImportDef is handled in phase 2
 

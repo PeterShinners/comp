@@ -38,10 +38,11 @@ def test_tag_reference_with_namespace():
     engine = comp.Engine()
     result = engine.run(TestNode(), mod_tags=main_module)
 
-    # Should find the tag from lib namespace and return its value
+    # Should find the tag from lib namespace and return the TagRef
     assert result.data is not None
-    assert result.is_number
-    assert result.data == 200
+    assert result.is_tag
+    assert isinstance(result.data, comp.TagRef)
+    assert result.data.tag_def.value.data == 200
 
 
 def test_tag_fallback_to_namespace():
@@ -99,10 +100,11 @@ def test_tag_local_overrides_namespace():
     result = engine.run(TestNode(), mod_tags=main_module)
 
     # Should find local tag (value=999), not lib tag (value=200)
-    # Tag references now return the value directly
+    # Tag references return the TagRef
     assert result.data is not None
-    assert result.is_number
-    assert result.data == 999
+    assert result.is_tag
+    assert isinstance(result.data, comp.TagRef)
+    assert result.data.tag_def.value.data == 999
 
 
 def test_shape_reference_with_namespace():

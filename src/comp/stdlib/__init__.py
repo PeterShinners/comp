@@ -9,23 +9,18 @@ Available modules:
 
 __all__ = ["get_stdlib_module", "list_stdlib_modules"]
 
-from ._string import create_string_module
+from collections.abc import Callable
 
 
-# Registry of available stdlib modules
-_STDLIB_MODULES = {
-    "string": create_string_module,
-}
-
-# Cache for created modules
-_module_cache: dict[str, any] = {}
+_modules: dict[str, any] = {}
+_registry: dict[str, Callable] = {}
 
 
 def get_stdlib_module(name: str):
     """Get a standard library module by name.
 
     Args:
-        name: Module name (e.g., "string")
+        name: Module name (e.g., "str")
 
     Returns:
         Module instance, or None if not found
@@ -33,19 +28,20 @@ def get_stdlib_module(name: str):
     Example:
         string_mod = get_stdlib_module("string")
     """
-    if name not in _STDLIB_MODULES:
+
+    mod = _modules.get(name)
+    if mod:
+        return mod
+    
+    init = _lib().get(name)
+    if not init:
         return None
-
-    # Return cached module if available
-    if name in _module_cache:
-        return _module_cache[name]
-
-    # Create and cache the module
-    creator_func = _STDLIB_MODULES[name]
-    module = creator_func()
-    _module_cache[name] = module
-
-    return module
+    
+    mod = init()
+    _modules[name] = mod
+    # Note: Don't call prepare() - stdlib modules are created directly in Python,
+    # not from AST, so they don't need preparation
+    return mod
 
 
 def list_stdlib_modules() -> list[str]:
@@ -54,4 +50,16 @@ def list_stdlib_modules() -> list[str]:
     Returns:
         List of module names
     """
-    return list(_STDLIB_MODULES.keys())
+    return list(_lib())
+
+
+def _lib():
+    """registry of standard libraries."""
+    global _registry
+    if not _registry:
+        from . import num, str
+        _registry.update(
+            str=str.create_module,
+            num=num.create_module,
+        )
+    return _registry

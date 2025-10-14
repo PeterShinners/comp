@@ -1,12 +1,15 @@
 !import /test = comp "test"
-!import /str = stdlib "string"
+!import /str = stdlib "str"
+!import /num = stdlib "num"
+!import /loop = comp "loop"
+
+
 
 !func |main ~{} = {
-    @name = "world"
-    [|get-greeting|print]
-    [@name|upper|print]
-    @data = {bool=#true num=#answer~num}
-    [@data|print]
+    @stream = [|infinite]
+    zero = [{} |:@stream]
+    one = [{} |:@stream]
+    two = [{} |:@stream]
 
-    @err = #huachinango
+    [#pi~num|absolute|print]
 }

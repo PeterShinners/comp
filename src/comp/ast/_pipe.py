@@ -137,15 +137,37 @@ class PipeFunc(PipelineOp):
             ns_str = f"/{self.namespace}." if self.namespace else ""
             return comp.fail(f"Function |{ns_str}{self.func_name} not found")
 
-        # For now, use the first overload (TODO: implement shape matching)
-        func_def = func_defs[0]
-
-        # Step 1: Morph input to function's input shape (if defined)
-        if func_def.input_shape is not None:
-            morph_result = comp.morph(input_value, func_def.input_shape)
-            if not morph_result.success:
-                return comp.fail(f"Function |{self.func_name}: input does not match shape")
-            input_value = morph_result.value
+        # Step 1: Select best overload by trying to morph input to each shape
+        best_func = None
+        best_morph = None
+        best_score = None
+        
+        for func_def in func_defs:
+            if func_def.input_shape is None:
+                # No shape constraint - this is a wildcard match
+                # Score it lower than any shaped match (use negative score)
+                morph_result = comp.MorphResult(named_matches=0, tag_depth=0,
+                                               assignment_weight=0, positional_matches=-1,
+                                               value=input_value)
+            else:
+                # Try to morph input to this overload's shape
+                morph_result = comp.morph(input_value, func_def.input_shape)
+                if not morph_result.success:
+                    continue  # This overload doesn't match
+            
+            # Compare scores - higher is better (lexicographic tuple comparison)
+            if best_score is None or morph_result > best_score:
+                best_func = func_def
+                best_morph = morph_result
+                best_score = morph_result
+        
+        # Check if we found any matching overload
+        if best_func is None:
+            return comp.fail(f"Function |{self.func_name}: no overload matches input shape")
+        
+        # Use the morphed input value from the best match
+        func_def = best_func
+        input_value = best_morph.value
 
         # Step 2: Prepare arg scope with strict mask (^*)
         # Validates exact structure and applies defaults
@@ -268,6 +290,14 @@ class PipeBlock(PipelineOp):
         block_value = yield comp.Compute(self.block_ref)
         if frame.is_fail(block_value):
             return block_value
+
+        # If the value is a structure with a single unnamed Block, unwrap it
+        # This handles the common case where a function returns a structure containing a block
+        if block_value.is_struct and len(block_value.data) == 1:
+            # Get the first (and only) value from the dict
+            first_value = next(iter(block_value.data.values()))
+            if first_value.is_entity and isinstance(first_value.data, comp.Block):
+                block_value = first_value
 
         # Check if it's a Block entity
         if not block_value.is_entity or not isinstance(block_value.data, comp.Block):

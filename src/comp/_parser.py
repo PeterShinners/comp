@@ -330,7 +330,16 @@ def _convert_tree(tree: lark.Tree | lark.Token):
         case 'shape_definition':
             # BANG_SHAPE shape_path ASSIGN shape_body
             path = _extract_path_from_tree(kids[1])
-            fields = _convert_shape_body(kids[3])
+            fields_or_type = _convert_shape_body(kids[3])
+            
+            # If fields_or_type is a single shape type (not a list), wrap it as a positional field
+            # This handles type aliases like: !shape ~alias = ~other or !shape ~nil-block = ~:{}
+            if not isinstance(fields_or_type, list):
+                # Create a ShapeFieldDef with no name (positional) and the type as the shape_ref
+                fields = [comp.ast.ShapeFieldDef(name=None, shape_ref=fields_or_type, default=None)]
+            else:
+                fields = fields_or_type
+            
             return comp.ast.ShapeDef(path, fields)
 
         case 'shape_field_def':
@@ -744,16 +753,26 @@ def _create_unary_op(op: str, operand):
     return comp.ast.UnaryOp(op, operand)
 
 
-def _convert_shape_body(tree: lark.Tree) -> list:
-    """Convert shape_body to list of ShapeFieldDef nodes."""
+def _convert_shape_body(tree: lark.Tree) -> list | object:
+    """Convert shape_body to list of ShapeFieldDef nodes or a single shape type.
+    
+    Returns either:
+    - list[ShapeFieldDef]: For shapes with explicit fields {field1 field2}
+    - AST node: For type aliases (shape_type references like ~other or ~:{})
+    """
     if tree.data == 'shape_body':
         # Could be LBRACE shape_field* RBRACE or shape_type
         if tree.children and isinstance(tree.children[0], lark.Token):
             # Has LBRACE - extract fields
             return _convert_children(tree.children[1:-1])
         else:
-            # Just a shape_type reference
-            return _convert_children(tree.children)
+            # Just a shape_type reference - return the single converted type
+            # This handles aliases like: !shape ~alias = ~other
+            converted = _convert_children(tree.children)
+            # If it's a single shape type reference, return it directly
+            if len(converted) == 1:
+                return converted[0]
+            return converted
     return []
 
 

@@ -159,6 +159,37 @@ def builtin_wrap(frame, input_value: _value.Value, args: _value.Value | None = N
     return _value.Value({key_value: input_value})
 
 
+def builtin_if(frame, input_value: _value.Value, args: _value.Value | None = None):
+    """Base conditional for flow control"""
+
+    argvalues = list(args.struct.values())
+    if len(argvalues) <= 2:
+        return comp.fail("|if requires 2 or 3 blocks")
+    if argvalues[0].is_block:
+        # Need way to execute block without engine passing input value
+        condition = True
+    elif argvalues[0].is_bool:
+        condition = True if argvalues[0].data is comp.TRUE else False
+    else:
+        return comp.fail("|if conditional must be ~block or ~bool")
+    
+    if condition:
+        if argvalues[1].is_block:
+            # How to evaluate with input_value?
+            result = comp.Value(None)
+        else:
+            result = argvalues[1]
+
+    elif len(argvalues) == 3:
+        if argvalues[2].is_block:
+            # How to evaluate with input_value?
+            result = comp.Value(None)
+        else:
+            result = argvalues[2]
+
+    return result
+
+
 # ============================================================================
 # Function Registry
 # ============================================================================

@@ -51,15 +51,6 @@ def main():
         # Create engine
         engine = comp.Engine()
 
-        # Create module and prepare it (pre-resolve all references)
-        module = comp.Module()
-        try:
-            module.prepare(ast_module, engine)
-        except ValueError as e:
-            print(f"Module preparation error in {filepath}:", file=sys.stderr)
-            print(f"  {e}", file=sys.stderr)
-            sys.exit(1)
-
         # Evaluate the module (processes all definitions)
         module_result = engine.run(ast_module)
 
@@ -75,6 +66,14 @@ def main():
             sys.exit(1)
 
         module = module_result
+
+        # Prepare the module (pre-resolve all references)
+        try:
+            module.prepare(ast_module, engine)
+        except ValueError as e:
+            print(f"Module preparation error in {filepath}:", file=sys.stderr)
+            print(f"  {e}", file=sys.stderr)
+            sys.exit(1)
 
         # Look for a 'main' function in the module
         main_funcs = module.lookup_function(["main"])

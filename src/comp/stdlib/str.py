@@ -1,28 +1,4 @@
-"""String library module for Comp.
-
-Provides string manipulation functions similar to Python's string methods.
-This module can be imported with: !import /str = stdlib "string"
-
-Available functions:
-- |upper: Convert to uppercase
-- |lower: Convert to lowercase
-- |capitalize: Capitalize first letter
-- |title: Convert to title case
-- |strip: Remove leading/trailing whitespace
-- |lstrip: Remove leading whitespace
-- |rstrip: Remove trailing whitespace
-- |split: Split string into list
-- |join: Join list into string
-- |replace: Replace substring
-- |startswith: Check if string starts with prefix
-- |endswith: Check if string ends with suffix
-- |contains: Check if string contains substring
-- |length: Get string length
-- |slice: Extract substring by index
-- |repeat: Repeat string n times
-"""
-
-__all__ = ["create_string_module"]
+"""String library module for Comp."""
 
 import comp
 
@@ -357,7 +333,7 @@ def string_repeat(frame, input_value: comp.Value, args: comp.Value | None = None
 # Module Creation
 # ============================================================================
 
-def create_string_module() -> comp.Module:
+def create_module() -> comp.Module:
     """Create the string library module.
 
     Returns:

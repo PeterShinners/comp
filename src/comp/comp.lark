@@ -314,8 +314,8 @@ placeholder: PLACEHOLDER
 ?paren_expr: LPAREN expression RPAREN
 
 // Pipeline expressions - now use square brackets
-pipeline_expr: LBRACKET pipeline RBRACKET                          -> pipeline_unseeded
-             | LBRACKET _prepipeline_expression pipeline RBRACKET  -> pipeline_seeded
+pipeline_expr: LBRACKET pipeline RBRACKET                           -> pipeline_unseeded
+             | LBRACKET _pipeline_seed_expression pipeline RBRACKET -> pipeline_seeded
 
 // Atoms only match single entities
 // String is an atom (standalone literal), but can also appear as a field via stringfield
@@ -355,6 +355,21 @@ function_arguments: structure_op*
 // and other contexts where pipelines should not be parsed
 _prepipeline_expression: or_expr
 
+// Pipeline seed expression - like _prepipeline_expression but excludes morph_union
+// to avoid ambiguity with pipeline operator |
+_pipeline_seed_expression: or_expr_no_union
+
+?or_expr_no_union: and_expr_no_union | or_expr_no_union LOGICAL_OR and_expr_no_union -> binary_op
+?and_expr_no_union: not_expr_no_union | and_expr_no_union LOGICAL_AND not_expr_no_union -> binary_op
+?not_expr_no_union: comparison_no_union | LOGICAL_NOT not_expr_no_union -> unary_op
+?comparison_no_union: morph_expr_no_union | comparison_no_union comp_op morph_expr_no_union -> binary_op
+?morph_expr_no_union: arith_expr
+                    | morph_expr_no_union "~" morph_type_base -> morph_op
+                    | morph_expr_no_union STRONG_MORPH morph_type_base -> strong_morph_op
+                    | morph_expr_no_union WEAK_MORPH morph_type_base -> weak_morph_op
+                    | morph_expr_no_union "^" morph_type_base -> mask_op
+                    | morph_expr_no_union STRICT_MASK morph_type_base -> strict_mask_op
+
 // Boolean operators
 LOGICAL_AND: "&&"
 LOGICAL_OR: "||"
@@ -387,17 +402,19 @@ STRICT_MASK: "^*"
 
 // Shape type in morph/mask context
 // Accepts both bare identifiers (cat | dog) and full references (~cat | ~dog)
-?morph_type: reference_identifiers reference_namespace?   // shapename or module.shape
-           | tag_reference                                // #tag
-           | shape_reference                              // ~shapename (full syntax)
-           | shape_inline                                 // ~{...}
-           | morph_inline                                 // {...} (without ~)
+?morph_type: morph_type_base
            | morph_union                                  // cat | dog or ~cat | ~dog
+
+?morph_type_base: reference_identifiers reference_namespace?   // shapename or module.shape
+                | tag_reference                                // #tag
+                | shape_reference                              // ~shapename (full syntax)
+                | shape_inline                                 // ~{...}
+                | morph_inline                                 // {...} (without ~)
 
 // Inline shape without leading ~ for morph context
 morph_inline: LBRACE shape_field* RBRACE
 
-morph_union: morph_type (PIPE morph_type)+
+morph_union: morph_type_base (PIPE morph_type_base)+
 
 ?morph_expr: arith_expr
            | morph_expr "~" morph_type -> morph_op
