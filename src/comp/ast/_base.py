@@ -1,10 +1,38 @@
 """Node for base classes."""
 
-__all__ = ["AstNode", "ValueNode", "FieldNode", "ShapeNode"]
+__all__ = ["AstNode", "ValueNode", "FieldNode", "ShapeNode", "SourcePosition"]
 
 from collections.abc import Generator
+from dataclasses import dataclass
 
 import comp
+
+
+@dataclass
+class SourcePosition:
+    """Source code position information for AST nodes.
+    
+    Tracks where an AST node originated in the source code,
+    useful for error messages and debugging.
+    
+    Attributes:
+        filename: Source file path (e.g., "examples/greet.comp")
+        start_line: Starting line number (1-indexed)
+        start_column: Starting column number (1-indexed)
+        end_line: Ending line number (1-indexed)
+        end_column: Ending column number (1-indexed)
+    """
+    filename: str | None = None
+    start_line: int | None = None
+    start_column: int | None = None
+    end_line: int | None = None
+    end_column: int | None = None
+    
+    def __str__(self) -> str:
+        """Format position for error messages (just line number)."""
+        if self.start_line:
+            return f"on line {self.start_line}"
+        return ""
 
 
 class AstNode:
@@ -20,6 +48,10 @@ class AstNode:
 
     This is a base class that should not be instantiated directly.
     Subclasses must implement evaluate() and unparse().
+    
+    Attributes:
+        position: Optional source position information (filename, line, column).
+                  Set by parser when creating nodes from source code.
     """
 
     def evaluate(self, lookup) -> Generator['AstNode', comp.Value, comp.Value]:

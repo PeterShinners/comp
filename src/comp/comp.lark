@@ -219,9 +219,13 @@ shape_union: shape_type_atom (PIPE shape_type_atom)+      // ~type1 | ~type2 | ~
 shape_type_atom: shape_reference                          // ~typename
                | tag_reference                            // #tagname (tag as type)
                | shape_inline                             // ~{...} inline shape
+               | shape_block                              // ~:{...} block with input shape
 
 // Inline anonymous shape definition
 shape_inline: TILDE LBRACE shape_field* RBRACE            // ~{fields...}
+
+// Block type definition - specifies the input shape the block expects
+shape_block: TILDE COLON_BLOCK_START shape_field* RBRACE  // ~:{input-shape}
 
 // shape_type can be a union or a single atom
 shape_type: shape_union | shape_type_atom

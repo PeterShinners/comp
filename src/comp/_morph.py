@@ -60,7 +60,19 @@ def morph(value, shape):
     - value: the morphed Value, or None if morphing failed
 
     For unions, tries all variants and returns the best match.
+    
+    Special case: RawBlock + BlockShape → Block
     """
+    # Special handling for block morphing: RawBlock + BlockShapeDefinition → Block
+    if value.is_entity and isinstance(value.data, comp.RawBlock):
+        # Check if shape is a BlockShapeDefinition
+        if isinstance(shape, comp.BlockShapeDefinition):
+            # Create a Block with the raw block and the shape fields as input shape
+            block = comp.Block(value.data, input_shape=shape.fields)
+            return MorphResult(named_matches=1, value=comp.Value(block))
+        # If shape is not a block type, morphing RawBlock fails
+        return MorphResult()  # No match
+    
     # Track if we wrapped a non-struct value
     was_wrapped = False
 

@@ -1,6 +1,6 @@
 """Structure literal AST nodes."""
 
-__all__ = ["Structure", "StructOp", "FieldOp", "SpreadOp"]
+__all__ = ["Structure", "Block", "StructOp", "FieldOp", "SpreadOp"]
 
 import comp
 from . import _base, _ident
@@ -72,6 +72,94 @@ class Structure(_base.ValueNode):
 
     def __repr__(self):
         return f"Structure({len(self.ops)} ops)"
+
+
+class Block(_base.ValueNode):
+    """Block literal: :{field1=val1 val2 ..spread}
+
+    Blocks are deferred structure definitions used for callbacks, control flow,
+    and stream generation. They have the same operations as structures but don't
+    execute immediately. Instead, they capture their definition context and return
+    a RawBlock that can be invoked later using the |: operator.
+
+    Blocks are "raw" until typed with an input shape. The typing happens
+    through morphing: RawBlock + BlockShape → Block. This commonly occurs when
+    blocks are used as function arguments.
+
+    Correct by Construction:
+    - ops is a list (can be empty for :{})
+    - All ops are StructOp instances
+    """
+
+    def __init__(self, ops: list['StructOp']):
+        """Create block literal.
+
+        Args:
+            ops: List of structure operations (FieldOp, SpreadOp)
+
+        Raises:
+            TypeError: If any op is not a StructOp
+        """
+        if not all(isinstance(op, StructOp) for op in ops):
+            raise TypeError("All operations must be StructOp instances")
+        self.ops = ops
+
+    def evaluate(self, frame):
+        """Create a RawBlock that captures context for later typing and invocation.
+
+        Unlike Structure which executes immediately, Block captures the minimal
+        context needed for execution (module, function, $ctx, @local) and returns
+        a RawBlock entity. This raw block has no input shape yet and cannot be
+        invoked until morphed with a BlockShape to create a Block.
+
+        Captured context:
+        - module: From mod_shapes/mod_funcs/mod_tags scope (any will work)
+        - function: From @func_ctx scope if present (for $arg access in blocks)
+        - ctx_scope: Current $ctx scope value
+        - local_scope: Current @local scope value
+
+        NOT captured (provided at invocation time):
+        - $in: The input value passed to the block
+        - $out: Built during block execution
+        - $arg: Comes from function context if present
+
+        Returns comp.Value wrapping a RawBlock entity.
+        """
+        # Get module from any of the mod_* scopes
+        module = frame.scope('mod_shapes') or frame.scope('mod_funcs') or frame.scope('mod_tags')
+        if module is None:
+            return comp.fail("Block requires module scope (mod_shapes/mod_funcs/mod_tags)")
+
+        # Get function context if we're inside a function (for $arg access)
+        function = frame.scope('func_ctx')  # FunctionDefinition or None
+
+        # Capture $ctx and @local scopes
+        ctx_scope = frame.scope('ctx')
+        local_scope = frame.scope('local')
+
+        # Create RawBlock entity
+        raw_block = comp.RawBlock(
+            block_ast=self,  # The Block AST node itself
+            module=module,
+            function=function,
+            ctx_scope=ctx_scope,
+            local_scope=local_scope
+        )
+
+        # Return as Value (Value can now wrap Entity objects)
+        return comp.Value(raw_block)
+        yield  # Make this a generator
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        if not self.ops:
+            return ":{}"
+        # Whitespace separated - no commas in Comp syntax
+        ops_str = " ".join(op.unparse() for op in self.ops)
+        return f":{{{ops_str}}}"
+
+    def __repr__(self):
+        return f"Block({len(self.ops)} ops)"
 
 
 class StructOp(_base.ValueNode):

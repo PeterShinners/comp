@@ -21,12 +21,16 @@ import comp
 _module_parser: lark.Lark | None = None
 _expr_parser: lark.Lark | None = None
 
+# Current filename being parsed (for position tracking)
+_current_filename: str | None = None
 
-def parse_module(text: str):
+
+def parse_module(text: str, filename: str | None = None):
     """Parse a complete Comp module.
 
     Args:
         text: Module source code
+        filename: Optional source filename for error messages and debugging
 
     Returns:
         Module AST node containing all module statements
@@ -34,6 +38,8 @@ def parse_module(text: str):
     Raises:
         comp.ParseError: If the text contains invalid syntax
     """
+    global _current_filename
+    _current_filename = filename
     try:
         parser = _get_module_parser()
         tree = parser.parse(text)
@@ -45,13 +51,16 @@ def parse_module(text: str):
         if "DUBQUOTE" in error_msg and "$END" in error_msg:
             error_msg = "Unterminated string literal"
         raise comp.ParseError(error_msg) from e
+    finally:
+        _current_filename = None
 
 
-def parse_expr(text: str):
+def parse_expr(text: str, filename: str | None = None):
     """Parse a single Comp expression.
 
     Args:
         text: Expression source code
+        filename: Optional source filename for error messages and debugging
 
     Returns:
         The expression AST node
@@ -59,6 +68,8 @@ def parse_expr(text: str):
     Raises:
         comp.ParseError: If the text contains invalid syntax
     """
+    global _current_filename
+    _current_filename = filename
     try:
         parser = _get_expr_parser()
         tree = parser.parse(text)
@@ -73,6 +84,8 @@ def parse_expr(text: str):
         if "DUBQUOTE" in error_msg and "$END" in error_msg:
             error_msg = "Unterminated string literal"
         raise comp.ParseError(error_msg) from e
+    finally:
+        _current_filename = None
 
 
 def _convert_tree(tree: lark.Tree | lark.Token):
@@ -118,20 +131,24 @@ def _convert_tree(tree: lark.Tree | lark.Token):
 
         # === NUMBER LITERALS ===
         case 'number':
-            return comp.ast.Number(_convert_number(kids[0]))
+            node = comp.ast.Number(_convert_number(kids[0]))
+            return _apply_position(node, tree)
 
         # === STRING LITERALS ===
         case 'string' | '_short_string' | '_long_string':
-            return comp.ast.String(_convert_string(kids))
+            node = comp.ast.String(_convert_string(kids))
+            return _apply_position(node, tree)
 
         # === PLACEHOLDER ===
         case 'placeholder':
-            return comp.ast.Placeholder()
+            node = comp.ast.Placeholder()
+            return _apply_position(node, tree)
 
         # === IDENTIFIERS ===
         case 'identifier':
             fields = _convert_identifier_fields(kids)
-            return comp.ast.Identifier(fields)
+            node = comp.ast.Identifier(fields)
+            return _apply_position(node, tree)
 
         case 'tokenfield':
             return comp.ast.TokenField(_convert_tree(kids[0]))
@@ -164,13 +181,15 @@ def _convert_tree(tree: lark.Tree | lark.Token):
         case 'tag_reference':
             # "#" _reference_path
             path, namespace = _extract_reference_path(kids)
-            return comp.ast.TagValueRef(path, namespace)
+            node = comp.ast.TagValueRef(path, namespace)
+            return _apply_position(node, tree)
 
         case 'shape_reference':
             # "~" _reference_path
             # Shape references are used in: function shapes, arg shapes, field types, morph/mask operations
             path, namespace = _extract_reference_path(kids)
-            return comp.ast.ShapeRef(path, namespace)
+            node = comp.ast.ShapeRef(path, namespace)
+            return _apply_position(node, tree)
 
         case 'function_reference' | '_function_piped':
             # "|" _reference_path - Function references aren't valid as standalone values
@@ -242,6 +261,12 @@ def _convert_tree(tree: lark.Tree | lark.Token):
             ops = [_convert_tree(kid) for kid in kids if isinstance(kid, lark.Tree)]
             return comp.ast.Structure(ops)
 
+        case 'block':
+            # COLON_BLOCK_START structure_op* RBRACE
+            # Similar to structure, but creates a Block node for deferred execution
+            ops = [_convert_tree(kid) for kid in kids if isinstance(kid, lark.Tree)]
+            return comp.ast.Block(ops)
+
         case 'structure_assign':
             # _qualified _assignment_op expression
             # For field assignments, convert identifier to String (simple) or list of Strings (deep path)
@@ -290,6 +315,11 @@ def _convert_tree(tree: lark.Tree | lark.Token):
             ops = _convert_children(kids[1:-1])  # Skip PIPE_STRUCT and RBRACE
             struct = comp.ast.Structure(ops)
             return comp.ast.PipeStruct(struct)
+
+        case 'pipe_block':
+            # PIPE_BLOCK _qualified
+            block_ref = _convert_tree(kids[1])
+            return comp.ast.PipeBlock(block_ref)
 
         case 'pipe_fallback':
             # PIPE_FALLBACK expression
@@ -356,6 +386,14 @@ def _convert_tree(tree: lark.Tree | lark.Token):
                 return comp.ast.ShapeRef(["nil"])
             # Non-empty inline shape - not yet implemented
             raise comp.ParseError("Inline shapes with fields (~{...}) not yet implemented")
+
+        case 'shape_block':
+            # TILDE COLON_BLOCK_START shape_field* RBRACE
+            # Represents a block type ~:{input-shape}
+            # The fields describe the input structure the block expects
+            fields = _convert_children(kids[2:-1]) if len(kids) > 3 else []  # Skip TILDE, COLON_BLOCK_START, RBRACE
+            # Create a BlockShape node to represent this type
+            return comp.ast.BlockShape(fields)
 
         case 'morph_inline':
             # LBRACE shape_field* RBRACE (no tilde)
@@ -458,6 +496,36 @@ def _convert_children(children: list) -> list:
             else:
                 result.append(converted)
     return result
+
+
+def _apply_position(node: comp.ast.AstNode, tree: lark.Tree | lark.Token) -> comp.ast.AstNode:
+    """Apply source position information from Lark tree/token to AST node.
+    
+    Args:
+        node: AST node to annotate with position
+        tree: Lark tree or token containing position metadata
+        
+    Returns:
+        The node (modified in place for convenience)
+    """
+    if isinstance(tree, lark.Tree) and hasattr(tree, 'meta'):
+        meta = tree.meta
+        node.position = comp.ast.SourcePosition(
+            filename=_current_filename,
+            start_line=getattr(meta, 'line', None),
+            start_column=getattr(meta, 'column', None),
+            end_line=getattr(meta, 'end_line', None),
+            end_column=getattr(meta, 'end_column', None),
+        )
+    elif isinstance(tree, lark.Token):
+        node.position = comp.ast.SourcePosition(
+            filename=_current_filename,
+            start_line=getattr(tree, 'line', None),
+            start_column=getattr(tree, 'column', None),
+            end_line=getattr(tree, 'end_line', None),
+            end_column=getattr(tree, 'end_column', None),
+        )
+    return node
 
 
 def _convert_number(token: lark.Token) -> Decimal:

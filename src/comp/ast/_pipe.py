@@ -1,6 +1,6 @@
 """Pipeline AST nodes."""
 
-__all__ = ["Pipeline", "PipelineOp", "PipeFunc", "PipeStruct", "PipeFallback"]
+__all__ = ["Pipeline", "PipelineOp", "PipeFunc", "PipeStruct", "PipeBlock", "PipeFallback"]
 
 import comp
 from . import _base
@@ -240,6 +240,81 @@ class PipeStruct(PipelineOp):
 
     def __repr__(self):
         return f"PipeStruct({self.struct!r})"
+
+
+class PipeBlock(PipelineOp):
+    """Pipeline block invocation: |:block_ref
+
+    Invokes a Block (typed block created through morphing) with the current
+    pipeline value as $in. The block executes with its captured context
+    (module, function, $ctx, @local from definition time) plus the new $in.
+
+    Args:
+        block_ref: Identifier reference to the Block value
+    """
+
+    def __init__(self, block_ref: _base.ValueNode):
+        if not isinstance(block_ref, _base.ValueNode):
+            raise TypeError("PipeBlock block_ref must be _base.ValueNode")
+        self.block_ref = block_ref
+
+    def evaluate(self, frame):
+        # Get current pipeline value from $in scope
+        input_value = frame.scope('in')
+        if input_value is None:
+            return comp.fail("PipeBlock |: requires $in scope")
+
+        # Evaluate the block reference to get the Block value
+        block_value = yield comp.Compute(self.block_ref)
+        if frame.is_fail(block_value):
+            return block_value
+
+        # Check if it's a Block entity
+        if not block_value.is_entity or not isinstance(block_value.data, comp.Block):
+            return comp.fail(f"PipeBlock |: requires Block, got {type(block_value.data).__name__}")
+
+        block = block_value.data
+
+        # Note: We don't morph the input here - that's the responsibility of the
+        # code that stores/retrieves blocks. If a block has an input shape, it should
+        # only be stored in contexts where morphing will happen (e.g., struct fields
+        # with block type shapes). For now, we trust that the Block is being invoked
+        # with appropriate input.
+
+        # Execute block operations like Structure does, but with captured context
+        # Create an accumulator dict for the block output
+        struct_dict = {}
+        accumulator = comp.Value.__new__(comp.Value)
+        accumulator.data = struct_dict
+        accumulator.tag = None
+
+        # Create chained scope: $out (accumulator) chains to $in
+        chained = comp.ChainedScope(accumulator, input_value)
+
+        # Execute each operation from the block with captured context
+        for op in block.block_ast.ops:
+            yield comp.Compute(
+                op,
+                struct_accumulator=accumulator,
+                unnamed=chained,
+                in_=input_value,
+                ctx=block.ctx_scope if block.ctx_scope is not None else comp.Value({}),
+                local=block.local_scope if block.local_scope is not None else comp.Value({}),
+                mod_funcs=block.module,
+                mod_shapes=block.module,
+                mod_tags=block.module,
+                # If block was defined in a function, pass arg scope
+                arg=frame.scope('arg') if block.function is not None else None,
+            )
+
+        # Return the accumulated result
+        return accumulator
+
+    def unparse(self) -> str:
+        return f"|:{self.block_ref.unparse()}"
+
+    def __repr__(self):
+        return f"PipeBlock({self.block_ref!r})"
 
 
 class PipeFallback(PipelineOp):

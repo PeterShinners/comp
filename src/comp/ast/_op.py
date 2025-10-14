@@ -7,7 +7,7 @@ from . import _base
 
 
 class UnaryOp(_base.ValueNode):
-    """Unary operation: -x, !x, etc."""
+    """Unary operation: -x, !!x, etc."""
 
     def __init__(self, op: str, operand: _base.ValueNode):
         if not isinstance(op, str):
@@ -24,9 +24,15 @@ class UnaryOp(_base.ValueNode):
 
         if self.op == "-":
             if operand_value.is_number:
-                return comp.Value(-operand_value.data)
+                return comp.Value(operand_value.data.copy_negate())
             else:
                 return comp.fail(f"Cannot negate non-number: {operand_value.data}")
+
+        if self.op == "+":
+            if operand_value.is_number:
+                return operand_value
+            else:
+                return comp.fail(f"Cannot positive non-number: {operand_value.data}")
 
         elif self.op == "!!":
             # Check if value is a tag by checking if it's exactly TRUE or FALSE

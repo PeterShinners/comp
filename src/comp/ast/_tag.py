@@ -281,6 +281,9 @@ class TagValueRef(_base.ValueNode):
     Args:
         path: Reversed path (leaf first), e.g., ["timeout", "error", "status"]
         namespace: Optional module namespace for cross-module refs (future)
+
+    Attributes:
+        _resolved: Pre-resolved TagDefinition (set by Module.prepare())
     """
 
     def __init__(self, path: list[str], namespace: str | None = None):
@@ -293,9 +296,13 @@ class TagValueRef(_base.ValueNode):
 
         self.path = path
         self.namespace = namespace
+        self._resolved = None  # Pre-resolved definition (set by Module.prepare())
 
     def evaluate(self, frame):
         """Look up tag in module and return as a Value.
+
+        Uses pre-resolved definition if available (from Module.prepare()),
+        otherwise falls back to runtime lookup.
 
         Uses partial path matching to find the tag. If the reference is
         ambiguous (multiple matches), returns a failure.
@@ -303,6 +310,19 @@ class TagValueRef(_base.ValueNode):
         If namespace is provided (/namespace), searches only in that namespace.
         Otherwise, searches local module first, then all imported namespaces.
         """
+        # Fast path: use pre-resolved definition if available
+        if self._resolved is not None:
+            tag_def = self._resolved
+            
+            # Return the tag's value if it has one, otherwise return the TagRef itself
+            if tag_def.value is not None:
+                return tag_def.value
+            else:
+                # Tag has no value - return the TagRef itself wrapped in a Value
+                return comp.Value(comp.TagRef(tag_def))
+            yield  # Make this a generator (unreachable)
+
+        # Slow path: runtime lookup (for modules not prepared)
         # Get module from frame
         module = frame.scope('mod_tags')
         if module is None:

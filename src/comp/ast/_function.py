@@ -140,6 +140,9 @@ class FuncRef(_base.ValueNode):
     Args:
         path: Reversed partial path (leaf first), e.g., ["area", "geometry"]
         namespace: Optional namespace for cross-module references
+
+    Attributes:
+        _resolved: Pre-resolved list of FunctionDefinitions (set by Module.prepare())
     """
 
     def __init__(self, path: list[str], namespace: str | None = None):
@@ -154,6 +157,7 @@ class FuncRef(_base.ValueNode):
 
         self.path = path
         self.namespace = namespace
+        self._resolved = None  # Pre-resolved definitions (set by Module.prepare())
 
     def evaluate(self, frame):
         """Look up function in module.
@@ -161,9 +165,40 @@ class FuncRef(_base.ValueNode):
         Returns a list of FunctionDefinition objects (for overloads).
         For now, returns a simple structure with function metadata.
 
+        Uses pre-resolved definition if available (from Module.prepare()),
+        otherwise falls back to runtime lookup.
+
         If namespace is provided (/namespace), searches only in that namespace.
         Otherwise, searches local module first, then all imported namespaces.
         """
+        # Fast path: use pre-resolved definitions if available
+        if self._resolved is not None:
+            func_defs = self._resolved
+            
+            # Return structure with metadata about the function(s)
+            overloads = []
+            for func_def in func_defs:
+                overload_info = {
+                    comp.Value('name'): comp.Value(func_def.name),
+                    comp.Value('is_pure'): comp.Value(func_def.is_pure),
+                }
+                if func_def.doc:
+                    overload_info[comp.Value('doc')] = comp.Value(func_def.doc)
+                if func_def.impl_doc:
+                    overload_info[comp.Value('impl_doc')] = comp.Value(func_def.impl_doc)
+
+                overloads.append(comp.Value(overload_info))
+
+            path_str = ".".join(reversed(self.path))
+            result = {
+                comp.Value('name'): comp.Value(path_str),
+                comp.Value('overloads'): comp.Value([comp.Value(o) for o in overloads]),
+            }
+
+            return comp.Value(result)
+            yield  # Make this a generator
+
+        # Slow path: runtime lookup (for modules not prepared)
         # Get module from scope
         module = frame.scope('mod_funcs')
         if module is None:

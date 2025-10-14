@@ -8,4 +8,5 @@
     @data = {bool=#true num=#answer~num}
     [@data|print]
 
+    @err = #huachinango
 }

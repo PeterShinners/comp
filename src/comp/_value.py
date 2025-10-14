@@ -111,6 +111,12 @@ class Value(Entity):
             self.data = data
             return
 
+        # Handle Entity types (Module, FunctionDefinition, EphemeralBlock, etc.)
+        # These are already Comp runtime objects and can be stored directly
+        if isinstance(data, Entity) and not isinstance(data, Value):
+            self.data = data
+            return
+
         # Handle dict -> struct (recursively convert keys and values)
         if isinstance(data, dict):
             self.data = {
@@ -141,6 +147,11 @@ class Value(Entity):
     @property
     def is_tag(self) -> bool:
         return isinstance(self.data, TagRef)
+
+    @property
+    def is_entity(self) -> bool:
+        """Check if this Value wraps an Entity (Module, FunctionDefinition, EphemeralBlock, etc.)."""
+        return isinstance(self.data, Entity) and not isinstance(self.data, Value)
 
     @property
     def struct(self) -> dict | None:

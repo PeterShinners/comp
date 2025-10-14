@@ -1,6 +1,6 @@
 """Module system for the engine - tracks definitions and provides namespaces."""
 
-__all__ = ["Module", "TagDefinition", "ShapeDefinition", "ShapeField", "FunctionDefinition"]
+__all__ = ["Module", "TagDefinition", "ShapeDefinition", "ShapeField", "FunctionDefinition", "RawBlock", "Block", "BlockShapeDefinition"]
 
 from dataclasses import dataclass
 from typing import Any
@@ -250,6 +250,122 @@ class FunctionDefinition(Entity):
         input_str = f" ~{self.input_shape}" if self.input_shape else ""
         arg_str = f" ^{self.arg_shape}" if self.arg_shape else ""
         return f"{pure_str}|{self.full_name}{input_str}{arg_str}"
+
+
+class RawBlock(Entity):
+    """An untyped block with captured definition context.
+
+    Raw blocks are created with :{...} syntax and capture their definition context
+    (scopes and module references) but have no input shape yet. They cannot be invoked
+    until morphed with a BlockShape to create a Block.
+
+    Raw blocks capture only what they need:
+    - module: For looking up tags, shapes, and functions
+    - function: Current function context (if defined in a function), for $arg access
+    - ctx_scope: The $ctx scope at definition time
+    - local_scope: The @local scope at definition time
+    - block_ast: The Block AST node itself (operations to execute)
+
+    Raw blocks do NOT capture:
+    - $in: Set at invocation time
+    - $out: Built during block execution
+    - Full frame: Too heavy, only need specific scopes
+
+    Attributes:
+        block_ast: The Block AST node with operations
+        module: Module reference for lookups
+        function: FunctionDefinition if defined in function, None otherwise
+        ctx_scope: Captured $ctx scope from definition
+        local_scope: Captured @local scope from definition
+    """
+    def __init__(self, block_ast: Any, module: 'Module',
+                 function: FunctionDefinition | None = None,
+                 ctx_scope: Any = None, local_scope: Any = None):
+        self.block_ast = block_ast
+        self.module = module
+        self.function = function
+        self.ctx_scope = ctx_scope
+        self.local_scope = local_scope
+
+    def __repr__(self):
+        func_str = f" in |{self.function.full_name}" if self.function else ""
+        return f"RawBlock({len(self.block_ast.ops)} ops{func_str})"
+
+
+class Block(Entity):
+    """A typed block ready for invocation.
+
+    Blocks are created by morphing a RawBlock with a BlockShape. They have:
+    - An input shape that defines what structure they expect
+    - All the captured context from the RawBlock
+    - The ability to be invoked with the |: operator
+
+    The Block holds a reference to the original RawBlock (for context and operations)
+    plus the input shape that was applied through morphing.
+
+    Attributes:
+        raw_block: The RawBlock this was created from (contains ops and captured context)
+        input_shape: The shape defining expected input structure
+    """
+    def __init__(self, raw_block: RawBlock, input_shape: Any):
+        if not isinstance(raw_block, RawBlock):
+            raise TypeError("Block requires a RawBlock")
+        self.raw_block = raw_block
+        self.input_shape = input_shape
+
+    @property
+    def block_ast(self):
+        """Get the Block AST node from the raw block."""
+        return self.raw_block.block_ast
+
+    @property
+    def module(self):
+        """Get the module from the raw block."""
+        return self.raw_block.module
+
+    @property
+    def function(self):
+        """Get the function context from the raw block."""
+        return self.raw_block.function
+
+    @property
+    def ctx_scope(self):
+        """Get the captured $ctx scope from the raw block."""
+        return self.raw_block.ctx_scope
+
+    @property
+    def local_scope(self):
+        """Get the captured @local scope from the raw block."""
+        return self.raw_block.local_scope
+
+    def __repr__(self):
+        func_str = f" in |{self.function.full_name}" if self.function else ""
+        shape_str = f" ~:{self.input_shape}" if self.input_shape else ""
+        return f"Block({len(self.block_ast.ops)} ops{shape_str}{func_str})"
+
+
+class BlockShapeDefinition(Entity):
+    """A block shape definition describing the input structure for blocks.
+
+    BlockShapeDefinitions are created when BlockShape AST nodes are evaluated.
+    They describe what input structure a block expects, similar to how
+    ShapeDefinition describes struct layouts.
+
+    Unlike regular shapes, BlockShapeDefinitions are specifically for block types
+    and are used during morphing to convert RawBlock → Block.
+
+    Attributes:
+        fields: List of ShapeField describing the expected input structure
+    """
+    def __init__(self, fields: list[ShapeField]):
+        if not isinstance(fields, list):
+            raise TypeError("Fields must be a list")
+        if not all(isinstance(f, ShapeField) for f in fields):
+            raise TypeError("All fields must be ShapeField instances")
+        self.fields = fields
+
+    def __repr__(self):
+        return f"BlockShapeDefinition({len(self.fields)} fields)"
 
 
 class Module(Entity):
@@ -702,6 +818,491 @@ class Module(Entity):
             raise ValueError(
                 f"Ambiguous function reference |{partial_str} found in multiple namespaces: {ns_list}"
             )
+
+    def prepare(self, ast_module: Any, engine: Any = None) -> None:
+        """Prepare the module by building its namespace and pre-resolving all references.
+
+        This is a multi-phase process that builds up the module incrementally and
+        ensures all references can be resolved at build time, making undefined lookups
+        into build-time errors rather than runtime errors.
+
+        The process:
+        1. Walk all definitions in the AST and create initial Def nodes
+        2. Walk all imports and recursively prepare() each imported module
+        3. Build complete resolution namespace (all partial name hierarchies)
+        4. Mark any ambiguous definitions
+        5. Walk all AST nodes and pre-resolve all references
+        6. Optionally discard the resolution namespace (no longer needed)
+
+        Args:
+            ast_module: The AST Module node containing all definitions
+            engine: Optional Engine instance for evaluation (defaults to current)
+
+        Raises:
+            ValueError: If there are unresolved references or ambiguous definitions
+        """
+        if engine is None:
+            from ._engine import Engine
+            engine = Engine()
+
+        # Phase 1: Create initial definitions from AST
+        # This registers all tags, shapes, and functions in the module
+        self._phase1_create_definitions(ast_module, engine)
+
+        # Phase 2: Process imports recursively
+        # Each imported module will also be prepared
+        self._phase2_prepare_imports(ast_module, engine)
+
+        # Phase 3: Build complete resolution namespace
+        # This creates a lookup table for all possible partial references
+        resolution_ns = self._phase3_build_resolution_namespace()
+
+        # Phase 4: Walk AST nodes and pre-resolve all references
+        self._phase4_preresolve_references(ast_module, resolution_ns)
+
+        # Phase 5: Mark the module as prepared
+        self._prepared = True
+
+        # Note: We keep resolution_ns for now - it may be useful for debugging
+        # In the future, step 6 could discard it to save memory
+        self._resolution_ns = resolution_ns
+
+    def _phase1_create_definitions(self, ast_module: Any, engine: Any) -> None:
+        """Phase 1: Walk all definitions and create initial Def nodes.
+
+        This scans the AST module and registers all tag, shape, and function
+        definitions. The definitions are created but not fully resolved yet.
+
+        Args:
+            ast_module: AST Module node
+            engine: Engine instance for evaluation
+        """
+        # Import here to avoid circular dependency
+        from . import ast
+
+        for op in ast_module.operations:
+            if isinstance(op, ast.TagDef):
+                # Create tag definition (value will be None initially)
+                self.define_tag(op.path, value=None)
+
+            elif isinstance(op, ast.ShapeDef):
+                # Create shape definition with empty fields initially
+                # Fields will be resolved in phase 4
+                self.define_shape(op.path, fields=[])
+
+            elif isinstance(op, ast.FuncDef):
+                # Create function definition with AST body (not evaluated)
+                self.define_function(
+                    path=op.path,
+                    body=op.body,
+                    input_shape=None,  # Will be resolved in phase 4
+                    arg_shape=None,    # Will be resolved in phase 4
+                    is_pure=op.is_pure,
+                    doc=op.doc,
+                    impl_doc=op.impl_doc
+                )
+
+            # ImportDef is handled in phase 2
+
+    def _phase2_prepare_imports(self, ast_module: Any, engine: Any) -> None:
+        """Phase 2: Walk all imports and recursively prepare each imported module.
+
+        This processes import statements and ensures all dependencies are prepared
+        before we build the resolution namespace. This allows circular imports to work.
+
+        Args:
+            ast_module: AST Module node
+            engine: Engine instance for loading modules
+        """
+        from . import ast
+
+        for op in ast_module.operations:
+            if isinstance(op, ast.ImportDef):
+                # Load the imported module
+                imported_module = self._load_import(op, engine)
+
+                if imported_module is not None:
+                    # Recursively prepare the imported module
+                    # (this is safe even with circular imports due to the
+                    # incremental definition creation in phase 1)
+                    if not getattr(imported_module, '_prepared', False):
+                        # The imported module needs its own AST to be prepared
+                        # For now, we assume it's already prepared or will be
+                        # prepared by the loader
+                        pass
+
+                    # Add to our namespaces
+                    self.add_namespace(op.namespace, imported_module)
+
+    def _load_import(self, import_def: Any, engine: Any) -> 'Module | None':
+        """Load an imported module based on ImportDef.
+
+        This handles different import sources (stdlib, comp, python, etc.)
+        and returns the loaded Module.
+
+        Args:
+            import_def: ImportDef AST node
+            engine: Engine for evaluation
+
+        Returns:
+            Loaded Module, or None if loading failed
+        """
+        if import_def.source == "stdlib":
+            from .stdlib import get_stdlib_module
+            try:
+                return get_stdlib_module(import_def.path)
+            except Exception:
+                return None
+
+        elif import_def.source == "comp":
+            from .ast import _loader
+            try:
+                return _loader.load_comp_module(import_def.path, engine)
+            except Exception:
+                return None
+
+        # Other sources not yet implemented
+        return None
+
+    def _phase3_build_resolution_namespace(self) -> dict[tuple[str, list[str]], Any]:
+        """Phase 3: Build complete resolution namespace for all partial references.
+
+        This creates a lookup table that maps all possible partial references to
+        their definitions. For example:
+        - Tag "#ok" might map to multiple definitions
+        - Tag "#ok.status" might map to one specific definition
+        - Tag "#ok/request" explicitly references the "request" namespace
+
+        The resolution namespace includes:
+        - All local definitions (tags, shapes, functions)
+        - All definitions from imported namespaces
+        - Tracks ambiguous references
+
+        Returns:
+            Dictionary mapping (type, partial_path, namespace) to definitions or ambiguity markers
+        """
+        resolution_ns = {}
+
+        # Add local definitions first (they override namespace imports)
+        self._add_local_definitions_to_ns(resolution_ns)
+
+        # Add definitions from all namespaces
+        for ns_name, ns_module in self.namespaces.items():
+            self._add_namespace_definitions_to_ns(resolution_ns, ns_name, ns_module)
+
+        return resolution_ns
+
+    def _add_local_definitions_to_ns(self, resolution_ns: dict) -> None:
+        """Add all local definitions to the resolution namespace.
+
+        For each definition, generates all possible partial references and
+        adds them to the resolution namespace.
+
+        Args:
+            resolution_ns: Resolution namespace dictionary to populate
+        """
+        # Add tags - generate all possible partial suffixes
+        for tag_def in self.tags.values():
+            # Generate all partial paths (suffix matching)
+            # E.g., ["status", "error", "timeout"] generates reference paths (reversed):
+            #   ("timeout",)  - matches #timeout
+            #   ("timeout", "error")  - matches #timeout.error
+            #   ("timeout", "error", "status")  - matches #timeout.error.status
+            # Note: tag_def.path is in definition order ["status", "error", "timeout"]
+            # But references are reversed ["timeout", "error", "status"]
+            for i in range(len(tag_def.path)):
+                # Take suffix of definition path, then reverse for reference notation
+                partial = tuple(reversed(tag_def.path[i:]))
+                key = ('tag', partial, None)  # None = no explicit namespace
+
+                if key in resolution_ns:
+                    # Already exists - mark as ambiguous
+                    if resolution_ns[key] != 'AMBIGUOUS':
+                        resolution_ns[key] = 'AMBIGUOUS'
+                else:
+                    resolution_ns[key] = tag_def
+
+        # Add shapes - generate all possible partial suffixes
+        for shape_def in self.shapes.values():
+            for i in range(len(shape_def.path)):
+                partial = tuple(reversed(shape_def.path[i:]))
+                key = ('shape', partial, None)
+
+                if key in resolution_ns:
+                    if resolution_ns[key] != 'AMBIGUOUS':
+                        resolution_ns[key] = 'AMBIGUOUS'
+                else:
+                    resolution_ns[key] = shape_def
+
+        # Add functions - generate all possible partial suffixes
+        for _func_name, func_overloads in self.functions.items():
+            if func_overloads:
+                func_def = func_overloads[0]  # Use first overload for path
+                for i in range(len(func_def.path)):
+                    partial = tuple(reversed(func_def.path[i:]))
+                    key = ('function', partial, None)
+
+                    if key in resolution_ns:
+                        if resolution_ns[key] != 'AMBIGUOUS':
+                            resolution_ns[key] = 'AMBIGUOUS'
+                    else:
+                        resolution_ns[key] = func_overloads  # Store all overloads
+
+    def _add_namespace_definitions_to_ns(self, resolution_ns: dict, ns_name: str, ns_module: 'Module') -> None:
+        """Add definitions from a namespace to the resolution namespace.
+
+        Definitions from namespaces are added with lower priority than local definitions.
+        They are added both with and without explicit namespace qualifiers.
+
+        Args:
+            resolution_ns: Resolution namespace dictionary to populate
+            ns_name: Name of the namespace
+            ns_module: Module to import definitions from
+        """
+        # Add tags from namespace
+        for tag_def in ns_module.tags.values():
+            # Add with explicit namespace qualifier
+            for i in range(len(tag_def.path)):
+                partial = tuple(reversed(tag_def.path[i:]))
+
+                # Add explicit namespace reference: #tag/namespace
+                key_explicit = ('tag', partial, ns_name)
+                if key_explicit not in resolution_ns:
+                    resolution_ns[key_explicit] = tag_def
+
+                # Add implicit reference (no namespace) - lower priority
+                key_implicit = ('tag', partial, None)
+                if key_implicit not in resolution_ns:
+                    # Local definitions already added, so this won't override
+                    resolution_ns[key_implicit] = tag_def
+                elif resolution_ns[key_implicit] != 'AMBIGUOUS' and resolution_ns[key_implicit] != tag_def:
+                    # Different definition exists
+                    # Check if it's a local definition - if so, don't mark as ambiguous
+                    # (local definitions override imports)
+                    existing = resolution_ns[key_implicit]
+                    if existing in self.tags.values():
+                        # Existing is local - skip (local wins)
+                        pass
+                    else:
+                        # Both are from namespaces - mark as ambiguous
+                        resolution_ns[key_implicit] = 'AMBIGUOUS'
+
+        # Add shapes from namespace
+        for shape_def in ns_module.shapes.values():
+            for i in range(len(shape_def.path)):
+                partial = tuple(reversed(shape_def.path[i:]))
+
+                key_explicit = ('shape', partial, ns_name)
+                if key_explicit not in resolution_ns:
+                    resolution_ns[key_explicit] = shape_def
+
+                key_implicit = ('shape', partial, None)
+                if key_implicit not in resolution_ns:
+                    resolution_ns[key_implicit] = shape_def
+                elif resolution_ns[key_implicit] != 'AMBIGUOUS' and resolution_ns[key_implicit] != shape_def:
+                    existing = resolution_ns[key_implicit]
+                    if existing in self.shapes.values():
+                        pass  # Local wins
+                    else:
+                        resolution_ns[key_implicit] = 'AMBIGUOUS'
+
+        # Add functions from namespace
+        for _func_name, func_overloads in ns_module.functions.items():
+            if func_overloads:
+                func_def = func_overloads[0]
+                for i in range(len(func_def.path)):
+                    partial = tuple(reversed(func_def.path[i:]))
+
+                    key_explicit = ('function', partial, ns_name)
+                    if key_explicit not in resolution_ns:
+                        resolution_ns[key_explicit] = func_overloads
+
+                    key_implicit = ('function', partial, None)
+                    if key_implicit not in resolution_ns:
+                        resolution_ns[key_implicit] = func_overloads
+                    elif resolution_ns[key_implicit] != 'AMBIGUOUS' and resolution_ns[key_implicit] != func_overloads:
+                        # Check if local definition exists
+                        existing = resolution_ns[key_implicit]
+                        if isinstance(existing, list) and any(f in overloads for overloads in self.functions.values() for f in overloads):
+                            pass  # Local wins
+                        else:
+                            resolution_ns[key_implicit] = 'AMBIGUOUS'
+
+    def _phase4_preresolve_references(self, ast_module: Any, resolution_ns: dict) -> None:
+        """Phase 4: Walk all AST nodes and pre-resolve all references.
+
+        This walks through all definitions and pre-resolves any TagRef, ShapeRef,
+        and FuncRef nodes. The resolved information is stored directly on the AST
+        nodes (or as an attribute).
+
+        Args:
+            ast_module: AST Module node
+            resolution_ns: Complete resolution namespace from phase 3
+
+        Raises:
+            ValueError: If any reference cannot be resolved or is ambiguous
+        """
+        from . import ast
+
+        # Walk all operations and resolve references in them
+        for op in ast_module.operations:
+            if isinstance(op, ast.TagDef):
+                self._preresolve_tag_def(op, resolution_ns)
+
+            elif isinstance(op, ast.ShapeDef):
+                self._preresolve_shape_def(op, resolution_ns)
+
+            elif isinstance(op, ast.FuncDef):
+                self._preresolve_func_def(op, resolution_ns)
+
+    def _preresolve_tag_def(self, tag_def: Any, resolution_ns: dict) -> None:
+        """Pre-resolve all references in a tag definition.
+
+        Args:
+            tag_def: TagDef AST node
+            resolution_ns: Resolution namespace
+
+        Raises:
+            ValueError: If any reference cannot be resolved
+        """
+        # Recursively walk the value expression and children
+        if tag_def.value:
+            self._preresolve_node(tag_def.value, resolution_ns)
+
+        for child in tag_def.children:
+            if child.value:
+                self._preresolve_node(child.value, resolution_ns)
+            # Recurse into child's children
+            for subchild in child.children:
+                if subchild.value:
+                    self._preresolve_node(subchild.value, resolution_ns)
+
+    def _preresolve_shape_def(self, shape_def: Any, resolution_ns: dict) -> None:
+        """Pre-resolve all references in a shape definition.
+
+        Args:
+            shape_def: ShapeDef AST node
+            resolution_ns: Resolution namespace
+
+        Raises:
+            ValueError: If any reference cannot be resolved
+        """
+        # Walk all field definitions
+        for field_def in shape_def.fields:
+            if field_def.shape_ref:
+                self._preresolve_node(field_def.shape_ref, resolution_ns)
+            if field_def.default:
+                self._preresolve_node(field_def.default, resolution_ns)
+
+    def _preresolve_func_def(self, func_def: Any, resolution_ns: dict) -> None:
+        """Pre-resolve all references in a function definition.
+
+        Args:
+            func_def: FuncDef AST node
+            resolution_ns: Resolution namespace
+
+        Raises:
+            ValueError: If any reference cannot be resolved
+        """
+        # Resolve input and arg shapes
+        if func_def.input_shape:
+            self._preresolve_node(func_def.input_shape, resolution_ns)
+        if func_def.arg_shape:
+            self._preresolve_node(func_def.arg_shape, resolution_ns)
+
+        # Resolve body
+        self._preresolve_node(func_def.body, resolution_ns)
+
+    def _preresolve_node(self, node: Any, resolution_ns: dict) -> None:
+        """Recursively pre-resolve all references in an AST node.
+
+        This walks the AST tree and resolves TagRef, ShapeRef, and FuncRef nodes.
+        The resolved definition is stored as a `_resolved` attribute on the node.
+
+        Args:
+            node: AST node to process
+            resolution_ns: Resolution namespace
+
+        Raises:
+            ValueError: If any reference cannot be resolved or is ambiguous
+        """
+        from . import ast
+
+        # Base case: handle reference nodes
+        if isinstance(node, ast.TagValueRef):
+            key = ('tag', tuple(node.path), node.namespace)
+            if key not in resolution_ns:
+                path_str = ".".join(reversed(node.path))
+                ns_str = f"/{node.namespace}" if node.namespace else ""
+                position = getattr(node, 'position', None)
+                pos_str = f" {position}" if position else ""
+                raise ValueError(f"Undefined tag reference: #{path_str}{ns_str}{pos_str}")
+
+            resolved = resolution_ns[key]
+            if resolved == 'AMBIGUOUS':
+                path_str = ".".join(reversed(node.path))
+                position = getattr(node, 'position', None)
+                pos_str = f" {position}" if position else ""
+                raise ValueError(f"Ambiguous tag reference: #{path_str}{pos_str}")
+
+            # Store resolved definition on the node
+            node._resolved = resolved
+
+        elif isinstance(node, ast.ShapeRef):
+            key = ('shape', tuple(node.path), node.namespace)
+            if key not in resolution_ns:
+                path_str = ".".join(reversed(node.path))
+                ns_str = f"/{node.namespace}" if node.namespace else ""
+                position = getattr(node, 'position', None)
+                pos_str = f" {position}" if position else ""
+                raise ValueError(f"Undefined shape reference: ~{path_str}{ns_str}{pos_str}")
+
+            resolved = resolution_ns[key]
+            if resolved == 'AMBIGUOUS':
+                path_str = ".".join(reversed(node.path))
+                ns_str = f"/{node.namespace}" if node.namespace else ""
+                position = getattr(node, 'position', None)
+                pos_str = f" {position}" if position else ""
+                raise ValueError(f"Ambiguous shape reference: ~{path_str}{ns_str}{pos_str}")
+
+            node._resolved = resolved
+
+        elif isinstance(node, ast.FuncRef):
+            key = ('function', tuple(node.path), node.namespace)
+            if key not in resolution_ns:
+                path_str = ".".join(reversed(node.path))
+                ns_str = f"/{node.namespace}" if node.namespace else ""
+                position = getattr(node, 'position', None)
+                pos_str = f" {position}" if position else ""
+                raise ValueError(f"Undefined function reference: |{path_str}{ns_str}{pos_str}")
+
+            resolved = resolution_ns[key]
+            if resolved == 'AMBIGUOUS':
+                path_str = ".".join(reversed(node.path))
+                position = getattr(node, 'position', None)
+                pos_str = f" {position}" if position else ""
+                raise ValueError(f"Ambiguous function reference: |{path_str}{pos_str}")
+
+            node._resolved = resolved
+
+        # Recursive case: walk child nodes
+        # This is a simple visitor pattern - for more complex ASTs,
+        # consider implementing a proper visitor
+        for attr_name in dir(node):
+            if attr_name.startswith('_'):
+                continue
+
+            attr = getattr(node, attr_name)
+
+            # Handle lists of nodes
+            if isinstance(attr, list):
+                for item in attr:
+                    if hasattr(item, 'evaluate'):  # Check if it's an AST node
+                        self._preresolve_node(item, resolution_ns)
+
+            # Handle single nodes
+            elif hasattr(attr, 'evaluate'):  # Check if it's an AST node
+                self._preresolve_node(attr, resolution_ns)
 
     def __repr__(self):
         parts = []

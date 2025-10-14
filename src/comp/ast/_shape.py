@@ -1,13 +1,14 @@
 """AST nodes for shape definitions and references."""
 
-__all__ = ["ShapeDef", "ShapeFieldDef", "ShapeRef", "ShapeUnion"]
+__all__ = ["ShapeDef", "ShapeFieldDef", "ShapeRef", "ShapeUnion", "BlockShape"]
 
 import comp
 
 from . import _base
+from ._tag import ModuleOp
 
 
-class ShapeDef(_base.AstNode):
+class ShapeDef(ModuleOp):
     """Shape definition: !shape ~path.to.name = {...}
 
     Defines a structural type with named/positional fields, defaults, and type constraints.
@@ -227,6 +228,9 @@ class ShapeRef(_base.ShapeNode):
     Args:
         path: Reversed partial path (leaf first), e.g., ["2d", "point"]
         namespace: Optional namespace for cross-module references
+
+    Attributes:
+        _resolved: Pre-resolved ShapeDefinition (set by Module.prepare())
     """
 
     def __init__(self, path: list[str], namespace: str | None = None):
@@ -241,15 +245,25 @@ class ShapeRef(_base.ShapeNode):
 
         self.path = path
         self.namespace = namespace
+        self._resolved = None  # Pre-resolved definition (set by Module.prepare())
 
     def evaluate(self, frame):
         """Look up shape in module.
 
         Returns the ShapeDefinition object (not a Value).
 
+        Uses pre-resolved definition if available (from Module.prepare()),
+        otherwise falls back to runtime lookup.
+
         If namespace is provided (/namespace), searches only in that namespace.
         Otherwise, searches local module first, then all imported namespaces.
         """
+        # Fast path: use pre-resolved definition if available
+        if self._resolved is not None:
+            return self._resolved
+            yield  # Unreachable but makes this a generator
+
+        # Slow path: runtime lookup (for modules not prepared)
         # Get module from scope
         module = frame.scope('mod_shapes')
         if module is None:
@@ -337,3 +351,74 @@ class ShapeUnion(_base.ShapeNode):
 
     def __repr__(self):
         return f"ShapeUnion({len(self.members)} members)"
+
+
+class BlockShape(_base.ShapeNode):
+    """Block type shape: ~:{input-shape}
+
+    Represents the type of a block (deferred computation) with a specified input shape.
+    The shape describes the structure that must be provided when the block is invoked.
+
+    Examples:
+        ~:{~str ~str}        # Block accepting two positional strings
+        ~:{x ~num y ~num}    # Block accepting named fields x and y
+        op ~:{~str ~str}     # Field of block type
+
+    Args:
+        fields: List of field definitions describing the input shape
+
+    Note:
+        BlockShape is used in shape definitions to declare block-typed fields.
+        At runtime, ephemeral blocks (:{...}) are morphed with a BlockShape to create
+        typed blocks (BlockValue) that can be invoked with the |: operator.
+    """
+
+    def __init__(self, fields: list['ShapeFieldDef']):
+        if not isinstance(fields, list):
+            raise TypeError("Block shape fields must be a list")
+        if not all(isinstance(f, ShapeFieldDef) for f in fields):
+            raise TypeError("All fields must be ShapeFieldDef instances")
+
+        self.fields = fields
+
+    def evaluate(self, frame):
+        """Evaluate block shape to create a block type descriptor.
+
+        Returns a BlockShapeDefinition wrapped in Value.
+        This is used during morphing to type raw blocks.
+        """
+        # Process field definitions, similar to ShapeDef
+        shape_fields = []
+        for field_def in self.fields:
+            if field_def.is_spread:
+                # Handle spread fields
+                if field_def.shape_ref is None:
+                    return comp.fail("Spread field must have shape reference")
+
+                spread_shape = yield comp.Compute(field_def.shape_ref)
+                if frame.is_fail(spread_shape):
+                    return spread_shape
+
+                if hasattr(spread_shape, 'fields'):
+                    shape_fields.extend(spread_shape.fields)
+                else:
+                    return comp.fail(f"Cannot spread non-shape: {spread_shape}")
+            else:
+                # Regular field - evaluate it
+                field = yield comp.Compute(field_def)
+                if frame.is_fail(field):
+                    return field
+                shape_fields.append(field)
+
+        # Create and return BlockShapeDefinition entity
+        block_shape_def = comp.BlockShapeDefinition(shape_fields)
+        return comp.Value(block_shape_def)
+        yield  # Make this a generator
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        fields_str = " ".join(f.unparse() for f in self.fields)
+        return f"~:{{{fields_str}}}"
+
+    def __repr__(self):
+        return f"BlockShape({len(self.fields)} fields)"

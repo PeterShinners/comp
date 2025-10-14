@@ -16,12 +16,20 @@ def main():
     """Main entry point for the comp CLI.
 
     Usage:
-        comp <file.comp>
+        comp <file.comp>    - Run a Comp program
+        comp repl           - Start interactive REPL
     """
     if len(sys.argv) < 2:
-        print("Usage: comp <file.comp>", file=sys.stderr)
-        print("\nRuns a Comp program by invoking its 'main' function.", file=sys.stderr)
+        print("Usage:", file=sys.stderr)
+        print("  comp <file.comp>    - Run a Comp program", file=sys.stderr)
+        print("  comp repl           - Start interactive REPL", file=sys.stderr)
         sys.exit(1)
+    
+    # Check for REPL command
+    if sys.argv[1] == "repl":
+        from . import repl
+        repl.main()
+        return
 
     # Get the file path
     filepath = Path(sys.argv[1])
@@ -37,11 +45,20 @@ def main():
         # Read the file
         code = filepath.read_text(encoding="utf-8")
 
-        # Parse the module
-        ast_module = comp.parse_module(code)
+        # Parse the module with filename for position tracking
+        ast_module = comp.parse_module(code, filename=str(filepath))
 
         # Create engine
         engine = comp.Engine()
+
+        # Create module and prepare it (pre-resolve all references)
+        module = comp.Module()
+        try:
+            module.prepare(ast_module, engine)
+        except ValueError as e:
+            print(f"Module preparation error in {filepath}:", file=sys.stderr)
+            print(f"  {e}", file=sys.stderr)
+            sys.exit(1)
 
         # Evaluate the module (processes all definitions)
         module_result = engine.run(ast_module)

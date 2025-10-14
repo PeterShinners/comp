@@ -47,8 +47,16 @@ def load_comp_module(path: str, engine: 'comp.Engine') -> 'comp.Module':
     # Read the module source
     source = full_path.read_text(encoding="utf-8")
 
-    # Parse the module
-    module_ast = comp.parse_module(source)
+    # Parse the module with filename for position tracking
+    module_ast = comp.parse_module(source, filename=str(full_path))
+
+    # Create a new module and prepare it (pre-resolve all references)
+    module = comp.Module()
+    try:
+        module.prepare(module_ast, engine)
+    except ValueError as e:
+        # Re-raise with more context
+        raise ValueError(f"Module preparation failed for {full_path}: {e}") from e
 
     # Evaluate the module to populate its definitions
     # Module.evaluate() returns a bare Module entity (not wrapped in Value)
