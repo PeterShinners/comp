@@ -11,7 +11,8 @@ def run_test_code(code: str):
     module.prepare(module_ast, engine)
     
     # Run module to process definitions
-    module_result = engine.run(module_ast)
+    # Pass prepared module in scopes so it gets populated rather than replaced
+    module_result = engine.run(module_ast, mod_shapes=module, mod_funcs=module, mod_tags=module)
     assert isinstance(module_result, comp.Module)
     module = module_result
     

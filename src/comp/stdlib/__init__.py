@@ -11,7 +11,6 @@ __all__ = ["get_stdlib_module", "list_stdlib_modules"]
 
 from collections.abc import Callable
 
-
 _modules: dict[str, any] = {}
 _registry: dict[str, Callable] = {}
 

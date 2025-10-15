@@ -30,14 +30,21 @@ class Module(_base.AstNode):
     def evaluate(self, frame):
         """Evaluate all module operations to build the runtime module.
 
-        Creates a new Module and passes it through the mod_* scopes
-        so operations can register their definitions.
+        Uses existing prepared module from mod_* scopes if available,
+        otherwise creates a new Module. This allows prepare() to pre-populate
+        definitions that evaluation will then fill in with actual values.
 
         Returns:
             Module entity containing all registered definitions
         """
-        # Create runtime module
-        module = comp.Module()
+        # Try to get existing prepared module from scopes
+        # If prepare() was called and module was passed to engine.run(),
+        # it will be available in the mod_* scopes
+        module = frame.scope('mod_shapes') or frame.scope('mod_funcs') or frame.scope('mod_tags')
+        
+        # If no prepared module exists, create a new one
+        if module is None:
+            module = comp.Module()
 
         # Evaluate each operation with module in scope
         for op in self.operations:

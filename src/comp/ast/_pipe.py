@@ -3,8 +3,8 @@
 __all__ = ["Pipeline", "PipelineOp", "PipeFunc", "PipeStruct", "PipeBlock", "PipeFallback"]
 
 import comp
-from . import _base
-from . import _struct
+
+from . import _base, _struct
 
 
 class PipelineOp(_base.ValueNode):

@@ -500,17 +500,29 @@ class Module(Entity):
             The ShapeDefinition object
 
         Notes:
-            - Multiple definitions of the same shape replace previous ones
+            - If shape already exists (from prepare()), updates it in place
+            - Otherwise creates a new ShapeDefinition
         """
         full_name = ".".join(path)
-        shape_def = ShapeDefinition(
-            path=path,
-            fields=fields,
-            is_union=is_union,
-            union_members=union_members or []
-        )
-        self.shapes[full_name] = shape_def
-        return shape_def
+        
+        # Check if shape already exists (from prepare())
+        existing = self.shapes.get(full_name)
+        if existing is not None:
+            # Update existing shape in place so references remain valid
+            existing.fields = fields
+            existing.is_union = is_union
+            existing.union_members = union_members or []
+            return existing
+        else:
+            # Create new shape definition
+            shape_def = ShapeDefinition(
+                path=path,
+                fields=fields,
+                is_union=is_union,
+                union_members=union_members or []
+            )
+            self.shapes[full_name] = shape_def
+            return shape_def
 
     def lookup_shape(self, partial_path: list[str]) -> ShapeDefinition | None:
         """Find shape by partial path (suffix matching).
