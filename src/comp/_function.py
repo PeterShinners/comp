@@ -7,6 +7,7 @@ Starts with Python-implemented functions, will add Comp-defined functions later.
 __all__ = ["Function", "PythonFunction"]
 
 import comp
+
 from . import _value
 
 

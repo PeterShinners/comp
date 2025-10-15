@@ -57,4 +57,4 @@ class Placeholder(_base.ValueNode):
         return "---"
 
     def __repr__(self):
-        return f"Placeholder(---)"
+        return "Placeholder(---)"

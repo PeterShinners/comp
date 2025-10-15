@@ -2,8 +2,9 @@
 
 __all__ = ["MorphOp", "MaskOp"]
 
-from . import _base
 import comp
+
+from . import _base
 
 
 class MorphOp(_base.ValueNode):

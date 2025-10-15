@@ -331,7 +331,7 @@ def _morph_struct(value, shape):
     result_struct = {}
 
     # Add all matched fields
-    for field_key, (shape_field, morphed_value) in matched_fields.items():
+    for field_key, (_shape_field, morphed_value) in matched_fields.items():
         result_struct[field_key] = morphed_value
 
     # Add extra fields (not in shape) - pass through unchanged

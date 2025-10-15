@@ -3,6 +3,7 @@
 __all__ = ["Structure", "Block", "StructOp", "FieldOp", "SpreadOp"]
 
 import comp
+
 from . import _base, _ident
 
 

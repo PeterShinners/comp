@@ -6,7 +6,6 @@ from pathlib import Path
 
 import comp
 
-
 # Hardcoded base directory for .comp modules
 # This will be configurable later, but for MVP we use a fixed location
 # __file__ is src/comp/ast/_loader.py, so parent.parent.parent.parent gives us the repo root

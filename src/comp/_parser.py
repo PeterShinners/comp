@@ -9,13 +9,12 @@ from __future__ import annotations
 
 __all__ = ["parse_module", "parse_expr"]
 
-from pathlib import Path
 from decimal import Decimal
+from pathlib import Path
 
 import lark
 
 import comp
-
 
 # Global parser instances
 _module_parser: lark.Lark | None = None
