@@ -127,11 +127,8 @@ class Block(_base.ValueNode):
         Returns comp.Value wrapping a RawBlock entity.
         """
         # Get module from any of the mod_* scopes
-        module = frame.scope('mod_shapes') or frame.scope('mod_funcs') or frame.scope('mod_tags')
-        if module is None:
-            return comp.fail("Block requires module scope (mod_shapes/mod_funcs/mod_tags)")
-
-        # Get function context if we're inside a function (for $arg access)
+        # Get function context if we're inside a function
+        # The function provides both $arg access and module reference
         function = frame.scope('func_ctx')  # FunctionDefinition or None
 
         # Capture $ctx and @local scopes
@@ -139,9 +136,11 @@ class Block(_base.ValueNode):
         local_scope = frame.scope('local')
 
         # Create RawBlock entity
+        # Note: Module is accessed via function.module if function exists.
+        # For module-scope blocks (function is None), module must be provided
+        # during block invocation from the frame's mod_funcs scope.
         raw_block = comp.RawBlock(
             block_ast=self,  # The Block AST node itself
-            module=module,
             function=function,
             ctx_scope=ctx_scope,
             local_scope=local_scope

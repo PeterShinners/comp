@@ -36,7 +36,7 @@ def test_tag_reference_with_namespace():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_tags=main_module)
+    result = engine.run(TestNode(), module=main_module)
 
     # Should find the tag from lib namespace and return the TagRef
     assert result.data is not None
@@ -68,7 +68,7 @@ def test_tag_fallback_to_namespace():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_tags=main_module)
+    result = engine.run(TestNode(), module=main_module)
 
     # Should find the tag from lib namespace via fallback
     assert result.data is not None
@@ -97,7 +97,7 @@ def test_tag_local_overrides_namespace():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_tags=main_module)
+    result = engine.run(TestNode(), module=main_module)
 
     # Should find local tag (value=999), not lib tag (value=200)
     # Tag references return the TagRef
@@ -133,7 +133,7 @@ def test_shape_reference_with_namespace():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_shapes=main_module)
+    result = engine.run(TestNode(), module=main_module)
 
     assert result.to_python() == "point"
 
@@ -160,7 +160,7 @@ def test_shape_fallback_to_namespace():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_shapes=main_module)
+    result = engine.run(TestNode(), module=main_module)
 
     assert result.to_python() == "point"
 
@@ -187,7 +187,7 @@ def test_function_reference_with_namespace():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_funcs=main_module)
+    result = engine.run(TestNode(), module=main_module)
 
     # Should find the function from lib namespace
     assert result.data is not None
@@ -216,7 +216,7 @@ def test_function_fallback_to_namespace():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_funcs=main_module)
+    result = engine.run(TestNode(), module=main_module)
 
     # Should find the function from lib namespace via fallback
     assert result.data is not None
@@ -238,7 +238,7 @@ def test_namespace_not_found():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_tags=main_module)
+    result = engine.run(TestNode(), module=main_module)
 
     # Should fail - namespace not found
     assert engine.is_fail(result)
@@ -282,7 +282,7 @@ def test_multiple_namespaces():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_tags=main_module)
+    result = engine.run(TestNode(), module=main_module)
 
     # Should find the tag (from lib1)
     assert result.data is not None

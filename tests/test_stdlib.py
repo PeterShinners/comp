@@ -7,7 +7,7 @@ def test_stdlib_string_module_exists():
     """Test that the string module can be loaded from stdlib."""
     from comp.stdlib import get_stdlib_module
 
-    string_mod = get_stdlib_module("string")
+    string_mod = get_stdlib_module("str")
     assert string_mod is not None
     assert isinstance(string_mod, comp.Module)
 
@@ -16,7 +16,7 @@ def test_string_upper():
     """Test string |upper function."""
     from comp.stdlib import get_stdlib_module
 
-    string_mod = get_stdlib_module("string")
+    string_mod = get_stdlib_module("str")
 
     # Get the upper function
     upper_funcs = string_mod.lookup_function(["upper"])
@@ -41,7 +41,7 @@ def test_string_lower():
     """Test string |lower function."""
     from comp.stdlib import get_stdlib_module
 
-    string_mod = get_stdlib_module("string")
+    string_mod = get_stdlib_module("str")
     lower_funcs = string_mod.lookup_function(["lower"])
 
     engine = comp.Engine()
@@ -60,7 +60,7 @@ def test_string_split():
     """Test string |split function."""
     from comp.stdlib import get_stdlib_module
 
-    string_mod = get_stdlib_module("string")
+    string_mod = get_stdlib_module("str")
     split_funcs = string_mod.lookup_function(["split"])
 
     engine = comp.Engine()
@@ -91,7 +91,7 @@ def test_string_import_stdlib():
     engine = comp.Engine()
 
     source = '''
-!import /str = stdlib "string"
+!import /str = stdlib "str"
 '''
 
     module_ast = comp.parse_module(source)
@@ -112,7 +112,7 @@ def test_string_length():
     from comp.stdlib import get_stdlib_module
     from decimal import Decimal
 
-    string_mod = get_stdlib_module("string")
+    string_mod = get_stdlib_module("str")
     length_funcs = string_mod.lookup_function(["length"])
 
     engine = comp.Engine()
@@ -131,7 +131,7 @@ def test_string_replace():
     """Test string |replace function."""
     from comp.stdlib import get_stdlib_module
 
-    string_mod = get_stdlib_module("string")
+    string_mod = get_stdlib_module("str")
     replace_funcs = string_mod.lookup_function(["replace"])
 
     engine = comp.Engine()
@@ -155,7 +155,7 @@ def test_string_startswith():
     """Test string |startswith function."""
     from comp.stdlib import get_stdlib_module
 
-    string_mod = get_stdlib_module("string")
+    string_mod = get_stdlib_module("str")
     startswith_funcs = string_mod.lookup_function(["startswith"])
 
     engine = comp.Engine()
@@ -178,7 +178,7 @@ def test_string_strip():
     """Test string |strip function."""
     from comp.stdlib import get_stdlib_module
 
-    string_mod = get_stdlib_module("string")
+    string_mod = get_stdlib_module("str")
     strip_funcs = string_mod.lookup_function(["strip"])
 
     engine = comp.Engine()

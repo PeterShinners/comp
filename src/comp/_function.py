@@ -67,22 +67,39 @@ class PythonFunction(Function):
         """Evaluate as a function body (when used in stdlib functions).
 
         Extracts $in and ^arg from frame scopes and calls the Python function.
+        Supports both regular functions and generators that yield Compute.
         """
         input_value = frame.scope('in')
         args = frame.scope('arg')
 
-        # Python functions may not expect generator protocol, so don't yield
-        # Just call directly and return
+        # Call the Python function
         result = self(frame, input_value, args)
-        return result
-        # Make this a generator by using yield (even though we don't yield anything)
-        yield  # This line is unreachable but makes this a generator function
+        
+        # Check if result is a generator (function yielded Compute)
+        if hasattr(result, '__next__'):
+            # It's a generator - drive it to completion
+            try:
+                compute = next(result)
+                while True:
+                    # Yield the Compute to the engine
+                    value = yield compute
+                    # Send the result back to the generator
+                    compute = result.send(value)
+            except StopIteration as e:
+                # Generator completed, return its value
+                return e.value if e.value is not None else comp.Value(None)
+        else:
+            # Regular function - return result directly
+            return result
+        yield  # Make this a generator (though this line is never reached)
 
     def __call__(self, frame, input_value: _value.Value, args: _value.Value | None = None):
         """Invoke the Python function.
 
         Ensures all values are structs both on input and output, maintaining
         Comp's invariant that all Values are structs (scalars are wrapped in {_: value}).
+        
+        Supports both regular functions and generators (that yield Compute).
         """
         try:
             # Ensure input and args are structs
@@ -92,8 +109,15 @@ class PythonFunction(Function):
 
             # Call the Python function
             result = self.python_func(frame, input_value, args)
-
-            # Ensure result is a struct
+            
+            # Check if result is a generator (function yielded Compute)
+            if hasattr(result, '__next__'):
+                # It's a generator - we need to drive it through the engine
+                # We'll make evaluate() handle this
+                # For now, just propagate the generator
+                return result
+            
+            # Regular function - ensure result is a struct
             return result.as_struct()
         except Exception as e:
             return comp.fail(f"Error in function |{self.name}: {e}")
@@ -161,34 +185,156 @@ def builtin_wrap(frame, input_value: _value.Value, args: _value.Value | None = N
 
 
 def builtin_if(frame, input_value: _value.Value, args: _value.Value | None = None):
-    """Base conditional for flow control"""
-
-    argvalues = list(args.struct.values())
-    if len(argvalues) <= 2:
-        return comp.fail("|if requires 2 or 3 blocks")
-    if argvalues[0].is_block:
-        # Need way to execute block without engine passing input value
-        condition = True
-    elif argvalues[0].is_bool:
-        condition = True if argvalues[0].data is comp.TRUE else False
-    else:
-        return comp.fail("|if conditional must be ~block or ~bool")
+    """Conditional evaluation: [x |if ^{:{cond} :{then} :{else}}]
     
+    Takes 2 or 3 positional arguments:
+    - First arg (condition): Block or boolean value
+    - Second arg (then): Block or value to return if condition is true
+    - Third arg (else, optional): Block or value to return if condition is false
+    
+    Each block receives the input value as $in.
+    If condition is false and no else block provided, returns input unchanged.
+    """
+    if args is None or not args.is_struct:
+        return comp.fail("|if requires arguments (cond then [else])")
+    
+    # Get positional arguments (unnamed fields)
+    argvalues = [v for k, v in args.struct.items() if isinstance(k, comp.Unnamed)]
+    
+    if len(argvalues) < 2:
+        return comp.fail("|if requires at least 2 arguments (condition and then-branch)")
+    if len(argvalues) > 3:
+        return comp.fail("|if accepts at most 3 arguments (condition, then, else)")
+    
+    cond_arg = argvalues[0]
+    then_arg = argvalues[1]
+    else_arg = argvalues[2] if len(argvalues) == 3 else None
+    
+    # Evaluate condition
+    if cond_arg.is_block:
+        # Condition is a block - evaluate it with input_value
+        block_data = cond_arg.data  # This is Block or RawBlock
+        
+        # Get block AST and module
+        if isinstance(block_data, comp.RawBlock):
+            block_ast = block_data.block_ast
+            block_module = block_data.module or frame.scope('module')
+            ctx_scope = block_data.ctx_scope if block_data.ctx_scope is not None else comp.Value({})
+            local_scope = block_data.local_scope if block_data.local_scope is not None else comp.Value({})
+            block_function = block_data.function
+        elif isinstance(block_data, comp.Block):
+            block_ast = block_data.block_ast
+            block_module = block_data.module or frame.scope('module')
+            ctx_scope = block_data.raw_block.ctx_scope if block_data.raw_block.ctx_scope is not None else comp.Value({})
+            local_scope = block_data.raw_block.local_scope if block_data.raw_block.local_scope is not None else comp.Value({})
+            block_function = block_data.function
+        else:
+            return comp.fail(f"|if condition block has unexpected type: {type(block_data)}")
+        
+        # Execute block like PipeBlock does
+        struct_dict = {}
+        accumulator = comp.Value.__new__(comp.Value)
+        accumulator.data = struct_dict
+        chained = comp.ChainedScope(accumulator, input_value)
+        
+        # Execute each operation from the block
+        for op in block_ast.ops:
+            yield comp.Compute(
+                op,
+                struct_accumulator=accumulator,
+                unnamed=chained,
+                in_=input_value,
+                ctx=ctx_scope,
+                local=local_scope,
+                module=block_module,
+                arg=frame.scope('arg') if block_function is not None else None,
+            )
+        
+        # Get the result
+        cond_result = accumulator
+        
+        if frame.is_fail(cond_result):
+            return cond_result
+        
+        # Check if result is a boolean tag
+        cond_result = cond_result.as_scalar()
+        if cond_result.is_tag:
+            tag_ref = cond_result.data
+            if tag_ref.full_name == "true":
+                condition = True
+            elif tag_ref.full_name == "false":
+                condition = False
+            else:
+                return comp.fail(f"|if condition block must return #true or #false, got #{tag_ref.full_name}")
+        else:
+            return comp.fail(f"|if condition block must return boolean tag, got {cond_result}")
+    
+    elif cond_arg.is_tag:
+        # Condition is already a boolean tag
+        tag_ref = cond_arg.data
+        if tag_ref.full_name == "true":
+            condition = True
+        elif tag_ref.full_name == "false":
+            condition = False
+        else:
+            return comp.fail(f"|if condition must be #true or #false, got #{tag_ref.full_name}")
+    else:
+        return comp.fail("|if condition must be a block or boolean tag")
+    
+    # Execute appropriate branch
     if condition:
-        if argvalues[1].is_block:
-            # How to evaluate with input_value?
-            result = comp.Value(None)
+        branch_arg = then_arg
+    elif else_arg is not None:
+        branch_arg = else_arg
+    else:
+        # No else branch and condition is false - return input unchanged
+        return input_value
+    
+    # Evaluate the selected branch
+    if branch_arg.is_block:
+        # Branch is a block - evaluate it with input_value
+        block_data = branch_arg.data
+        
+        # Get block AST and module
+        if isinstance(block_data, comp.RawBlock):
+            block_ast = block_data.block_ast
+            block_module = block_data.module or frame.scope('module')
+            ctx_scope = block_data.ctx_scope if block_data.ctx_scope is not None else comp.Value({})
+            local_scope = block_data.local_scope if block_data.local_scope is not None else comp.Value({})
+            block_function = block_data.function
+        elif isinstance(block_data, comp.Block):
+            block_ast = block_data.block_ast
+            block_module = block_data.module or frame.scope('module')
+            ctx_scope = block_data.raw_block.ctx_scope if block_data.raw_block.ctx_scope is not None else comp.Value({})
+            local_scope = block_data.raw_block.local_scope if block_data.raw_block.local_scope is not None else comp.Value({})
+            block_function = block_data.function
         else:
-            result = argvalues[1]
-
-    elif len(argvalues) == 3:
-        if argvalues[2].is_block:
-            # How to evaluate with input_value?
-            result = comp.Value(None)
-        else:
-            result = argvalues[2]
-
-    return result
+            return comp.fail(f"|if branch block has unexpected type: {type(block_data)}")
+        
+        # Execute block like PipeBlock does
+        struct_dict = {}
+        accumulator = comp.Value.__new__(comp.Value)
+        accumulator.data = struct_dict
+        chained = comp.ChainedScope(accumulator, input_value)
+        
+        # Execute each operation from the block
+        for op in block_ast.ops:
+            yield comp.Compute(
+                op,
+                struct_accumulator=accumulator,
+                unnamed=chained,
+                in_=input_value,
+                ctx=ctx_scope,
+                local=local_scope,
+                module=block_module,
+                arg=frame.scope('arg') if block_function is not None else None,
+            )
+        
+        # Return the accumulated result
+        return accumulator
+    else:
+        # Branch is a plain value - return it
+        return branch_arg
 
 
 # ============================================================================
@@ -207,4 +353,5 @@ def create_builtin_functions():
         "identity": PythonFunction("identity", builtin_identity),
         "add": PythonFunction("add", builtin_add),
         "wrap": PythonFunction("wrap", builtin_wrap),
+        "if": PythonFunction("if", builtin_if),
     }

@@ -60,14 +60,14 @@ class FuncDef(ModuleOp):
     def evaluate(self, frame):
         """Register this function in the module.
 
-        1. Get module from mod_funcs scope
+        1. Get module from module scope
         2. Resolve input and arg shapes if present
         3. Register function (body is stored as AST, not evaluated)
         """
         # Get module from scope
-        module = frame.scope('mod_funcs')
+        module = frame.scope('module')
         if module is None:
-            return comp.fail("FuncDef requires mod_funcs scope")
+            return comp.fail("FuncDef requires module scope")
 
         # Resolve input shape if present
         input_shape = None
@@ -200,9 +200,9 @@ class FuncRef(_base.ValueNode):
 
         # Slow path: runtime lookup (for modules not prepared)
         # Get module from scope
-        module = frame.scope('mod_funcs')
+        module = frame.scope('module')
         if module is None:
-            return comp.fail("Function references require mod_funcs scope")
+            return comp.fail("Function references require module scope")
 
         # Look up function with namespace support (returns list of overloads)
         # Uses partial path matching (suffix matching on reversed path)

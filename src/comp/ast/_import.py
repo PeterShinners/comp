@@ -44,7 +44,7 @@ class ImportDef(ModuleOp):
         - 'stdlib': Load from Python-implemented standard library modules
         """
         # Get the module we're importing into
-        module = frame.scope('mod_tags') or frame.scope('mod_shapes') or frame.scope('mod_funcs')
+        module = frame.scope('module')
         if module is None:
             return comp.fail("ImportDef requires module scope")
 

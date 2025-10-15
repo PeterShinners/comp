@@ -43,14 +43,14 @@ class ShapeDef(ModuleOp):
     def evaluate(self, frame):
         """Register this shape in the module.
 
-        1. Get module from mod_shapes scope
+        1. Get module from module scope
         2. Evaluate field definitions (expanding spreads)
         3. Register shape in module
         """
         # Get module from scope
-        module = frame.scope('mod_shapes')
+        module = frame.scope('module')
         if module is None:
-            return comp.fail("ShapeDef requires mod_shapes scope")
+            return comp.fail("ShapeDef requires module scope")
 
         # Process field definitions, expanding spreads
         shape_fields = []
@@ -265,9 +265,9 @@ class ShapeRef(_base.ShapeNode):
 
         # Slow path: runtime lookup (for modules not prepared)
         # Get module from scope
-        module = frame.scope('mod_shapes')
+        module = frame.scope('module')
         if module is None:
-            return comp.fail("Shape references require mod_shapes scope")
+            return comp.fail("Shape references require module scope")
 
         # Look up shape with namespace support
         try:
@@ -384,7 +384,7 @@ class BlockShape(_base.ShapeNode):
     def evaluate(self, frame):
         """Evaluate block shape to create a block type descriptor.
 
-        Returns a BlockShapeDefinition wrapped in Value.
+        Returns a BlockShapeDefinition entity (not wrapped in Value).
         This is used during morphing to type raw blocks.
         """
         # Process field definitions, similar to ShapeDef
@@ -410,9 +410,9 @@ class BlockShape(_base.ShapeNode):
                     return field
                 shape_fields.append(field)
 
-        # Create and return BlockShapeDefinition entity
+        # Create and return BlockShapeDefinition entity (unwrapped, like ShapeRef does)
         block_shape_def = comp.BlockShapeDefinition(shape_fields)
-        return comp.Value(block_shape_def)
+        return block_shape_def
         yield  # Make this a generator
 
     def unparse(self) -> str:

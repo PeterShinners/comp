@@ -64,7 +64,7 @@ def morph(value, shape):
     Special case: RawBlock + BlockShape → Block
     """
     # Special handling for block morphing: RawBlock + BlockShapeDefinition → Block
-    if value.is_entity and isinstance(value.data, comp.RawBlock):
+    if value.is_block and isinstance(value.data, comp.RawBlock):
         # Check if shape is a BlockShapeDefinition
         if isinstance(shape, comp.BlockShapeDefinition):
             # Create a Block with the raw block and the shape fields as input shape

@@ -158,14 +158,14 @@ def test_simple_function_definition():
     # Wrap in test node
     class TestWrapper(comp.ast.ValueNode):
         def evaluate(self, frame):
-            result = yield comp.Compute(func_def, mod_funcs=module)
+            result = yield comp.Compute(func_def, module=module)
             return result
 
         def unparse(self):
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestWrapper(), mod_funcs=module)
+    result = engine.run(TestWrapper(), module=module)
 
     # Should succeed
     assert result.to_python() == comp.TRUE
@@ -190,14 +190,14 @@ def test_function_with_input_shape():
 
     class TestWrapper(comp.ast.ValueNode):
         def evaluate(self, frame):
-            result = yield comp.Compute(func_def, mod_funcs=module, mod_shapes=module)
+            result = yield comp.Compute(func_def, module=module)
             return result
 
         def unparse(self):
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestWrapper(), mod_funcs=module, mod_shapes=module)
+    result = engine.run(TestWrapper(), module=module)
 
     assert result.to_python() == comp.TRUE
 
@@ -219,14 +219,14 @@ def test_pure_function():
 
     class TestWrapper(comp.ast.ValueNode):
         def evaluate(self, frame):
-            result = yield comp.Compute(func_def, mod_funcs=module)
+            result = yield comp.Compute(func_def, module=module)
             return result
 
         def unparse(self):
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestWrapper(), mod_funcs=module)
+    result = engine.run(TestWrapper(), module=module)
 
     assert result.to_python() == comp.TRUE
 
@@ -252,7 +252,7 @@ def test_function_reference():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_funcs=module)
+    result = engine.run(TestNode(), module=module)
 
     # Should return structure with function metadata
     assert isinstance(result.data, dict)
@@ -281,7 +281,7 @@ def test_function_reference_not_found():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_funcs=module)
+    result = engine.run(TestNode(), module=module)
 
     # Should be a failure
     assert engine.is_fail(result)
@@ -300,14 +300,14 @@ def test_function_with_doc():
 
     class TestWrapper(comp.ast.ValueNode):
         def evaluate(self, frame):
-            result = yield comp.Compute(func_def, mod_funcs=module)
+            result = yield comp.Compute(func_def, module=module)
             return result
 
         def unparse(self):
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestWrapper(), mod_funcs=module)
+    result = engine.run(TestWrapper(), module=module)
 
     assert result.to_python() == comp.TRUE
 

@@ -41,6 +41,16 @@ coords.#1                    ; 20 - second unnamed field
 mixed.#0                     ; 10 - first unnamed field
 #0                          ; From $in in pipeline (standalone reference)
 
+; Computed index access with expressions
+data.#($var.index)           ; Access field at computed index
+items.#(3 + 4)               ; Expression evaluates to index 7
+records.#([|get-offset])     ; Use function result as index
+array.#($in.position)        ; Use field value as index
+
+; Literal and computed indices are equivalent
+data.#0 == data.#(0)         ; true - both access first field
+list.#5 == list.#(2 + 3)     ; true - same element
+
 ; Chained access patterns (currently supported)
 users.#1.name               ; Index then field access (requires parentheses: (users.#1).name)
 data.#0.#1                  ; Nested index access (requires parentheses: (data.#0).#1)

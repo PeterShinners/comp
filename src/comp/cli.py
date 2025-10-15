@@ -97,9 +97,7 @@ def main():
             ctx=comp.Value({}),
             mod=comp.Value({}),
             local=comp.Value({}),
-            mod_funcs=module,
-            mod_shapes=module,
-            mod_tags=module,
+            module=module,
         )
 
         # Check for failure

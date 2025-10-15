@@ -74,7 +74,8 @@ INDEXFIELD: /#\d+/
 
 // Individual field types - explicit rules for each context
 tokenfield: TOKEN
-indexfield: INDEXFIELD
+indexfield: INDEXFIELD                              // #0, #1, #2 (literal)
+          | "#" "(" expression ")"                  // #(expr), #(@index), #([|:stream])
 stringfield: string
 computefield: "'" expression "'"
 

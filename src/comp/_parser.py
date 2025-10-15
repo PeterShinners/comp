@@ -153,7 +153,17 @@ def _convert_tree(tree: lark.Tree | lark.Token):
             return comp.ast.TokenField(_convert_tree(kids[0]))
 
         case 'indexfield':
-            return comp.ast.IndexField(_convert_tree(kids[0]))
+            # Can be either: INDEXFIELD token (#0, #1, etc) or "#" "(" expression ")"
+            if len(kids) == 1 and isinstance(kids[0], lark.Token) and kids[0].type == 'INDEXFIELD':
+                # Literal index like #0, #1
+                index = int(kids[0].value[1:])  # Strip the # prefix
+                return comp.ast.IndexField(index)
+            else:
+                # Expression form: # ( expression )
+                # kids should be: [Token("#"), Token("("), expression_tree, Token(")")]
+                # Expression is at index 2
+                expr = _convert_tree(kids[2])
+                return comp.ast.IndexField(expr)
 
         case 'stringfield':
             # String used as a field - convert the string content
@@ -169,7 +179,8 @@ def _convert_tree(tree: lark.Tree | lark.Token):
             return comp.ast.ScopeField("local")
 
         case 'argscope':
-            return comp.ast.ScopeField("chained")
+            # ^ is the unified argument scope: chain of $arg -> $ctx -> $mod
+            return comp.ast.ScopeField("arg")
 
         case 'namescope':
             # "$" TOKEN - extract the scope name
@@ -377,7 +388,7 @@ def _convert_tree(tree: lark.Tree | lark.Token):
             # For now, we'll handle spreads as a special kind of field
             # The actual spread expansion happens at runtime
             shape = _convert_tree(kids[1])
-            return comp.ast.ShapeFieldDef(None, shape, None, False)  # Positional with shape
+            return comp.ast.ShapeFieldDef(None, shape, None, is_spread=True)  # Spread field
 
         case 'shape_reference':
             # Already handled above, but repeated for completeness

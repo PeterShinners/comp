@@ -52,14 +52,14 @@ def test_simple_shape_definition():
     # Wrap in test node that provides mod_shapes
     class TestWrapper(comp.ast.ValueNode):
         def evaluate(self, frame):
-            result = yield comp.Compute(shape_def, mod_shapes=module)
+            result = yield comp.Compute(shape_def, module=module)
             return result
 
         def unparse(self):
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestWrapper(), mod_shapes=module)
+    result = engine.run(TestWrapper(), module=module)
 
     # Should succeed
     assert result.to_python() == comp.TRUE
@@ -90,7 +90,7 @@ def test_shape_field_with_default():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_shapes=module)
+    result = engine.run(TestNode(), module=module)
 
     assert result.to_python() == comp.TRUE
 
@@ -109,14 +109,14 @@ def test_positional_shape_fields():
 
     class TestWrapper(comp.ast.ValueNode):
         def evaluate(self, frame):
-            result = yield comp.Compute(shape_def, mod_shapes=module)
+            result = yield comp.Compute(shape_def, module=module)
             return result
 
         def unparse(self):
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestWrapper(), mod_shapes=module)
+    result = engine.run(TestWrapper(), module=module)
 
     assert result.to_python() == comp.TRUE
 
@@ -147,7 +147,7 @@ def test_shape_reference():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_shapes=module)
+    result = engine.run(TestNode(), module=module)
 
     assert result.to_python() == "point"
 
@@ -167,7 +167,7 @@ def test_shape_reference_not_found():
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_shapes=module)
+    result = engine.run(TestNode(), module=module)
 
     # Should be a failure
     assert engine.is_fail(result)
@@ -209,19 +209,19 @@ def test_spread_expansion():
     class TestWrapper(comp.ast.ValueNode):
         def evaluate(self, frame):
             # Define base shape first
-            result1 = yield comp.Compute(point_2d, mod_shapes=module)
+            result1 = yield comp.Compute(point_2d, module=module)
             if frame.is_fail(result1):
                 return result1
 
             # Then define extended shape with spread
-            result2 = yield comp.Compute(point_3d, mod_shapes=module)
+            result2 = yield comp.Compute(point_3d, module=module)
             return result2
 
         def unparse(self):
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestWrapper(), mod_shapes=module)
+    result = engine.run(TestWrapper(), module=module)
 
     assert result.to_python() == comp.TRUE
 
@@ -285,14 +285,14 @@ def test_mixed_named_positional_fields():
 
     class TestWrapper(comp.ast.ValueNode):
         def evaluate(self, frame):
-            result = yield comp.Compute(shape_def, mod_shapes=module)
+            result = yield comp.Compute(shape_def, module=module)
             return result
 
         def unparse(self):
             return "test"
 
     engine = comp.Engine()
-    result = engine.run(TestWrapper(), mod_shapes=module)
+    result = engine.run(TestWrapper(), module=module)
 
     assert result.to_python() == comp.TRUE
 

@@ -72,6 +72,7 @@ class Value(Entity):
                 - Decimal (stored directly)
                 - str (stored directly)
                 - TagRef (stored directly)
+                - Block/RawBlock (stored directly)
                 - dict (recursively converted)
                 - list/tuple (converted to unnamed struct fields)
         """
@@ -111,9 +112,9 @@ class Value(Entity):
             self.data = data
             return
 
-        # Handle Entity types (Module, FunctionDefinition, EphemeralBlock, etc.)
-        # These are already Comp runtime objects and can be stored directly
-        if isinstance(data, Entity) and not isinstance(data, Value):
+        # Handle Block and RawBlock (can be wrapped in Value)
+        from . import _module
+        if isinstance(data, (_module.Block, _module.RawBlock)):
             self.data = data
             return
 
@@ -149,9 +150,11 @@ class Value(Entity):
         return isinstance(self.data, TagRef)
 
     @property
-    def is_entity(self) -> bool:
-        """Check if this Value wraps an Entity (Module, FunctionDefinition, EphemeralBlock, etc.)."""
-        return isinstance(self.data, Entity) and not isinstance(self.data, Value)
+    def is_block(self) -> bool:
+        """Check if this Value wraps a Block or RawBlock."""
+        # Import here to avoid circular dependency
+        from . import _module
+        return isinstance(self.data, (_module.Block, _module.RawBlock))
 
     @property
     def struct(self) -> dict | None:

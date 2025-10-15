@@ -84,7 +84,7 @@ class ScopeField(_base.FieldNode):
         if self.scope_name == '@':
             scope_name = 'local'
         elif self.scope_name == '^':
-            scope_name = 'chained'
+            scope_name = 'unnamed'
         elif self.scope_name.startswith('$'):
             scope_name = self.scope_name[1:]
         else:
@@ -150,20 +150,35 @@ class TokenField(_base.FieldNode):
 
 
 class IndexField(_base.FieldNode):
-    """Positional field access: #0, #1, #2...
+    """Positional field access: #0, #1, #2... or #(expr)
 
     Args:
-        index: Zero-based position to access
+        index: Zero-based position (int literal) or expression that evaluates to a number
     """
 
-    def __init__(self, index: int):
-        if not isinstance(index, int):
-            raise TypeError("Index must be integer")
-        if index < 0:
-            raise ValueError("Index cannot be negative")
+    def __init__(self, index: int | _base.ValueNode):
+        if isinstance(index, int):
+            if index < 0:
+                raise ValueError("Index cannot be negative")
+        elif not isinstance(index, _base.ValueNode):
+            raise TypeError("Index must be integer or ValueNode")
         self.index = index
 
     def evaluate(self, frame):
+        # Evaluate index if it's an expression
+        if isinstance(self.index, _base.ValueNode):
+            index_value = yield comp.Compute(self.index)
+            if frame.is_fail(index_value):
+                return index_value
+            if not index_value.is_number:
+                return comp.fail(f"Index expression must evaluate to a number, got {index_value}")
+            # Convert Decimal to int
+            index = int(index_value.data)
+            if index < 0:
+                return comp.fail(f"Index cannot be negative, got {index}")
+        else:
+            index = self.index
+        
         # Check if we're the first field (no identifier scope)
         current = frame.scope('identifier')
 
@@ -177,11 +192,11 @@ class IndexField(_base.FieldNode):
         if hasattr(current, 'lookup_field') and hasattr(current, 'struct'):
             if current.struct:
                 fields_list = list(current.struct.values())
-                if 0 <= self.index < len(fields_list):
-                    return fields_list[self.index]
+                if 0 <= index < len(fields_list):
+                    return fields_list[index]
                 else:
                     return comp.fail(
-                        f"Index #{self.index} out of bounds "
+                        f"Index #{index} out of bounds "
                         f"(scope has {len(fields_list)} fields)"
                     )
             else:
@@ -192,18 +207,20 @@ class IndexField(_base.FieldNode):
             return comp.fail("Cannot index non-struct value")
 
         fields_list = list(current.struct.values())
-        if 0 <= self.index < len(fields_list):
-            return fields_list[self.index]
+        if 0 <= index < len(fields_list):
+            return fields_list[index]
         else:
             return comp.fail(
-                f"Index #{self.index} out of bounds "
+                f"Index #{index} out of bounds "
                 f"(struct has {len(fields_list)} fields)"
             )
 
-        yield  # Make it a generator
-
     def unparse(self) -> str:
-        return f"#{self.index}"
+        if isinstance(self.index, int):
+            return f"#{self.index}"
+        else:
+            # Expression - would need to unparse the expression
+            return f"#(expr)"
 
 
 class ComputeField(_base.FieldNode):

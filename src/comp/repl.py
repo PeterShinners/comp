@@ -89,9 +89,7 @@ class ReplContext:
                 local=self.local_scope,
                 ctx=comp.Value({}),
                 mod=comp.Value({}),
-                mod_funcs=self.module,
-                mod_shapes=self.module,
-                mod_tags=self.module,
+                module=self.module,
             )
             
             return result
@@ -113,8 +111,8 @@ def format_value(value: comp.Value) -> str:
     # Check for fail
     if value.is_struct and comp.Value('_') in value.struct:
         fail_marker = value.struct[comp.Value('_')]
-        if fail_marker.is_entity and isinstance(fail_marker.data, comp.TagRef):
-            # It's a failure
+        if fail_marker.is_tag:
+            # It's a failure (tagged with #fail)
             if comp.Value('message') in value.struct:
                 return f"✗ {value.struct[comp.Value('message')].data}"
             return f"✗ Fail: {value}"

@@ -19,12 +19,12 @@ def test_module_in_scope():
     # Define a simple tag
     module.define_tag(["status", "active"], comp.Value(1))
 
-    # Create a simple AST that accesses mod_tags scope
+    # Create a simple AST that accesses module scope
     class TestNode(comp.ast.ValueNode):
         def evaluate(self, frame):
-            mod = frame.scope('mod_tags')
+            mod = frame.scope('module')
             if mod is None:
-                return comp.fail("No mod_tags scope")
+                return comp.fail("No module scope")
 
             # Look up a tag
             tag_def = mod.get_tag_by_full_path(["status", "active"])
@@ -37,7 +37,7 @@ def test_module_in_scope():
         def unparse(self):
             return "test_node"    # Run with module in scope
     engine = comp.Engine()
-    result = engine.run(TestNode(), mod_tags=module)
+    result = engine.run(TestNode(), module=module)
 
     assert result.to_python() == 1
 
@@ -95,7 +95,7 @@ def test_tag_reference():
 
     # Evaluate the reference with module in scope
     engine = comp.Engine()
-    result = engine.run(tag_ref, mod_tags=module)
+    result = engine.run(tag_ref, module=module)
 
     # Should return the TagRef itself (not the tag's value)
     # Tag references evaluate to TagRef objects

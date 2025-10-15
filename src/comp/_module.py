@@ -62,9 +62,11 @@ class TagDefinition:
 
     Attributes:
         path: Full path as list, e.g., ["status", "error", "timeout"]
+        module: The Module this tag is defined in
         value: Optional value for this tag (can be any Value)
     """
     path: list[str]
+    module: 'Module'
     value: Any = None  # Will be engine.Value when evaluated
 
     @property
@@ -110,13 +112,15 @@ class ShapeDefinition(Entity):
 
     Attributes:
         path: Full path as list, e.g., ["geometry", "point", "2d"]
+        module: The Module this shape is defined in
         fields: List of field definitions
         is_union: True if this is a union shape (combines multiple shapes)
         union_members: List of shape references for union shapes
     """
-    def __init__(self, path: list[str], fields: list[ShapeField],
+    def __init__(self, path: list[str], module: 'Module', fields: list[ShapeField],
                  is_union: bool = False, union_members: list[Any] | None = None):
         self.path = path
+        self.module = module
         self.fields = fields
         self.is_union = is_union
         self.union_members = union_members or []
@@ -195,6 +199,7 @@ class FunctionDefinition(Entity):
 
     Attributes:
         path: Full path as list, e.g., ["math", "geometry", "area"]
+        module: The Module this function is defined in
         input_shape: Shape defining expected input structure (or None for any)
         arg_shape: Shape defining function arguments (or None for no args)
         body: Structure definition AST node for the function body
@@ -202,16 +207,18 @@ class FunctionDefinition(Entity):
         doc: Optional documentation string
         impl_doc: Optional documentation for this specific implementation (overloads)
     """
-    def __init__(self, path: list[str], body: Any, input_shape: Any = None,
+    def __init__(self, path: list[str], module: 'Module', body: Any, input_shape: Any = None,
                  arg_shape: Any = None, is_pure: bool = False,
-                 doc: str | None = None, impl_doc: str | None = None):
+                 doc: str | None = None, impl_doc: str | None = None, _placeholder: bool = False):
         self.path = path
+        self.module = module
         self.input_shape = input_shape
         self.arg_shape = arg_shape
         self.body = body
         self.is_pure = is_pure
         self.doc = doc
         self.impl_doc = impl_doc
+        self._placeholder = _placeholder  # True if created by prepare(), not real definition
 
     @property
     def name(self) -> str:
@@ -252,19 +259,22 @@ class FunctionDefinition(Entity):
         return f"{pure_str}|{self.full_name}{input_str}{arg_str}"
 
 
-class RawBlock(Entity):
+class RawBlock:
     """An untyped block with captured definition context.
 
     Raw blocks are created with :{...} syntax and capture their definition context
-    (scopes and module references) but have no input shape yet. They cannot be invoked
+    (scopes and function reference) but have no input shape yet. They cannot be invoked
     until morphed with a BlockShape to create a Block.
 
     Raw blocks capture only what they need:
-    - module: For looking up tags, shapes, and functions
-    - function: Current function context (if defined in a function), for $arg access
+    - function: Current function context (if defined in a function), provides module and $arg access
     - ctx_scope: The $ctx scope at definition time
     - local_scope: The @local scope at definition time
     - block_ast: The Block AST node itself (operations to execute)
+
+    The module is accessed through self.function.module if the block is defined in a function.
+    For blocks defined at module scope (function is None), they need the module passed separately
+    during evaluation (from the frame's mod_funcs scope).
 
     Raw blocks do NOT capture:
     - $in: Set at invocation time
@@ -273,26 +283,29 @@ class RawBlock(Entity):
 
     Attributes:
         block_ast: The Block AST node with operations
-        module: Module reference for lookups
         function: FunctionDefinition if defined in function, None otherwise
         ctx_scope: Captured $ctx scope from definition
         local_scope: Captured @local scope from definition
     """
-    def __init__(self, block_ast: Any, module: 'Module',
+    def __init__(self, block_ast: Any,
                  function: FunctionDefinition | None = None,
                  ctx_scope: Any = None, local_scope: Any = None):
         self.block_ast = block_ast
-        self.module = module
         self.function = function
         self.ctx_scope = ctx_scope
         self.local_scope = local_scope
+
+    @property
+    def module(self) -> 'Module | None':
+        """Get the module from the function context if available."""
+        return self.function.module if self.function else None
 
     def __repr__(self):
         func_str = f" in |{self.function.full_name}" if self.function else ""
         return f"RawBlock({len(self.block_ast.ops)} ops{func_str})"
 
 
-class Block(Entity):
+class Block:
     """A typed block ready for invocation.
 
     Blocks are created by morphing a RawBlock with a BlockShape. They have:
@@ -320,7 +333,7 @@ class Block(Entity):
 
     @property
     def module(self):
-        """Get the module from the raw block."""
+        """Get the module from the raw block (via function if available)."""
         return self.raw_block.module
 
     @property
@@ -434,7 +447,7 @@ class Module(Entity):
                 tag_def.value = value
         else:
             # Create new tag definition
-            tag_def = TagDefinition(path=path, value=value)
+            tag_def = TagDefinition(path=path, module=self, value=value)
             self.tags[full_name] = tag_def
 
         return tag_def
@@ -517,6 +530,7 @@ class Module(Entity):
             # Create new shape definition
             shape_def = ShapeDefinition(
                 path=path,
+                module=self,
                 fields=fields,
                 is_union=is_union,
                 union_members=union_members or []
@@ -582,10 +596,13 @@ class Module(Entity):
         Notes:
             - Multiple definitions create overloads
             - Specificity matching determines which implementation runs
+            - During module preparation, empty overload lists may exist as placeholders
+              (cleared on first real definition)
         """
         full_name = ".".join(path)
         func_def = FunctionDefinition(
             path=path,
+            module=self,
             body=body,
             input_shape=input_shape,
             arg_shape=arg_shape,
@@ -597,7 +614,16 @@ class Module(Entity):
         # Add to overload list
         if full_name not in self.functions:
             self.functions[full_name] = []
-        self.functions[full_name].append(func_def)
+        
+        # Check if we have a placeholder from prepare() (_placeholder flag)
+        # If so, replace it IN PLACE (so pre-resolved references stay valid)
+        existing = self.functions[full_name]
+        if existing and len(existing) == 1 and getattr(existing[0], '_placeholder', False):
+            # Replace placeholder with real definition (in place)
+            existing[0] = func_def
+        else:
+            # Append as additional overload (true overloading)
+            existing.append(func_def)
 
         return func_def
 
@@ -909,19 +935,23 @@ class Module(Entity):
                     self.define_shape(op.path, fields=[])
 
             elif isinstance(op, ast.FuncDef):
-                # Create function definition with AST body (not evaluated)
-                # Skip if already exists (module was already evaluated)
+                # Create placeholder function definition for pre-resolution
+                # This will be replaced during module execution (FuncDef.evaluate())
                 full_name = ".".join(op.path)
                 if full_name not in self.functions:
-                    self.define_function(
+                    # Create placeholder - marked with _placeholder flag
+                    placeholder = FunctionDefinition(
                         path=op.path,
-                        body=op.body,
-                        input_shape=None,  # Will be resolved in phase 4
-                        arg_shape=None,    # Will be resolved in phase 4
+                        module=self,
+                        body=None,  # Body will be set during evaluation
+                        input_shape=None,
+                        arg_shape=None,
                         is_pure=op.is_pure,
                         doc=op.doc,
-                        impl_doc=op.impl_doc
+                        impl_doc=op.impl_doc,
+                        _placeholder=True  # Mark as placeholder
                     )
+                    self.functions[full_name] = [placeholder]
 
             # ImportDef is handled in phase 2
 
@@ -1303,6 +1333,26 @@ class Module(Entity):
                 position = getattr(node, 'position', None)
                 pos_str = f" {position}" if position else ""
                 raise ValueError(f"Ambiguous function reference: |{path_str}{pos_str}")
+
+            node._resolved = resolved
+
+        elif isinstance(node, ast.PipeFunc):
+            # Pre-resolve pipeline function calls
+            func_path = node.func_name.split('.')
+            func_path_reversed = list(reversed(func_path))
+            key = ('function', tuple(func_path_reversed), node.namespace)
+            
+            if key not in resolution_ns:
+                ns_str = f"/{node.namespace}." if node.namespace else ""
+                position = getattr(node, 'position', None)
+                pos_str = f" {position}" if position else ""
+                raise ValueError(f"Undefined function in pipeline: |{ns_str}{node.func_name}{pos_str}")
+
+            resolved = resolution_ns[key]
+            if resolved == 'AMBIGUOUS':
+                position = getattr(node, 'position', None)
+                pos_str = f" {position}" if position else ""
+                raise ValueError(f"Ambiguous function reference in pipeline: |{node.func_name}{pos_str}")
 
             node._resolved = resolved
 

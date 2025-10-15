@@ -37,10 +37,10 @@ class Module(_base.AstNode):
         Returns:
             Module entity containing all registered definitions
         """
-        # Try to get existing prepared module from scopes
+        # Try to get existing prepared module from scope
         # If prepare() was called and module was passed to engine.run(),
-        # it will be available in the mod_* scopes
-        module = frame.scope('mod_shapes') or frame.scope('mod_funcs') or frame.scope('mod_tags')
+        # it will be available in the module scope
+        module = frame.scope('module')
         
         # If no prepared module exists, create a new one
         if module is None:
@@ -48,7 +48,7 @@ class Module(_base.AstNode):
 
         # Evaluate each operation with module in scope
         for op in self.operations:
-            result = yield comp.Compute(op, mod_tags=module, mod_funcs=module, mod_shapes=module)
+            result = yield comp.Compute(op, module=module)
             if frame.is_fail(result):
                 return result
 
@@ -67,15 +67,14 @@ class ModuleOp(_base.AstNode):
     """Base class for module-level operations.
 
     Module operations register definitions in the module being built.
-    They receive scope(s) containing the runtime module components:
-    - 'mod_tags': Runtime Module for tag definitions
-    - 'mod_funcs': Function registry (future)
-    - 'mod_shapes': Shape registry (future)
+    They receive a 'module' scope containing the runtime Module with
+    tags, shapes, and functions registries.
 
     Subclasses:
     - TagDef: Tag definitions
-    - FuncDef: Function definitions (future)
-    - ShapeDef: Shape definitions (future)
+    - FuncDef: Function definitions
+    - ShapeDef: Shape definitions
+    - ImportDef: Import statements
     """
     pass
 
@@ -125,15 +124,15 @@ class TagDef(ModuleOp):
     def evaluate(self, frame):
         """Register this tag and its children in the module.
 
-        1. Get module from mod_tags scope
+        1. Get module from module scope
         2. Evaluate value expression if present
         3. Register tag in module
         4. Recursively process children
         """
         # Get module from scope
-        module = frame.scope('mod_tags')
+        module = frame.scope('module')
         if module is None:
-            return comp.fail("TagDef requires mod_tags scope")
+            return comp.fail("TagDef requires module scope")
 
         # Evaluate value if present
         tag_value = None
@@ -149,7 +148,7 @@ class TagDef(ModuleOp):
         if self.children:
             for child in self.children:
                 # Child paths are relative to this tag
-                result = yield comp.Compute(child, mod_tags=module, parent_path=self.path)
+                result = yield comp.Compute(child, module=module, parent_path=self.path)
                 if frame.is_fail(result):
                     return result
 
@@ -223,11 +222,11 @@ class TagChild(ModuleOp):
         Combines parent_path from scope with this child's relative path.
         """
         # Get module and parent path from scope
-        module = frame.scope('mod_tags')
+        module = frame.scope('module')
         parent_path = frame.scope('parent_path')
 
         if module is None:
-            return comp.fail("TagChild requires mod_tags scope")
+            return comp.fail("TagChild requires module scope")
         if parent_path is None:
             return comp.fail("TagChild requires parent_path scope")
 
@@ -247,7 +246,7 @@ class TagChild(ModuleOp):
         # Process children
         if self.children:
             for child in self.children:
-                result = yield comp.Compute(child, mod_tags=module, parent_path=full_path)
+                result = yield comp.Compute(child, module=module, parent_path=full_path)
                 if frame.is_fail(result):
                     return result
 
@@ -326,9 +325,9 @@ class TagValueRef(_base.ValueNode):
 
         # Slow path: runtime lookup (for modules not prepared)
         # Get module from frame
-        module = frame.scope('mod_tags')
+        module = frame.scope('module')
         if module is None:
-            return comp.fail("Tag references require mod_tags scope")
+            return comp.fail("Tag references require module scope")
 
         # Look up tag by partial path with namespace support
         try:

@@ -102,6 +102,7 @@ class PipeFunc(PipelineOp):
         self.func_name = func_name
         self.namespace = namespace
         self.args = args
+        self._resolved = None  # Pre-resolved function definitions (set by Module.prepare())
 
     def evaluate(self, frame):
         # Get current pipeline value from $in scope
@@ -120,22 +121,36 @@ class PipeFunc(PipelineOp):
         builtin_func = frame.engine.get_function(self.func_name)
         if builtin_func is not None:
             result = builtin_func(frame, input_value, args_value)
+            # Check if result is a generator (function yields Compute)
+            if hasattr(result, '__next__'):
+                # Drive the generator to completion
+                try:
+                    compute = next(result)
+                    while True:
+                        value = yield compute
+                        compute = result.send(value)
+                except StopIteration as e:
+                    return e.value if e.value is not None else comp.Value(None)
             return result
 
-        # Not a builtin - look up Comp-defined function
-        mod_funcs = frame.scope('mod_funcs')
-        if mod_funcs is None:
-            return comp.fail(f"Function |{self.func_name} not found (no mod_funcs scope)")
+        # Use pre-resolved function definitions if available (fast path)
+        if self._resolved is not None:
+            func_defs = self._resolved
+        else:
+            # Slow path: runtime lookup for modules not prepared
+            module = frame.scope('module')
+            if module is None:
+                return comp.fail(f"Function |{self.func_name} not found (no module scope)")
 
-        # Parse the function path (support dotted names)
-        func_path = self.func_name.split('.')
-        func_path_reversed = list(reversed(func_path))
+            # Parse the function path (support dotted names)
+            func_path = self.func_name.split('.')
+            func_path_reversed = list(reversed(func_path))
 
-        # Look up function in module (with optional namespace)
-        func_defs = mod_funcs.lookup_function_with_namespace(func_path_reversed, self.namespace)
-        if func_defs is None or len(func_defs) == 0:
-            ns_str = f"/{self.namespace}." if self.namespace else ""
-            return comp.fail(f"Function |{ns_str}{self.func_name} not found")
+            # Look up function in module (with optional namespace)
+            func_defs = module.lookup_function_with_namespace(func_path_reversed, self.namespace)
+            if func_defs is None or len(func_defs) == 0:
+                ns_str = f"/{self.namespace}." if self.namespace else ""
+                return comp.fail(f"Function |{ns_str}{self.func_name} not found")
 
         # Step 1: Select best overload by trying to morph input to each shape
         best_func = None
@@ -182,9 +197,9 @@ class PipeFunc(PipelineOp):
         ctx_shared = frame.scope('ctx')
         if ctx_shared is None:
             ctx_shared = frame.engine.ctx_scope
-        mod_shared = frame.scope('mod')
-        if mod_shared is None:
-            mod_shared = mod_funcs.scope
+        
+        # Get mod scope from the function's module (not from frame)
+        mod_shared = func_def.module.scope
 
         # Step 4: Apply permissive masks to ctx and mod (^)
         # Filter to only fields in arg shape (no defaults, no validation)
@@ -204,6 +219,7 @@ class PipeFunc(PipelineOp):
         local_scope = comp.Value({})  # Empty local scope
 
         # Evaluate function body with these scopes
+        # Note: module scope comes from func_def.module
         result = yield comp.Compute(
             func_def.body,
             in_=input_value,
@@ -211,10 +227,8 @@ class PipeFunc(PipelineOp):
             ctx=ctx_scope,
             mod=mod_scope,
             local=local_scope,
-            # Pass through module scopes for nested function calls
-            mod_funcs=mod_funcs,
-            mod_shapes=frame.scope('mod_shapes'),
-            mod_tags=frame.scope('mod_tags'),
+            # Use the function's module for all lookups
+            module=func_def.module,
         )
 
         return result
@@ -296,11 +310,11 @@ class PipeBlock(PipelineOp):
         if block_value.is_struct and len(block_value.data) == 1:
             # Get the first (and only) value from the dict
             first_value = next(iter(block_value.data.values()))
-            if first_value.is_entity and isinstance(first_value.data, comp.Block):
+            if first_value.is_block and isinstance(first_value.data, comp.Block):
                 block_value = first_value
 
-        # Check if it's a Block entity
-        if not block_value.is_entity or not isinstance(block_value.data, comp.Block):
+        # Check if it's a Block (wrapped in Value)
+        if not block_value.is_block or not isinstance(block_value.data, comp.Block):
             return comp.fail(f"PipeBlock |: requires Block, got {type(block_value.data).__name__}")
 
         block = block_value.data
@@ -321,6 +335,15 @@ class PipeBlock(PipelineOp):
         # Create chained scope: $out (accumulator) chains to $in
         chained = comp.ChainedScope(accumulator, input_value)
 
+        # Get module reference - either from block's function or from frame
+        # Blocks defined in functions have function.module, module-scope blocks need frame's module
+        block_module = block.module
+        if block_module is None:
+            # Module-scope block - get module from frame
+            block_module = frame.scope('module')
+            if block_module is None:
+                return comp.fail("Block invocation requires module context")
+
         # Execute each operation from the block with captured context
         for op in block.block_ast.ops:
             yield comp.Compute(
@@ -330,9 +353,7 @@ class PipeBlock(PipelineOp):
                 in_=input_value,
                 ctx=block.ctx_scope if block.ctx_scope is not None else comp.Value({}),
                 local=block.local_scope if block.local_scope is not None else comp.Value({}),
-                mod_funcs=block.module,
-                mod_shapes=block.module,
-                mod_tags=block.module,
+                module=block_module,
                 # If block was defined in a function, pass arg scope
                 arg=frame.scope('arg') if block.function is not None else None,
             )

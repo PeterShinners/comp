@@ -17,7 +17,7 @@ def test_pipe_block_simple_invocation():
             value=comp.ast.Number(42)
         )
     ])
-    raw_block_value = engine.run(block_ast, mod_shapes=module, mod_funcs=module, mod_tags=module)
+    raw_block_value = engine.run(block_ast, module=module)
     
     # Morph it to a typed Block
     block_shape_def = comp.BlockShapeDefinition([
@@ -41,7 +41,7 @@ def test_pipe_block_simple_invocation():
     )
     
     # Run with the block in local scope
-    result = engine.run(pipeline, local=block_struct, mod_shapes=module, mod_funcs=module, mod_tags=module)
+    result = engine.run(pipeline, local=block_struct, module=module)
     
     # Should have result: 42
     assert result.is_struct
@@ -64,7 +64,7 @@ def test_pipe_block_with_struct_input():
             value=comp.ast.String("processed")
         )
     ])
-    raw_block_value = engine.run(block_ast, mod_shapes=module, mod_funcs=module, mod_tags=module)
+    raw_block_value = engine.run(block_ast, module=module)
     
     # Create a block shape that expects a struct with 'value' field
     block_shape_def = comp.BlockShapeDefinition([
@@ -95,7 +95,7 @@ def test_pipe_block_with_struct_input():
         ]
     )
     
-    result = engine.run(pipeline, local=block_struct, mod_shapes=module, mod_funcs=module, mod_tags=module)
+    result = engine.run(pipeline, local=block_struct, module=module)
     
     # Should have: {output: "processed"}
     assert result.is_struct
@@ -126,7 +126,7 @@ def test_pipe_block_requires_block_type():
         ]
     )
     
-    result = engine.run(pipeline, local=local_scope, mod_shapes=module, mod_funcs=module, mod_tags=module)
+    result = engine.run(pipeline, local=local_scope, module=module)
     
     # Should fail with appropriate error
     # Check for fail structure

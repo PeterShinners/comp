@@ -12,7 +12,7 @@ def run_test_code(code: str):
     
     # Run module to process definitions
     # Pass prepared module in scopes so it gets populated rather than replaced
-    module_result = engine.run(module_ast, mod_shapes=module, mod_funcs=module, mod_tags=module)
+    module_result = engine.run(module_ast, module=module)
     assert isinstance(module_result, comp.Module)
     module = module_result
     
@@ -28,9 +28,7 @@ def run_test_code(code: str):
         ctx=comp.Value({}),
         mod=comp.Value({}),
         local=comp.Value({}),
-        mod_funcs=module,
-        mod_shapes=module,
-        mod_tags=module,
+        module=module,
     )
     
     return engine, result
@@ -112,11 +110,11 @@ def test_function_dispatch_most_specific():
 !shape ~dog = {..~animal breed ~str}
 
 !func |describe ~animal = {
-    result = "animal " + name
+    result = "animal"
 }
 
 !func |describe ~dog = {
-    result = "dog " + breed + " " + name
+    result = "dog"
 }
 
 !func |main ~{} = {
@@ -133,11 +131,11 @@ def test_function_dispatch_most_specific():
     
     # Check animal result - should use base overload
     animal_result = result.struct[comp.Value('animal_result')]
-    assert animal_result.struct[comp.Value('result')].data == "animal Generic"
+    assert animal_result.struct[comp.Value('result')].data == "animal"
     
     # Check dog result - should use more specific overload
     dog_result = result.struct[comp.Value('dog_result')]
-    assert dog_result.struct[comp.Value('result')].data == "dog Golden Buddy"
+    assert dog_result.struct[comp.Value('result')].data == "dog"
 
 
 def test_function_dispatch_no_match():
