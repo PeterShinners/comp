@@ -428,77 +428,6 @@ def builtin_while(frame, input_value: _value.Value, args: _value.Value | None = 
     return comp.Value(result_dict)
 
 
-def builtin_map(frame, input_value: _value.Value, args: _value.Value | None = None):
-    """Map a transform block over each element: [items |map ^{:{...}}]
-    
-    Takes a single block argument that transforms each element.
-    Returns a lazy structure with transformed values.
-    """
-    if args is None or not args.is_struct:
-        return comp.fail("|map requires argument ^{:{...}}")
-    
-    # Get the transform block (should be first positional arg)
-    argvalues = [v for k, v in args.struct.items() if isinstance(k, comp.Unnamed)]
-    
-    if len(argvalues) != 1:
-        return comp.fail("|map requires exactly one block argument")
-    
-    transform_arg = argvalues[0]
-    
-    if not transform_arg.is_block:
-        return comp.fail("|map transform must be a block")
-    
-    # Get input struct fields as a list
-    if not input_value.is_struct:
-        return comp.fail("|map input must be a structure")
-    
-    # Create result structure with transformed values (eager for now)
-    result_dict = {}
-    for key, value in input_value.struct.items():
-        # Execute transform block with value as input
-        block_data = transform_arg.data
-        
-        if isinstance(block_data, comp.RawBlock):
-            block_ast = block_data.block_ast
-            block_module = block_data.module or frame.scope('module')
-            ctx_scope = block_data.ctx_scope if block_data.ctx_scope is not None else comp.Value({})
-            local_scope = block_data.local_scope if block_data.local_scope is not None else comp.Value({})
-            block_function = block_data.function
-        elif isinstance(block_data, comp.Block):
-            block_ast = block_data.block_ast
-            block_module = block_data.module or frame.scope('module')
-            ctx_scope = block_data.raw_block.ctx_scope if block_data.raw_block.ctx_scope is not None else comp.Value({})
-            local_scope = block_data.raw_block.local_scope if block_data.raw_block.local_scope is not None else comp.Value({})
-            block_function = block_data.function
-        else:
-            return comp.fail(f"|map block has unexpected type: {type(block_data)}")
-        
-        # Execute block with value as input
-        struct_dict = {}
-        accumulator = comp.Value.__new__(comp.Value)
-        accumulator.data = struct_dict
-        chained = comp.ChainedScope(accumulator, value)
-        
-        # Execute each operation
-        last_result = value  # Default to input if no ops
-        for op in block_ast.ops:
-            last_result = yield comp.Compute(op, struct_accumulator=accumulator, unnamed=chained,
-                                      in_=value, ctx=ctx_scope, local=local_scope,
-                                      module=block_module, func_ctx=block_function)
-            if frame.is_fail(last_result):
-                return last_result
-        
-        # Use the last operation's result (or accumulated structure if non-empty)
-        if struct_dict:
-            # Block built a structure
-            result_dict[key] = accumulator
-        else:
-            # Block returned a single value
-            result_dict[key] = last_result
-    
-    return comp.Value(result_dict)
-
-
 # ============================================================================
 # Function Registry
 # ============================================================================
@@ -517,5 +446,4 @@ def create_builtin_functions():
         "wrap": PythonFunction("wrap", builtin_wrap),
         "if": PythonFunction("if", builtin_if),
         "while": PythonFunction("while", builtin_while),
-        "map": PythonFunction("map", builtin_map),
     }

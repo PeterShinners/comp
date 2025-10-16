@@ -70,7 +70,12 @@ def test_function_dispatch_by_shape():
 
 
 def test_function_dispatch_with_wildcard():
-    """Test that wildcard (no shape) functions work as fallback."""
+    """Test that wildcard (no shape) functions work as fallback.
+    
+    Note: Morphing wraps primitives to match struct shapes, so 42 will
+    morph to {value=42} to match ~special. To test wildcard fallback,
+    use a struct that doesn't match the specific shape.
+    """
     code = """
 !shape ~special = {value ~num}
 
@@ -84,7 +89,8 @@ def test_function_dispatch_with_wildcard():
 
 !func |main ~{} = {
     special_result = [{value=5} |process]
-    generic_result = [42 |process]
+    numeric_result = [42 |process]
+    generic_result = [{other=42} |process]
 }
 """
     
@@ -98,7 +104,11 @@ def test_function_dispatch_with_wildcard():
     special_result = result.struct[comp.Value('special_result')]
     assert special_result.struct[comp.Value('result')].data == 105
     
-    # Check generic results - should use wildcard overload
+    # Check that 42 morphs to match ~special (wrapped to {value=42})
+    numeric_result = result.struct[comp.Value('numeric_result')]
+    assert numeric_result.struct[comp.Value('result')].data == 142  # 42 + 100
+    
+    # Check generic result - should use wildcard overload
     generic_result = result.struct[comp.Value('generic_result')]
     assert generic_result.struct[comp.Value('result')].data == 999
 

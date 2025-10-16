@@ -1,9 +1,9 @@
-"""Test function invocation masking behavior.
+"""Test function invocation masking and morphing behavior.
 
-This test verifies that PipeFunc applies the correct masking operations
+This test verifies that PipeFunc applies the correct operations
 when invoking functions, as specified in the design:
-- Input: morphed to input shape
-- Args: strict masked (^*) to arg shape with defaults
+- Input: morphed to input shape (overload selection)
+- Args: strong morphed (~*) to arg shape with defaults and validation
 - Ctx: permissively masked (^) to arg shape
 - Mod: permissively masked (^) to arg shape
 """
@@ -14,14 +14,14 @@ import comp
 
 
 def test_mask_operations_exist_in_pipefunc():
-    """Verify that PipeFunc code includes masking operations."""
+    """Verify that PipeFunc code includes morphing and masking operations."""
     # This is a meta-test to confirm the integration is present
     import inspect
     source = inspect.getsource(comp.ast.PipeFunc.evaluate)
 
-    # Check that masking code is present
+    # Check that morphing and masking code is present
     assert "morph" in source, "PipeFunc should morph input to input_shape"
-    assert "strict_mask" in source, "PipeFunc should strict_mask args to arg_shape"
+    assert "strong_morph" in source, "PipeFunc should strong_morph args to arg_shape"
     assert "mask" in source, "PipeFunc should mask ctx and mod to arg_shape"
 
 

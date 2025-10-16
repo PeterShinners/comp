@@ -5,6 +5,38 @@ __all__ = ["MorphResult", "morph", "strong_morph", "weak_morph", "mask", "strict
 import comp
 
 
+def _is_tag_compatible(input_tag_def, field_tag_def):
+    """Check if an input tag is compatible with a field's tag type.
+
+    Compatible means the input tag is either:
+    - The same tag as the field's tag type
+    - A child (descendant) of the field's tag type
+
+    Args:
+        input_tag_def: TagDefinition of the input tag value
+        field_tag_def: TagDefinition of the field's tag type constraint
+
+    Returns:
+        True if input tag is compatible with field tag type
+
+    Examples:
+        #timeout.error compatible with #error (child)
+        #error compatible with #error (same)
+        #network.error compatible with #error (child)
+        #success NOT compatible with #error (different hierarchy)
+    """
+    # Same tag - always compatible
+    if input_tag_def.path == field_tag_def.path:
+        return True
+
+    # Check if input is a child of field's tag (field's path is a prefix)
+    if len(field_tag_def.path) >= len(input_tag_def.path):
+        return False
+
+    # Compare prefixes - field's path should be a prefix of input's path
+    return input_tag_def.path[:len(field_tag_def.path)] == field_tag_def.path
+
+
 class MorphResult:
     """Result of a morph operation containing both score and morphed value.
 
@@ -281,10 +313,65 @@ def _morph_struct(value, shape):
             # Non-string key - treat as extra field
             unmatched_value_fields.append((field_key, field_value))
 
-    # PHASE 2: Match positional fields
+    # PHASE 2: Tag field matching
+    # Match unnamed tag values to shape fields with tag type constraints
+    
+    # Identify shape fields with tag types and unnamed tag values
+    tag_shape_fields = {}  # field_name -> (shape_field, tag_def)
+    for field in shape_fields:
+        if field.is_named and field.name in named_shape_fields and field.shape is not None:
+            # Check if the shape constraint is a TagRef (tag type)
+            if isinstance(field.shape, comp.Value) and field.shape.is_tag:
+                tag_def = field.shape.data.tag_def
+                tag_shape_fields[field.name] = (field, tag_def)
+    
+    # Find unnamed tag values in input
+    unnamed_tags = [(k, v) for k, v in unmatched_value_fields 
+                    if isinstance(k, comp.Unnamed) and isinstance(v, comp.Value) and v.is_tag]
+    
+    # Match tags to fields
+    matched_tag_keys = []
+    tag_depth_sum = 0
+    for pos_key, tag_value in unnamed_tags:
+        input_tag_def = tag_value.data.tag_def
+        
+        # Try to find a compatible tag field
+        matched_field = None
+        for field_name, (shape_field, field_tag_def) in tag_shape_fields.items():
+            # Check if input tag is compatible with field's tag type
+            # Compatible means: same tag or input is a child of field's tag
+            if _is_tag_compatible(input_tag_def, field_tag_def):
+                matched_field = (field_name, shape_field, field_tag_def)
+                break
+        
+        if matched_field:
+            field_name, shape_field, field_tag_def = matched_field
+            field_key = comp.Value(field_name)
+            
+            # Assign the tag value to this field
+            matched_fields[field_key] = (shape_field, tag_value)
+            
+            # Count this as a named match (filling a named field)
+            named_matches += 1
+            
+            # Track tag depth for specificity (deeper tags = more specific)
+            tag_depth_sum += len(input_tag_def.path)
+            
+            # Remove from unmatched collections
+            del named_shape_fields[field_name]
+            del tag_shape_fields[field_name]
+            matched_tag_keys.append(pos_key)
+    
+    # Remove matched tags from unmatched_value_fields
+    unmatched_value_fields = [(k, v) for k, v in unmatched_value_fields 
+                              if k not in matched_tag_keys]
+
+    # PHASE 3: Positional matching
+    # Match positional (unnamed) value fields to shape fields by position
     positional_matches = 0
     positional_value_fields = [(k, v) for k, v in unmatched_value_fields if isinstance(k, comp.Unnamed)]
 
+    # PHASE 3a: Match unnamed value fields to positional shape fields
     matched_positional_count = 0
     for i, (pos_key, pos_value) in enumerate(positional_value_fields):
         if i < len(positional_shape_fields):
@@ -300,14 +387,47 @@ def _morph_struct(value, shape):
             positional_matches += 1
             matched_positional_count += 1
         else:
-            # More positional values than shape fields - extra field
-            pass
+            # More positional values than shape fields - will try named field pairing next
+            break
 
     # Remove matched positional shape fields
     positional_shape_fields = positional_shape_fields[matched_positional_count:]
+    
+    # Remove matched positional value fields from unmatched list
+    remaining_unnamed_values = positional_value_fields[matched_positional_count:]
 
-    # PHASE 3: Apply defaults for missing required fields
-    # Check remaining shape fields that weren't matched
+    # PHASE 3b: Pair remaining unnamed value fields with unfilled named shape fields
+    # This handles cases like {a=1 2 c=3} ~{a~num b~num c~num} where 2 should fill b
+    paired_positional_keys = []
+    if remaining_unnamed_values and named_shape_fields:
+        # Get list of unfilled named fields in definition order
+        unfilled_named_fields = [field for field in shape_fields 
+                                if field.is_named and field.name in named_shape_fields]
+        
+        for (pos_key, pos_value), shape_field in zip(remaining_unnamed_values, unfilled_named_fields):
+            # Create named key for this field
+            field_key = comp.Value(shape_field.name)
+            
+            # Recursively morph
+            if shape_field.shape is not None:
+                field_result = _morph_any(pos_value, shape_field.shape)
+                if not field_result.success:
+                    return MorphResult()
+                matched_fields[field_key] = (shape_field, field_result.value)
+            else:
+                matched_fields[field_key] = (shape_field, pos_value)
+            
+            # This counts as a named match since we're filling a named field
+            named_matches += 1
+            
+            # Remove from unfilled named fields
+            del named_shape_fields[shape_field.name]
+            
+            # Track this positional key so we don't add it again as an extra field
+            paired_positional_keys.append(pos_key)
+
+    # PHASE 4: Default application
+    # Apply defaults for unmatched shape fields that weren't matched
     for field_name, shape_field in named_shape_fields.items():
         if shape_field.default is not None:
             # Apply default value
@@ -327,7 +447,7 @@ def _morph_struct(value, shape):
             # Required positional field missing - morph fails
             return MorphResult()
 
-    # PHASE 4: Build result structure (matched fields + extra fields)
+    # Build result structure (matched fields + extra fields)
     result_struct = {}
 
     # Add all matched fields
@@ -335,8 +455,9 @@ def _morph_struct(value, shape):
         result_struct[field_key] = morphed_value
 
     # Add extra fields (not in shape) - pass through unchanged
+    # Exclude positional fields that were paired with named fields in Phase 2.5
     for field_key, field_value in unmatched_value_fields:
-        if field_key not in matched_fields:
+        if field_key not in matched_fields and field_key not in paired_positional_keys:
             result_struct[field_key] = field_value
 
     # Build result value
@@ -344,6 +465,7 @@ def _morph_struct(value, shape):
 
     return MorphResult(
         named_matches=named_matches,
+        tag_depth=tag_depth_sum,
         positional_matches=positional_matches,
         value=result_value
     )
@@ -355,8 +477,9 @@ def strong_morph(value, shape):
     Like normal morph but rejects extra fields not defined in the shape.
 
     Behavior:
+    - Applies unnamed→named field pairing (Phase 3b)
     - Applies default values for missing fields
-    - FAILS if extra fields are present (not in shape)
+    - FAILS if extra fields remain in morphed result (not in shape)
     - FAILS if required fields are missing
 
     Example:
@@ -365,14 +488,18 @@ def strong_morph(value, shape):
 
         {host="localhost" extra="bad"} ~* {host ~str}
         # FAILS: Extra field 'extra' not allowed
+        
+        {5 7} ~* {x ~num y ~num}
+        # Success: {x=5 y=7} - unnamed fields paired to named fields
     """
-    # First do normal morph
+    # First do normal morph (includes Phase 3b unnamed→named pairing)
     result = morph(value, shape)
 
     if not result.success:
         return result
 
-    # Now check for extra fields
+    # Now check the morphed result for extra fields
+    # Extra fields are those not consumed by the morphing process
     if not isinstance(shape, comp.ShapeDefinition):
         return result
 
@@ -380,12 +507,13 @@ def strong_morph(value, shape):
     allowed_names = {field.name for field in shape.fields if field.is_named}
     has_positional = any(field.is_positional for field in shape.fields)
 
-    # Check original value for extra fields
-    if value.is_struct:
-        for field_key in value.data.keys():
+    # Check morphed result for extra fields
+    # Morphing should have paired unnamed→named or added them as extra
+    if result.value.is_struct:
+        for field_key in result.value.data.keys():
             if isinstance(field_key, comp.Unnamed):
+                # Unnamed field in result means it wasn't paired/consumed
                 if not has_positional:
-                    # Unnamed field not allowed
                     return MorphResult()
             elif field_key.is_string:
                 if field_key.data not in allowed_names:

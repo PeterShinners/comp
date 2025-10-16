@@ -184,14 +184,14 @@ class PipeFunc(PipelineOp):
         func_def = best_func
         input_value = best_morph.value
 
-        # Step 2: Prepare arg scope with strict mask (^*)
-        # Validates exact structure and applies defaults
+        # Step 2: Morph arguments to arg shape with strong morph (~*)
+        # This enables unnamed→named field pairing, tag matching, and strict validation
         arg_scope = args_value if args_value is not None else comp.Value({})
         if func_def.arg_shape is not None:
-            arg_mask_result = comp.strict_mask(arg_scope, func_def.arg_shape)
-            if not arg_mask_result.success:
-                return comp.fail(f"Function |{self.func_name}: arguments do not match shape")
-            arg_scope = arg_mask_result.value
+            arg_morph_result = comp.strong_morph(arg_scope, func_def.arg_shape)
+            if not arg_morph_result.success:
+                return comp.fail(f"Function |{self.func_name}: arguments do not match argument shape (missing required fields or type mismatch)")
+            arg_scope = arg_morph_result.value
 
         # Step 3: Get shared ctx and mod scopes
         ctx_shared = frame.scope('ctx')

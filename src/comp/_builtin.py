@@ -31,6 +31,10 @@ def create_builtin_module() -> _module.Module:
     module.define_tag(["true"], value=None)
     module.define_tag(["false"], value=None)
 
+    # Control flow tags
+    module.define_tag(["break"], value=None)
+    module.define_tag(["skip"], value=None)
+
     # Failure tags
     module.define_tag(["fail"], value=None)
     module.define_tag(["fail", "runtime"], value=None)

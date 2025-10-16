@@ -1,6 +1,6 @@
 """AST nodes for shape definitions and references."""
 
-__all__ = ["ShapeDef", "ShapeFieldDef", "ShapeRef", "ShapeUnion", "BlockShape"]
+__all__ = ["ShapeDef", "ShapeFieldDef", "ShapeRef", "ShapeUnion", "BlockShape", "InlineShape"]
 
 import comp
 
@@ -422,3 +422,78 @@ class BlockShape(_base.ShapeNode):
 
     def __repr__(self):
         return f"BlockShape({len(self.fields)} fields)"
+
+
+class InlineShape(_base.ShapeNode):
+    """Inline struct shape: ~{field-defs...}
+
+    Represents an inline shape definition with fields, used in function
+    input/argument positions without defining a named shape.
+
+    Examples:
+        ~{x ~num y ~num}     # Struct with two named numeric fields
+        ~{~str ~str}         # Struct with two positional string fields
+        ~{a ~num = 0}        # Field with default value
+
+    Args:
+        fields: List of field definitions
+
+    Note:
+        Similar to BlockShape but for struct shapes rather than block types.
+        Evaluates to a ShapeDefinition at runtime.
+    """
+
+    def __init__(self, fields: list['ShapeFieldDef']):
+        if not isinstance(fields, list):
+            raise TypeError("Inline shape fields must be a list")
+        if not all(isinstance(f, ShapeFieldDef) for f in fields):
+            raise TypeError("All fields must be ShapeFieldDef instances")
+
+        self.fields = fields
+
+    def evaluate(self, frame):
+        """Evaluate inline shape to create a shape definition.
+
+        Returns a ShapeDefinition entity (not wrapped in Value).
+        """
+        # Get module from scope
+        module = frame.scope('module')
+        if module is None:
+            return comp.fail("InlineShape requires module scope")
+        
+        # Process field definitions, similar to ShapeDef
+        shape_fields = []
+        for field_def in self.fields:
+            if field_def.is_spread:
+                # Handle spread fields
+                if field_def.shape_ref is None:
+                    return comp.fail("Spread field must have shape reference")
+
+                spread_shape = yield comp.Compute(field_def.shape_ref)
+                if frame.is_fail(spread_shape):
+                    return spread_shape
+
+                if hasattr(spread_shape, 'fields'):
+                    shape_fields.extend(spread_shape.fields)
+                else:
+                    return comp.fail(f"Cannot spread non-shape: {spread_shape}")
+            else:
+                # Regular field - evaluate it
+                field = yield comp.Compute(field_def)
+                if frame.is_fail(field):
+                    return field
+                shape_fields.append(field)
+
+        # Create and return ShapeDefinition entity (unwrapped)
+        # Use empty path for inline shapes (they're anonymous)
+        shape_def = comp.ShapeDefinition(path=[], module=module, fields=shape_fields)
+        return shape_def
+        yield  # Make this a generator
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        fields_str = " ".join(f.unparse() for f in self.fields)
+        return f"~{{{fields_str}}}"
+
+    def __repr__(self):
+        return f"InlineShape({len(self.fields)} fields)"

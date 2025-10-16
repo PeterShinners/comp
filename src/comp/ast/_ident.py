@@ -170,6 +170,8 @@ class IndexField(_base.FieldNode):
             index_value = yield comp.Compute(self.index)
             if frame.is_fail(index_value):
                 return index_value
+            # Auto-extract scalar from structures like {5}
+            index_value = index_value.as_scalar()
             if not index_value.is_number:
                 return comp.fail(f"Index expression must evaluate to a number, got {index_value}")
             # Convert Decimal to int

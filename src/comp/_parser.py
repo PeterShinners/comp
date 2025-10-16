@@ -398,13 +398,13 @@ def _convert_tree(tree: lark.Tree | lark.Token):
         case 'shape_inline':
             # TILDE LBRACE shape_field* RBRACE
             # Empty inline shape ~{} matches only empty structs (equivalent to ~nil)
-            # Non-empty inline shapes with fields are not yet fully implemented
+            # Non-empty inline shapes define expected struct fields
             fields = _convert_children(kids[2:-1]) if len(kids) > 3 else []  # Skip TILDE, LBRACE, RBRACE
             if not fields:
                 # Empty shape ~{} - equivalent to ~nil (matches only empty structs)
                 return comp.ast.ShapeRef(["nil"])
-            # Non-empty inline shape - not yet implemented
-            raise comp.ParseError("Inline shapes with fields (~{...}) not yet implemented")
+            # Non-empty inline shape - create InlineShape node
+            return comp.ast.InlineShape(fields)
 
         case 'shape_block':
             # TILDE COLON_BLOCK_START shape_field* RBRACE
@@ -421,7 +421,8 @@ def _convert_tree(tree: lark.Tree | lark.Token):
             if not fields:
                 # Empty shape {} in morph context
                 return comp.ast.ShapeRef(["any"])
-            raise comp.ParseError("Inline morph shapes with fields ({...}) not yet implemented")
+            # Create InlineShape for morphing with inline shape definition
+            return comp.ast.InlineShape(fields)
 
         case 'shape_union':
             # shape_type_atom (PIPE shape_type_atom)+
@@ -448,6 +449,32 @@ def _convert_tree(tree: lark.Tree | lark.Token):
         # === FUNCTION DEFINITIONS ===
         case 'function_definition' | 'func_with_args' | 'func_no_args':
             return _convert_function_definition(tree)
+
+        # === ARGUMENT SHAPES ===
+        case 'arg_shape_inline':
+            # ^{shape_field*} - inline shape with fields for function arguments
+            # CARET LBRACE shape_field* RBRACE
+            # Convert the shape fields (skip CARET and braces)
+            fields = []
+            for kid in kids:
+                if isinstance(kid, lark.Tree):
+                    fields.append(_convert_tree(kid))
+            # Argument shapes are struct shapes, not block shapes
+            # Use InlineShape (for structs) not BlockShape (for blocks)
+            return comp.ast.InlineShape(fields) if fields else comp.ast.ShapeRef(["nil"])
+
+        case 'arg_shape_ref':
+            # ^reference_identifiers reference_namespace?
+            path, namespace = _extract_reference_path(kids)
+            return comp.ast.ShapeRef(path, namespace)
+
+        case 'arg_shape_typed':
+            # ^shape_type - just pass through the shape_type
+            # CARET shape_type - skip the CARET token
+            for kid in kids:
+                if isinstance(kid, lark.Tree):
+                    return _convert_tree(kid)
+            return comp.ast.ShapeRef(["any"])
 
         # === IMPORT STATEMENTS ===
         case 'import_statement':

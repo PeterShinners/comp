@@ -319,3 +319,44 @@ def test_morph_primitive_unwrapping():
     assert result.success
     assert result.value.is_number
     assert result.value.data == Decimal("42")
+
+
+def test_morph_mixed_named_and_unnamed_fields():
+    """Test morphing with mixed named and unnamed fields.
+    
+    Phase 2.5 of morphing should pair remaining unnamed value fields
+    with unfilled named shape fields in definition order.
+    Example: {a=1 2 c=3} ~{a~num b~num c~num} should fill b=2
+    """
+    builtin = comp.get_builtin_module()
+    module = comp.Module()
+    module.define_shape(["test"], [
+        comp.ShapeField(name="a", shape=builtin.shapes["num"]),
+        comp.ShapeField(name="b", shape=builtin.shapes["num"]),
+        comp.ShapeField(name="c", shape=builtin.shapes["num"]),
+    ])
+
+    test_shape = module.shapes["test"]
+    
+    # Input: {a=1 2 c=3} where unnamed 2 should fill field b
+    data = comp.Value({
+        comp.Value("a"): comp.Value(Decimal("1")),
+        comp.Unnamed(): comp.Value(Decimal("2")),
+        comp.Value("c"): comp.Value(Decimal("3"))
+    })
+
+    result = comp.morph(data, test_shape)
+
+    assert result.success, "Morph should succeed with mixed named/unnamed fields"
+    assert result.named_matches == 3, "Should match all 3 named fields (2 direct + 1 from unnamed)"
+    
+    # Check that b was filled with the unnamed value 2
+    b_value = result.value.struct.get(comp.Value("b"))
+    assert b_value is not None, "Field 'b' should be present"
+    assert b_value.data == Decimal("2"), "Field 'b' should have value 2 from unnamed field"
+    
+    # Check a and c are still present
+    a_value = result.value.struct.get(comp.Value("a"))
+    assert a_value is not None and a_value.data == Decimal("1")
+    c_value = result.value.struct.get(comp.Value("c"))
+    assert c_value is not None and c_value.data == Decimal("3")
