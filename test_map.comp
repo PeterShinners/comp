@@ -1,0 +1,12 @@
+; Test the new |map function
+
+!func |main ~nil = {
+    ; Test |map doubling numbers
+    doubled = [{1 2 3 4 5} |map :{$in * 2}]
+    
+    ; Test |map with addition
+    added = [{10 20 30} |map :{$in + 5}]
+    
+    ; Return the doubled result
+    doubled
+}

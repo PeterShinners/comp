@@ -1,0 +1,32 @@
+!func |main ~nil = {
+    count_to_four = [|while :{
+        @count ?= 0
+        
+        [[@count < 5] |if :{
+            result = $count
+            @count = [@count |add n=1]
+            $result
+        } else:{
+            #break
+        }]
+    }]
+    
+    evens = [|while :{
+        @counter ?= 0
+        
+        [[@counter < 10] |if :{
+            n = $counter
+            @counter = [@counter |add n=1]
+            
+            [[[@n % 2] == 0] |if :{
+                $n
+            } else:{
+                #skip
+            }]
+        } else:{
+            #break
+        }]
+    }]
+    
+    ^{count_to_four evens}
+}

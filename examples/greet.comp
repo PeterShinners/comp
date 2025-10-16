@@ -1,9 +1,0 @@
-!func |greet ~{name ~str} = {
-    greeting = "Hello, " + name + "!"
-    formatted = [greeting |upper]
-}
-
-!func |main ~_ = {
-    result1 = [{name = "World"} |greet]
-    result2 = [{name = "Comp"} |greet]
-}

@@ -2,6 +2,7 @@
 
 
 !shape ~nil-block = ~:{}
+!shape ~iter-block = ~:{value field index~num}
 
 
 ; !doc "Infinite counter stream"
@@ -12,4 +13,34 @@
         @count = @count + 1
     } ~nil-block
 }
+
+
+!func |iter ~{} ^{block~iter-block} = {
+    @input = $in
+    @stream = [|infinite]
+    ..[|while :{
+        @index = [|:@stream]
+        @item = @input.#(@index) ?? #break
+        [|if @item == #break #break :{
+            [@item |:block]
+        }]
+    }]
+}
+
+
+
+
+
+!func |comp-map ~{} ^{block~nil-block} = {
+    @input = $in
+    @stream = [|infinite]
+    ..[|while :{
+        @index = [|:@stream]
+        @item = @input.#(@index) ?? #break
+        [|if @item == #break #break :{
+            [@item |:block]
+        }]
+    }]
+}
+
 
