@@ -165,7 +165,9 @@ class Value(Entity):
         """Return value as a scalar value or itself."""
         if self.is_struct and isinstance(self.data, dict):
             if len(self.data) == 1:
-                return next(iter(self.data.values()))
+                value = list(self.data.values())[0]
+                if value.is_number or value.is_string or value.is_tag:
+                    return value
             # By returning self we are still a struct, which users who use this will ignore
             return self
         return self
@@ -268,7 +270,11 @@ def fail(message: str) -> Value:
 
     # Get the #fail tag from builtin module
     builtin = get_builtin_module()
-    fail_tag_def = builtin.lookup_tag(["fail"])
+    try:
+        fail_tag_def = builtin.lookup_tag(["fail"])
+    except ValueError as e:
+        # This should never happen - builtin module must have #fail tag
+        raise RuntimeError(f"Critical error: builtin #fail tag not found: {e}") from e
 
     # Create Value directly without going through constructor conversion
     result = Value.__new__(Value)
@@ -343,13 +349,17 @@ def _init_builtin_tags():
     from ._builtin import get_builtin_module
     builtin = get_builtin_module()
 
-    return {
-        'TRUE': TagRef(builtin.lookup_tag(["true"])),
-        'FALSE': TagRef(builtin.lookup_tag(["false"])),
-        'FAIL': TagRef(builtin.lookup_tag(["fail"])),
-        'FAIL_TYPE': TagRef(builtin.lookup_tag(["fail", "type"])),
-        'FAIL_DIV_ZERO': TagRef(builtin.lookup_tag(["fail", "div_zero"])),
-    }
+    try:
+        return {
+            'TRUE': TagRef(builtin.lookup_tag(["true"])),
+            'FALSE': TagRef(builtin.lookup_tag(["false"])),
+            'FAIL': TagRef(builtin.lookup_tag(["fail"])),
+            'FAIL_TYPE': TagRef(builtin.lookup_tag(["type", "fail"])),
+            'FAIL_DIV_ZERO': TagRef(builtin.lookup_tag(["div_zero", "fail"])),
+        }
+    except ValueError as e:
+        # This should never happen - builtin module must have these tags
+        raise RuntimeError(f"Critical error: builtin tags not properly initialized: {e}") from e
 
 # Initialize on module load
 _builtin_tags = _init_builtin_tags()

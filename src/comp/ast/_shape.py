@@ -271,16 +271,10 @@ class ShapeRef(_base.ShapeNode):
 
         # Look up shape with namespace support
         try:
-            shape_def = module.lookup_shape_with_namespace(self.path, self.namespace)
+            shape_def = module.lookup_shape(self.path, self.namespace)
         except ValueError as e:
-            # Ambiguous reference
+            # Not found or ambiguous reference
             return comp.fail(str(e))
-
-        if shape_def is None:
-            path_str = ".".join(reversed(self.path))
-            if self.namespace:
-                return comp.fail(f"Shape not found: ~{path_str}/{self.namespace}")
-            return comp.fail(f"Shape not found: ~{path_str}")
 
         # HACK: Return ShapeDefinition directly
         # This breaks evaluate() contract but matches our usage

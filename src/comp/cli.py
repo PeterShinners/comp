@@ -76,8 +76,10 @@ def main():
             sys.exit(1)
 
         # Look for a 'main' function in the module
-        main_funcs = module.lookup_function(["main"])
-        if main_funcs is None or len(main_funcs) == 0:
+        try:
+            main_funcs = module.lookup_function(["main"])
+        except ValueError:
+            # Not found
             print(f"Error: No 'main' function found in {filepath}", file=sys.stderr)
             print("\nDefine a main function like:", file=sys.stderr)
             print("  !func |main ~{} = {", file=sys.stderr)

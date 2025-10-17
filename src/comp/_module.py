@@ -272,9 +272,9 @@ class RawBlock:
     - local_scope: The @local scope at definition time
     - block_ast: The Block AST node itself (operations to execute)
 
-    The module is accessed through self.function.module if the block is defined in a function.
-    For blocks defined at module scope (function is None), they need the module passed separately
-    during evaluation (from the frame's mod_funcs scope).
+    For blocks defined in a function, the module is accessed via function.module.
+    For blocks defined at module scope (function is None), the module must be obtained
+    from the evaluation context (e.g., frame.scope('module')).
 
     Raw blocks do NOT capture:
     - $in: Set at invocation time
@@ -294,11 +294,6 @@ class RawBlock:
         self.function = function
         self.ctx_scope = ctx_scope
         self.local_scope = local_scope
-
-    @property
-    def module(self) -> 'Module | None':
-        """Get the module from the function context if available."""
-        return self.function.module if self.function else None
 
     def __repr__(self):
         func_str = f" in |{self.function.full_name}" if self.function else ""
@@ -326,35 +321,10 @@ class Block:
         self.raw_block = raw_block
         self.input_shape = input_shape
 
-    @property
-    def block_ast(self):
-        """Get the Block AST node from the raw block."""
-        return self.raw_block.block_ast
-
-    @property
-    def module(self):
-        """Get the module from the raw block (via function if available)."""
-        return self.raw_block.module
-
-    @property
-    def function(self):
-        """Get the function context from the raw block."""
-        return self.raw_block.function
-
-    @property
-    def ctx_scope(self):
-        """Get the captured $ctx scope from the raw block."""
-        return self.raw_block.ctx_scope
-
-    @property
-    def local_scope(self):
-        """Get the captured @local scope from the raw block."""
-        return self.raw_block.local_scope
-
     def __repr__(self):
-        func_str = f" in |{self.function.full_name}" if self.function else ""
+        func_str = f" in |{self.raw_block.function.full_name}" if self.raw_block.function else ""
         shape_str = f" ~:{self.input_shape}" if self.input_shape else ""
-        return f"Block({len(self.block_ast.ops)} ops{shape_str}{func_str})"
+        return f"Block({len(self.raw_block.block_ast.ops)} ops{shape_str}{func_str})"
 
 
 class BlockShapeDefinition(Entity):
@@ -452,35 +422,73 @@ class Module(Entity):
 
         return tag_def
 
-    def lookup_tag(self, partial_path: list[str]) -> TagDefinition | None:
-        """Find tag by partial path (suffix matching).
+    def lookup_tag(self, partial_path: list[str], namespace: str | None = None) -> TagDefinition:
+        """Find tag by partial path, optionally in a specific namespace.
 
         Args:
             partial_path: Reversed partial path (leaf first),
                          e.g., ["timeout", "error"] for #timeout.error
+            namespace: Optional namespace to search in (e.g., "std" for /std)
 
         Returns:
-            TagDefinition if unique match found, None if not found
+            TagDefinition if unique match found
 
         Raises:
-            ValueError: If partial path matches multiple tags (ambiguous)
+            ValueError: If not found, ambiguous, or namespace not found
+
+        Notes:
+            - If namespace is provided, searches only that namespace
+            - If namespace is None, searches local module first, then all namespaces
         """
+        if namespace is not None:
+            # Explicit namespace - look only there
+            ns_module = self.namespaces.get(namespace)
+            if ns_module is None:
+                partial_str = ".".join(reversed(partial_path))
+                raise ValueError(f"Namespace not found: /{namespace} for tag #{partial_str}")
+            return ns_module.lookup_tag(partial_path)
+
+        # No namespace - check local first
         matches = [
             tag_def for tag_def in self.tags.values()
             if tag_def.matches_partial(partial_path)
         ]
 
-        if len(matches) == 0:
-            return None
-        elif len(matches) == 1:
+        if len(matches) == 1:
             return matches[0]
-        else:
-            # Ambiguous - multiple matches
+        elif len(matches) > 1:
+            # Ambiguous in local module
             match_names = [t.full_name for t in matches]
             partial_str = ".".join(reversed(partial_path))
             raise ValueError(
                 f"Ambiguous tag reference #{partial_str} matches: "
                 f"{', '.join('#' + n for n in match_names)}"
+            )
+
+        # Not found locally - check all namespaces
+        found_results = []
+        found_namespaces = []
+
+        for ns_name, ns_module in self.namespaces.items():
+            try:
+                result = ns_module.lookup_tag(partial_path)
+                found_results.append(result)
+                found_namespaces.append(ns_name)
+            except ValueError:
+                # Not found or ambiguous in that namespace - skip it
+                continue
+
+        if len(found_results) == 0:
+            partial_str = ".".join(reversed(partial_path))
+            raise ValueError(f"Tag not found: #{partial_str}")
+        elif len(found_results) == 1:
+            return found_results[0]
+        else:
+            # Found in multiple namespaces - ambiguous
+            partial_str = ".".join(reversed(partial_path))
+            ns_list = ", ".join(f"/{ns}" for ns in found_namespaces)
+            raise ValueError(
+                f"Ambiguous tag reference #{partial_str} found in multiple namespaces: {ns_list}"
             )
 
     def get_tag_by_full_path(self, path: list[str]) -> TagDefinition | None:
@@ -537,37 +545,6 @@ class Module(Entity):
             )
             self.shapes[full_name] = shape_def
             return shape_def
-
-    def lookup_shape(self, partial_path: list[str]) -> ShapeDefinition | None:
-        """Find shape by partial path (suffix matching).
-
-        Args:
-            partial_path: Reversed partial path (leaf first),
-                         e.g., ["2d", "point"] for ~2d.point
-
-        Returns:
-            ShapeDefinition if unique match found, None if not found
-
-        Raises:
-            ValueError: If partial path matches multiple shapes (ambiguous)
-        """
-        matches = [
-            shape_def for shape_def in self.shapes.values()
-            if shape_def.matches_partial(partial_path)
-        ]
-
-        if len(matches) == 0:
-            return None
-        elif len(matches) == 1:
-            return matches[0]
-        else:
-            # Ambiguous - multiple matches
-            match_names = [s.full_name for s in matches]
-            partial_str = ".".join(reversed(partial_path))
-            raise ValueError(
-                f"Ambiguous shape reference ~{partial_str} matches: "
-                f"{', '.join('~' + n for n in match_names)}"
-            )
 
     def list_shapes(self) -> list[ShapeDefinition]:
         """Get all shape definitions in the module."""
@@ -627,38 +604,6 @@ class Module(Entity):
 
         return func_def
 
-    def lookup_function(self, partial_path: list[str]) -> list[FunctionDefinition] | None:
-        """Find function by partial path (suffix matching), returning all overloads.
-
-        Args:
-            partial_path: Reversed partial path (leaf first),
-                         e.g., ["area", "geometry"] for |area.geometry
-
-        Returns:
-            List of FunctionDefinition overloads, or None if not found
-
-        Raises:
-            ValueError: If partial path matches multiple functions (ambiguous)
-        """
-        matches = []
-        for _full_name, overloads in self.functions.items():
-            # Check if any overload matches
-            if overloads and overloads[0].matches_partial(partial_path):
-                matches.append(overloads)
-
-        if len(matches) == 0:
-            return None
-        elif len(matches) == 1:
-            return matches[0]
-        else:
-            # Ambiguous - multiple matches
-            match_names = [funcs[0].full_name for funcs in matches]
-            partial_str = ".".join(reversed(partial_path))
-            raise ValueError(
-                f"Ambiguous function reference |{partial_str} matches: "
-                f"{', '.join('|' + n for n in match_names)}"
-            )
-
     def list_functions(self) -> list[FunctionDefinition]:
         """Get all function definitions (all overloads flattened)."""
         result = []
@@ -680,76 +625,19 @@ class Module(Entity):
         """
         self.namespaces[name] = module
 
-    def lookup_tag_with_namespace(self, partial_path: list[str],
-                                   namespace: str | None = None) -> TagDefinition | None:
-        """Find tag by partial path, optionally in a specific namespace.
-
-        Args:
-            partial_path: Reversed partial path (leaf first)
-            namespace: Optional namespace to search in (e.g., "std" for /std)
-
-        Returns:
-            TagDefinition if unique match found, None if not found
-
-        Raises:
-            ValueError: If partial path matches multiple tags (ambiguous)
-
-        Notes:
-            - If namespace is provided, searches only that namespace
-            - If namespace is None, searches local module first, then all namespaces
-        """
-        if namespace is not None:
-            # Explicit namespace - look only there
-            ns_module = self.namespaces.get(namespace)
-            if ns_module is None:
-                return None
-            return ns_module.lookup_tag(partial_path)
-
-        # No namespace - check local first
-        local_result = self.lookup_tag(partial_path)
-        if local_result is not None:
-            return local_result
-
-        # Not found locally - check all namespaces
-        # TODO: This is a simple linear search; will be optimized in two-pass bake
-        found_results = []
-        found_namespaces = []
-
-        for ns_name, ns_module in self.namespaces.items():
-            try:
-                result = ns_module.lookup_tag(partial_path)
-                if result is not None:
-                    found_results.append(result)
-                    found_namespaces.append(ns_name)
-            except ValueError:
-                # Ambiguous in that namespace - skip it
-                continue
-
-        if len(found_results) == 0:
-            return None
-        elif len(found_results) == 1:
-            return found_results[0]
-        else:
-            # Found in multiple namespaces - ambiguous
-            partial_str = ".".join(reversed(partial_path))
-            ns_list = ", ".join(f"/{ns}" for ns in found_namespaces)
-            raise ValueError(
-                f"Ambiguous tag reference #{partial_str} found in multiple namespaces: {ns_list}"
-            )
-
-    def lookup_shape_with_namespace(self, partial_path: list[str],
-                                     namespace: str | None = None) -> ShapeDefinition | None:
+    def lookup_shape(self, partial_path: list[str], namespace: str | None = None) -> ShapeDefinition:
         """Find shape by partial path, optionally in a specific namespace.
 
         Args:
-            partial_path: Reversed partial path (leaf first)
-            namespace: Optional namespace to search in
+            partial_path: Reversed partial path (leaf first),
+                         e.g., ["2d", "point"] for ~2d.point
+            namespace: Optional namespace to search in (e.g., "std" for /std)
 
         Returns:
-            ShapeDefinition if found, None otherwise
+            ShapeDefinition if unique match found
 
         Raises:
-            ValueError: If partial path matches multiple shapes (ambiguous)
+            ValueError: If not found, ambiguous, or namespace not found
 
         Notes:
             - If namespace is provided, searches only that namespace
@@ -759,17 +647,26 @@ class Module(Entity):
             # Explicit namespace - look only there
             ns_module = self.namespaces.get(namespace)
             if ns_module is None:
-                return None
+                partial_str = ".".join(reversed(partial_path))
+                raise ValueError(f"Namespace not found: /{namespace} for shape ~{partial_str}")
             return ns_module.lookup_shape(partial_path)
 
         # No namespace - check local first
-        try:
-            local_result = self.lookup_shape(partial_path)
-            if local_result is not None:
-                return local_result
-        except ValueError:
-            # Ambiguous in local - propagate the error
-            raise
+        matches = [
+            shape_def for shape_def in self.shapes.values()
+            if shape_def.matches_partial(partial_path)
+        ]
+
+        if len(matches) == 1:
+            return matches[0]
+        elif len(matches) > 1:
+            # Ambiguous in local module
+            match_names = [s.full_name for s in matches]
+            partial_str = ".".join(reversed(partial_path))
+            raise ValueError(
+                f"Ambiguous shape reference ~{partial_str} matches: "
+                f"{', '.join('~' + n for n in match_names)}"
+            )
 
         # Not found locally - check all namespaces
         found_results = []
@@ -778,15 +675,15 @@ class Module(Entity):
         for ns_name, ns_module in self.namespaces.items():
             try:
                 result = ns_module.lookup_shape(partial_path)
-                if result is not None:
-                    found_results.append(result)
-                    found_namespaces.append(ns_name)
+                found_results.append(result)
+                found_namespaces.append(ns_name)
             except ValueError:
-                # Ambiguous in that namespace - skip it
+                # Not found or ambiguous in that namespace - skip it
                 continue
 
         if len(found_results) == 0:
-            return None
+            partial_str = ".".join(reversed(partial_path))
+            raise ValueError(f"Shape not found: ~{partial_str}")
         elif len(found_results) == 1:
             return found_results[0]
         else:
@@ -797,19 +694,20 @@ class Module(Entity):
                 f"Ambiguous shape reference ~{partial_str} found in multiple namespaces: {ns_list}"
             )
 
-    def lookup_function_with_namespace(self, partial_path: list[str],
-                                        namespace: str | None = None) -> list[FunctionDefinition] | None:
+    def lookup_function(self, partial_path: list[str],
+                        namespace: str | None = None) -> list[FunctionDefinition]:
         """Find function by partial path, optionally in a specific namespace.
 
         Args:
-            partial_path: Reversed partial path (leaf first)
-            namespace: Optional namespace to search in
+            partial_path: Reversed partial path (leaf first),
+                         e.g., ["area", "geometry"] for |area.geometry
+            namespace: Optional namespace to search in (e.g., "std" for /std)
 
         Returns:
-            List of FunctionDefinition overloads, or None if not found
+            List of FunctionDefinition overloads
 
         Raises:
-            ValueError: If partial path matches multiple functions (ambiguous)
+            ValueError: If not found, ambiguous, or namespace not found
 
         Notes:
             - If namespace is provided, searches only that namespace
@@ -819,17 +717,27 @@ class Module(Entity):
             # Explicit namespace - look only there
             ns_module = self.namespaces.get(namespace)
             if ns_module is None:
-                return None
+                partial_str = ".".join(reversed(partial_path))
+                raise ValueError(f"Namespace not found: /{namespace} for function |{partial_str}")
             return ns_module.lookup_function(partial_path)
 
         # No namespace - check local first
-        try:
-            local_result = self.lookup_function(partial_path)
-            if local_result is not None:
-                return local_result
-        except ValueError:
-            # Ambiguous in local - propagate the error
-            raise
+        matches = []
+        for _full_name, overloads in self.functions.items():
+            # Check if any overload matches
+            if overloads and overloads[0].matches_partial(partial_path):
+                matches.append(overloads)
+
+        if len(matches) == 1:
+            return matches[0]
+        elif len(matches) > 1:
+            # Ambiguous in local module
+            match_names = [funcs[0].full_name for funcs in matches]
+            partial_str = ".".join(reversed(partial_path))
+            raise ValueError(
+                f"Ambiguous function reference |{partial_str} matches: "
+                f"{', '.join('|' + n for n in match_names)}"
+            )
 
         # Not found locally - check all namespaces
         found_results = []
@@ -838,15 +746,15 @@ class Module(Entity):
         for ns_name, ns_module in self.namespaces.items():
             try:
                 result = ns_module.lookup_function(partial_path)
-                if result is not None:
-                    found_results.append(result)
-                    found_namespaces.append(ns_name)
+                found_results.append(result)
+                found_namespaces.append(ns_name)
             except ValueError:
-                # Ambiguous in that namespace - skip it
+                # Not found or ambiguous in that namespace - skip it
                 continue
 
         if len(found_results) == 0:
-            return None
+            partial_str = ".".join(reversed(partial_path))
+            raise ValueError(f"Function not found: |{partial_str}")
         elif len(found_results) == 1:
             return found_results[0]
         else:

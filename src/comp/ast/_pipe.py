@@ -147,10 +147,11 @@ class PipeFunc(PipelineOp):
             func_path_reversed = list(reversed(func_path))
 
             # Look up function in module (with optional namespace)
-            func_defs = module.lookup_function_with_namespace(func_path_reversed, self.namespace)
-            if func_defs is None or len(func_defs) == 0:
-                ns_str = f"/{self.namespace}." if self.namespace else ""
-                return comp.fail(f"Function |{ns_str}{self.func_name} not found")
+            try:
+                func_defs = module.lookup_function(func_path_reversed, self.namespace)
+            except ValueError as e:
+                # Not found or ambiguous
+                return comp.fail(str(e))
 
         # Step 1: Select best overload by trying to morph input to each shape
         best_func = None
@@ -201,20 +202,20 @@ class PipeFunc(PipelineOp):
         # Get mod scope from the function's module (not from frame)
         mod_shared = func_def.module.scope
 
-        # Step 4: Apply permissive masks to ctx and mod (^)
+        # Step 4: Apply weak morph to ctx and mod (~?)
         # Filter to only fields in arg shape (no defaults, no validation)
         ctx_scope = ctx_shared
         mod_scope = mod_shared
         if func_def.arg_shape is not None:
-            # Permissive mask for $ctx
-            ctx_mask_result = comp.mask(ctx_shared, func_def.arg_shape)
-            if ctx_mask_result.success:
-                ctx_scope = ctx_mask_result.value
+            # Weak morph for $ctx
+            ctx_morph_result = comp.weak_morph(ctx_shared, func_def.arg_shape)
+            if ctx_morph_result.success:
+                ctx_scope = ctx_morph_result.value
 
-            # Permissive mask for $mod
-            mod_mask_result = comp.mask(mod_shared, func_def.arg_shape)
-            if mod_mask_result.success:
-                mod_scope = mod_mask_result.value
+            # Weak morph for $mod
+            mod_morph_result = comp.weak_morph(mod_shared, func_def.arg_shape)
+            if mod_morph_result.success:
+                mod_scope = mod_morph_result.value
 
         local_scope = comp.Value({})  # Empty local scope
 
@@ -337,7 +338,7 @@ class PipeBlock(PipelineOp):
 
         # Get module reference - either from block's function or from frame
         # Blocks defined in functions have function.module, module-scope blocks need frame's module
-        block_module = block.module
+        block_module = block.raw_block.function.module if block.raw_block.function else None
         if block_module is None:
             # Module-scope block - get module from frame
             block_module = frame.scope('module')
@@ -345,17 +346,17 @@ class PipeBlock(PipelineOp):
                 return comp.fail("Block invocation requires module context")
 
         # Execute each operation from the block with captured context
-        for op in block.block_ast.ops:
+        for op in block.raw_block.block_ast.ops:
             yield comp.Compute(
                 op,
                 struct_accumulator=accumulator,
                 unnamed=chained,
                 in_=input_value,
-                ctx=block.ctx_scope if block.ctx_scope is not None else comp.Value({}),
-                local=block.local_scope if block.local_scope is not None else comp.Value({}),
+                ctx=block.raw_block.ctx_scope if block.raw_block.ctx_scope is not None else comp.Value({}),
+                local=block.raw_block.local_scope if block.raw_block.local_scope is not None else comp.Value({}),
                 module=block_module,
                 # If block was defined in a function, pass arg scope
-                arg=frame.scope('arg') if block.function is not None else None,
+                arg=frame.scope('arg') if block.raw_block.function is not None else None,
             )
 
         # Return the accumulated result

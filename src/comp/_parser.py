@@ -241,18 +241,6 @@ def _convert_tree(tree: lark.Tree | lark.Token):
             shape = _convert_tree(kids[2])
             return comp.ast.MorphOp(expr, shape, mode="weak")
 
-        # === MASK OPERATORS ===
-        case 'mask_op':
-            expr = _convert_tree(kids[0])
-            # kids[1] is CARET token, kids[2] is morph_type
-            shape = _convert_tree(kids[2])
-            return comp.ast.MaskOp(expr, shape, mode="normal")
-
-        case 'strict_mask_op':
-            expr = _convert_tree(kids[0])
-            shape = _convert_tree(kids[2])
-            return comp.ast.MaskOp(expr, shape, mode="strict")
-
         case 'reference_identifiers':
             # Simple dotted identifier path (e.g., "num" or "http.request")
             # Used in morph operations for shape references

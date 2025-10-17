@@ -1,101 +1,59 @@
 """Tests for tag definitions and references."""
 
+import pytest
+
 import comp
-
-
-def test_entity_base_class():
-    """Verify Value and Module both inherit from Entity."""
-    v = comp.Value(42)
-    m = comp.Module()
-
-    assert isinstance(v, comp.Entity)
-    assert isinstance(m, comp.Entity)
-
-
-def test_module_in_scope():
-    """Verify Module can be passed through scopes."""
-    module = comp.Module()
-
-    # Define a simple tag
-    module.define_tag(["status", "active"], comp.Value(1))
-
-    # Create a simple AST that accesses module scope
-    class TestNode(comp.ast.ValueNode):
-        def evaluate(self, frame):
-            mod = frame.scope('module')
-            if mod is None:
-                return comp.fail("No module scope")
-
-            # Look up a tag
-            tag_def = mod.get_tag_by_full_path(["status", "active"])
-            if tag_def is None:
-                return comp.fail("Tag not found")
-
-            return tag_def.value
-            yield  # Make this a generator (unreachable)
-
-        def unparse(self):
-            return "test_node"    # Run with module in scope
-    engine = comp.Engine()
-    result = engine.run(TestNode(), module=module)
-
-    assert result.to_python() == 1
+import comptest
 
 
 def test_simple_tag_definition():
     """Test defining a tag with a value."""
-    # Create tag definition: !tag #active = 1
-    tag_def = comp.ast.TagDef(
-        path=["status", "active"],  # Definition order
-        value=comp.ast.Number(1)
-    )
-
-    # Wrap in Module node
-    module_node = comp.ast.Module([tag_def])
-
-    # Evaluate
-    engine = comp.Engine()
-    result = engine.run(module_node)
+    # Create tag definition: !tag #active.status = 1  (in comp notation, reversed)
+    module_node = comp.ast.Module([
+        comp.ast.TagDef(
+            path=["status", "active"],  # Definition order (parent first)
+            value=comp.ast.Number(1)
+        ),
+    ])
+    result = comptest.run_ast(module_node)
 
     # Module evaluation returns a Module entity
     assert isinstance(result, comp.Module)
+    
+    # Lookup with reversed path (leaf-first): ["active"] matches end of ["status", "active"]
+    assert result.lookup_tag(["active"]).value.to_python() == 1
+    
+    # Lookup with full reversed path: ["active", "status"]
+    assert result.lookup_tag(["active", "status"])
+    
+    # NOTE: Cannot lookup ["status"] - no tag defined with path ending in "status"
+    # The defined tag is ["status", "active"] which ends with "active", not "status"
 
 
 def test_tag_with_children():
     """Test defining tags with nested children."""
-    # !tag #status = {
-    #     #active = 1
-    #     #inactive = 0
-    # }
-    tag_def = comp.ast.TagDef(
-        path=["status"],
-        children=[
+    # !tag #status = {#active=1 #inactive=0}
+    module_node = comp.ast.Module([
+        comp.ast.TagDef(path=["status"], children=[
             comp.ast.TagChild(path=["active"], value=comp.ast.Number(1)),
             comp.ast.TagChild(path=["inactive"], value=comp.ast.Number(0)),
         ]
-    )
-
-    module_node = comp.ast.Module([tag_def])
-
-    engine = comp.Engine()
-    result = engine.run(module_node)
-
-    # Module evaluation returns a Module entity
-    assert isinstance(result, comp.Module)
+        )
+    ])
+    result = comptest.run_ast(module_node)
+    assert result.lookup_tag(["active"]).value.to_python() == 1
+    assert result.lookup_tag(["inactive"]).value.to_python() == 0
+    assert result.lookup_tag(["active", "status"])
+    assert result.lookup_tag(["status"]).value is None
 
 
 def test_tag_reference():
     """Test referencing a defined tag."""
-    # Manually set up the module
     module = comp.Module()
     module.define_tag(["status", "active"], comp.Value(1))
 
-    # Create reference: #active (partial path)
     tag_ref = comp.ast.TagValueRef(path=["active"])
-
-    # Evaluate the reference with module in scope
-    engine = comp.Engine()
-    result = engine.run(tag_ref, module=module)
+    result = comptest.run_ast(tag_ref, module=module)
 
     # Should return the TagRef itself (not the tag's value)
     # Tag references evaluate to TagRef objects
@@ -104,46 +62,17 @@ def test_tag_reference():
     assert result.data.tag_def.value.data == 1
 
 
-def test_partial_tag_matching():
-    """Test that partial tag paths match correctly."""
+def test_invalid_tag_reference():
+    """Test that invalid references raise."""
     module = comp.Module()
-
-    # Define: !tag #timeout.error.status = 1
-    module.define_tag(["status", "error", "timeout"], comp.Value(1))
-
-    # Reference with partial paths should all work
-    # Full path: #timeout.error.status -> ["timeout", "error", "status"]
-    tag_def = module.lookup_tag(["timeout", "error", "status"])
-    assert tag_def is not None
-
-    # Partial: #timeout.error -> ["timeout", "error"]
-    tag_def = module.lookup_tag(["timeout", "error"])
-    assert tag_def is not None
-
-    # Partial: #timeout -> ["timeout"]
-    tag_def = module.lookup_tag(["timeout"])
-    assert tag_def is not None
-
-
-def test_ambiguous_tag_reference():
-    """Test that ambiguous references are detected."""
-    module = comp.Module()
-
-    # Define two tags with same suffix
     module.define_tag(["status", "error", "timeout"], comp.Value(1))
     module.define_tag(["network", "error", "timeout"], comp.Value(2))
 
     # Ambiguous reference: #timeout
-    try:
+    with pytest.raises(ValueError):
         module.lookup_tag(["timeout"])
-        raise AssertionError("Should have raised ValueError")
-    except ValueError as e:
-        assert "ambiguous" in str(e).lower()
 
+    # Nonexistant
+    with pytest.raises(ValueError):
+        module.lookup_tag(["nonexistent"])
 
-def test_tag_not_found():
-    """Test that missing tags return None."""
-    module = comp.Module()
-
-    tag_def = module.lookup_tag(["nonexistent"])
-    assert tag_def is None

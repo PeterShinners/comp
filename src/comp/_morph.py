@@ -1,6 +1,6 @@
 """Shape morphing and type checking logic."""
 
-__all__ = ["MorphResult", "morph", "strong_morph", "weak_morph", "mask", "strict_mask"]
+__all__ = ["MorphResult", "morph", "strong_morph", "weak_morph"]
 
 import comp
 
@@ -524,107 +524,21 @@ def strong_morph(value, shape):
 
 
 def weak_morph(value, shape):
-    """Weak morph (~?): partial matching without defaults or required field checks.
-
-    Like normal morph but allows missing fields and doesn't apply defaults.
-
-    Behavior:
-    - Does NOT apply default values
-    - Allows missing fields (partial match acceptable)
-    - Ignores extra fields not in the shape
-    - Only validates fields that are present
-
-    Example:
-        {name="Alice"} ~? {name ~str email ~str age ~num = 0}
-        # Result: {name="Alice"}  (no defaults, missing fields OK)
-    """
-    # Wrap non-struct values
-    was_wrapped = False
-    if not value.is_struct:
-        was_wrapped = True
-        value = comp.Value({comp.Unnamed(): value})
-
-    # For primitive shapes, delegate to normal morph
-    if isinstance(shape, comp.ShapeDefinition) and shape.full_name in ("num", "str", "bool", "tag", "any"):
-        result = morph(value, shape)
-        if was_wrapped and result.success and result.value and result.value.is_struct:
-            if len(result.value.data) == 1:
-                result.value = result.value.data[next(iter(result.value.data.keys()))]
-        return result
-
-    # For struct shapes, validate only present fields (no defaults, missing OK)
-    if not isinstance(shape, comp.ShapeDefinition):
-        return MorphResult()
-
-    result_struct = {}
-    named_matches = 0
-    positional_matches = 0
-
-    # Build field map
-    named_fields = {field.name: field for field in shape.fields if field.is_named}
-    positional_fields = [field for field in shape.fields if field.is_positional]
-
-    # Match named fields
-    for field_key, field_value in value.data.items():
-        if isinstance(field_key, comp.Unnamed):
-            continue  # Handle positional separately
-        if not field_key.is_string:
-            continue
-
-        field_name = field_key.data
-        if field_name in named_fields:
-            shape_field = named_fields[field_name]
-            # Validate this field if it has a type constraint
-            if shape_field.shape is not None:
-                field_result = _morph_any(field_value, shape_field.shape)
-                if field_result.success:
-                    result_struct[field_key] = field_result.value
-                    named_matches += 1
-                # else: field validation failed, exclude from result
-            else:
-                result_struct[field_key] = field_value
-                named_matches += 1
-
-    # Match positional fields
-    value_positionals = [(k, v) for k, v in value.data.items() if isinstance(k, comp.Unnamed)]
-    for i, (_pos_key, pos_value) in enumerate(value_positionals):
-        if i < len(positional_fields):
-            shape_field = positional_fields[i]
-            if shape_field.shape is not None:
-                field_result = _morph_any(pos_value, shape_field.shape)
-                if field_result.success:
-                    result_struct[comp.Unnamed()] = field_result.value
-                    positional_matches += 1
-            else:
-                result_struct[comp.Unnamed()] = pos_value
-                positional_matches += 1
-
-    result_value = comp.Value(result_struct)
-
-    # Unwrap if needed
-    if was_wrapped and result_value.is_struct and len(result_value.data) == 1:
-        single_key = next(iter(result_value.data.keys()))
-        if isinstance(single_key, comp.Unnamed):
-            result_value = result_value.data[single_key]
-
-    return MorphResult(
-        named_matches=named_matches,
-        positional_matches=positional_matches,
-        value=result_value
-    )
-
-
-def mask(value, shape):
-    """Permissive mask (^): filter value to intersection of data and shape fields.
+    """Weak morph (~?): filter value to intersection of data and shape fields.
 
     Returns only fields that exist in BOTH the value and the shape.
     Does NOT apply defaults for missing fields.
+    Does NOT validate type constraints.
+    Does NOT restructure data.
     Always succeeds for struct values (may return empty struct).
+
+    This is conceptually similar to "field masking" - it filters fields
+    without any validation or transformation.
 
     Example:
         data = {user="alice" session="abc" debug=#true admin="secret"}
         shape = {user ~str session ~str}
-        result = mask(data, shape)
+        result = weak_morph(data, shape)
         # result.value = {user="alice" session="abc"}
     """
     # Only structs can be masked
@@ -643,7 +557,7 @@ def mask(value, shape):
 
     for key, val in value.data.items():
         if isinstance(key, comp.Unnamed):
-            continue  # Mask only filters named fields
+            continue  # Weak morph only filters named fields
         if key.is_string and key.data in shape_field_names:
             filtered_struct[key] = val
             matched_count += 1
@@ -652,23 +566,3 @@ def mask(value, shape):
 
     # Always succeeds (even if empty)
     return MorphResult(named_matches=matched_count, value=filtered_value)
-
-
-def strict_mask(value, shape):
-    """Strict mask (^*): validate exact shape match with defaults.
-
-    Validates that the value exactly matches the shape structure:
-    - Applies defaults for missing fields with defaults
-    - FAILS if extra fields are present in value
-    - FAILS if required fields are missing from value
-
-    This is functionally equivalent to strong morph (~*).
-
-    Example:
-        args = {host="localhost" port=3000}
-        shape = {host ~str port ~num timeout ~num = 30}
-        result = strict_mask(args, shape)
-        # result.value = {host="localhost" port=3000 timeout=30}
-    """
-    # Strict mask is identical to strong morph
-    return strong_morph(value, shape)

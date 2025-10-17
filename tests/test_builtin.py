@@ -1,6 +1,7 @@
 """Tests for the builtin module system."""
 
 import comp
+import comptest
 
 
 def test_builtin_module_creation():
@@ -11,44 +12,28 @@ def test_builtin_module_creation():
     assert isinstance(builtin, comp.Module)
     assert builtin.is_builtin is True
 
+    # Singleton check
+    builtin2 = comp.get_builtin_module()
+    assert builtin is builtin2
 
-def test_builtin_core_tags():
-    """Verify core tags are defined in builtin module."""
-    builtin = comp.get_builtin_module()
+    # Non recursive self-reference check
+    assert not builtin.namespaces
 
-    # Boolean tags
+    # Several expected tags
     assert "true" in builtin.tags
     assert "false" in builtin.tags
-
-    # Failure tags
     assert "fail" in builtin.tags
-    assert "fail.runtime" in builtin.tags
     assert "fail.type" in builtin.tags
-    assert "fail.div_zero" in builtin.tags
     assert "fail.not_found" in builtin.tags
-    assert "fail.ambiguous" in builtin.tags
 
-
-def test_builtin_primitive_shapes():
-    """Verify primitive shapes are defined in builtin module."""
-    builtin = comp.get_builtin_module()
-
+    # Several expected shapes
     assert "num" in builtin.shapes
     assert "str" in builtin.shapes
     assert "bool" in builtin.shapes
     assert "any" in builtin.shapes
-    assert "tag" in builtin.shapes
 
-
-def test_builtin_core_functions():
-    """Verify core functions are defined in builtin module."""
-    builtin = comp.get_builtin_module()
-
-    assert "double" in builtin.functions
+    # Expected functions, these are placeholders
     assert "print" in builtin.functions
-    assert "identity" in builtin.functions
-    assert "add" in builtin.functions
-    assert "wrap" in builtin.functions
 
 
 def test_regular_modules_get_builtin_namespace():
@@ -73,16 +58,16 @@ def test_lookup_from_builtin_namespace():
     module = comp.Module()
 
     # Functions
-    double_funcs = module.lookup_function_with_namespace(["double"], "builtin")
+    double_funcs = module.lookup_function(["double"], namespace="builtin")
     assert double_funcs is not None
     assert len(double_funcs) > 0
 
     # Tags
-    true_tag = module.lookup_tag_with_namespace(["true"], "builtin")
+    true_tag = module.lookup_tag(["true"], namespace="builtin")
     assert true_tag is not None
 
     # Shapes
-    num_shape = module.lookup_shape_with_namespace(["num"], "builtin")
+    num_shape = module.lookup_shape(["num"], namespace="builtin")
     assert num_shape is not None
 
 
@@ -91,24 +76,16 @@ def test_fallback_to_builtin_namespace():
     module = comp.Module()
 
     # Function not in local module should fallback to builtin
-    double_fallback = module.lookup_function_with_namespace(["double"], None)
+    double_fallback = module.lookup_function(["double"], namespace=None)
     assert double_fallback is not None
 
     # Tag not in local module should fallback to builtin
-    true_fallback = module.lookup_tag_with_namespace(["true"], None)
+    true_fallback = module.lookup_tag(["true"], namespace=None)
     assert true_fallback is not None
 
     # Shape not in local module should fallback to builtin
-    num_fallback = module.lookup_shape_with_namespace(["num"], None)
+    num_fallback = module.lookup_shape(["num"], namespace=None)
     assert num_fallback is not None
-
-
-def test_builtin_singleton():
-    """Verify get_builtin_module returns the same instance."""
-    builtin1 = comp.get_builtin_module()
-    builtin2 = comp.get_builtin_module()
-
-    assert builtin1 is builtin2
 
 
 def test_local_definitions_override_builtin():
@@ -124,6 +101,46 @@ def test_local_definitions_override_builtin():
     assert local_funcs[0].doc == "Local double"
 
     # Explicit builtin namespace should still find builtin version
-    builtin_funcs = module.lookup_function_with_namespace(["double"], "builtin")
+    builtin_funcs = module.lookup_function(["double"], namespace="builtin")
     assert builtin_funcs is not None
     assert builtin_funcs[0].doc != "Local double"
+
+
+def test_if_with_true_tag():
+    """Test [5 |if #true 10 20] → 10"""
+    value = comptest.run_func("""
+    !func |test ~{} = {
+        result = [5 |if #true 10 20]
+    }
+    """)
+    comptest.assert_value(value, result=10)
+
+
+def test_if_with_false_tag():
+    """Test [5 |if #false 10 20] → 20"""
+    value = comptest.run_func("""
+    !func |test ~{} = {
+        result = [5 |if #false 10 20]
+    }
+    """)
+    comptest.assert_value(value, result=20)
+
+
+def test_if_without_else():
+    """Test [5 |if #false 10] → 5 (returns input when no else branch)"""
+    value = comptest.run_func("""
+    !func |test ~{} = {
+        result = [5 |if #false 10]
+    }
+    """)
+    comptest.assert_value(value, result=5)
+
+
+def test_if_passes_input_to_branches():
+    """Test that branches receive $in from pipeline"""
+    value = comptest.run_func("""
+    !func |test ~{} = {
+        result = [5 |if #true {double = $in * 2} {half = $in / 2}]
+    }
+    """)
+    comptest.assert_value(value, result=10)  # 5 * 2

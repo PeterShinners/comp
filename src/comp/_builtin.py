@@ -55,7 +55,6 @@ def create_builtin_module() -> _module.Module:
     module.define_shape(["str"], fields=[])
     module.define_shape(["bool"], fields=[])
     module.define_shape(["any"], fields=[])
-    module.define_shape(["tag"], fields=[])
     module.define_shape(["nil"], fields=[])
 
     # ========================================================================

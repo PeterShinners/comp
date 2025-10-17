@@ -331,16 +331,10 @@ class TagValueRef(_base.ValueNode):
 
         # Look up tag by partial path with namespace support
         try:
-            tag_def = module.lookup_tag_with_namespace(self.path, self.namespace)
+            tag_def = module.lookup_tag(self.path, self.namespace)
         except ValueError as e:
-            # Ambiguous reference
+            # Not found or ambiguous reference
             return comp.fail(str(e))
-
-        if tag_def is None:
-            path_str = ".".join(reversed(self.path))
-            if self.namespace:
-                return comp.fail(f"Tag not found: #{path_str}/{self.namespace}")
-            return comp.fail(f"Tag not found: #{path_str}")
 
         # Return the TagRef itself wrapped in a Value
         return comp.Value(comp.TagRef(tag_def))

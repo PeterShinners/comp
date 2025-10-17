@@ -207,16 +207,10 @@ class FuncRef(_base.ValueNode):
         # Look up function with namespace support (returns list of overloads)
         # Uses partial path matching (suffix matching on reversed path)
         try:
-            func_defs = module.lookup_function_with_namespace(self.path, self.namespace)
+            func_defs = module.lookup_function(self.path, self.namespace)
         except ValueError as e:
-            # Ambiguous reference
+            # Not found or ambiguous reference
             return comp.fail(str(e))
-
-        if func_defs is None:
-            path_str = ".".join(reversed(self.path))
-            if self.namespace:
-                return comp.fail(f"Function not found: |{path_str}/{self.namespace}")
-            return comp.fail(f"Function not found: |{path_str}")
 
         # For now, return a structure with metadata about the function(s)
         # TODO: Return actual callable function object
