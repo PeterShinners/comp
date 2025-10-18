@@ -14,29 +14,29 @@
 
 ; !doc "Generate range of numbers from start to end (exclusive) with optional step"
 !func |range ~{} arg ~{start~num=0 end~num step~num=1} = {
-    (|if (step <= 0)
+    [|if (step <= 0)
         then={#fail "range step must be positive"}
         else=:{
             $var.current = start
             
-            (|while :{
-                (|if ($var.current >= end)
+            [|while :{
+                [|if ($var.current >= end)
                     then=#break
                     else=:{
                         $var.result = $var.current
                         $var.current = $var.current + step
                         $var.result
                     }
-                )
-            })
+                ]
+            }]
         }
-    )
+    ]
 }
 
 
 ; !doc "Generate indices for input collection (0 to length-1)"
 !func |indices ~struct = {
-    (|range end=($in |length))
+    [|range end=($in |length)]
 }
 
 
@@ -44,21 +44,174 @@
 !func |iter ~struct arg {op ~:{value field index ~num}} = {
     $var.collection = $in
     
-    ..($var.collection
+    ..[$var.collection
     |indices
     |while :{
-        ({
-            {value field} = ($var.collection |positional-value-end-field $it)
+        [{
+            {value field} = [$var.collection |positional-value-end-field $it]
             index = $it
         } 
-        |:arg.op)
-    })
+        |:arg.op]
+    }]
 }
 
 
-!func |map ~struct ^{op ~:{}} = {
-    [|iter :{
-        [value |:^op]
+!func |map ~struct arg ~{op ~:{}} = {
+    [$in |iter :{
+        [$in.value |:$arg.op]
     }]
+}
+
+
+; !doc "Test if any element matches condition"
+!func |any? ~struct arg ~{if ~:{}} = {
+    [$in |iter :{
+        [[$in.value |:$arg.if] ?!! {!return true}]
+    }]
+    false
+}
+
+
+; !doc "Test if all elements match condition"
+!func |all? ~struct arg ~{if ~:{}} = {
+    [$in |iter :{
+        [[$in.value |:$arg.if] !or {!return false}]
+    }]
+    true
+}
+
+
+; !doc "Test if no elements match condition"
+!func |none? ~struct arg ~{if ~:{}} = {
+    [$in |iter :{
+        [[$in.value |:$arg.if] ?!! {!return false}]
+    }]
+    true
+}
+
+
+; !doc "Count elements matching condition (defaults to non-fail values)"
+!func |count ~struct arg ~{if ~:{}={}} = {
+    $var.counter = 0
+    $var.test = [$arg.if !or :{$in}]
+    [$in |iter :{
+        [[$in.value |:$var.test] ?!! {
+            $var.counter = [$var.counter !add 1]
+        }]
+    }]
+    $var.counter
+}
+
+
+; !doc "Filter elements matching condition"
+!func |filter ~struct arg ~{if ~:{}} = {
+    [$in |iter :{
+        [[$in.value |:$arg.if] ?!! {$in.value}]
+    }]
+}
+
+
+; !doc "Group consecutive elements into fixed-size chunks"
+!func |chunk ~struct arg ~{size ~num} = {
+    [$in |iter :{
+        $var.batch = []
+        [$in.value !each :{
+            $var.batch = [$var.batch !append $in]
+            [[$var.batch |length !equal $arg.size] ?!! {
+                !yield $var.batch
+                $var.batch = []
+            }]
+        }]
+        [[$var.batch |length !greater 0] ?!! {
+            !yield $var.batch
+        }]
+    }]
+}
+
+
+; !doc "Group elements by key function result"
+!func |group ~struct arg ~{key ~:{}} = {
+    ???
+}
+
+
+; !doc "Flatten nested structures into single sequence"
+; TODO: Needs recursion support - stubbed for now
+!func |flat ~struct arg ~{depth ~num = 1} = {
+    ???
+}
+
+
+; !doc "Reduce sequence to single value using fold function"
+!func |reduce ~struct arg ~{initial ~any fold ~:{accumulator value}} = {
+    $var.result = $arg.initial
+    [$in |iter :{
+        $var.result = [$arg.fold accumulator: $var.result value: $in.value]
+    }]
+    $var.result
+}
+
+
+; !doc "Split sequence at index position"
+!func |split ~struct arg ~{index ~num} = {
+    ???
+}
+
+
+; !doc "Partition elements into two groups based on condition"
+!func |partition ~struct arg ~{if ~:{}} = {
+    $var.true-list = []
+    $var.false-list = []
+    [$in |iter :{
+        [[$in.value |:$arg.if] 
+            ?!! {$var.true-list = [$var.true-list !append $in.value]}
+            !or {$var.false-list = [$var.false-list !append $in.value]}
+        ]
+    }]
+    {true: $var.true-list false: $var.false-list}
+}
+
+
+; !doc "Remove duplicate elements (optionally by key)"
+!func |unique ~struct arg ~{key ~:{}={}} = {
+    $var.seen = #{}
+    $var.key-fn = [$arg.key !or :{$in}]
+    [$in |iter :{
+        $var.item-key = [$in.value |:$var.key-fn]
+        [[$var.seen !has $var.item-key] !or {
+            $var.seen = [$var.seen !add $var.item-key]
+            !yield $in.value
+        }]
+    }]
+}
+
+
+; !doc "Repeat sequence n times or element infinitely"
+!func |repeat ~struct arg ~{times ~num={}} = {
+    ???
+}
+
+
+; !doc "Duplicate stream for multiple independent consumers"
+!func |tee ~struct arg ~{count ~num = 2} = {
+    ???
+}
+
+
+; !doc "Convert pairs of {field value} into structure"
+!func |from-pairs ~struct = {
+    ???
+}
+
+
+; !doc "Find insertion index for value in sorted sequence (optionally by key)"
+!func |bisect ~struct arg ~{value ~any key ~:{}={}} = {
+    ???
+}
+
+
+; !doc "Concatenate sequence of sequences into single sequence"
+!func |join ~struct = {
+    ???
 }
 

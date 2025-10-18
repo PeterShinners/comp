@@ -50,8 +50,8 @@ class ImportDef(ModuleOp):
 
         # Handle different import sources
         if self.source == "stdlib":
-            # Load from Python-implemented stdlib
-            from comp.stdlib import get_stdlib_module
+            # Load from Python-implemented corelib
+            from comp.corelib import get_stdlib_module
             try:
                 imported_module = get_stdlib_module(self.path)
                 if imported_module is None:

@@ -2,11 +2,9 @@
 
 import comp
 
-# ============================================================================
 # String Transformation Functions
-# ============================================================================
 
-def string_upper(frame, input_value: comp.Value, args: comp.Value | None = None):
+def upper(frame, input_value, args=None):
     """Convert string to uppercase: ["hello" |upper] → "HELLO" """
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
@@ -14,7 +12,7 @@ def string_upper(frame, input_value: comp.Value, args: comp.Value | None = None)
     return comp.Value(input_value.data.upper())
 
 
-def string_lower(frame, input_value: comp.Value, args: comp.Value | None = None):
+def lower(frame, input_value, args=None):
     """Convert string to lowercase: ["HELLO" |lower] → "hello" """
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
@@ -22,7 +20,7 @@ def string_lower(frame, input_value: comp.Value, args: comp.Value | None = None)
     return comp.Value(input_value.data.lower())
 
 
-def string_capitalize(frame, input_value: comp.Value, args: comp.Value | None = None):
+def capitalize(frame, input_value, args=None):
     """Capitalize first letter: ["hello world" |capitalize] → "Hello world" """
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
@@ -30,7 +28,7 @@ def string_capitalize(frame, input_value: comp.Value, args: comp.Value | None = 
     return comp.Value(input_value.data.capitalize())
 
 
-def string_title(frame, input_value: comp.Value, args: comp.Value | None = None):
+def title(frame, input_value, args=None):
     """Convert to title case: ["hello world" |title] → "Hello World" """
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
@@ -38,11 +36,9 @@ def string_title(frame, input_value: comp.Value, args: comp.Value | None = None)
     return comp.Value(input_value.data.title())
 
 
-# ============================================================================
 # String Trimming Functions
-# ============================================================================
 
-def string_strip(frame, input_value: comp.Value, args: comp.Value | None = None):
+def strip(frame, input_value, args=None):
     """Remove leading/trailing whitespace: ["  hello  " |strip] → "hello" """
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
@@ -60,7 +56,7 @@ def string_strip(frame, input_value: comp.Value, args: comp.Value | None = None)
     return comp.Value(input_value.data.strip(chars))
 
 
-def string_lstrip(frame, input_value: comp.Value, args: comp.Value | None = None):
+def lstrip(frame, input_value, args=None):
     """Remove leading whitespace: ["  hello" |lstrip] → "hello" """
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
@@ -77,7 +73,7 @@ def string_lstrip(frame, input_value: comp.Value, args: comp.Value | None = None
     return comp.Value(input_value.data.lstrip(chars))
 
 
-def string_rstrip(frame, input_value: comp.Value, args: comp.Value | None = None):
+def rstrip(frame, input_value, args=None):
     """Remove trailing whitespace: ["hello  " |rstrip] → "hello" """
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
@@ -94,11 +90,9 @@ def string_rstrip(frame, input_value: comp.Value, args: comp.Value | None = None
     return comp.Value(input_value.data.rstrip(chars))
 
 
-# ============================================================================
 # String Splitting/Joining Functions
-# ============================================================================
 
-def string_split(frame, input_value: comp.Value, args: comp.Value | None = None):
+def split(frame, input_value, args=None):
     """Split string into list: ["a,b,c" |split ^{sep=","}] → ["a", "b", "c"]"""
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
@@ -126,7 +120,7 @@ def string_split(frame, input_value: comp.Value, args: comp.Value | None = None)
     return comp.Value([comp.Value(part) for part in parts])
 
 
-def string_join(frame, input_value: comp.Value, args: comp.Value | None = None):
+def join(frame, input_value, args=None):
     """Join list into string: [["a", "b", "c"] |join ^{sep=","}] → "a,b,c" """
     # Input should be a struct (lists are represented as structs with Unnamed keys)
     if not input_value.is_struct:
@@ -162,7 +156,7 @@ def string_join(frame, input_value: comp.Value, args: comp.Value | None = None):
         return comp.fail(f"|join error: {e}")
 
 
-def string_replace(frame, input_value: comp.Value, args: comp.Value | None = None):
+def replace(frame, input_value, args=None):
     """Replace substring: ["hello" |replace ^{old="l" new="r"}] → "herro" """
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
@@ -195,78 +189,74 @@ def string_replace(frame, input_value: comp.Value, args: comp.Value | None = Non
     return comp.Value(result)
 
 
-# ============================================================================
 # String Testing Functions
-# ============================================================================
 
-def string_startswith(frame, input_value: comp.Value, args: comp.Value | None = None):
-    """Check if starts with prefix: ["hello" |startswith ^{prefix="he"}] → #true"""
+def starts_with_(frame, input_value, args=None):
+    """Check if starts with prefix: ["hello" |starts-with? ^{prefix="he"}] → #true"""
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
-        return comp.fail(f"|startswith expects string, got {type(input_value.data).__name__}")
+        return comp.fail(f"|starts-with? expects string, got {type(input_value.data).__name__}")
 
     if not args or not args.is_struct:
-        return comp.fail("|startswith requires ^{prefix=...}")
+        return comp.fail("|starts-with? requires ^{prefix=...}")
 
     prefix_key = comp.Value("prefix")
     if prefix_key not in args.struct:
-        return comp.fail("|startswith requires ^{prefix=...}")
+        return comp.fail("|starts-with? requires ^{prefix=...}")
 
     prefix_value = args.struct[prefix_key]
     if not isinstance(prefix_value.data, str):
-        return comp.fail("|startswith prefix must be string")
+        return comp.fail("|starts-with? prefix must be string")
 
     result = input_value.data.startswith(prefix_value.data)
-    return comp.Value(comp.TRUE if result else comp.FALSE)
+    return comp.Value(comp.builtin.TRUE if result else comp.builtin.FALSE)
 
 
-def string_endswith(frame, input_value: comp.Value, args: comp.Value | None = None):
-    """Check if ends with suffix: ["hello" |endswith ^{suffix="lo"}] → #true"""
+def ends_with_(frame, input_value, args=None):
+    """Check if ends with suffix: ["hello" |ends-with? ^{suffix="lo"}] → #true"""
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
-        return comp.fail(f"|endswith expects string, got {type(input_value.data).__name__}")
+        return comp.fail(f"|ends-with? expects string, got {type(input_value.data).__name__}")
 
     if not args or not args.is_struct:
-        return comp.fail("|endswith requires ^{suffix=...}")
+        return comp.fail("|ends-with? requires ^{suffix=...}")
 
     suffix_key = comp.Value("suffix")
     if suffix_key not in args.struct:
-        return comp.fail("|endswith requires ^{suffix=...}")
+        return comp.fail("|ends-with? requires ^{suffix=...}")
 
     suffix_value = args.struct[suffix_key]
     if not isinstance(suffix_value.data, str):
-        return comp.fail("|endswith suffix must be string")
+        return comp.fail("|ends-with? suffix must be string")
 
     result = input_value.data.endswith(suffix_value.data)
-    return comp.Value(comp.TRUE if result else comp.FALSE)
+    return comp.Value(comp.builtin.TRUE if result else comp.builtin.FALSE)
 
 
-def string_contains(frame, input_value: comp.Value, args: comp.Value | None = None):
-    """Check if contains substring: ["hello" |contains ^{substr="ll"}] → #true"""
+def contains_(frame, input_value, args=None):
+    """Check if contains substring: ["hello" |contains? ^{substr="ll"}] → #true"""
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
-        return comp.fail(f"|contains expects string, got {type(input_value.data).__name__}")
+        return comp.fail(f"|contains? expects string, got {type(input_value.data).__name__}")
 
     if not args or not args.is_struct:
-        return comp.fail("|contains requires ^{substr=...}")
+        return comp.fail("|contains? requires ^{substr=...}")
 
     substr_key = comp.Value("substr")
     if substr_key not in args.struct:
-        return comp.fail("|contains requires ^{substr=...}")
+        return comp.fail("|contains? requires ^{substr=...}")
 
     substr_value = args.struct[substr_key]
     if not isinstance(substr_value.data, str):
-        return comp.fail("|contains substr must be string")
+        return comp.fail("|contains? substr must be string")
 
     result = substr_value.data in input_value.data
-    return comp.Value(comp.TRUE if result else comp.FALSE)
+    return comp.Value(comp.builtin.TRUE if result else comp.builtin.FALSE)
 
 
-# ============================================================================
 # String Utility Functions
-# ============================================================================
 
-def string_length(frame, input_value: comp.Value, args: comp.Value | None = None):
+def length(frame, input_value, args=None):
     """Get string length: ["hello" |length] → 5"""
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
@@ -276,7 +266,7 @@ def string_length(frame, input_value: comp.Value, args: comp.Value | None = None
     return comp.Value(Decimal(len(input_value.data)))
 
 
-def string_slice(frame, input_value: comp.Value, args: comp.Value | None = None):
+def slice(frame, input_value, args=None):
     """Extract substring: ["hello" |slice ^{start=1 end=4}] → "ell" """
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
@@ -304,7 +294,7 @@ def string_slice(frame, input_value: comp.Value, args: comp.Value | None = None)
     return comp.Value(input_value.data[start:end])
 
 
-def string_repeat(frame, input_value: comp.Value, args: comp.Value | None = None):
+def repeat(frame, input_value, args=None):
     """Repeat string: ["ab" |repeat ^{n=3}] → "ababab" """
     input_value = input_value.as_scalar()
     if not isinstance(input_value.data, str):
@@ -328,48 +318,42 @@ def string_repeat(frame, input_value: comp.Value, args: comp.Value | None = None
     return comp.Value(input_value.data * n)
 
 
-# ============================================================================
 # Module Creation
-# ============================================================================
 
 def create_module() -> comp.Module:
-    """Create the string library module.
-
-    Returns:
-        A Module containing string manipulation functions
-    """
+    """Create the string library module."""
     module = comp.Module()
 
     # Define all string functions
-    functions = {
+    functions = (
         # Transformation
-        "upper": string_upper,
-        "lower": string_lower,
-        "capitalize": string_capitalize,
-        "title": string_title,
-
+        upper,
+        lower,
+        capitalize,
+        title,
         # Trimming
-        "strip": string_strip,
-        "lstrip": string_lstrip,
-        "rstrip": string_rstrip,
-
+        strip,
+        lstrip,
+        rstrip,
         # Splitting/Joining
-        "split": string_split,
-        "join": string_join,
-        "replace": string_replace,
-
+        split,
+        join,
+        replace,
         # Testing
-        "startswith": string_startswith,
-        "endswith": string_endswith,
-        "contains": string_contains,
-
+        starts_with_,
+        ends_with_,
+        contains_,
         # Utilities
-        "length": string_length,
-        "slice": string_slice,
-        "repeat": string_repeat,
-    }
+        length,
+        slice,
+        repeat,
+    )
 
-    for name, py_func in functions.items():
+    for py_func in functions:
+        name = py_func.__name__
+        # Convert trailing _ to ? and _ to -
+        if name.endswith("_"):
+            name = name[:-1].replace("_", "-") + "?"
         py_function = comp.PythonFunction(name, py_func)
         module.define_function(
             path=[name],

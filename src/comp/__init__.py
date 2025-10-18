@@ -16,4 +16,4 @@ from ._module import *
 from ._tag import *
 from ._morph import *
 from ._parser import *
-from . import builtin, ast, stdlib
+from . import builtin, ast, corelib
