@@ -59,13 +59,13 @@ def test_mixed_fields():
 
 
 def test_spread_operator():
-    """Test {..base y=3} - spreading another struct."""
-    # {..@ y=3} to override y (using scope field)
+    """Test {..$var y=3} - spreading another struct."""
+    # {..$var y=3} to override y (using scope field)
     expr = comp.ast.Structure([
-        comp.ast.SpreadOp(comp.ast.Identifier([comp.ast.ScopeField("@")])),  # @local scope
+        comp.ast.SpreadOp(comp.ast.Identifier([comp.ast.ScopeField("var")])),  # $var scope
         comp.ast.FieldOp(comp.ast.Number(3), key=comp.ast.String("y")),
     ])
-    result = comptest.run_ast(expr, local={"x": 1, "y": 2})
+    result = comptest.run_ast(expr, var={"x": 1, "y": 2})
     comptest.assert_value(result, x=1, y=3)
 
 

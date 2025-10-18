@@ -101,7 +101,7 @@ def morph(value, shape):
         value = wrapped
 
     # Delegate to internal morphing (handles unions and structs)
-    result = _morph_any(value, shape)
+    result = _morph_any(value, shape, was_wrapped=was_wrapped)
 
     # Unwrap if we wrapped AND the target shape is a primitive (not structural)
     # This handles cases like: 5 ~num (stay unwrapped)
@@ -122,7 +122,7 @@ def morph(value, shape):
     return result
 
 
-def _morph_any(value, shape):
+def _morph_any(value, shape, was_wrapped=False):
     """Internal morph function that handles any value without wrapping.
 
     This is used for recursive morphing of field values where we don't want
@@ -131,6 +131,7 @@ def _morph_any(value, shape):
     Args:
         value: The value to morph (struct or non-struct)
         shape: The shape to morph to
+        was_wrapped: True if the value was wrapped by the outer morph() call
 
     Returns:
         MorphResult with the morphed value or failure
@@ -140,7 +141,7 @@ def _morph_any(value, shape):
         best_result = MorphResult()  # Zero score, no value
 
         for variant in shape.variants:
-            variant_result = _morph_any(value, variant)
+            variant_result = _morph_any(value, variant, was_wrapped=was_wrapped)
             if variant_result.success and variant_result > best_result:
                 best_result = variant_result
 
@@ -148,7 +149,7 @@ def _morph_any(value, shape):
 
     # For non-union shapes, delegate to the appropriate handler
     # Struct values go to _morph_struct, primitives to _morph_primitive
-    return _morph_struct(value, shape)
+    return _morph_struct(value, shape, was_wrapped=was_wrapped)
 
 
 def _morph_primitive(value, type_name):
@@ -201,15 +202,20 @@ def _morph_primitive(value, type_name):
     return MorphResult()
 
 
-def _morph_struct(value, shape):
+def _morph_struct(value, shape, was_wrapped=False):
     """Internal morphing logic for structures.
 
     This is where the actual morphing algorithm lives. Assumes value is already
     a structure (caller should wrap non-structs first).
 
+    Args:
+        value: The value to morph (should be a struct)
+        shape: The shape to morph to
+        was_wrapped: True if the value was wrapped by the outer morph() call
+
     Returns both the match score and the morphed value in a single pass.
     """
-    # Handle primitive type shapes (~num, ~str, ~bool, ~tag, ~any)
+    # Handle primitive type shapes (~num, ~str, ~bool, ~tag, ~any, ~struct)
     if isinstance(shape, comp.ShapeDefinition):
         if shape.full_name in ("num", "str"):
             return _morph_primitive(value, shape.full_name)
@@ -229,6 +235,14 @@ def _morph_struct(value, shape):
             if value.is_tag:
                 return MorphResult(tag_depth=1, value=value)
             return MorphResult()
+        elif shape.full_name == "struct":
+            # ~struct requires an actual struct, rejecting primitives that would be promoted
+            # Only reject if the wrapping was done by morph() (was_wrapped=True)
+            # This means: 5~struct fails, but {5}~struct succeeds
+            if was_wrapped:
+                return MorphResult()
+            # Accept the struct (it came in already as a struct)
+            return MorphResult(positional_matches=0, value=value)
         elif shape.full_name == "any":
             # ~any accepts anything
             return MorphResult(positional_matches=0, value=value)

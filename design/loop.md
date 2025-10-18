@@ -110,20 +110,20 @@ Streams are blocks that maintain internal state and generate values when invoked
 
 ```comp
 ; Stream generator returns a block
-!func |counter ^{start ~num = 0} = &{
-    @current = ^start - 1
+!func |counter arg ~{start ~num = 0} = &{
+    $var.current = $arg.start - 1
     
     ; Return block that generates values
     $out = :{
-        @current = @current + 1
-        @current
+        $var.current = $var.current + 1
+        $var.current
     }
 }
 
 ; Usage
-@counts = [|counter start=10]
-value1 = |:@counts    ; 10
-value2 = |:@counts    ; 11
+$var.counts = [|counter start=10]
+value1 = |:$var.counts    ; 10
+value2 = |:$var.counts    ; 11
 ```
 
 ### Stream Protocol
@@ -169,33 +169,33 @@ The standard library provides essential iteration functions that work uniformly 
 Transforms each element through a block, returning a lazy structure.
 
 ```comp
-!func |map ~{source} ^{transform ~:{}} = {
+!func |map ~{source} arg ~{transform ~:{}} = {
     ; Returns lazy structure with transformed values
 }
 
 ; Usage
 [{1 2 3} |map :{$in * 2}]        ; Lazy {2 4 6}
-[@stream |map :{$in |enhance}]   ; Transformed stream
+[$var.stream |map :{$in |enhance}]   ; Transformed stream
 ```
 
 ### |filter
 Selects elements matching a predicate, returning a lazy structure.
 
 ```comp
-!func |filter ~{source} ^{predicate ~:{}} = {
+!func |filter ~{source} arg ~{predicate ~:{}} = {
     ; Returns lazy structure with matching elements
 }
 
 ; Usage
 [{1 2 3 4 5} |filter :{$in % 2 == 0}]  ; Lazy {2 4}
-[@stream |filter :{score > threshold}]  ; Filtered stream
+[$var.stream |filter :{$in.score > $var.threshold}]  ; Filtered stream
 ```
 
 ### |take
 Limits iteration to a specified number of elements.
 
 ```comp
-!func |take ~{source} ^{count ~num} = {
+!func |take ~{source} arg ~{count ~num} = {
     ; Returns lazy structure with first n elements
 }
 
@@ -208,34 +208,31 @@ Limits iteration to a specified number of elements.
 Reduces a sequence to a single value using an accumulator.
 
 ```comp
-!func |fold ~{source} ^{initial ~any reducer ~:{}} = {
+!func |fold ~{source} arg ~{initial ~any reducer ~:{}} = {
     ; Block receives {accumulator element}
     ; Forces evaluation of source elements
 }
 
 ; Usage
-[{1 2 3} |fold 0 :{accumulator + element}]  ; 6
-[@stream |take 100 |fold {} :{..accumulator element}]  ; Collect stream
+[{1 2 3} |fold 0 :{$in.accumulator + $in.element}]  ; 6
+[$var.stream |take 100 |fold {} :{..$in.accumulator $in.element}]  ; Collect stream
 ```
 
 ### |each
 Executes a block for each element, primarily for side effects.
 
 ```comp
-!func |each ~{source} ^{action ~:{}} = {
+!func |each ~{source} arg ~{action ~:{}} = {
     ; Forces evaluation, returns empty structure
 }
 
-; Usage
-[{1 2 3} |each :{$in |print}]
-[@stream |take 10 |each :{$in |process}]
-```
+````
 
 ### |range
 Creates a sequence of numbers as a lazy structure.
 
 ```comp
-!func |range ^{from ~num to ~num step ~num = 1} = {
+!func |range arg ~{from ~num to ~num step ~num = 1} = {
     ; Returns lazy structure
 }
 
@@ -248,18 +245,18 @@ Creates a sequence of numbers as a lazy structure.
 Creates an infinite counting stream.
 
 ```comp
-!func |counter ^{start ~num = 0 step ~num = 1} = &{
-    @current = ^start - step
+!func |counter arg ~{start ~num = 0 step ~num = 1} = &{
+    $var.current = $arg.start - $arg.step
     
     $out = :{
-        @current = @current + step
-        @current
+        $var.current = $var.current + $arg.step
+        $var.current
     }
 }
 
 ; Usage
-@ids = [|counter start=1000]
-@evens = [|counter start=0 step=2]
+$var.ids = [|counter start=1000]
+$var.evens = [|counter start=0 step=2]
 ```
 
 ### |zip
@@ -297,22 +294,25 @@ Checks if a sequence contains any elements without forcing evaluation.
 Streams can defer expensive initialization until first use:
 
 ```comp
-!func |file-lines ^{path ~str} = &{
-    @file = #nil
-    @done = #false
+Streams can defer expensive initialization until first use:
+
+```comp
+!func |file-lines arg ~{path ~str} = &{
+    $var.file = #nil
+    $var.done = #false
     
     $out = :{
-        @file == #nil |when :{
-            @file = ^path |open/file
+        $var.file == #nil |when :{
+            $var.file = $arg.path |open/file
         }
         
-        @done |if :{#break} :{
-            @line = @file |read-line
-            @line == #eof |if :{
-                @done = #true
-                @file |close
+        $var.done |if :{#break} :{
+            $var.line = $var.file |read-line
+            $var.line == #eof |if :{
+                $var.done = #true
+                $var.file |close
                 #break
-            } :{@line}
+            } :{$var.line}
         }
     }
 }
@@ -327,11 +327,30 @@ Streams naturally integrate with Comp's context system:
 $ctx.random = [123 |seed/random]
 
 ; Functions use context stream
-!func |create-values ^{count ~num} = {
-    @rng = $ctx.random ?? [|default-random]
+!func |create-values arg ~{count ~num} = {
+    $var.rng = $ctx.random ?? [|default-random]
     
-    [1 |range ^count |map :{
-        [|:@rng |uniform {0 1}]
+    [1 |range $arg.count |map :{
+        [|:$var.rng |uniform {0 1}]
+    }]
+}
+````
+```
+
+### Integration with Context
+
+Streams naturally integrate with Comp's context system:
+
+```comp
+; Set random generator in context
+$ctx.random = [123 |seed/random]
+
+; Functions use context stream
+!func |create-values arg ~{count ~num} = {
+    $var.rng = $ctx.random ?? [|default-random]
+    
+    [1 |range $arg.count |map :{
+        [|:$var.rng |uniform {0 1}]
     }]
 }
 ```

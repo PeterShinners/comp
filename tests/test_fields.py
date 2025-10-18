@@ -16,12 +16,12 @@ def test_literal_index_access():
 
 
 def test_computed_index_from_variable():
-    """Test data.#(@index) - computed index from variable"""
+    """Test data.#($var.index) - computed index from variable"""
     value = comptest.run_func("""
     !func |test ~{} = {
-        @index = 1
+        $var.index = 1
         data = {10 20 30 40 50}
-        result = data.#(@index + 1)
+        result = data.#($var.index + 1)
     }
     """)
     comptest.assert_value(value, result=30)
@@ -31,9 +31,9 @@ def test_computed_index_out_of_bounds():
     """Test that out of bounds computed index fails gracefully"""
     value = comptest.run_func("""
     !func |test ~{} = {
-        @index = 1
+        $var.index = 1
         data = {10 20 30}
-        result = data.#(@index + 10)
+        result = data.#($var.index + 10)
     }
     """)
     comptest.assert_fail(value, "bounds")
@@ -43,9 +43,9 @@ def test_computed_index_non_numeric():
     """Test that non-numeric computed index fails gracefully"""
     value = comptest.run_func("""
     !func |test ~{} = {
-        @index = "not-a-number"
+        $var.index = "not-a-number"
         data = {10 20 30}
-        result = data.#(@index)
+        result = data.#($var.index)
     }
     """)
     comptest.assert_fail(value, "number")
@@ -53,8 +53,8 @@ def test_computed_index_non_numeric():
 
 def test_scope_access():
     """Test accessing scopes."""
-    expr = comp.ast.Identifier([comp.ast.ScopeField('@')])
-    value = comptest.run_ast(expr, local={'x': 42})
+    expr = comp.ast.Identifier([comp.ast.ScopeField('var')])
+    value = comptest.run_ast(expr, var={'x': 42})
     comptest.assert_value(value, x=42)
 
 
@@ -63,35 +63,35 @@ def test_field_access():
     data = {"user": {"name": "Alice"}}
 
     expr = comp.ast.Identifier([
-        comp.ast.ScopeField('@'),
+        comp.ast.ScopeField('var'),
         comp.ast.TokenField('user'),
         comp.ast.TokenField('name')
     ])
-    value = comptest.run_ast(expr, local=data)
+    value = comptest.run_ast(expr, var=data)
     comptest.assert_value(value, "Alice")
 
     expr.fields.pop()
-    value = comptest.run_ast(expr, local=data)
+    value = comptest.run_ast(expr, var=data)
     comptest.assert_value(value, name="Alice")
 
     expr.fields.pop()
     print("FINALFIELDS:", expr.fields)
-    value = comptest.run_ast(expr, local=data)
+    value = comptest.run_ast(expr, var=data)
     comptest.assert_value(value, data)
 
 
 def test_complex_expression():
     """Test complex nested expression."""
-    # (@x + @y) * 2
+    # ($var.x + $var.y) * 2
     expr = comp.ast.ArithmeticOp("*",
         comp.ast.ArithmeticOp("+",
-            comp.ast.Identifier([comp.ast.ScopeField('@'), comp.ast.TokenField('x')]),
-            comp.ast.Identifier([comp.ast.ScopeField('@'), comp.ast.TokenField('y')])
+            comp.ast.Identifier([comp.ast.ScopeField('var'), comp.ast.TokenField('x')]),
+            comp.ast.Identifier([comp.ast.ScopeField('var'), comp.ast.TokenField('y')])
         ),
         comp.ast.Number(2)
     )
 
-    value = comptest.run_ast(expr, local={'x': 10, 'y': 20})
+    value = comptest.run_ast(expr, var={'x': 10, 'y': 20})
     comptest.assert_value(value, 60)
 
 

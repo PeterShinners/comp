@@ -80,9 +80,7 @@ stringfield: string
 computefield: "'" expression "'"
 
 // Scope field types
-localscope: "@"
-argscope: "^"
-namescope: "$" TOKEN
+scope: "$" TOKEN
 
 // Field components that can appear in identifiers
 // First field in a chain (cannot be a string literal - that would be standalone)
@@ -91,16 +89,11 @@ namescope: "$" TOKEN
 // Fields after a dot (can include strings for quoted field names like obj."field")
 ?identifier_next_field: tokenfield | indexfield | string | computefield
 
-// Identifier can optionally start with a scope marker
-// Examples: foo.bar, @foo.bar, ^item, $mod.pizza
-// Bare scope markers are also identifiers: @, ^, $mod
-identifier: localscope identifier_first_field ("." identifier_next_field)*  // @foo.bar
-          | argscope identifier_first_field ("." identifier_next_field)*    // ^foo.bar
-          | namescope ("." identifier_next_field)*                          // $mod.pizza
-          | localscope                                                      // @
-          | argscope                                                        // ^
-          | namescope                                                       // $mod
-          | identifier_first_field ("." identifier_next_field)*             // foo.bar
+// Identifier uses the $scope.field pattern or is a bare field reference
+// Examples: $var.name, $arg.value, $ctx.field, $mod.export, foo.bar
+// Bare scope markers are also identifiers: $var, $mod
+identifier: scope ("." identifier_next_field)*                          // $var.foo
+          | identifier_first_field ("." identifier_next_field)*         // foo.bar
 
 _qualified: identifier
 
@@ -147,23 +140,18 @@ tag_child: tag_path                                       -> tagchild_simple
          | tag_path ASSIGN tag_body                       -> tagchild_body
 
 // Tag values are build-time constant expressions without structures/blocks
-// Supports: literals (42, "text"), references (#tag, ~shape), arithmetic (1+2, 1<<3), etc.
+// Supports: literals (42, "text"), references (#tag, ~shape), arithmetic (1+2, 3*4), comparisons
 tag_value: tag_arithmetic
 
 ?tag_arithmetic: tag_term
                | tag_arithmetic "+" tag_term   -> binary_op
                | tag_arithmetic "-" tag_term   -> binary_op
 
-?tag_term: tag_bitwise
-         | tag_term "*" tag_bitwise   -> binary_op
-         | tag_term "/" tag_bitwise   -> binary_op
+# ?tag_bitwise: tag_comparison bitwise ops would land here in priority
 
-?tag_bitwise: tag_comparison
-            | tag_bitwise "<<" tag_comparison    -> binary_op
-            | tag_bitwise ">>" tag_comparison    -> binary_op
-            | tag_bitwise "&" tag_comparison     -> binary_op
-            | tag_bitwise "|" tag_comparison     -> binary_op
-            | tag_bitwise "^" tag_comparison     -> binary_op
+?tag_term: tag_comparison
+         | tag_term "*" tag_comparison   -> binary_op
+         | tag_term "/" tag_comparison   -> binary_op
 
 ?tag_comparison: tag_unary
                | tag_comparison "<" tag_unary   -> binary_op
@@ -255,24 +243,14 @@ SLASH: "/"
 
 // === FUNCTION DEFINITION ===
 BANG_FUNC: "!func"
+ARG_KEYWORD: "arg"
 
-function_definition: BANG_FUNC function_path function_shape arg_shape _assignment_op structure  -> func_with_args
-                   | BANG_FUNC function_path function_shape _assignment_op structure            -> func_no_args
+function_definition: BANG_FUNC function_path function_shape ARG_KEYWORD shape_type _assignment_op structure  -> func_with_args
+                   | BANG_FUNC function_path function_shape _assignment_op structure                         -> func_no_args
 
 function_path: PIPE TOKEN ("." TOKEN)*
 
 function_shape: shape_type
-
-// Args can be:
-// - ^shape-ref (bare identifier reference, no ~ prefix)
-// - ^{...} (inline shape with fields, no ~ prefix)
-// - ^~shape-ref (explicit shape reference with ~)
-// - ^#tag (tag as type)
-arg_shape: CARET reference_identifiers reference_namespace?  -> arg_shape_ref
-         | CARET LBRACE shape_field* RBRACE                  -> arg_shape_inline
-         | CARET shape_type                                  -> arg_shape_typed
-
-CARET: "^"
 
 
 // === STRUCTURE DEFINITION ===
@@ -368,8 +346,6 @@ _pipeline_seed_expression: or_expr_no_union
                     | morph_expr_no_union "~" morph_type_base -> morph_op
                     | morph_expr_no_union STRONG_MORPH morph_type_base -> strong_morph_op
                     | morph_expr_no_union WEAK_MORPH morph_type_base -> weak_morph_op
-                    | morph_expr_no_union "^" morph_type_base -> mask_op
-                    | morph_expr_no_union STRICT_MASK morph_type_base -> strict_mask_op
 
 // Boolean operators
 LOGICAL_AND: "&&"
@@ -389,17 +365,13 @@ GREATER_EQUAL: ">="
 ?comp_op: EQUAL_EQUAL | NOT_EQUAL | LESS_THAN | LESS_EQUAL | GREATER_THAN | GREATER_EQUAL
 ?comparison: morph_expr | comparison comp_op morph_expr -> binary_op
 
-// Shape morph and mask operators
+// Shape morph operators
 // Morph: Transforms data to match a shape specification
 // - Normal (~): apply defaults, allow extra fields
 // - Strong (~*): no extra fields allowed, strict matching
 // - Weak (~?): missing fields acceptable, partial matching
-// Mask: Filters data to shape intersection
-// - Normal (^): return only fields in both value and shape
-// - Strict (^*): like strong morph, exact match with defaults
 STRONG_MORPH: "~*"
 WEAK_MORPH: "~?"
-STRICT_MASK: "^*"
 
 // Shape type in morph/mask context
 // Accepts both bare identifiers (cat | dog) and full references (~cat | ~dog)
@@ -421,8 +393,6 @@ morph_union: morph_type_base (PIPE morph_type_base)+
            | morph_expr "~" morph_type -> morph_op
            | morph_expr STRONG_MORPH morph_type -> strong_morph_op
            | morph_expr WEAK_MORPH morph_type -> weak_morph_op
-           | morph_expr "^" morph_type -> mask_op
-           | morph_expr STRICT_MASK morph_type -> strict_mask_op
 
 // Number operators
 PLUS: "+"

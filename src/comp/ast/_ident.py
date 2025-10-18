@@ -63,14 +63,11 @@ class Identifier(_base.ValueNode):
 
 
 class ScopeField(_base.FieldNode):
-    """Scope reference: @, ^, $name
+    """Scope reference: $name
 
     Args:
-        scope_name: Scope to look up ('@', '^', '$name', or plain name)
+        scope_name: Scope to look up (e.g., 'var', 'arg', 'ctx', 'mod')
     """
-
-    # Valid scope prefixes
-    VALID_SCOPES = {'@', '^', '$'}
 
     def __init__(self, scope_name: str):
         if not isinstance(scope_name, str):
@@ -80,25 +77,15 @@ class ScopeField(_base.FieldNode):
         self.scope_name = scope_name
 
     def evaluate(self, frame):
-        # Map symbols to names
-        if self.scope_name == '@':
-            scope_name = 'local'
-        elif self.scope_name == '^':
-            scope_name = 'unnamed'
-        elif self.scope_name.startswith('$'):
-            scope_name = self.scope_name[1:]
-        else:
-            scope_name = self.scope_name
-
         # Runtime check: scope must exist
-        scope = frame.scope(scope_name)
+        scope = frame.scope(self.scope_name)
         if scope is None:
-            return comp.fail(f"Scope {self.scope_name} not defined")
+            return comp.fail(f"Scope ${self.scope_name} not defined")
         return scope
         yield  # Make it a generator
 
     def unparse(self) -> str:
-        return self.scope_name
+        return f"${self.scope_name}"
 
 
 class TokenField(_base.FieldNode):

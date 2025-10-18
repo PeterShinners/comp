@@ -28,7 +28,7 @@ def test_function_dispatch_by_shape():
 }
 
 !func |area ~rect = {
-    result = width * height
+    result = $in.width * $in.height
 }
 
 !func |test ~{} = {
@@ -42,7 +42,7 @@ def test_function_dispatch_by_shape():
 
 def test_function_dispatch_with_wildcard():
     """Test that wildcard (no shape) functions work as fallback.
-    
+
     Note: Morphing wraps primitives to match struct shapes, so 42 will
     morph to {value=42} to match ~special. To test wildcard fallback,
     use a struct that doesn't match the specific shape.
@@ -51,7 +51,7 @@ def test_function_dispatch_with_wildcard():
 !shape ~special = {value ~num}
 
 !func |process ~special = {
-    result = value + 100
+    result = $in.value + 100
 }
 
 !func |process ~{} = {
@@ -66,8 +66,6 @@ def test_function_dispatch_with_wildcard():
 """
     result = comptest.run_func(code)
     comptest.assert_value(result, special=105, numeric=142, generic=999)
-
-
 def test_function_dispatch_most_specific():
     """Test that most specific shape wins in dispatch."""
     code = """

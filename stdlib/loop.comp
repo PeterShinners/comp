@@ -2,36 +2,63 @@
 
 
 ; !doc "Infinite counter stream"
-!func |infinite ~{} = {
-    @count = 0
+!func |infinite ~{} arg ~{start~num=0 step~num=1} = {
+    $var.count = start
     :{
-        @count 
-        @count = @count + 1
+        $var.result = $var.count
+        $var.count = $var.count + step
+        $var.result
     }
 }
 
 
-!func |iter ~{} ^{op ~:{value ~any field ~any index ~num}} = {
-    @input = $in
-    @stream = [|infinite]
-    ..[|while :{
-        @index = [|:@stream]
-        @item = @input.#(@index) ?? #break
-        [|if @item == #break #break :{
-            [{value @item field @index index @index} |:^op]
-        }]
-    }]
+; !doc "Generate range of numbers from start to end (exclusive) with optional step"
+!func |range ~{} arg ~{start~num=0 end~num step~num=1} = {
+    (|if (step <= 0)
+        then={#fail "range step must be positive"}
+        else=:{
+            $var.current = start
+            
+            (|while :{
+                (|if ($var.current >= end)
+                    then=#break
+                    else=:{
+                        $var.result = $var.current
+                        $var.current = $var.current + step
+                        $var.result
+                    }
+                )
+            })
+        }
+    )
 }
 
 
-!func |map ~{} ^{op ~:{}} = {
+; !doc "Generate indices for input collection (0 to length-1)"
+!func |indices ~struct = {
+    (|range end=($in |length))
+}
+
+
+
+!func |iter ~struct arg {op ~:{value field index ~num}} = {
+    $var.collection = $in
+    
+    ..($var.collection
+    |indices
+    |while :{
+        ({
+            {value field} = ($var.collection |positional-value-end-field $it)
+            index = $it
+        } 
+        |:arg.op)
+    })
+}
+
+
+!func |map ~struct ^{op ~:{}} = {
     [|iter :{
         [value |:^op]
     }]
 }
 
-
-
-!func |comp-add ~{a ~num} ^{b ~num} = {
-    a + ^b
-}

@@ -429,10 +429,10 @@ This scoring system creates predictable, composable behavior for both union morp
 
 ```comp
 !shape ~predicate = {test ~:{value ~num}}
-@test = :{value > 10}
+$var.test = :{$in.value > 10}
 
-{value=5 extra="data"} |:@test  ; FAILS - extra field not allowed
-{value=5} |:@test               ; Works - exact match
+{value=5 extra="data"} |:$var.test  ; FAILS - extra field not allowed
+{value=5} |:$var.test               ; Works - exact match
 ```
 
 This distinction ensures blocks have predictable inputs while functions remain flexible for evolution and extension.
@@ -495,12 +495,12 @@ Blocks can be typed through shape definitions that specify their expected input 
 }
 
 ; Usage in function signatures
-!func |process ^{transform ~:{~any}} = {
-    [data |map ^transform]  ; Block used with map
+!func |process arg ~{transform ~:{~any}} = {
+    [$in.data |map $arg.transform]  ; Block used with map
 }
 
-!func |repeat ^{count ~num op ~:{value ~str}} = {
-    [count |times :{[value |: ^op]}]
+!func |repeat arg ~{count ~num op ~:{value ~str}} = {
+    [$arg.count |times :{[$in.value |: $arg.op]}]
 }
 ```
 
@@ -534,16 +534,16 @@ Shape morphing with tag fields enables clean flag-style arguments without specia
 ; Morphs to: {order=#asc stability=#unstable}
 
 ; Tags in variables work naturally
-@order = #desc
-[data |sort @order]
+$var.order = #desc
+[$in.data |sort $var.order]
 
 ; Conditional tag selection
-@order = [reverse? |if :{#true} :{#desc} :{#asc}]
-[data |sort @order]
+$var.order = [$in.reverse? |if :{#true} :{#desc} :{#asc}]
+[$in.data |sort $var.order]
 
 ; Pass through arguments
-!func |process-sorted ^{order #sort-order = #asc} = {
-    [data |sort ^order]  ; Forward the tag
+!func |process-sorted arg ~{order #sort-order = #asc} = {
+    [$in.data |sort $arg.order]  ; Forward the tag
 }
 ```
 
@@ -692,13 +692,13 @@ The morph operator family provides a natural progression from filtering to stric
 Function argument shapes use weak morph for scope filtering and strong morph for argument validation. This is covered in detail in [Functions and Blocks](function.md), but the basic pattern is:
 
 ```comp
-!func |process ^{x ~num y ~num timeout ~num = 30} = {
+!func |process arg ~{x ~num y ~num timeout ~num = 30} = {
     ; Automatic morphing at function entry:
-    ; $arg = passed_args ~* {x ~num y ~num timeout ~num = 30}
+    ; $arg = merged from passed_args + $ctx + $mod with precedence
     ; $ctx_local = $ctx_shared ~? {x ~num y ~num timeout ~num = 30}
     ; $mod_local = $mod_shared ~? {x ~num y ~num timeout ~num = 30}
 
-    ^x          ; Reads from union: $arg > $ctx > $mod
+    $arg.x      ; Reads from merged argument scope
     $ctx.data   ; Can write to $ctx (adds to both local and shared)
 }
 ```

@@ -221,16 +221,16 @@ While trails are runtime values (just structures), they can integrate with Comp'
 }
 
 ; Functions can require trail-shaped inputs
-!func |navigate ^{data ~any path ~trail} = {
-    ^data |apply/trail ^path
+!func |navigate arg ~{data ~any path ~trail} = {
+    $arg.data |apply/trail $arg.path
 }
 
 ; Trail validation
-!func |safe-navigate ~{data} ^{path} = {
-    ^path |valid?/trail |if {
-        data |get ^path
+!func |safe-navigate ~{data} arg ~{path} = {
+    $arg.path |valid?/trail |if {
+        $in.data |get $arg.path
     } {
-        {#invalid-trail.fail path=^path}
+        {#invalid-trail.fail path=$arg.path}
     }
 }
 ```

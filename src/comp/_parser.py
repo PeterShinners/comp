@@ -146,6 +146,16 @@ def _convert_tree(tree):
         # === IDENTIFIERS ===
         case 'identifier':
             fields = _convert_identifier_fields(kids)
+            
+            # Bare token becomes a string literal: foo -> "foo"
+            # But dotted or scoped identifiers stay as-is: foo.bar, $var.name
+            if (len(fields) == 1 and 
+                isinstance(fields[0], comp.ast.TokenField)):
+                # Single TokenField with no scope/dots -> convert to string
+                node = comp.ast.String(fields[0].name)
+                return _apply_position(node, tree)
+            
+            # Multi-field or scoped identifier stays as Identifier
             node = comp.ast.Identifier(fields)
             return _apply_position(node, tree)
 
@@ -175,14 +185,7 @@ def _convert_tree(tree):
             expr = _convert_tree(kids[1])
             return comp.ast.ComputeField(expr)
 
-        case 'localscope':
-            return comp.ast.ScopeField("local")
-
-        case 'argscope':
-            # ^ is the unified argument scope: chain of $arg -> $ctx -> $mod
-            return comp.ast.ScopeField("arg")
-
-        case 'namescope':
+        case 'scope':
             # "$" TOKEN - extract the scope name
             scope_name = kids[1].value if len(kids) > 1 else "unknown"
             return comp.ast.ScopeField(scope_name)
@@ -438,32 +441,6 @@ def _convert_tree(tree):
         case 'function_definition' | 'func_with_args' | 'func_no_args':
             return _convert_function_definition(tree)
 
-        # === ARGUMENT SHAPES ===
-        case 'arg_shape_inline':
-            # ^{shape_field*} - inline shape with fields for function arguments
-            # CARET LBRACE shape_field* RBRACE
-            # Convert the shape fields (skip CARET and braces)
-            fields = []
-            for kid in kids:
-                if isinstance(kid, lark.Tree):
-                    fields.append(_convert_tree(kid))
-            # Argument shapes are struct shapes, not block shapes
-            # Use InlineShape (for structs) not BlockShape (for blocks)
-            return comp.ast.InlineShape(fields) if fields else comp.ast.ShapeRef(["nil"])
-
-        case 'arg_shape_ref':
-            # ^reference_identifiers reference_namespace?
-            path, namespace = _extract_reference_path(kids)
-            return comp.ast.ShapeRef(path, namespace)
-
-        case 'arg_shape_typed':
-            # ^shape_type - just pass through the shape_type
-            # CARET shape_type - skip the CARET token
-            for kid in kids:
-                if isinstance(kid, lark.Tree):
-                    return _convert_tree(kid)
-            return comp.ast.ShapeRef(["any"])
-
         # === IMPORT STATEMENTS ===
         case 'import_statement':
             return _convert_import_statement(kids)
@@ -642,18 +619,14 @@ def _convert_field_assignment_key(tree):
         # Fallback to regular conversion
         return _convert_tree(tree)
 
-    # Check for scope markers first (localscope, argscope, namescope)
+    # Check for scope markers first (scope only)
     scope_marker = None
     if tree.children and isinstance(tree.children[0], lark.Tree):
         first_child = tree.children[0]
-        if first_child.data == 'localscope':
-            scope_marker = '@'
-        elif first_child.data == 'argscope':
-            scope_marker = '^'
-        elif first_child.data == 'namescope':
-            # $name format
+        if first_child.data == 'scope':
+            # $name format - extract just the name without $
             if len(first_child.children) > 1 and isinstance(first_child.children[1], lark.Token):
-                scope_marker = f"${first_child.children[1].value}"
+                scope_marker = first_child.children[1].value  # Just the name, not $name
 
     # Extract field keys from the identifier (skipping scope marker node)
     field_keys = []
@@ -661,7 +634,7 @@ def _convert_field_assignment_key(tree):
 
     for kid in tree.children:
         # Skip the scope marker node
-        if skip_first and isinstance(kid, lark.Tree) and kid.data in ('localscope', 'argscope', 'namescope'):
+        if skip_first and isinstance(kid, lark.Tree) and kid.data == 'scope':
             skip_first = False
             continue
 
@@ -844,20 +817,34 @@ def _convert_tag_child(kids):
 
 
 def _convert_function_definition(tree):
-    """Convert function definition to FuncDef node."""
+    """Convert function definition to FuncDef node.
+    
+    Expected structure (with args):
+        BANG_FUNC function_path function_shape ARG_KEYWORD shape_type _assignment_op structure
+    Or (without args):
+        BANG_FUNC function_path function_shape _assignment_op structure
+    """
     path = []
     body = None
     input_shape = None
     arg_shape = None
+    
+    # Track if we've seen ARG_KEYWORD to know if next shape_type is for args
+    seen_arg_keyword = False
 
     kids = tree.children
     for kid in kids:
-        if isinstance(kid, lark.Tree):
+        if isinstance(kid, lark.Token):
+            if kid.type == 'ARG_KEYWORD':
+                seen_arg_keyword = True
+        elif isinstance(kid, lark.Tree):
             if kid.data == 'function_path':
                 path = _extract_path_from_tree(kid)
             elif kid.data == 'function_shape':
+                # This is the input shape
                 input_shape = _convert_tree(kid.children[0]) if kid.children else None
-            elif kid.data in ('arg_shape', 'arg_shape_inline', 'arg_shape_ref', 'arg_shape_typed'):
+            elif kid.data == 'shape_type' and seen_arg_keyword:
+                # This shape_type comes after ARG_KEYWORD, so it's the arg shape
                 arg_shape = _convert_tree(kid)
             elif kid.data == 'structure':
                 body = _convert_tree(kid)

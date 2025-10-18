@@ -47,7 +47,7 @@ Each statement in Comp performs one of three actions based on its target. These
 actions determine how the pipeline's result is used and whether it contributes
 to the output structure being built.
 
-**Variable Assignment** uses `@name` followed by `=` to create
+**Variable Assignment** uses `$var.name` followed by `=` to create
 function-local variables that can be referenced later in the function. These
 variables exist only within the function's scope and are immutable once
 assigned.
@@ -64,10 +64,10 @@ order and can be accessed by position.
 ```comp
 !func |process-data ~{data} = {
     ; Local variables store intermediate results
-    @threshold = [average |multiply 1.5]
+    $var.threshold = [$in.average |multiply 1.5]
     
     ; Use local variable in pipeline
-    high-values = [data |filter :{value > @threshold}]
+    high-values = [$in.data |filter :{$in.value > $var.threshold}]
 ```
 
 Function-local variables provide a crucial scope separate from field
@@ -207,26 +207,26 @@ operators creating a chain of handlers tested in order.
 
 ```comp
 !func |process-transaction ~{data} = {
-    [data |validate
+    [$in.data |validate
           |execute-steps
-          |? :{#io.fail} :{[data |retry-with-backoff]}
-          |? :{#deadlock.database.fail} :{[data |wait-and-retry]}
+          |? :{#io.fail} :{[$in.data |retry-with-backoff]}
+          |? :{#deadlock.database.fail} :{[$in.data |wait-and-retry]}
           |? :{
               ; General failure - multiple operations for recovery
-              @error = $in
-              [%"Operation failed: ${@error.message}" |log]
-              [@error |cleanup-resources |{status=#failed original=@error}]
+              $var.error = $in
+              [%"Operation failed: ${$var.error.message}" |log]
+              [$var.error |cleanup-resources |{status=#failed original=$var.error}]
           }]
 }
 
 ; Complex recovery in a single block
-[data |risky-operation |? :{
-    @error = $in
-    [%"Operation failed: ${@error.message}" |log]
-    [@error.code |match
-        :{$in >= 500} :{[@error |wait-and-retry]}
-        :{$in == 429} :{[@error |backoff-exponentially]}
-        :{#true} :{[@error |use-fallback-service]}]
+[$in.data |risky-operation |? :{
+    $var.error = $in
+    [%"Operation failed: ${$var.error.message}" |log]
+    [$var.error.code |match
+        :{$in >= 500} :{[$var.error |wait-and-retry]}
+        :{$in == 429} :{[$var.error |backoff-exponentially]}
+        :{#true} :{[$var.error |use-fallback-service]}]
 }]
 ```
 
@@ -298,10 +298,10 @@ Blocks can contain pipelines, with the square brackets providing clear boundarie
 items |map :{[$in |validate |enhance]}
 
 ; At statement level
-@result = [data |process |validate]
+$var.result = [$in.data |process |validate]
 
 ; Pipelines compose naturally
-total = [base |calculate] + [bonus |calculate]
+total = [$in.base |calculate] + [$in.bonus |calculate]
 
 ; Adjacent pipelines merge into single chain
 result = [|fetch] [|validate] [|transform]  ; Equivalent to [|fetch |validate |transform]
@@ -317,15 +317,15 @@ result = [|fetch |validate |transform]
 result = [|fetch] [|validate] [|transform]
 
 ; Readable multi-line composition
-result = [data |validate]
+result = [$in.data |validate]
          [|normalize]
          [|enrich]
          [|save]
 
 ; Building pipelines programmatically
-@validators = [|check-format] [|check-rules]
-@processors = [|transform] [|enrich]
-full-pipeline = @validators @processors [|save]
+$var.validators = [|check-format] [|check-rules]
+$var.processors = [|transform] [|enrich]
+full-pipeline = $var.validators $var.processors [|save]
 ```
 
 Operators between pipelines prevent merging, creating separate pipeline evaluations:

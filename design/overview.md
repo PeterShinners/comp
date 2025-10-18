@@ -177,36 +177,41 @@ le that
 s, no de/marsdency tregithub+release://offworld/martiancalendar@1.0.4ngl;Access through simple namespaces
 $token = "username" |fetch-auth-token |base64/str
 $now = [|now/time ~num#day/mars]
-confunding conteWhere You Need Theme
+### Explicit Scopes: Values Where You Need Them
+
 Comp keeps a variety of scopes at hand for any evaluating code. This allows
 placing data in the appropriate place. Short symbols uniquely identify which
 scope a field is coming from.
 
-Use `@` prefixed variable to work with a function's local scope. Arguments are a
-special, inherited scope prefixed with `^`. Or work with `$mod` for shared
+Use `$var` prefixed fields to work with a function's local variables. Arguments
+are accessible through the `$arg` scope. Or work with `$mod` for shared
 values at the module global level.
-es. No mysterious variable capturng, no ccproc-argsites, no hunting through nested scopes to un;erstand where a value came from.
+
+No mysterious variable capturing, no closures, no hunting through nested scopes 
+to understand where a value came from.
 
 ```comp
-!func |process-request;~{request} ^{timeout ~num} = {
-    @start-time = [|now/time]          ; Function-local variable
-    @user = request.user               ; Another local variable
+!func |process-request ~{request} arg ~{timeout ~num} = {
+    $var.start-time = [|now/time]          ; Function-local variable
+    $var.user = $in.request.user           ; Another local variable
     
-    response = [request |validate |process]   ; Output field
-    duration = [|now/time] - @start-time   ; Uses local variable
+    response = [$in.request |validate |process]  ; Output field
+    duration = [|now/time] - $var.start-time     ; Uses local variable
     
-    server-timeout = ^timeout          ; Argument reference
-    global-config = $mod.settings      ; Module-level data
+    server-timeout = $arg.timeout         ; Argument reference
+    global-config = $mod.settings         ; Module-level data
 }
 ```
- preCombination of scopes, including `$arg` and others piece of data comes from:
-- `@var` - Function locals that only exist within this function
-- `^args` - Arguments- `$mod` - Module-level configuration and state
- pasarg to Arguments passed to this functiona S- `$ctx` - Execution context shared ac for details on how these scopes end
-up being managed differently and how they all come together.oss function calls
+
+Clear markers show where each piece of data comes from:
+- `$var` - Function-local variables that only exist within this function
+- `$arg` - Arguments passed to this function
+- `$ctx` - Execution context shared across function calls
 - `$mod` - Module-level configuration and state
+- `$in` - Input data from the pipeline
 
 For the complete reference, see [Syntax and Style Guide](syntax.md).
+
 
 ## Working with Data
 
@@ -287,16 +292,16 @@ This example shows how Comp's features combine naturally:
 !import /time = std "core/time"
 
 !main = {
-    @after = [|now/time] - 1#week
-    @fields = {"title" "url" "created-at" "reactions"}
+    $var.after = [|now/time] - 1#week
+    $var.fields = {"title" "url" "created-at" "reactions"}
     
-    [{..@fields repo="nushell/nushell"}
+    [{..$var.fields repo="nushell/nushell"}
     |list-issues/gh
-    |filter :{created-at >= @after}
+    |filter :{$in.created-at >= $var.after}
     |-| progressbar              ; Add progress tracking
     |map :{
-        @thumbs-up = [reactions |count-if :{content == #thumbs-up}]
-        {thumbs-up=@thumbs-up title=. url=.}
+        $var.thumbs-up = [$in.reactions |count-if :{$in.content == #thumbs-up}]
+        {thumbs-up=$var.thumbs-up title=$in.title url=$in.url}
     }
     |-| debug                    ; Development logging
     |first 5]
@@ -304,12 +309,12 @@ This example shows how Comp's features combine naturally:
 ```
 
 **What's happening here:**
-- Variables store computed values (`@after`, `@fields`)  
-- Structures compose cleanly (`{..@fields repo="nushell/nushell"}`)
-- Pipelines chain operations naturally (`[|filter :{created-at >= @after}]`)
+- Variables store computed values (`$var.after`, `$var.fields`)  
+- Structures compose cleanly (`{..$var.fields repo="nushell/nushell"}`)
+- Pipelines chain operations naturally (`[|filter :{$in.created-at >= $var.after}]`)
 - Pipeline modifiers add capabilities without changing logic (`|-| progressbar`, `|-| debug`)
-- Blocks capture scope and simplify syntax (`:{created-at >= @after}`)
-- Field shorthand reduces noise (`title=.` for `title=$in.title`)
+- Blocks capture scope and simplify syntax (`:{$in.created-at >= $var.after}`)
+- Field shorthand reduces noise (`title=$in.title` explicit field access)
 - Everything composes seamlessly
 
 ## Ready to Dive Deeper?

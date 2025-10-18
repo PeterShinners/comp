@@ -16,10 +16,10 @@ The runtime provides a single `resource` token that controls access to all exter
 
 ```comp
 ; Regular function - has resource access
-!func |process-file ^{path ~str} = {
-    content = [^path |fetch]          ; Needs resource token
-    processed = [content |transform]   ; Pure computation
-    [processed |save-to-cache]        ; Needs resource token
+!func |process-file arg ~{path ~str} = {
+    content = [$arg.path |fetch]          ; Needs resource token
+    processed = [content |transform]       ; Pure computation
+    [processed |save-to-cache]            ; Needs resource token
 }
 
 ; Pure function - no resource access
@@ -78,20 +78,20 @@ Stores require resources internally, preventing their use in pure functions. Thi
 ```comp
 ; Store creation requires resource token
 !func |create-cache = {
-    @store = [|new/store {}]  ; Acquires resource internally
-    @store
+    $var.store = [|new/store {}]  ; Acquires resource internally
+    $var.store
 }
 
 !pure
 !func |pure-attempt = {
-    @store = [|new/store {}]  ; FAILS - no resource token available
+    $var.store = [|new/store {}]  ; FAILS - no resource token available
 }
 
 ; Pure functions can work with immutable snapshots
 !pure
 !func |analyze ~{snapshot} = {
     ; Read from immutable snapshot (no resource needed)
-    value = snapshot.data
+    value = $in.snapshot.data
     ; Cannot modify - snapshot is immutable
     value |transform
 }
@@ -129,24 +129,24 @@ The standard library enforces purity through internal resource requirements. Eve
 ```comp
 ; Standard library implementations
 !func |current-time = {
-    @clock = [|acquire-resource clock]  ; Fails in pure context
-    [@clock |read]
+    $var.clock = [|acquire-resource clock]  ; Fails in pure context
+    [$var.clock |read]
 }
 
 !func |random = {
-    @rng = [|acquire-resource entropy]  ; Fails in pure context
-    [@rng |generate]
+    $var.rng = [|acquire-resource entropy]  ; Fails in pure context
+    [$var.rng |generate]
 }
 
 !func |print ~{message} = {
-    @output = [|acquire-resource io]    ; Fails in pure context
-    [@output |write message]
+    $var.output = [|acquire-resource io]    ; Fails in pure context
+    [$var.output |write $in.message]
 }
 
 ; File operations through capability system
-!func |fetch ^{path ~str} = {
-    @fs = [|acquire-resource filesystem] ; Fails in pure context
-    [@fs |read ^path]
+!func |fetch arg ~{path ~str} = {
+    $var.fs = [|acquire-resource filesystem] ; Fails in pure context
+    [$var.fs |read $arg.path]
 }
 ```
 

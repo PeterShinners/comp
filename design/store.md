@@ -26,20 +26,20 @@ A Store is a mutable container that holds structured data. Unlike regular struct
 
 ```comp
 ; Create a store with initial data
-@store = (|new/store {
+$var.store = (|new/store {
     users = {}
     config = {theme=dark lang=en}
     cache = {}
 })
 
 ; Read immutable data from store using trails
-@user = @store |get /users/123/
-@theme = @store |get /config/theme/
+$var.user = $var.store |get /users/123/
+$var.theme = $var.store |get /config/theme/
 
 ; Explicit mutations through store operations
-@store |set /users/123/ new-user
-@store |update /config/theme/ light
-@store |delete /cache/temp/
+$var.store |set /users/123/ new-user
+$var.store |update /config/theme/ light
+$var.store |delete /cache/temp/
 ```
 
 The separation between reading and writing is intentional and explicit. You cannot accidentally mutate data - all mutations require calling a Store operation. This makes it easy to track where state changes occur in your program.
@@ -50,18 +50,18 @@ Stores provide a focused set of operations for state management. Read operations
 
 ```comp
 ; Basic operations with trail notation
-@store |get /path/              ; Read value at trail
-@store |set /path/ value        ; Write value at trail
-@store |delete /path/           ; Remove trail and value
-@store |exists? /path/          ; Check if trail exists
-@store |clear                   ; Remove all data
+$var.store |get /path/              ; Read value at trail
+$var.store |set /path/ value        ; Write value at trail
+$var.store |delete /path/           ; Remove trail and value
+$var.store |exists? /path/          ; Check if trail exists
+$var.store |clear                   ; Remove all data
 
 ; Functional updates
-@store |update /counter/ {$in + 1}
-@store |modify /users/ |filter {active?}
+$var.store |update /counter/ {$in + 1}
+$var.store |modify /users/ |filter {$in.active?}
 
 ; Batch operations
-@store |set-many {
+$var.store |set-many {
     /users/new/ = new-user
     /cache/user/ = new-user.id
     /stats/count/ = count + 1
@@ -76,12 +76,12 @@ Stores naturally integrate with the trail system for flexible path-based access.
 
 ```comp
 ; Basic trail navigation
-@user-trail = /users/'user-id'/
-@store |get @user-trail
+$var.user-trail = /users/'user-id'/
+$var.store |get $var.user-trail
 
 ; Bulk operations with trail patterns
-@store |select /users/*/active/       ; Get all active flags
-@store |update-all /prices/*/ :{$in * 1.1}  ; Increase all prices
+$var.store |select /users/*/active/       ; Get all active flags
+$var.store |update-all /prices/*/ :{$in * 1.1}  ; Increase all prices
 
 ```
 
@@ -91,7 +91,7 @@ Stores support transactions for coordinating multiple mutations that should succ
 
 ```comp
 ; Transaction with multiple operations using trails
-@store |transaction {
+$var.store |transaction {
     $in |set /users/123/ user-data
     $in |update /stats/user-count/ :{$in + 1}
     $in |delete /cache/temp/
@@ -99,9 +99,9 @@ Stores support transactions for coordinating multiple mutations that should succ
 ; All operations succeed or all rollback
 
 ; Conditional transactions
-@store |transaction {
-    @current = $in |get /balance/
-    $in |if {@current >= amount} {
+$var.store |transaction {
+    $var.current = $in |get /balance/
+    $in |if {$var.current >= amount} {
         $in |update /balance/ :{$in - amount}
         $in |set /transactions/'id'/ :{amount from=balance}
     } {
@@ -118,18 +118,18 @@ Stores provide efficient change detection through versioning. Each Store maintai
 
 ```comp
 ; Get current version (opaque value)
-@version = @store |version
+$var.version = $var.store |version
 
 ; Check if store changed since version
-@store |changed? @version        ; Returns #true or #false
+$var.store |changed? $var.version        ; Returns #true or #false
 
 ; Get changes since version using trails
-@changes = @store |changes-since @version
+$var.changes = $var.store |changes-since $var.version
 ; Returns: {paths=[/users/123/ /config/] new-version=...}
 
 ; Conditional updates based on version
-@store |set-if-unchanged /path/ value since=@version
-; Succeeds only if store hasn't changed since @version
+$var.store |set-if-unchanged /path/ value since=$var.version
+; Succeeds only if store hasn't changed since $var.version
 ```
 
 Versions are opaque values that only the Store understands. They might be timestamps, counters, or hashes - the implementation is hidden. This allows different Store implementations to optimize version tracking for their specific use cases.
@@ -163,14 +163,14 @@ $mod.app-store = (|new/store {
 
 ; Local state for UI components
 !func |counter-component = {
-    @local = (|new/store {count=0})
+    $var.local = (|new/store {count=0})
     
     ; Event handlers modify store using trails
-    on-increment = {@local |update /count/ {$in + 1}}
-    on-reset = {@local |set /count/ 0}
+    on-increment = {$var.local |update /count/ {$in + 1}}
+    on-reset = {$var.local |set /count/ 0}
     
     ; Render from immutable snapshot
-    current = @local |get /count/
+    current = $var.local |get /count/
     {value=current on-increment on-reset}
 }
 ```

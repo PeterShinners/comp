@@ -41,18 +41,18 @@ def test_block_create_morph_run():
         )
     ])
     
-    # Create pipeline: [{value=7} |:@process]
+    # Create pipeline: [{value=7} |:$var.process]
     pipeline = comp.ast.Pipeline(
         seed=input_struct,
         operations=[
             comp.ast.PipeBlock(comp.ast.Identifier([
-                comp.ast.ScopeField('@'),
+                comp.ast.ScopeField('var'),
                 comp.ast.TokenField('process')
             ]))
         ]
     )
     
-    result = comptest.run_ast(pipeline, local={'process': morph_result.value})
+    result = comptest.run_ast(pipeline, var={'process': morph_result.value})
     assert comptest.assert_value(result, output="processed")
 
 
@@ -73,13 +73,13 @@ def test_pipe_block_requires_block_type():
         seed=comp.ast.Number(5),
         operations=[
             comp.ast.PipeBlock(comp.ast.Identifier([
-                comp.ast.ScopeField('@'),
+                comp.ast.ScopeField('var'),
                 comp.ast.TokenField('notblock')
             ]))
         ]
     )
     
-    result = engine.run(pipeline, local=local_scope, module=module)
+    result = engine.run(pipeline, var=local_scope, module=module)
     comptest.assert_fail(result, message="requires Block")
 
 

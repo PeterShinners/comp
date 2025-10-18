@@ -110,7 +110,8 @@ class FuncDef(ModuleOp):
             parts.append(self.input_shape.unparse())
 
         if self.arg_shape:
-            parts.append("^" + self.arg_shape.unparse())
+            parts.append("arg")
+            parts.append(self.arg_shape.unparse())
 
         parts.append("=")
         parts.append(self.body.unparse())

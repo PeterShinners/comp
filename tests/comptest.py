@@ -17,7 +17,7 @@ def run_ast(ast: comp.ast.AstNode, **scopes) -> comp.Value:
         module = engine.run(module_ast)
         value_scopes['module'] = module
 
-    for scope in ['in_', 'arg', 'ctx', 'mod', 'local']:
+    for scope in ['in_', 'arg', 'ctx', 'mod', 'var']:
         if scope not in value_scopes:
             value_scopes[scope] = comp.Value({})
 
@@ -39,7 +39,7 @@ def run_func(code: str, **scopes) -> comp.Value:
             val = comp.Value(val)
         value_scopes[key] = val
 
-    for scope in ['in_', 'arg', 'ctx', 'mod', 'local']:
+    for scope in ['in_', 'arg', 'ctx', 'mod', 'var']:
         if scope not in value_scopes:
             value_scopes[scope] = comp.Value({})
     value_scopes['module'] = module

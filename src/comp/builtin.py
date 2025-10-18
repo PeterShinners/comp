@@ -103,13 +103,13 @@ def builtin_if(frame, input_value, args):
             block_ast = block_data.block_ast
             block_module = block_data.function.module if block_data.function else frame.scope('module')
             ctx_scope = block_data.ctx_scope if block_data.ctx_scope is not None else comp.Value({})
-            local_scope = block_data.local_scope if block_data.local_scope is not None else comp.Value({})
+            var_scope = block_data.var_scope if block_data.var_scope is not None else comp.Value({})
             block_function = block_data.function
         elif isinstance(block_data, comp.Block):
             block_ast = block_data.raw_block.block_ast
             block_module = block_data.raw_block.function.module if block_data.raw_block.function else frame.scope('module')
             ctx_scope = block_data.raw_block.ctx_scope if block_data.raw_block.ctx_scope is not None else comp.Value({})
-            local_scope = block_data.raw_block.local_scope if block_data.raw_block.local_scope is not None else comp.Value({})
+            var_scope = block_data.raw_block.var_scope if block_data.raw_block.var_scope is not None else comp.Value({})
             block_function = block_data.raw_block.function
         else:
             return comp.fail(f"|if condition block has unexpected type: {type(block_data)}")
@@ -128,7 +128,7 @@ def builtin_if(frame, input_value, args):
                 unnamed=chained,
                 in_=input_value,
                 ctx=ctx_scope,
-                local=local_scope,
+                var=var_scope,
                 module=block_module,
                 arg=frame.scope('arg') if block_function is not None else None,
             )
@@ -183,13 +183,13 @@ def builtin_if(frame, input_value, args):
             block_ast = block_data.block_ast
             block_module = block_data.function.module if block_data.function else frame.scope('module')
             ctx_scope = block_data.ctx_scope if block_data.ctx_scope is not None else comp.Value({})
-            local_scope = block_data.local_scope if block_data.local_scope is not None else comp.Value({})
+            var_scope = block_data.var_scope if block_data.var_scope is not None else comp.Value({})
             block_function = block_data.function
         elif isinstance(block_data, comp.Block):
             block_ast = block_data.raw_block.block_ast
             block_module = block_data.raw_block.function.module if block_data.raw_block.function else frame.scope('module')
             ctx_scope = block_data.raw_block.ctx_scope if block_data.raw_block.ctx_scope is not None else comp.Value({})
-            local_scope = block_data.raw_block.local_scope if block_data.raw_block.local_scope is not None else comp.Value({})
+            var_scope = block_data.raw_block.var_scope if block_data.raw_block.var_scope is not None else comp.Value({})
             block_function = block_data.raw_block.function
         else:
             return comp.fail(f"|if branch block has unexpected type: {type(block_data)}")
@@ -208,7 +208,7 @@ def builtin_if(frame, input_value, args):
                 unnamed=chained,
                 in_=input_value,
                 ctx=ctx_scope,
-                local=local_scope,
+                var=var_scope,
                 module=block_module,
                 arg=frame.scope('arg') if block_function is not None else None,
             )
@@ -252,13 +252,13 @@ def builtin_while(frame, input_value, args):
         block_ast = block_data.block_ast
         block_module = block_data.function.module if block_data.function else frame.scope('module')
         ctx_scope = block_data.ctx_scope if block_data.ctx_scope is not None else comp.Value({})
-        local_scope = block_data.local_scope if block_data.local_scope is not None else comp.Value({})
+        var_scope = block_data.var_scope if block_data.var_scope is not None else comp.Value({})
         block_function = block_data.function
     elif isinstance(block_data, comp.Block):
         block_ast = block_data.raw_block.block_ast
         block_module = block_data.raw_block.function.module if block_data.raw_block.function else frame.scope('module')
         ctx_scope = block_data.raw_block.ctx_scope if block_data.raw_block.ctx_scope is not None else comp.Value({})
-        local_scope = block_data.raw_block.local_scope if block_data.raw_block.local_scope is not None else comp.Value({})
+        var_scope = block_data.raw_block.var_scope if block_data.raw_block.var_scope is not None else comp.Value({})
         block_function = block_data.raw_block.function
     else:
         return comp.fail(f"|while block has unexpected type: {type(block_data)}")
@@ -282,7 +282,7 @@ def builtin_while(frame, input_value, args):
         last_result = input_value  # Default to input if no ops
         for op in block_ast.ops:
             last_result = yield comp.Compute(op, struct_accumulator=accumulator, unnamed=chained,
-                                      in_=input_value, ctx=ctx_scope, local=local_scope,
+                                      in_=input_value, ctx=ctx_scope, var=var_scope,
                                       module=block_module, func_ctx=block_function)
             if frame.is_fail(last_result):
                 return last_result
@@ -359,6 +359,7 @@ def get_builtin_module():
     module.define_shape(["str"], fields=[])
     module.define_shape(["bool"], fields=[])
     module.define_shape(["any"], fields=[])
+    module.define_shape(["struct"], fields=[])
     module.define_shape(["nil"], fields=[])
 
     # Register Python-backed functions
