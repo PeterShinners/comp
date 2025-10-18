@@ -126,7 +126,7 @@ def test_morph_positional_fields():
 
 def test_morph_primitive_unwrapping():
     """Test that morphing primitives unwraps correctly."""
-    builtin = comp.get_builtin_module()
+    builtin = comp.builtin.get_builtin_module()
     num_shape = builtin.shapes["num"]
 
     # Test direct number

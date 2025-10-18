@@ -11,8 +11,6 @@ __all__ = ["Engine", "Compute"]
 
 import comp
 
-from . import _function, _value
-
 
 class Engine:
     """Evaluation engine with scope stack.
@@ -31,30 +29,14 @@ class Engine:
     """
 
     def __init__(self):
-        # Funcs and fail are temporarily stored here in the engine.
-        # They have a future home elsewhere.
-        # Function registry: name -> Function
-        # Functions can be Python-implemented or Comp-defined
-        self.functions = _function.create_builtin_functions()
-
-        # Failure handling
-        self.fail_tag = _value.FAIL
-
+        """Initialize the engine with an empty context scope.
+        
+        The context scope is persistent across function calls and stored
+        as an empty struct (Value(None)).
+        """
         # Context scope storage - persistent across function calls
         # Value(None) creates an empty struct
-        self.ctx_scope = _value.Value(None)
-
-    # Builtin function lookup (Python-implemented functions only)
-    def get_function(self, name: str):
-        """Look up a builtin function by name.
-
-        Args:
-            name: Function name (without | prefix)
-
-        Returns:
-            Function object or None if not found
-        """
-        return self.functions.get(name)
+        self.ctx_scope = comp.Value(None)
 
     def run(self, node, **scopes):
         """Run a node and return its result (frame-based evaluation).
@@ -69,13 +51,13 @@ class Engine:
         has allow_failures set, in which case the fail is sent to it via send().
 
         Args:
-            node: AST node to evaluate
-            scopes: Keyword arguments to define initial scopes (in_ becomes in)
+            node (AstNode): AST node to evaluate
+            **scopes: Keyword arguments to define initial scopes (in_ becomes in)
 
         Returns:
-            Final Value result from node evaluation
+            Value: Final Value result from node evaluation
         """
-        result = _value.Value({})  # Set by first StopIteration before use
+        result = comp.Value({})  # Set by first StopIteration before use
         result_is_fail = False  # Track if result contains a failure
 
         # Handle Python keyword workarounds: in_ -> in
@@ -141,6 +123,12 @@ class Engine:
         as an unnamed field. This allows morphing against #fail to detect failures.
 
         Supports hierarchical tags: #fail, #fail.syntax, #fail.network, etc.
+        
+        Args:
+            value (Value): Value to check for failure
+            
+        Returns:
+            bool: True if value contains a #fail tag
         """
         if not value.is_struct:
             return False
@@ -155,13 +143,13 @@ class Engine:
         """Check if a tag is #fail or a child of #fail hierarchy.
 
         Args:
-            tag: A TagRef object to check
+            tag (TagRef): A TagRef object to check
 
         Returns:
-            True if tag is #fail or a descendant (e.g., #fail.syntax, #fail.network)
+            bool: True if tag is #fail or a descendant (e.g., #fail.syntax, #fail.network)
         """
         # Check if tag name is "fail" or starts with "fail."
-        return tag.full_name == self.fail_tag.full_name or tag.full_name.startswith(self.fail_tag.full_name + ".")
+        return tag.full_name == comp.builtin.FAIL.full_name or tag.full_name.startswith(comp.builtin.FAIL.full_name + ".")
 
 
 class Compute:
@@ -171,19 +159,24 @@ class Compute:
     The engine receives this request and creates an internal _Frame to track execution.
 
     Args:
-        node: AST node to evaluate (required)
-        scopes: Scope bindings for this evaluation (optional)
-        allow_failures: Whether this evaluation can receive fail values (default: False)
+        node (AstNode): AST node to evaluate (required)
+        allow_failures (bool): Whether this evaluation can receive fail values (default: False)
+        **scopes: Scope bindings for this evaluation (keyword arguments)
     """
 
     __slots__ = ('node', 'allow_failures', 'scopes')
 
-    def __init__(self, node: 'comp.ast.AstNode', allow_failures: bool = False, **scopes):
+    def __init__(self, node, allow_failures=False, **scopes):
         self.node = node
         self.scopes = {k.rstrip('_'): v for k, v in scopes.items()}
         self.allow_failures = allow_failures
 
     def __repr__(self):
+        """Return string representation of Compute request.
+        
+        Returns:
+            str: Formatted string showing node, scopes, and allow_failures
+        """
         parts = [f"node={self.node!r}"]
         if self.scopes:
             parts.append(f"scopes={list(self.scopes.keys())}")
@@ -206,15 +199,15 @@ class _Frame:
     The generator is created automatically during initialization.
 
     Args:
-        node: AST node being evaluated
-        previous: Parent frame (None for root)
-        scopes: Scope bindings for this frame (merged with parent)
-        allow_failures: Whether this frame can receive failures
-        engine: Engine reference for function registry and fail_tag
+        node (AstNode): AST node being evaluated
+        previous (_Frame | None): Parent frame (None for root)
+        scopes (dict): Scope bindings for this frame (merged with parent)
+        allow_failures (bool): Whether this frame can receive failures
+        engine (Engine): Engine reference for function registry and fail_tag
     """
     __slots__ = ('node', 'gen', 'previous', 'scopes', 'allowed', 'engine')
 
-    def __init__(self, node, previous: '_Frame | None', scopes: dict, allow_failures: bool, engine: Engine):
+    def __init__(self, node, previous, scopes, allow_failures, engine):
         self.node = node
         self.previous = previous
         self.allowed = allow_failures  # Can frame receive failure values? (modified as engine loops)
@@ -231,27 +224,35 @@ class _Frame:
         self.gen = node.evaluate(self)
 
     def scope(self, key):
-        """Look up a scope value."""
+        """Look up a scope value.
+        
+        Args:
+            key (str): Scope name to look up
+            
+        Returns:
+            Value | None: Scope value or None if not found
+        """
         return self.scopes.get(key)
 
     def is_fail(self, value):
-        """Check if a value is a fail value."""
+        """Check if a value is a fail value.
+        
+        Args:
+            value (Value): Value to check
+            
+        Returns:
+            bool: True if value is a fail value
+        """
         # TODO one day perform this operation without an engine reference
         # Only Values can be failures - other Entities (Module, ShapeField, etc.) cannot
         return hasattr(value, 'is_struct') and self.engine.is_fail(value)
 
-    def call_function(self, name: str, input_value, args=None):
-        """Call a builtin function by name.
-
-        This is for legacy pipeline operations that call Python-implemented builtins.
-        For Comp-defined functions, use the module system with comp.run.invoke().
-        """
-        func = self.engine.get_function(name)
-        if func is None:
-            return comp.fail(f"Unknown function: |{name}")
-        return func(self, input_value, args)
-
     def __repr__(self):
+        """Return string representation showing frame depth.
+        
+        Returns:
+            str: Formatted string with depth and node
+        """
         depth = 0
         frame = self
         while frame.previous:

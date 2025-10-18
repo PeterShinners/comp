@@ -117,8 +117,8 @@ class PipeFunc(PipelineOp):
             if frame.is_fail(args_value):
                 return args_value
 
-        # Try to call as builtin function first
-        builtin_func = frame.engine.get_function(self.func_name)
+        # Try to call as builtin function first (temporary hack)
+        builtin_func = getattr(comp.builtin, f"builtin_{self.func_name}", None)
         if builtin_func is not None:
             result = builtin_func(frame, input_value, args_value)
             # Check if result is a generator (function yields Compute)

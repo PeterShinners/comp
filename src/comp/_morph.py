@@ -4,37 +4,7 @@ __all__ = ["MorphResult", "morph", "strong_morph", "weak_morph"]
 
 import comp
 
-
-def _is_tag_compatible(input_tag_def, field_tag_def):
-    """Check if an input tag is compatible with a field's tag type.
-
-    Compatible means the input tag is either:
-    - The same tag as the field's tag type
-    - A child (descendant) of the field's tag type
-
-    Args:
-        input_tag_def: TagDefinition of the input tag value
-        field_tag_def: TagDefinition of the field's tag type constraint
-
-    Returns:
-        True if input tag is compatible with field tag type
-
-    Examples:
-        #timeout.error compatible with #error (child)
-        #error compatible with #error (same)
-        #network.error compatible with #error (child)
-        #success NOT compatible with #error (different hierarchy)
-    """
-    # Same tag - always compatible
-    if input_tag_def.path == field_tag_def.path:
-        return True
-
-    # Check if input is a child of field's tag (field's path is a prefix)
-    if len(field_tag_def.path) >= len(input_tag_def.path):
-        return False
-
-    # Compare prefixes - field's path should be a prefix of input's path
-    return input_tag_def.path[:len(field_tag_def.path)] == field_tag_def.path
+from . import _tag
 
 
 class MorphResult:
@@ -340,7 +310,7 @@ def _morph_struct(value, shape):
         for field_name, (shape_field, field_tag_def) in tag_shape_fields.items():
             # Check if input tag is compatible with field's tag type
             # Compatible means: same tag or input is a child of field's tag
-            if _is_tag_compatible(input_tag_def, field_tag_def):
+            if _tag.is_tag_compatible(input_tag_def, field_tag_def):
                 matched_field = (field_name, shape_field, field_tag_def)
                 break
         

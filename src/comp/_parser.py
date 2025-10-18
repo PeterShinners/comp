@@ -9,8 +9,8 @@ from __future__ import annotations
 
 __all__ = ["parse_module", "parse_expr"]
 
-from decimal import Decimal
-from pathlib import Path
+import decimal
+import pathlib
 
 import lark
 
@@ -24,7 +24,7 @@ _expr_parser: lark.Lark | None = None
 _current_filename: str | None = None
 
 
-def parse_module(text: str, filename: str | None = None):
+def parse_module(text, filename=None):
     """Parse a complete Comp module.
 
     Args:
@@ -54,7 +54,7 @@ def parse_module(text: str, filename: str | None = None):
         _current_filename = None
 
 
-def parse_expr(text: str, filename: str | None = None):
+def parse_expr(text, filename=None):
     """Parse a single Comp expression.
 
     Args:
@@ -87,7 +87,7 @@ def parse_expr(text: str, filename: str | None = None):
         _current_filename = None
 
 
-def _convert_tree(tree: lark.Tree | lark.Token):
+def _convert_tree(tree):
     """Convert a single Lark tree/token to an AST node.
 
     This is the main dispatcher that handles all grammar rules.
@@ -102,7 +102,7 @@ def _convert_tree(tree: lark.Tree | lark.Token):
     # Handle tokens (terminals)
     if isinstance(tree, lark.Token):
         match tree.type:
-            case 'NUMBER' | 'INTBASE' | 'DECIMAL':
+            case 'NUMBER' | 'INTBASE' | 'decimal.DECIMAL':
                 return _convert_number(tree)
             case 'TOKEN':
                 return tree.value
@@ -516,7 +516,7 @@ def _convert_tree(tree: lark.Tree | lark.Token):
             raise ValueError(f"Unhandled grammar rule: {tree.data}")
 
 
-def _convert_children(children: list) -> list:
+def _convert_children(children):
     """Convert a list of Lark trees/tokens to AST nodes."""
     result = []
     for child in children:
@@ -532,7 +532,7 @@ def _convert_children(children: list) -> list:
     return result
 
 
-def _apply_position(node: comp.ast.AstNode, tree: lark.Tree | lark.Token) -> comp.ast.AstNode:
+def _apply_position(node, tree):
     """Apply source position information from Lark tree/token to AST node.
     
     Args:
@@ -562,25 +562,25 @@ def _apply_position(node: comp.ast.AstNode, tree: lark.Tree | lark.Token) -> com
     return node
 
 
-def _convert_number(token: lark.Token) -> Decimal:
-    """Convert a number token to Decimal."""
+def _convert_number(token):
+    """Convert a number token to decimal.Decimal."""
     value_str = token.value.replace('_', '')  # Remove underscores
 
     if value_str.startswith(('0x', '0X')):
         # Hexadecimal
-        return Decimal(int(value_str, 16))
+        return decimal.Decimal(int(value_str, 16))
     elif value_str.startswith(('0b', '0B')):
         # Binary
-        return Decimal(int(value_str, 2))
+        return decimal.Decimal(int(value_str, 2))
     elif value_str.startswith(('0o', '0O')):
         # Octal
-        return Decimal(int(value_str, 8))
+        return decimal.Decimal(int(value_str, 8))
     else:
-        # Decimal (including scientific notation)
-        return Decimal(value_str)
+        # decimal.Decimal (including scientific notation)
+        return decimal.Decimal(value_str)
 
 
-def _convert_string(kids: list) -> str:
+def _convert_string(kids):
     """Extract string content from string children."""
     # Find the content token
     for kid in kids:
@@ -598,7 +598,7 @@ def _convert_string(kids: list) -> str:
     return ""
 
 
-def _convert_identifier_fields(kids: list) -> list:
+def _convert_identifier_fields(kids):
     """Convert identifier children to field nodes."""
     fields = []
     for kid in kids:
@@ -617,7 +617,7 @@ def _convert_identifier_fields(kids: list) -> list:
     return fields
 
 
-def _convert_identifier_next_field(tree: lark.Tree | lark.Token):
+def _convert_identifier_next_field(tree):
     """Convert an identifier_next_field to a field node."""
     if isinstance(tree, lark.Token):
         if tree.type == 'TOKEN':
@@ -629,7 +629,7 @@ def _convert_identifier_next_field(tree: lark.Tree | lark.Token):
         return _convert_tree(tree)
 
 
-def _convert_field_assignment_key(tree: lark.Tree):
+def _convert_field_assignment_key(tree):
     """Convert identifier to field assignment key.
 
     For simple identifiers like 'x', returns comp.ast.String("x").
@@ -707,7 +707,7 @@ def _convert_field_assignment_key(tree: lark.Tree):
         return field_keys
 
 
-def _extract_reference_path(kids: list) -> tuple[list[str], str | None]:
+def _extract_reference_path(kids):
     """Extract path and namespace from reference children.
 
     Returns:
@@ -734,7 +734,7 @@ def _extract_reference_path(kids: list) -> tuple[list[str], str | None]:
     return path, namespace
 
 
-def _extract_path_from_tree(tree: lark.Tree) -> list[str]:
+def _extract_path_from_tree(tree):
     """Extract a dotted path from a tree (tag_path, shape_path, function_path)."""
     path = []
     for kid in tree.children:
@@ -747,12 +747,12 @@ def _extract_path_from_tree(tree: lark.Tree) -> list[str]:
     return path
 
 
-def _extract_operator(token: lark.Token) -> str:
+def _extract_operator(token):
     """Extract operator string from token."""
     return token.value
 
 
-def _create_binary_op(op: str, left, right):
+def _create_binary_op(op, left, right):
     """Create appropriate binary operator node."""
     # Arithmetic operators (only +, -, *, / for now)
     if op in ('+', '-', '*', '/'):
@@ -773,12 +773,12 @@ def _create_binary_op(op: str, left, right):
         raise comp.ParseError(f"Unknown binary operator: {op}")
 
 
-def _create_unary_op(op: str, operand):
+def _create_unary_op(op, operand):
     """Create appropriate unary operator node."""
     return comp.ast.UnaryOp(op, operand)
 
 
-def _convert_shape_body(tree: lark.Tree) -> list | object:
+def _convert_shape_body(tree):
     """Convert shape_body to list of ShapeFieldDef nodes or a single shape type.
     
     Returns either:
@@ -801,7 +801,7 @@ def _convert_shape_body(tree: lark.Tree) -> list | object:
     return []
 
 
-def _convert_tag_definition(kids: list):
+def _convert_tag_definition(kids):
     """Convert tag definition to TagDef node."""
     # Extract components based on what's present
     path = []
@@ -825,7 +825,7 @@ def _convert_tag_definition(kids: list):
     return comp.ast.TagDef(path, value, children, generator)
 
 
-def _convert_tag_child(kids: list):
+def _convert_tag_child(kids):
     """Convert tag child to TagChild node."""
     path = []
     value = None
@@ -843,7 +843,7 @@ def _convert_tag_child(kids: list):
     return comp.ast.TagChild(path, value, children)
 
 
-def _convert_function_definition(tree: lark.Tree):
+def _convert_function_definition(tree):
     """Convert function definition to FuncDef node."""
     path = []
     body = None
@@ -865,7 +865,7 @@ def _convert_function_definition(tree: lark.Tree):
     return comp.ast.FuncDef(path, body, input_shape, arg_shape)
 
 
-def _convert_import_statement(kids: list):
+def _convert_import_statement(kids):
     """Convert import statement to ImportDef node.
 
     Expected structure: !import /namespace = source "path"
@@ -902,7 +902,7 @@ def _get_module_parser() -> lark.Lark:
     """Get the singleton Lark parser instance for module parsing."""
     global _module_parser
     if _module_parser is None:
-        grammar_path = Path(__file__).parent / "comp.lark"
+        grammar_path = pathlib.Path(__file__).parent / "comp.lark"
         _module_parser = lark.Lark(
             grammar_path.read_text(encoding="utf-8"),
             parser="lalr",
@@ -917,7 +917,7 @@ def _get_expr_parser() -> lark.Lark:
     """Get the singleton Lark parser instance for expression parsing."""
     global _expr_parser
     if _expr_parser is None:
-        grammar_path = Path(__file__).parent / "comp.lark"
+        grammar_path = pathlib.Path(__file__).parent / "comp.lark"
         _expr_parser = lark.Lark(
             grammar_path.read_text(encoding="utf-8"),
             parser="lalr",

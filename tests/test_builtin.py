@@ -6,14 +6,14 @@ import comptest
 
 def test_builtin_module_creation():
     """Verify builtin module is created with all expected definitions."""
-    builtin = comp.get_builtin_module()
+    builtin = comp.builtin.get_builtin_module()
 
     # Check that we got a Module
     assert isinstance(builtin, comp.Module)
     assert builtin.is_builtin is True
 
     # Singleton check
-    builtin2 = comp.get_builtin_module()
+    builtin2 = comp.builtin.get_builtin_module()
     assert builtin is builtin2
 
     # Non recursive self-reference check
@@ -38,7 +38,7 @@ def test_builtin_module_creation():
 
 def test_regular_modules_get_builtin_namespace():
     """Verify regular modules automatically have builtin namespace."""
-    builtin = comp.get_builtin_module()
+    builtin = comp.builtin.get_builtin_module()
     module = comp.Module()
 
     assert "builtin" in module.namespaces
@@ -48,7 +48,7 @@ def test_regular_modules_get_builtin_namespace():
 
 def test_builtin_doesnt_reference_itself():
     """Verify builtin module doesn't have itself as namespace (avoid recursion)."""
-    builtin = comp.get_builtin_module()
+    builtin = comp.builtin.get_builtin_module()
 
     assert "builtin" not in builtin.namespaces
 

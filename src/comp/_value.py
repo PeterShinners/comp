@@ -1,58 +1,18 @@
 """Runtime values for the generator-based engine."""
 
-__all__ = ["TagRef", "Value", "fail", "Unnamed", "ChainedScope", "TRUE", "FALSE", "FAIL", "FAIL_TYPE", "FAIL_DIV_ZERO"]
+__all__ = ["Value", "fail", "Unnamed", "ChainedScope"]
 
 import decimal
 
-from ._entity import Entity
+import comp
+
+from . import _entity
 
 
-class TagRef:
-    """A tag reference value that points to a TagDefinition.
-
-    TagRefs must be created from a TagDefinition - they are runtime references
-    to tags defined in modules. This ensures all tags have proper definitions
-    and are properly scoped.
-
-    Attributes:
-        tag_def: Reference to the TagDefinition
-    """
-
-    def __init__(self, tag_def):
-        """Create a tag reference from a TagDefinition.
-
-        Args:
-            tag_def: A TagDefinition object from a module
-        """
-        self.tag_def = tag_def
-
-    @property
-    def full_name(self) -> str:
-        """Get the full hierarchical name (e.g., 'fail.syntax')."""
-        return self.tag_def.full_name
-
-    @property
-    def value(self):
-        """Get the associated value from the tag definition (if any)."""
-        return self.tag_def.value
-
-    def __repr__(self):
-        return f"#{self.full_name}"
-
-    def __eq__(self, other):
-        if not isinstance(other, TagRef):
-            return False
-        # Compare by full name for identity
-        return self.full_name == other.full_name
-
-    def __hash__(self):
-        return hash(self.full_name)
-
-
-class Value(Entity):
+class Value(_entity.Entity):
     """Runtime value wrapper.
 
-    Can hold Python primitives (int, float, str) or Comp values (TagRef, dict).
+    Can hold Python primitives (int, float, str) or Comp values (comp.TagRef, dict).
     This is a simplified version for the new engine. Uses .data for the
     underlying value, and provides .struct as an alias when it's a dict.
 
@@ -60,7 +20,7 @@ class Value(Entity):
     from evaluate() methods.
     """
 
-    def __init__(self, data: object):
+    def __init__(self, data):
         """Create a value from Python types or Comp values.
 
         Args:
@@ -71,7 +31,7 @@ class Value(Entity):
                 - int/float (converted to Decimal)
                 - Decimal (stored directly)
                 - str (stored directly)
-                - TagRef (stored directly)
+                - comp.TagRef (stored directly)
                 - Block/RawBlock (stored directly)
                 - dict (recursively converted)
                 - list/tuple (converted to unnamed struct fields)
@@ -88,7 +48,7 @@ class Value(Entity):
 
         # Handle bool -> Tag conversion
         if isinstance(data, bool):
-            self.data = TRUE if data else FALSE
+            self.data = comp.builtin.TRUE if data else comp.builtin.FALSE
             return
 
         # Handle numeric types -> Decimal
@@ -107,14 +67,14 @@ class Value(Entity):
             self.data = data
             return
 
-        # Handle TagRef
-        if isinstance(data, TagRef):
+        # Handle comp.TagRef
+        if isinstance(data, comp.TagRef):
             self.data = data
             return
 
         # Handle Block and RawBlock (can be wrapped in Value)
-        from . import _module
-        if isinstance(data, (_module.Block, _module.RawBlock)):
+        from . import _function
+        if isinstance(data, (_function.Block, _function.RawBlock)):
             self.data = data
             return
 
@@ -147,14 +107,12 @@ class Value(Entity):
 
     @property
     def is_tag(self) -> bool:
-        return isinstance(self.data, TagRef)
+        return isinstance(self.data, comp.TagRef)
 
     @property
     def is_block(self) -> bool:
         """Check if this Value wraps a Block or RawBlock."""
-        # Import here to avoid circular dependency
-        from . import _module
-        return isinstance(self.data, (_module.Block, _module.RawBlock))
+        return isinstance(self.data, (comp.Block, comp.RawBlock))
 
     @property
     def struct(self) -> dict | None:
@@ -208,7 +166,7 @@ class Value(Entity):
             return "{" + " ".join(fields) + "}"
 
         # Return the data, converting tags and decimals to strings
-        if isinstance(self.data, TagRef):
+        if isinstance(self.data, comp.TagRef):
             return str(self.data)
         if isinstance(self.data, decimal.Decimal):
             return str(self.data)
@@ -225,10 +183,10 @@ class Value(Entity):
         Returns:
             - Decimal for numbers
             - str for strings
-            - TagRef for tags
+            - comp.TagRef for tags
             - dict for structures (with recursively converted keys/values)
         """
-        if isinstance(self.data, (decimal.Decimal, str, TagRef)):
+        if isinstance(self.data, (decimal.Decimal, str, comp.TagRef)):
             return self.data
         if isinstance(self.data, dict):
             # Recursively convert struct fields
@@ -259,14 +217,14 @@ class Value(Entity):
         return hash(self.data)
 
 
-def fail(message: str) -> Value:
+def fail(message):
     """Create a failure structure with the given message.
 
     The structure has the #fail tag as an unnamed field, plus named fields
     for type and message. This allows morphing against #fail to detect failures.
     """
     # Import here to avoid circular dependency
-    from ._builtin import get_builtin_module
+    from .builtin import get_builtin_module
 
     # Get the #fail tag from builtin module
     builtin = get_builtin_module()
@@ -279,7 +237,7 @@ def fail(message: str) -> Value:
     # Create Value directly without going through constructor conversion
     result = Value.__new__(Value)
     result.data = {
-        Unnamed(): Value(TagRef(fail_tag_def)),  # Tag as unnamed field for morphing
+        Unnamed(): Value(comp.TagRef(fail_tag_def)),  # Tag as unnamed field for morphing
         Value('type'): Value('fail'),
         Value('message'): Value(message)
     }
@@ -317,7 +275,7 @@ class ChainedScope:
     This is used for the 'unnamed' scope to chain $out (accumulator) with $in.
     """
 
-    def __init__(self, *scopes: Value):
+    def __init__(self, *scopes):
         """Create a chained scope from multiple Value structs.
 
         Args:
@@ -325,7 +283,7 @@ class ChainedScope:
         """
         self.scopes = scopes
 
-    def lookup_field(self, field_key: Value) -> Value | None:
+    def lookup_field(self, field_key):
         """Look up a field in the chained scopes.
 
         Args:
@@ -340,31 +298,3 @@ class ChainedScope:
                 if struct is not None and field_key in struct:
                     return struct[field_key]
         return None
-
-
-# Builtin tag constants - initialized on first import
-# These are created by looking up tag definitions from the builtin module
-def _init_builtin_tags():
-    """Initialize builtin tag constants from the builtin module."""
-    from ._builtin import get_builtin_module
-    builtin = get_builtin_module()
-
-    try:
-        return {
-            'TRUE': TagRef(builtin.lookup_tag(["true"])),
-            'FALSE': TagRef(builtin.lookup_tag(["false"])),
-            'FAIL': TagRef(builtin.lookup_tag(["fail"])),
-            'FAIL_TYPE': TagRef(builtin.lookup_tag(["type", "fail"])),
-            'FAIL_DIV_ZERO': TagRef(builtin.lookup_tag(["div_zero", "fail"])),
-        }
-    except ValueError as e:
-        # This should never happen - builtin module must have these tags
-        raise RuntimeError(f"Critical error: builtin tags not properly initialized: {e}") from e
-
-# Initialize on module load
-_builtin_tags = _init_builtin_tags()
-TRUE = _builtin_tags['TRUE']
-FALSE = _builtin_tags['FALSE']
-FAIL = _builtin_tags['FAIL']
-FAIL_TYPE = _builtin_tags['FAIL_TYPE']
-FAIL_DIV_ZERO = _builtin_tags['FAIL_DIV_ZERO']

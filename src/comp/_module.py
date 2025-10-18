@@ -1,14 +1,14 @@
 """Module system for the engine - tracks definitions and provides namespaces."""
 
-__all__ = ["Module", "TagDefinition", "ShapeDefinition", "ShapeField", "FunctionDefinition", "RawBlock", "Block", "BlockShapeDefinition"]
-
-from dataclasses import dataclass
-from typing import Any
-
-from ._entity import Entity
+__all__ = ["Module", "TagDefinition", "ShapeField", "ShapeDefinition"]
 
 
-class ShapeField(Entity):
+import comp
+
+from . import _entity, _function
+
+
+class ShapeField(_entity.Entity):
     """A single field in a shape definition.
 
     Inherits from Entity so it can be returned from evaluate() and passed through scopes.
@@ -17,16 +17,16 @@ class ShapeField(Entity):
     shape definition. Only the AST nodes (ShapeFieldDef) should handle spreads.
 
     Attributes:
-        name: Optional field name (None for positional fields)
+        name (str | None): Optional field name (None for positional fields)
         shape: Type constraint for this field (can be ShapeDefinition, tag, primitive type reference)
         default: Optional default value (None means field is required)
-        is_array: True if field accepts multiple values ([])
-        array_min: Minimum array length (None for no minimum)
-        array_max: Maximum array length (None for no maximum)
+        is_array (bool): True if field accepts multiple values ([])
+        array_min (int | None): Minimum array length (None for no minimum)
+        array_max (int | None): Maximum array length (None for no maximum)
     """
-    def __init__(self, name: str | None = None, shape: Any = None, default: Any = None,
-                 is_array: bool = False, array_min: int | None = None,
-                 array_max: int | None = None):
+    def __init__(self, name=None, shape=None, default=None,
+                 is_array=False, array_min=None,
+                 array_max=None):
         self.name = name
         self.shape = shape
         self.default = default
@@ -35,18 +35,30 @@ class ShapeField(Entity):
         self.array_max = array_max
 
     @property
-    def is_named(self) -> bool:
-        """Check if this is a named field."""
+    def is_named(self):
+        """Check if this is a named field.
+        
+        Returns:
+            bool: True if field has a name
+        """
         return self.name is not None
 
     @property
-    def is_positional(self) -> bool:
-        """Check if this is a positional field."""
+    def is_positional(self):
+        """Check if this is a positional field.
+        
+        Returns:
+            bool: True if field is positional (no name)
+        """
         return self.name is None
 
     @property
-    def is_required(self) -> bool:
-        """Check if this field is required (no default value)."""
+    def is_required(self):
+        """Check if this field is required (no default value).
+        
+        Returns:
+            bool: True if field has no default
+        """
         return self.default is None
 
     def __repr__(self):
@@ -56,43 +68,55 @@ class ShapeField(Entity):
         return f"ShapeField({name_part}{shape_part}){array_part}"
 
 
-@dataclass
 class TagDefinition:
     """A single tag definition in the module.
 
     Attributes:
-        path: Full path as list, e.g., ["status", "error", "timeout"]
-        module: The Module this tag is defined in
+        path (list[str]): Full path as list, e.g., ["status", "error", "timeout"]
+        module (Module): The Module this tag is defined in
         value: Optional value for this tag (can be any Value)
     """
-    path: list[str]
-    module: 'Module'
-    value: Any = None  # Will be engine.Value when evaluated
+    def __init__(self, path, module, value=None):
+        self.path = path
+        self.module = module
+        self.value = value  # Will be engine.Value when evaluated
 
     @property
-    def name(self) -> str:
-        """Get the tag's leaf name (last element of path)."""
+    def name(self):
+        """Get the tag's leaf name (last element of path).
+        
+        Returns:
+            str: The tag's leaf name
+        """
         return self.path[-1] if self.path else ""
 
     @property
-    def full_name(self) -> str:
-        """Get dot-separated full path."""
+    def full_name(self):
+        """Get dot-separated full path.
+        
+        Returns:
+            str: Full tag path joined with dots
+        """
         return ".".join(self.path)
 
     @property
-    def parent_path(self) -> list[str] | None:
-        """Get the parent's path, or None for root tags."""
+    def parent_path(self):
+        """Get the parent's path, or None for root tags.
+        
+        Returns:
+            list[str] | None: Parent path or None
+        """
         return self.path[:-1] if len(self.path) > 1 else None
 
-    def matches_partial(self, partial: list[str]) -> bool:
+    def matches_partial(self, partial):
         """Check if this tag matches a partial path (suffix match).
 
         Args:
-            partial: Reversed partial path, e.g., ["timeout", "error"]
+            partial (list[str]): Reversed partial path, e.g., ["timeout", "error"]
                     for #timeout.error (leaf first)
 
         Returns:
-            True if tag's path ends with the partial path
+            bool: True if tag's path ends with the partial path
         """
         if len(partial) > len(self.path):
             return False
@@ -102,23 +126,24 @@ class TagDefinition:
         return self.path[-len(partial):] == partial_def_order
 
 
-class ShapeDefinition(Entity):
+class ShapeDefinition(_entity.Entity):
     """A shape definition in the module.
 
     Shapes describe structure types with field names, types, and defaults.
     They are used for morphing operations and type validation.
 
-    Inherits from Entity so it can be returned from evaluate() and passed through scopes.
+    Inherits from Entity so it can be returned from evaluate() and passed
+    through scopes.
 
     Attributes:
-        path: Full path as list, e.g., ["geometry", "point", "2d"]
-        module: The Module this shape is defined in
-        fields: List of field definitions
-        is_union: True if this is a union shape (combines multiple shapes)
-        union_members: List of shape references for union shapes
+        path (list[str]): Full path as list, e.g., ["geometry", "point", "2d"]
+        module (Module): The Module this shape is defined in
+        fields (list[ShapeField]): List of field definitions
+        is_union (bool): True if this is a union shape (combines multiple shapes)
+        union_members (list): List of shape references for union shapes
     """
-    def __init__(self, path: list[str], module: 'Module', fields: list[ShapeField],
-                 is_union: bool = False, union_members: list[Any] | None = None):
+    def __init__(self, path, module, fields,
+                 is_union=False, union_members=None):
         self.path = path
         self.module = module
         self.fields = fields
@@ -126,29 +151,41 @@ class ShapeDefinition(Entity):
         self.union_members = union_members or []
 
     @property
-    def name(self) -> str:
-        """Get the shape's leaf name (last element of path)."""
+    def name(self):
+        """Get the shape's leaf name (last element of path).
+        
+        Returns:
+            str: The shape's leaf name
+        """
         return self.path[-1] if self.path else ""
 
     @property
-    def full_name(self) -> str:
-        """Get dot-separated full path."""
+    def full_name(self):
+        """Get dot-separated full path.
+        
+        Returns:
+            str: Full shape path joined with dots
+        """
         return ".".join(self.path)
 
     @property
-    def parent_path(self) -> list[str] | None:
-        """Get the parent's path, or None for root shapes."""
+    def parent_path(self):
+        """Get the parent's path, or None for root shapes.
+        
+        Returns:
+            list[str] | None: Parent path or None
+        """
         return self.path[:-1] if len(self.path) > 1 else None
 
-    def matches_partial(self, partial: list[str]) -> bool:
+    def matches_partial(self, partial):
         """Check if this shape matches a partial path (suffix match).
 
         Args:
-            partial: Reversed partial path, e.g., ["2d", "point"]
+            partial (list[str]): Reversed partial path, e.g., ["2d", "point"]
                     for ~2d.point (leaf first)
 
         Returns:
-            True if shape's path ends with the partial path
+            bool: True if shape's path ends with the partial path
         """
         if len(partial) > len(self.path):
             return False
@@ -158,18 +195,30 @@ class ShapeDefinition(Entity):
         return self.path[-len(partial):] == partial_def_order
 
     @property
-    def named_fields(self) -> list[ShapeField]:
-        """Get all named fields."""
+    def named_fields(self):
+        """Get all named fields.
+        
+        Returns:
+            list[ShapeField]: All fields with names
+        """
         return [f for f in self.fields if f.is_named]
 
     @property
-    def positional_fields(self) -> list[ShapeField]:
-        """Get all positional fields."""
+    def positional_fields(self):
+        """Get all positional fields.
+        
+        Returns:
+            list[ShapeField]: All positional fields
+        """
         return [f for f in self.fields if f.is_positional]
 
     @property
-    def required_fields(self) -> list[ShapeField]:
-        """Get all required fields (no defaults)."""
+    def required_fields(self):
+        """Get all required fields (no defaults).
+        
+        Returns:
+            list[ShapeField]: All fields without defaults
+        """
         return [f for f in self.fields if f.is_required]
 
     def __repr__(self):
@@ -189,175 +238,13 @@ class ShapeDefinition(Entity):
         return f"ShapeDef(~{self.full_name}, {len(self.fields)} fields ({resolved}))"
 
 
-class FunctionDefinition(Entity):
-    """A function definition in the module.
-
-    Functions transform input structures through pipelines and can accept arguments.
-    They are lazy by default and support overloading through shape-based dispatch.
-
-    Inherits from Entity so it can be returned from evaluate() and passed through scopes.
-
-    Attributes:
-        path: Full path as list, e.g., ["math", "geometry", "area"]
-        module: The Module this function is defined in
-        input_shape: Shape defining expected input structure (or None for any)
-        arg_shape: Shape defining function arguments (or None for no args)
-        body: Structure definition AST node for the function body
-        is_pure: True if function has no side effects
-        doc: Optional documentation string
-        impl_doc: Optional documentation for this specific implementation (overloads)
-    """
-    def __init__(self, path: list[str], module: 'Module', body: Any, input_shape: Any = None,
-                 arg_shape: Any = None, is_pure: bool = False,
-                 doc: str | None = None, impl_doc: str | None = None, _placeholder: bool = False):
-        self.path = path
-        self.module = module
-        self.input_shape = input_shape
-        self.arg_shape = arg_shape
-        self.body = body
-        self.is_pure = is_pure
-        self.doc = doc
-        self.impl_doc = impl_doc
-        self._placeholder = _placeholder  # True if created by prepare(), not real definition
-
-    @property
-    def name(self) -> str:
-        """Get the function's leaf name (last element of path)."""
-        return self.path[-1] if self.path else ""
-
-    @property
-    def full_name(self) -> str:
-        """Get dot-separated full path."""
-        return ".".join(self.path)
-
-    @property
-    def parent_path(self) -> list[str] | None:
-        """Get the parent's path, or None for root functions."""
-        return self.path[:-1] if len(self.path) > 1 else None
-
-    def matches_partial(self, partial: list[str]) -> bool:
-        """Check if this function matches a partial path (suffix match).
-
-        Args:
-            partial: Reversed partial path, e.g., ["area", "geometry"]
-                    for |area.geometry (leaf first)
-
-        Returns:
-            True if function's path ends with the partial path
-        """
-        if len(partial) > len(self.path):
-            return False
-        # Match from the end of our path (which is already in definition order)
-        # partial is in reference order (reversed), so we need to reverse it
-        partial_def_order = list(reversed(partial))
-        return self.path[-len(partial):] == partial_def_order
-
-    def __repr__(self):
-        pure_str = "!pure " if self.is_pure else ""
-        input_str = f" ~{self.input_shape}" if self.input_shape else ""
-        arg_str = f" ^{self.arg_shape}" if self.arg_shape else ""
-        return f"{pure_str}|{self.full_name}{input_str}{arg_str}"
-
-
-class RawBlock:
-    """An untyped block with captured definition context.
-
-    Raw blocks are created with :{...} syntax and capture their definition context
-    (scopes and function reference) but have no input shape yet. They cannot be invoked
-    until morphed with a BlockShape to create a Block.
-
-    Raw blocks capture only what they need:
-    - function: Current function context (if defined in a function), provides module and $arg access
-    - ctx_scope: The $ctx scope at definition time
-    - local_scope: The @local scope at definition time
-    - block_ast: The Block AST node itself (operations to execute)
-
-    For blocks defined in a function, the module is accessed via function.module.
-    For blocks defined at module scope (function is None), the module must be obtained
-    from the evaluation context (e.g., frame.scope('module')).
-
-    Raw blocks do NOT capture:
-    - $in: Set at invocation time
-    - $out: Built during block execution
-    - Full frame: Too heavy, only need specific scopes
-
-    Attributes:
-        block_ast: The Block AST node with operations
-        function: FunctionDefinition if defined in function, None otherwise
-        ctx_scope: Captured $ctx scope from definition
-        local_scope: Captured @local scope from definition
-    """
-    def __init__(self, block_ast: Any,
-                 function: FunctionDefinition | None = None,
-                 ctx_scope: Any = None, local_scope: Any = None):
-        self.block_ast = block_ast
-        self.function = function
-        self.ctx_scope = ctx_scope
-        self.local_scope = local_scope
-
-    def __repr__(self):
-        func_str = f" in |{self.function.full_name}" if self.function else ""
-        return f"RawBlock({len(self.block_ast.ops)} ops{func_str})"
-
-
-class Block:
-    """A typed block ready for invocation.
-
-    Blocks are created by morphing a RawBlock with a BlockShape. They have:
-    - An input shape that defines what structure they expect
-    - All the captured context from the RawBlock
-    - The ability to be invoked with the |: operator
-
-    The Block holds a reference to the original RawBlock (for context and operations)
-    plus the input shape that was applied through morphing.
-
-    Attributes:
-        raw_block: The RawBlock this was created from (contains ops and captured context)
-        input_shape: The shape defining expected input structure
-    """
-    def __init__(self, raw_block: RawBlock, input_shape: Any):
-        if not isinstance(raw_block, RawBlock):
-            raise TypeError("Block requires a RawBlock")
-        self.raw_block = raw_block
-        self.input_shape = input_shape
-
-    def __repr__(self):
-        func_str = f" in |{self.raw_block.function.full_name}" if self.raw_block.function else ""
-        shape_str = f" ~:{self.input_shape}" if self.input_shape else ""
-        return f"Block({len(self.raw_block.block_ast.ops)} ops{shape_str}{func_str})"
-
-
-class BlockShapeDefinition(Entity):
-    """A block shape definition describing the input structure for blocks.
-
-    BlockShapeDefinitions are created when BlockShape AST nodes are evaluated.
-    They describe what input structure a block expects, similar to how
-    ShapeDefinition describes struct layouts.
-
-    Unlike regular shapes, BlockShapeDefinitions are specifically for block types
-    and are used during morphing to convert RawBlock → Block.
-
-    Attributes:
-        fields: List of ShapeField describing the expected input structure
-    """
-    def __init__(self, fields: list[ShapeField]):
-        if not isinstance(fields, list):
-            raise TypeError("Fields must be a list")
-        if not all(isinstance(f, ShapeField) for f in fields):
-            raise TypeError("All fields must be ShapeField instances")
-        self.fields = fields
-
-    def __repr__(self):
-        return f"BlockShapeDefinition({len(self.fields)} fields)"
-
-
-class Module(Entity):
+class Module(_entity.Entity):
     """Runtime module containing tag definitions and other module-level entities.
 
     This tracks all definitions made at module scope and provides lookup
     mechanisms for resolving references.
 
-    Inherits from Entity, making it passable through scopes and returnable
+    Inherits from _entity.Entity, making it passable through scopes and returnable
     from evaluate() methods (though modules are not valid runtime values).
 
     Every module (except builtin itself) automatically has a 'builtin' namespace
@@ -365,20 +252,25 @@ class Module(Entity):
     primitive shapes (~num, ~str, etc), and core functions (|print, |double, etc).
 
     Attributes:
-        tags: Flat dictionary of full_path -> TagDefinition
-        shapes: Dictionary of shape_name -> ShapeDefinition
-        functions: Dictionary of func_name -> list[FunctionDefinition] (for overloads)
-        namespaces: Dictionary of namespace_name -> Module (imported modules)
-        package_info: Optional package metadata
-        is_builtin: True if this is the builtin module (to avoid circular namespace refs)
+        tags (dict): Flat dictionary of full_path -> TagDefinition
+        shapes (dict): Dictionary of shape_name -> ShapeDefinition
+        functions (dict): Dictionary of func_name -> list[FunctionDefinition] (for overloads)
+        namespaces (dict): Dictionary of namespace_name -> Module (imported modules)
+        package_info (dict): Optional package metadata
+        is_builtin (bool): True if this is the builtin module (to avoid circular namespace refs)
     """
 
-    def __init__(self, is_builtin: bool = False):
-        self.tags: dict[str, TagDefinition] = {}  # full_path_str -> TagDefinition
-        self.shapes: dict[str, ShapeDefinition] = {}  # full_path_str -> ShapeDefinition
-        self.functions: dict[str, list[FunctionDefinition]] = {}  # full_path_str -> list of overloads
-        self.namespaces: dict[str, Module] = {}  # namespace -> imported Module
-        self.package_info: dict[str, Any] = {}
+    def __init__(self, is_builtin=False):
+        """Initialize a module.
+        
+        Args:
+            is_builtin (bool): True if this is the builtin module
+        """
+        self.tags = {}  # full_path_str -> TagDefinition
+        self.shapes = {}  # full_path_str -> ShapeDefinition
+        self.functions = {}  # full_path_str -> list of overloads
+        self.namespaces = {}  # namespace -> imported Module
+        self.package_info = {}
         self.is_builtin = is_builtin
 
         # Module scope storage for $mod namespace
@@ -391,18 +283,18 @@ class Module(Entity):
         # Add builtin namespace to all non-builtin modules
         if not is_builtin:
             # Import happens lazily to avoid circular dependency
-            from ._builtin import get_builtin_module
+            from .builtin import get_builtin_module
             self.namespaces['builtin'] = get_builtin_module()
 
-    def define_tag(self, path: list[str], value: Any = None) -> TagDefinition:
+    def define_tag(self, path, value=None):
         """Register a tag definition.
 
         Args:
-            path: Full path in definition order, e.g., ["status", "error", "timeout"]
+            path (list[str]): Full path in definition order, e.g., ["status", "error", "timeout"]
             value: Optional value for this tag
 
         Returns:
-            The TagDefinition object
+            TagDefinition: The TagDefinition object
 
         Notes:
             - Multiple definitions of the same tag merge (last value wins)
@@ -422,16 +314,16 @@ class Module(Entity):
 
         return tag_def
 
-    def lookup_tag(self, partial_path: list[str], namespace: str | None = None) -> TagDefinition:
+    def lookup_tag(self, partial_path, namespace=None):
         """Find tag by partial path, optionally in a specific namespace.
 
         Args:
-            partial_path: Reversed partial path (leaf first),
+            partial_path (list[str]): Reversed partial path (leaf first),
                          e.g., ["timeout", "error"] for #timeout.error
-            namespace: Optional namespace to search in (e.g., "std" for /std)
+            namespace (str | None): Optional namespace to search in (e.g., "std" for /std)
 
         Returns:
-            TagDefinition if unique match found
+            TagDefinition: TagDefinition if unique match found
 
         Raises:
             ValueError: If not found, ambiguous, or namespace not found
@@ -491,35 +383,39 @@ class Module(Entity):
                 f"Ambiguous tag reference #{partial_str} found in multiple namespaces: {ns_list}"
             )
 
-    def get_tag_by_full_path(self, path: list[str]) -> TagDefinition | None:
+    def get_tag_by_full_path(self, path):
         """Get tag by exact full path.
 
         Args:
-            path: Full path in definition order, e.g., ["status", "error", "timeout"]
+            path (list[str]): Full path in definition order, e.g., ["status", "error", "timeout"]
 
         Returns:
-            TagDefinition if found, None otherwise
+            TagDefinition | None: TagDefinition if found, None otherwise
         """
         full_name = ".".join(path)
         return self.tags.get(full_name)
 
-    def list_tags(self) -> list[TagDefinition]:
-        """Get all tag definitions in the module."""
+    def list_tags(self):
+        """Get all tag definitions in the module.
+        
+        Returns:
+            list[TagDefinition]: All tag definitions
+        """
         return list(self.tags.values())
 
-    def define_shape(self, path: list[str], fields: list[ShapeField],
-                     is_union: bool = False, union_members: list[Any] | None = None) -> ShapeDefinition:
+    def define_shape(self, path, fields,
+                     is_union=False, union_members=None):
         """Register a shape definition.
 
         Args:
-            path: Full path in definition order, e.g., ["geometry", "point", "2d"]
-            fields: List of field definitions
-            is_union: True if this is a union shape
-            union_members: List of shape refs for union shapes
+            path (list[str]): Full path in definition order, e.g., ["geometry", "point", "2d"]
+            fields (list[ShapeField]): List of field definitions
+            is_union (bool): True if this is a union shape
+            union_members (list | None): Shape references for union types
 
         Returns:
-            The ShapeDefinition object
-
+            ShapeDefinition: The created shape definition
+            
         Notes:
             - If shape already exists (from prepare()), updates it in place
             - Otherwise creates a new ShapeDefinition
@@ -546,29 +442,33 @@ class Module(Entity):
             self.shapes[full_name] = shape_def
             return shape_def
 
-    def list_shapes(self) -> list[ShapeDefinition]:
-        """Get all shape definitions in the module."""
+    def list_shapes(self):
+        """Get all shape definitions in the module.
+        
+        Returns:
+            list[ShapeDefinition]: All shape definitions
+        """
         return list(self.shapes.values())
 
-    def define_function(self, path: list[str], body: Any, input_shape: Any = None,
-                       arg_shape: Any = None, is_pure: bool = False,
-                       doc: str | None = None, impl_doc: str | None = None) -> FunctionDefinition:
+    def define_function(self, path, body, input_shape=None,
+                       arg_shape=None, is_pure=False,
+                       doc=None, impl_doc=None):
         """Register a function definition.
 
         Supports overloading - multiple definitions with the same path.
         Functions are matched by input shape specificity at call time.
 
         Args:
-            path: Full path in definition order, e.g., ["math", "geometry", "area"]
+            path (list[str]): Full path in definition order, e.g., ["math", "geometry", "area"]
             body: Structure definition AST for function body
             input_shape: Shape for input structure (None for any)
             arg_shape: Shape for arguments (None for no args)
-            is_pure: True if function has no side effects
-            doc: Documentation string (shared across overloads)
-            impl_doc: Documentation for this specific implementation
+            is_pure (bool): True if function has no side effects
+            doc (str | None): Documentation string (shared across overloads)
+            impl_doc (str | None): Documentation for this specific implementation
 
         Returns:
-            The FunctionDefinition object
+            _function.FunctionDefinition: The FunctionDefinition object
 
         Notes:
             - Multiple definitions create overloads
@@ -577,7 +477,7 @@ class Module(Entity):
               (cleared on first real definition)
         """
         full_name = ".".join(path)
-        func_def = FunctionDefinition(
+        func_def = comp.FunctionDefinition(
             path=path,
             module=self,
             body=body,
@@ -604,19 +504,23 @@ class Module(Entity):
 
         return func_def
 
-    def list_functions(self) -> list[FunctionDefinition]:
-        """Get all function definitions (all overloads flattened)."""
+    def list_functions(self):
+        """Get all function definitions (all overloads flattened).
+        
+        Returns:
+            list[_function.FunctionDefinition]: All function definitions
+        """
         result = []
         for overloads in self.functions.values():
             result.extend(overloads)
         return result
 
-    def add_namespace(self, name: str, module: 'Module') -> None:
+    def add_namespace(self, name, module):
         """Add an imported module to this module's namespace.
 
         Args:
-            name: Namespace identifier (used in /namespace references)
-            module: The imported Module to reference
+            name (str): Namespace identifier (used in /namespace references)
+            module (Module): The imported Module to reference
 
         Notes:
             - Used to implement imports
@@ -625,16 +529,16 @@ class Module(Entity):
         """
         self.namespaces[name] = module
 
-    def lookup_shape(self, partial_path: list[str], namespace: str | None = None) -> ShapeDefinition:
+    def lookup_shape(self, partial_path, namespace=None):
         """Find shape by partial path, optionally in a specific namespace.
 
         Args:
-            partial_path: Reversed partial path (leaf first),
+            partial_path (list[str]): Reversed partial path (leaf first),
                          e.g., ["2d", "point"] for ~2d.point
-            namespace: Optional namespace to search in (e.g., "std" for /std)
+            namespace (str | None): Optional namespace to search in (e.g., "std" for /std)
 
         Returns:
-            ShapeDefinition if unique match found
+            ShapeDefinition: ShapeDefinition if unique match found
 
         Raises:
             ValueError: If not found, ambiguous, or namespace not found
@@ -694,17 +598,17 @@ class Module(Entity):
                 f"Ambiguous shape reference ~{partial_str} found in multiple namespaces: {ns_list}"
             )
 
-    def lookup_function(self, partial_path: list[str],
-                        namespace: str | None = None) -> list[FunctionDefinition]:
+    def lookup_function(self, partial_path,
+                        namespace=None):
         """Find function by partial path, optionally in a specific namespace.
 
         Args:
-            partial_path: Reversed partial path (leaf first),
+            partial_path (list[str]): Reversed partial path (leaf first),
                          e.g., ["area", "geometry"] for |area.geometry
-            namespace: Optional namespace to search in (e.g., "std" for /std)
+            namespace (str | None): Optional namespace to search in (e.g., "std" for /std)
 
         Returns:
-            List of FunctionDefinition overloads
+            list[_function.FunctionDefinition]: List of FunctionDefinition overloads
 
         Raises:
             ValueError: If not found, ambiguous, or namespace not found
@@ -765,7 +669,7 @@ class Module(Entity):
                 f"Ambiguous function reference |{partial_str} found in multiple namespaces: {ns_list}"
             )
 
-    def prepare(self, ast_module: Any, engine: Any = None) -> None:
+    def prepare(self, ast_module, engine=None):
         """Prepare the module by building its namespace and pre-resolving all references.
 
         This is a multi-phase process that builds up the module incrementally and
@@ -813,7 +717,7 @@ class Module(Entity):
         # In the future, step 6 could discard it to save memory
         self._resolution_ns = resolution_ns
 
-    def _phase1_create_definitions(self, ast_module: Any, engine: Any) -> None:
+    def _phase1_create_definitions(self, ast_module, engine):
         """Phase 1: Walk all definitions and create initial Def nodes.
 
         This scans the AST module and registers all tag, shape, and function
@@ -848,7 +752,7 @@ class Module(Entity):
                 full_name = ".".join(op.path)
                 if full_name not in self.functions:
                     # Create placeholder - marked with _placeholder flag
-                    placeholder = FunctionDefinition(
+                    placeholder = comp.FunctionDefinition(
                         path=op.path,
                         module=self,
                         body=None,  # Body will be set during evaluation
@@ -863,7 +767,7 @@ class Module(Entity):
 
             # ImportDef is handled in phase 2
 
-    def _phase2_prepare_imports(self, ast_module: Any, engine: Any) -> None:
+    def _phase2_prepare_imports(self, ast_module, engine):
         """Phase 2: Walk all imports and recursively prepare each imported module.
 
         This processes import statements and ensures all dependencies are prepared
@@ -893,7 +797,7 @@ class Module(Entity):
                     # Add to our namespaces
                     self.add_namespace(op.namespace, imported_module)
 
-    def _load_import(self, import_def: Any, engine: Any) -> 'Module | None':
+    def _load_import(self, import_def, engine):
         """Load an imported module based on ImportDef.
 
         This handles different import sources (stdlib, comp, python, etc.)
@@ -923,7 +827,7 @@ class Module(Entity):
         # Other sources not yet implemented
         return None
 
-    def _phase3_build_resolution_namespace(self) -> dict[tuple[str, list[str]], Any]:
+    def _phase3_build_resolution_namespace(self):
         """Phase 3: Build complete resolution namespace for all partial references.
 
         This creates a lookup table that maps all possible partial references to
@@ -951,7 +855,7 @@ class Module(Entity):
 
         return resolution_ns
 
-    def _add_local_definitions_to_ns(self, resolution_ns: dict) -> None:
+    def _add_local_definitions_to_ns(self, resolution_ns):
         """Add all local definitions to the resolution namespace.
 
         For each definition, generates all possible partial references and
@@ -1007,7 +911,7 @@ class Module(Entity):
                     else:
                         resolution_ns[key] = func_overloads  # Store all overloads
 
-    def _add_namespace_definitions_to_ns(self, resolution_ns: dict, ns_name: str, ns_module: 'Module') -> None:
+    def _add_namespace_definitions_to_ns(self, resolution_ns, ns_name, ns_module):
         """Add definitions from a namespace to the resolution namespace.
 
         Definitions from namespaces are added with lower priority than local definitions.
@@ -1087,7 +991,7 @@ class Module(Entity):
                         else:
                             resolution_ns[key_implicit] = 'AMBIGUOUS'
 
-    def _phase4_preresolve_references(self, ast_module: Any, resolution_ns: dict) -> None:
+    def _phase4_preresolve_references(self, ast_module, resolution_ns):
         """Phase 4: Walk all AST nodes and pre-resolve all references.
 
         This walks through all definitions and pre-resolves any TagRef, ShapeRef,
@@ -1114,7 +1018,7 @@ class Module(Entity):
             elif isinstance(op, ast.FuncDef):
                 self._preresolve_func_def(op, resolution_ns)
 
-    def _preresolve_tag_def(self, tag_def: Any, resolution_ns: dict) -> None:
+    def _preresolve_tag_def(self, tag_def, resolution_ns):
         """Pre-resolve all references in a tag definition.
 
         Args:
@@ -1136,7 +1040,7 @@ class Module(Entity):
                 if subchild.value:
                     self._preresolve_node(subchild.value, resolution_ns)
 
-    def _preresolve_shape_def(self, shape_def: Any, resolution_ns: dict) -> None:
+    def _preresolve_shape_def(self, shape_def, resolution_ns):
         """Pre-resolve all references in a shape definition.
 
         Args:
@@ -1153,7 +1057,7 @@ class Module(Entity):
             if field_def.default:
                 self._preresolve_node(field_def.default, resolution_ns)
 
-    def _preresolve_func_def(self, func_def: Any, resolution_ns: dict) -> None:
+    def _preresolve_func_def(self, func_def, resolution_ns):
         """Pre-resolve all references in a function definition.
 
         Args:
@@ -1172,7 +1076,7 @@ class Module(Entity):
         # Resolve body
         self._preresolve_node(func_def.body, resolution_ns)
 
-    def _preresolve_node(self, node: Any, resolution_ns: dict) -> None:
+    def _preresolve_node(self, node, resolution_ns):
         """Recursively pre-resolve all references in an AST node.
 
         This walks the AST tree and resolves TagRef, ShapeRef, and FuncRef nodes.

@@ -51,19 +51,33 @@ def run_func(code: str, **scopes) -> comp.Value:
     return engine.run(test_func.body, **value_scopes)
 
 
-def run_frame(name: str, input, args) -> comp.Value:
-    """Invoke defined function directly by name."""
+def run_frame(name, input, args=None):
+    """Invoke defined function directly by name.
+    
+    This is a test helper that calls builtin functions directly.
+    For testing user-defined functions, use run_func() instead.
+    """
     engine = comp.Engine()
     dummy_node = comp.ast.Number(0)
     frame = comp._engine._Frame(dummy_node, None, {}, False, engine)
     input = comp.Value(input)
     args = comp.Value(args) if args is not None else None
-    result = frame.call_function(name, input, args)
+    
+    # Call builtin function directly
+    builtin_func = getattr(comp.builtin, f"builtin_{name}", None)
+    if builtin_func is None:
+        return comp.fail(f"Unknown builtin function: |{name}")
+    
+    result = builtin_func(frame, input, args)
     return result
 
 
 def run_pipe(seed, *operations, func=None, **scopes) -> comp.Value:
-    """Create and execute a pipeline from seed and operations."""
+    """Create and execute a pipeline from seed and operations.
+    
+    If func is provided, it will be temporarily added to comp.builtin
+    as builtin_{func.__name__} so it can be called in the pipeline.
+    """
 
     if isinstance(seed, int):
         seed = comp.ast.Number(seed)
@@ -79,17 +93,32 @@ def run_pipe(seed, *operations, func=None, **scopes) -> comp.Value:
         value_scopes[key] = val
 
     engine = comp.Engine()
+    
+    # Temporarily add custom function to comp.builtin for test
     if func is not None:
         name = func.__name__
-        engine.functions[name] = comp.PythonFunction(name, func)
-
+        builtin_name = f"builtin_{name}"
+        # Save old value if it exists
+        old_func = getattr(comp.builtin, builtin_name, None)
+        # Set the test function
+        setattr(comp.builtin, builtin_name, func)
+        try:
+            result = engine.run(pipeline, **value_scopes)
+        finally:
+            # Restore old value or remove if didn't exist
+            if old_func is None:
+                delattr(comp.builtin, builtin_name)
+            else:
+                setattr(comp.builtin, builtin_name, old_func)
+        return result
+    
     result = engine.run(pipeline, **value_scopes)
     return result
 
 
 def make_shape(shape_name, *fields):
     """Generate shape with given fields (name, builtinshape, default) or ShapeField"""
-    builtin = comp.get_builtin_module()
+    builtin = comp.builtin.get_builtin_module()
 
     shape_fields = []
     for field in fields:

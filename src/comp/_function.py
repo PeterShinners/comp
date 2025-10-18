@@ -1,14 +1,11 @@
-"""Function system for the engine.
+"""Function system for the engine."""
 
-Simple function infrastructure to support pipeline operations.
-Starts with Python-implemented functions, will add Comp-defined functions later.
-"""
-
-__all__ = ["Function", "PythonFunction"]
+__all__ = ["Function", "PythonFunction", "FunctionDefinition",
+            "RawBlock", "Block", "BlockShapeDefinition"]
 
 import comp
 
-from . import _value
+from . import _entity
 
 
 class Function:
@@ -21,28 +18,33 @@ class Function:
     Functions evaluate and return Value objects.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name):
         """Create a function.
 
         Args:
-            name: Function name (without | prefix)
+            name (str): Function name (without | prefix)
         """
         self.name = name
 
-    def __call__(self, frame, input_value: _value.Value, args: _value.Value | None = None):
+    def __call__(self, frame, input_value, args=None):
         """Invoke the function.
 
         Args:
-            frame: The evaluation frame
-            input_value: Value from pipeline ($in)
-            args: Optional argument structure
+            frame (_Frame): The evaluation frame
+            input_value (Value): Value from pipeline ($in)
+            args (Value | None): Optional argument structure
 
         Returns:
-            Value result or fail value
+            Value: Value result or fail value
         """
         raise NotImplementedError(f"Function {self.name} must implement __call__")
 
     def __repr__(self):
+        """Return string representation of function.
+        
+        Returns:
+            str: Function name with | prefix
+        """
         return f"Function(|{self.name})"
 
 
@@ -53,12 +55,12 @@ class PythonFunction(Function):
     The callable receives (engine, input_value, args) and returns Value.
     """
 
-    def __init__(self, name: str, python_func):
+    def __init__(self, name, python_func):
         """Create a Python-implemented function.
 
         Args:
-            name: Function name (without | prefix)
-            python_func: Callable(frame, input_value, args) -> Value
+            name (str): Function name (without | prefix)
+            python_func (callable): Callable(frame, input_value, args) -> Value
         """
         super().__init__(name)
         self.python_func = python_func
@@ -68,6 +70,15 @@ class PythonFunction(Function):
 
         Extracts $in and ^arg from frame scopes and calls the Python function.
         Supports both regular functions and generators that yield Compute.
+        
+        Args:
+            frame (_Frame): Evaluation frame with scopes
+            
+        Yields:
+            Compute: Child evaluation requests (if function is a generator)
+            
+        Returns:
+            Value: Result from the function
         """
         input_value = frame.scope('in')
         args = frame.scope('arg')
@@ -93,13 +104,21 @@ class PythonFunction(Function):
             return result
         yield  # Make this a generator (though this line is never reached)
 
-    def __call__(self, frame, input_value: _value.Value, args: _value.Value | None = None):
+    def __call__(self, frame, input_value, args=None):
         """Invoke the Python function.
 
         Ensures all values are structs both on input and output, maintaining
         Comp's invariant that all Values are structs (scalars are wrapped in {_: value}).
         
         Supports both regular functions and generators (that yield Compute).
+        
+        Args:
+            frame (_Frame): Evaluation frame
+            input_value (Value): Input from pipeline
+            args (Value | None): Optional arguments
+            
+        Returns:
+            Value | generator: Result value or generator for async functions
         """
         try:
             # Ensure input and args are structs
@@ -123,327 +142,241 @@ class PythonFunction(Function):
             return comp.fail(f"Error in function |{self.name}: {e}")
 
     def __repr__(self):
+        """Return string representation.
+        
+        Returns:
+            str: Function name with | prefix and type indicator
+        """
         return f"PythonFunction(|{self.name})"
 
 
-# ============================================================================
-# Built-in Functions
-# ============================================================================
+class FunctionDefinition(_entity.Entity):
+    """A function definition in the module.
 
-def builtin_double(frame, input_value: _value.Value, args: _value.Value | None = None):
-    """Double a number: [5 |double] → 10"""
-    input_value = input_value.as_scalar()
-    if not input_value.is_number:
-        return comp.fail(f"|double expects number, got {input_value.data}")
-    return _value.Value(input_value.data * 2)
+    Functions transform input structures through pipelines and can accept arguments.
+    They are lazy by default and support overloading through shape-based dispatch.
 
+    Inherits from Entity so it can be returned from evaluate() and passed through scopes.
 
-def builtin_print(frame, input_value: _value.Value, args: _value.Value | None = None):
-    """Print a value and pass it through: [5 |print] → 5 (with side effect)"""
-    # Print the value using unparse() for clean output
-    print(f"[PRINT] {input_value.as_scalar().unparse()}")
-    # Pass through unchanged
-    return input_value
-
-
-def builtin_identity(frame, input_value: _value.Value, args: _value.Value | None = None):
-    """Identity function - returns input unchanged: [5 |identity] → 5"""
-    return input_value
-
-
-def builtin_add(frame, input_value: _value.Value, args: _value.Value | None = None):
-    """Add argument to input: [5 |add ^{n=3}] → 8"""
-    input_value = input_value.as_scalar()
-    if not input_value.is_number:
-        return comp.fail(f"|add expects number input, got {input_value.data}")
-
-    if args is None or not args.is_struct:
-        return comp.fail("|add requires argument ^{n=...}")
-
-    n_key = _value.Value("n")
-    if n_key not in args.struct:
-        return comp.fail("|add requires argument ^{n=...}")
-
-    n_value = args.struct[n_key]
-    if not n_value.is_number:
-        return comp.fail(f"|add argument n must be number, got {n_value.data}")
-
-    return _value.Value(input_value.data + n_value.data)
-
-
-def builtin_wrap(frame, input_value: _value.Value, args: _value.Value | None = None):
-    """Wrap input in a struct with given key: [5 |wrap ^{key="x"}] → {x: 5}"""
-    if args is None or not args.is_struct:
-        return comp.fail("|wrap requires argument ^{key=...}")
-
-    key_key = _value.Value("key")
-    if key_key not in args.struct:
-        return comp.fail("|wrap requires argument ^{key=...}")
-
-    key_value = args.struct[key_key]
-    return _value.Value({key_value: input_value})
-
-
-def builtin_if(frame, input_value: _value.Value, args: _value.Value | None = None):
-    """Conditional evaluation: [x |if ^{:{cond} :{then} :{else}}]
-    
-    Takes 2 or 3 positional arguments:
-    - First arg (condition): Block or boolean value
-    - Second arg (then): Block or value to return if condition is true
-    - Third arg (else, optional): Block or value to return if condition is false
-    
-    Each block receives the input value as $in.
-    If condition is false and no else block provided, returns input unchanged.
+    Attributes:
+        path (list[str]): Full path as list, e.g., ["math", "geometry", "area"]
+        module (Module): The Module this function is defined in
+        input_shape (ShapeDefinition | None): Shape defining expected input structure (or None for any)
+        arg_shape (ShapeDefinition | None): Shape defining function arguments (or None for no args)
+        body (AstNode): Structure definition AST node for the function body
+        is_pure (bool): True if function has no side effects
+        doc (str | None): Optional documentation string
+        impl_doc (str | None): Optional documentation for this specific implementation (overloads)
     """
-    if args is None or not args.is_struct:
-        return comp.fail("|if requires arguments (cond then [else])")
-    
-    # Get positional arguments (unnamed fields)
-    argvalues = [v for k, v in args.struct.items() if isinstance(k, comp.Unnamed)]
-    
-    if len(argvalues) < 2:
-        return comp.fail("|if requires at least 2 arguments (condition and then-branch)")
-    if len(argvalues) > 3:
-        return comp.fail("|if accepts at most 3 arguments (condition, then, else)")
-    
-    cond_arg = argvalues[0]
-    then_arg = argvalues[1]
-    else_arg = argvalues[2] if len(argvalues) == 3 else None
-    
-    # Evaluate condition
-    if cond_arg.is_block:
-        # Condition is a block - evaluate it with input_value
-        block_data = cond_arg.data  # This is Block or RawBlock
+    def __init__(self, path, module, body, input_shape=None,
+                 arg_shape=None, is_pure=False,
+                 doc=None, impl_doc=None, _placeholder=False):
+        """Initialize function definition.
         
-        # Get block AST and module
-        if isinstance(block_data, comp.RawBlock):
-            block_ast = block_data.block_ast
-            block_module = block_data.function.module if block_data.function else frame.scope('module')
-            ctx_scope = block_data.ctx_scope if block_data.ctx_scope is not None else comp.Value({})
-            local_scope = block_data.local_scope if block_data.local_scope is not None else comp.Value({})
-            block_function = block_data.function
-        elif isinstance(block_data, comp.Block):
-            block_ast = block_data.raw_block.block_ast
-            block_module = block_data.raw_block.function.module if block_data.raw_block.function else frame.scope('module')
-            ctx_scope = block_data.raw_block.ctx_scope if block_data.raw_block.ctx_scope is not None else comp.Value({})
-            local_scope = block_data.raw_block.local_scope if block_data.raw_block.local_scope is not None else comp.Value({})
-            block_function = block_data.raw_block.function
-        else:
-            return comp.fail(f"|if condition block has unexpected type: {type(block_data)}")
+        Args:
+            path (list[str]): Full path as list
+            module (Module): Module containing this function
+            body (AstNode): Function body AST
+            input_shape (ShapeDefinition | None): Expected input shape
+            arg_shape (ShapeDefinition | None): Argument shape
+            is_pure (bool): Whether function is pure (no side effects)
+            doc (str | None): Documentation string
+            impl_doc (str | None): Implementation-specific documentation
+            _placeholder (bool): True if created during prepare(), not a real definition
+        """
+        self.path = path
+        self.module = module
+        self.input_shape = input_shape
+        self.arg_shape = arg_shape
+        self.body = body
+        self.is_pure = is_pure
+        self.doc = doc
+        self.impl_doc = impl_doc
+        self._placeholder = _placeholder  # True if created by prepare(), not real definition
+
+    @property
+    def name(self):
+        """Get the function's leaf name (last element of path).
         
-        # Execute block like PipeBlock does
-        struct_dict = {}
-        accumulator = comp.Value.__new__(comp.Value)
-        accumulator.data = struct_dict
-        chained = comp.ChainedScope(accumulator, input_value)
+        Returns:
+            str: Function name
+        """
+        return self.path[-1] if self.path else ""
+
+    @property
+    def full_name(self):
+        """Get dot-separated full path.
         
-        # Execute each operation from the block
-        for op in block_ast.ops:
-            yield comp.Compute(
-                op,
-                struct_accumulator=accumulator,
-                unnamed=chained,
-                in_=input_value,
-                ctx=ctx_scope,
-                local=local_scope,
-                module=block_module,
-                arg=frame.scope('arg') if block_function is not None else None,
-            )
+        Returns:
+            str: Full qualified name with dots
+        """
+        return ".".join(self.path)
+
+    @property
+    def parent_path(self):
+        """Get the parent's path, or None for root functions.
         
-        # Get the result
-        cond_result = accumulator
+        Returns:
+            list[str] | None: Parent path or None
+        """
+        return self.path[:-1] if len(self.path) > 1 else None
+
+    def matches_partial(self, partial):
+        """Check if this function matches a partial path (suffix match).
+
+        Args:
+            partial (list[str]): Reversed partial path, e.g., ["area", "geometry"]
+                    for |area.geometry (leaf first)
+
+        Returns:
+            bool: True if function's path ends with the partial path
+        """
+        if len(partial) > len(self.path):
+            return False
+        # Match from the end of our path (which is already in definition order)
+        # partial is in reference order (reversed), so we need to reverse it
+        partial_def_order = list(reversed(partial))
+        return self.path[-len(partial):] == partial_def_order
+
+    def __repr__(self):
+        """Return string representation of function definition.
         
-        if frame.is_fail(cond_result):
-            return cond_result
-        
-        # Check if result is a boolean tag
-        cond_result = cond_result.as_scalar()
-        if cond_result.is_tag:
-            tag_ref = cond_result.data
-            if tag_ref.full_name == "true":
-                condition = True
-            elif tag_ref.full_name == "false":
-                condition = False
-            else:
-                return comp.fail(f"|if condition block must return #true or #false, got #{tag_ref.full_name}")
-        else:
-            return comp.fail(f"|if condition block must return boolean tag, got {cond_result}")
-    
-    elif cond_arg.is_tag:
-        # Condition is already a boolean tag
-        tag_ref = cond_arg.data
-        if tag_ref.full_name == "true":
-            condition = True
-        elif tag_ref.full_name == "false":
-            condition = False
-        else:
-            return comp.fail(f"|if condition must be #true or #false, got #{tag_ref.full_name}")
-    else:
-        return comp.fail("|if condition must be a block or boolean tag")
-    
-    # Execute appropriate branch
-    if condition:
-        branch_arg = then_arg
-    elif else_arg is not None:
-        branch_arg = else_arg
-    else:
-        # No else branch and condition is false - return input unchanged
-        return input_value
-    
-    # Evaluate the selected branch
-    if branch_arg.is_block:
-        # Branch is a block - evaluate it with input_value
-        block_data = branch_arg.data
-        
-        # Get block AST and module
-        if isinstance(block_data, comp.RawBlock):
-            block_ast = block_data.block_ast
-            block_module = block_data.function.module if block_data.function else frame.scope('module')
-            ctx_scope = block_data.ctx_scope if block_data.ctx_scope is not None else comp.Value({})
-            local_scope = block_data.local_scope if block_data.local_scope is not None else comp.Value({})
-            block_function = block_data.function
-        elif isinstance(block_data, comp.Block):
-            block_ast = block_data.raw_block.block_ast
-            block_module = block_data.raw_block.function.module if block_data.raw_block.function else frame.scope('module')
-            ctx_scope = block_data.raw_block.ctx_scope if block_data.raw_block.ctx_scope is not None else comp.Value({})
-            local_scope = block_data.raw_block.local_scope if block_data.raw_block.local_scope is not None else comp.Value({})
-            block_function = block_data.raw_block.function
-        else:
-            return comp.fail(f"|if branch block has unexpected type: {type(block_data)}")
-        
-        # Execute block like PipeBlock does
-        struct_dict = {}
-        accumulator = comp.Value.__new__(comp.Value)
-        accumulator.data = struct_dict
-        chained = comp.ChainedScope(accumulator, input_value)
-        
-        # Execute each operation from the block
-        for op in block_ast.ops:
-            yield comp.Compute(
-                op,
-                struct_accumulator=accumulator,
-                unnamed=chained,
-                in_=input_value,
-                ctx=ctx_scope,
-                local=local_scope,
-                module=block_module,
-                arg=frame.scope('arg') if block_function is not None else None,
-            )
-        
-        # Return the accumulated result
-        return accumulator
-    else:
-        # Branch is a plain value - return it
-        return branch_arg
+        Returns:
+            str: Function signature with shapes
+        """
+        pure_str = "!pure " if self.is_pure else ""
+        input_str = f" ~{self.input_shape}" if self.input_shape else ""
+        arg_str = f" ^{self.arg_shape}" if self.arg_shape else ""
+        return f"{pure_str}|{self.full_name}{input_str}{arg_str}"
 
 
-def builtin_while(frame, input_value: _value.Value, args: _value.Value | None = None):
-    """Repeatedly invoke a block until it returns #break: [|while :{...}]
-    
-    Takes a single block argument that is invoked repeatedly.
-    Returns a structure with accumulated unnamed fields from each iteration.
-    
-    Special tag values:
-    - #break: Stops iteration, value is not added to result
-    - #skip: Continues iteration, value is not added to result
-    - Any other value: Added as unnamed field to result structure
+class RawBlock:
+    """An untyped block with captured definition context.
+
+    Raw blocks are created with :{...} syntax and capture their definition context
+    (scopes and function reference) but have no input shape yet. They cannot be invoked
+    until morphed with a BlockShape to create a Block.
+
+    Raw blocks capture only what they need:
+    - function: Current function context (if defined in a function), provides module and $arg access
+    - ctx_scope: The $ctx scope at definition time
+    - local_scope: The @local scope at definition time
+    - block_ast: The Block AST node itself (operations to execute)
+
+    For blocks defined in a function, the module is accessed via function.module.
+    For blocks defined at module scope (function is None), the module must be obtained
+    from the evaluation context (e.g., frame.scope('module')).
+
+    Raw blocks do NOT capture:
+    - $in: Set at invocation time
+    - $out: Built during block execution
+    - Full frame: Too heavy, only need specific scopes
+
+    Attributes:
+        block_ast (Block): The Block AST node with operations
+        function (FunctionDefinition | None): FunctionDefinition if defined in function, None otherwise
+        ctx_scope (Value | None): Captured $ctx scope from definition
+        local_scope (Value | None): Captured @local scope from definition
     """
-    if args is None or not args.is_struct:
-        return comp.fail("|while requires argument ^{:{...}}")
-    
-    # Get the block (should be first positional arg)
-    argvalues = [v for k, v in args.struct.items() if isinstance(k, comp.Unnamed)]
-    
-    if len(argvalues) != 1:
-        return comp.fail("|while requires exactly one block argument")
-    
-    block_arg = argvalues[0]
-    
-    if not block_arg.is_block:
-        return comp.fail("|while block must be a block")
-    
-    # Get block components
-    block_data = block_arg.data
-    
-    if isinstance(block_data, comp.RawBlock):
-        block_ast = block_data.block_ast
-        block_module = block_data.function.module if block_data.function else frame.scope('module')
-        ctx_scope = block_data.ctx_scope if block_data.ctx_scope is not None else comp.Value({})
-        local_scope = block_data.local_scope if block_data.local_scope is not None else comp.Value({})
-        block_function = block_data.function
-    elif isinstance(block_data, comp.Block):
-        block_ast = block_data.raw_block.block_ast
-        block_module = block_data.raw_block.function.module if block_data.raw_block.function else frame.scope('module')
-        ctx_scope = block_data.raw_block.ctx_scope if block_data.raw_block.ctx_scope is not None else comp.Value({})
-        local_scope = block_data.raw_block.local_scope if block_data.raw_block.local_scope is not None else comp.Value({})
-        block_function = block_data.raw_block.function
-    else:
-        return comp.fail(f"|while block has unexpected type: {type(block_data)}")
-    
-    # Get #break and #skip tags for comparison
-    break_tag = frame.engine.builtin_tags.get('break')
-    skip_tag = frame.engine.builtin_tags.get('skip')
-    
-    # Accumulate results
-    result_list = []
-    
-    # Iterate until #break
-    while True:
-        # Execute block with input_value as $in
-        struct_dict = {}
-        accumulator = comp.Value.__new__(comp.Value)
-        accumulator.data = struct_dict
-        chained = comp.ChainedScope(accumulator, input_value)
+    def __init__(self, block_ast,
+                 function=None,
+                 ctx_scope=None, local_scope=None):
+        """Initialize raw block with captured context.
         
-        # Execute each operation
-        last_result = input_value  # Default to input if no ops
-        for op in block_ast.ops:
-            last_result = yield comp.Compute(op, struct_accumulator=accumulator, unnamed=chained,
-                                      in_=input_value, ctx=ctx_scope, local=local_scope,
-                                      module=block_module, func_ctx=block_function)
-            if frame.is_fail(last_result):
-                return last_result
+        Args:
+            block_ast (Block): Block AST node with operations
+            function (FunctionDefinition | None): Function context if defined in a function
+            ctx_scope (Value | None): Captured $ctx scope
+            local_scope (Value | None): Captured @local scope
+        """
+        self.block_ast = block_ast
+        self.function = function
+        self.ctx_scope = ctx_scope
+        self.local_scope = local_scope
+
+    def __repr__(self):
+        """Return string representation.
         
-        # Get the block's result
-        if struct_dict:
-            # Block built a structure
-            block_result = accumulator
-        else:
-            # Block returned a single value
-            block_result = last_result
-        
-        # Check for #break tag
-        if block_result.is_tag and block_result.data == break_tag:
-            break
-        
-        # Check for #skip tag
-        if block_result.is_tag and block_result.data == skip_tag:
-            continue
-        
-        # Add result to accumulator
-        result_list.append(block_result)
-    
-    # Convert list to structure with unnamed fields
-    result_dict = {comp.Unnamed(): value for value in result_list}
-    return comp.Value(result_dict)
+        Returns:
+            str: Summary showing operation count and function context
+        """
+        func_str = f" in |{self.function.full_name}" if self.function else ""
+        return f"RawBlock({len(self.block_ast.ops)} ops{func_str})"
 
 
-# ============================================================================
-# Function Registry
-# ============================================================================
+class Block:
+    """A typed block ready for invocation.
 
-def create_builtin_functions():
-    """Create all built-in Python functions.
+    Blocks are created by morphing a RawBlock with a BlockShape. They have:
+    - An input shape that defines what structure they expect
+    - All the captured context from the RawBlock
+    - The ability to be invoked with the |: operator
 
-    Returns:
-        Dict mapping function names to Function objects
+    The Block holds a reference to the original RawBlock (for context and operations)
+    plus the input shape that was applied through morphing.
+
+    Attributes:
+        raw_block (RawBlock): The RawBlock this was created from (contains ops and captured context)
+        input_shape (ShapeDefinition): The shape defining expected input structure
     """
-    return {
-        "double": PythonFunction("double", builtin_double),
-        "print": PythonFunction("print", builtin_print),
-        "identity": PythonFunction("identity", builtin_identity),
-        "add": PythonFunction("add", builtin_add),
-        "wrap": PythonFunction("wrap", builtin_wrap),
-        "if": PythonFunction("if", builtin_if),
-        "while": PythonFunction("while", builtin_while),
-    }
+    def __init__(self, raw_block, input_shape):
+        """Initialize typed block from raw block and shape.
+        
+        Args:
+            raw_block (RawBlock): Untyped block with operations and context
+            input_shape (ShapeDefinition): Expected input shape
+            
+        Raises:
+            TypeError: If raw_block is not a RawBlock instance
+        """
+        if not isinstance(raw_block, RawBlock):
+            raise TypeError("Block requires a RawBlock")
+        self.raw_block = raw_block
+        self.input_shape = input_shape
+
+    def __repr__(self):
+        """Return string representation.
+        
+        Returns:
+            str: Summary with operation count, shape, and function context
+        """
+        func_str = f" in |{self.raw_block.function.full_name}" if self.raw_block.function else ""
+        shape_str = f" ~:{self.input_shape}" if self.input_shape else ""
+        return f"Block({len(self.raw_block.block_ast.ops)} ops{shape_str}{func_str})"
+
+
+class BlockShapeDefinition(_entity.Entity):
+    """A block shape definition describing the input structure for blocks.
+
+    BlockShapeDefinitions are created when BlockShape AST nodes are evaluated.
+    They describe what input structure a block expects, similar to how
+    ShapeDefinition describes struct layouts.
+
+    Unlike regular shapes, BlockShapeDefinitions are specifically for block types
+    and are used during morphing to convert RawBlock → Block.
+
+    Attributes:
+        fields (list[ShapeField]): List of ShapeField describing the expected input structure
+    """
+    def __init__(self, fields):
+        """Initialize block shape definition.
+        
+        Args:
+            fields (list[ShapeField]): Fields describing expected input structure
+            
+        Raises:
+            TypeError: If fields is not a list
+        """
+        if not isinstance(fields, list):
+            raise TypeError("Fields must be a list")
+        # Note: We can't import ShapeField here due to circular dependency
+        # The type check is relaxed to accept Any
+        self.fields = fields
+
+    def __repr__(self):
+        """Return string representation.
+        
+        Returns:
+            str: Summary with field count
+        """
+        return f"BlockShapeDefinition({len(self.fields)} fields)"
