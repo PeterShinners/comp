@@ -30,10 +30,12 @@ uv run comp examples/working/hello.comp
 ; Hello World example in Comp language
 
 !main = {
-    @names = {"USERNAME" "USER" "LOGNAME"} |map .{|getenv/os}
-    @greeting = (@names |any ?? "World")
+    $var.lookups = [{USERNAME USER LOGNAME} 
+        |map :[|getenv ?? #skip]]
     
-    %"Hello ${@greeting}!" |print/io
+    $var.name = [{..$var.lookups World} |first]
+    
+    [%"Hello, ${$var.name}!" |print]
 }
 ```
 
@@ -65,7 +67,7 @@ comp/
 ├── examples/           # Sample Comp programs
 ├── tasks/              # Implementation phases and milestones
 ├── tests/              # Executable test specifications
-├── src/                # Implementation source code
+├── src/comp            # Implementation source code
 ├── docs/               # Additional documentation
 └── vscode/             # Syntax plugin (textmate) for VSCode
 ```

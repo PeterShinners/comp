@@ -44,12 +44,13 @@ Initial runtime structures and data
 [X] 02-PP. Structure Building - Create and manipulate structures
 [X] 02-PP. Pipeline Execution - Execute pipeline operations with seed/ops
 [X] 02-PP. Function Definitions
-[~] 02-PP. Shape matching and morphing
-[ ] 02-PP. Placeholder operator ???
-[ ] 02-PP. Blocks (definition and shaping and invoke)
-[ ] 02-PP. Initial minimal conditional and iteration
-[ ] 02-PP. Failure and fallbacks
-[ ] 02-PP. Builtin Functions - Minimal set of core functionsfor complete development process and workflow details.
+[X] 02-PP. Shape matching and morphing
+[X] 02-PP. Blocks (definition and shaping and invoke)
+[X] 02-PP. Initial minimal conditional and iteration
+[X] 02-PP. Failure and fallbacks
+[X] 02-PP. Builtin Functions - Minimal set of core functions
+[X] CC-PP. Function dispatch
+[X] CC-PP. Tag polymorphic dispatch
 
 ## CC. Library Incubation
 
@@ -57,7 +58,7 @@ Initial pass at some of core language libraries.
 These must be hardcoded into a global namespace until imports arrive
 
 [ ] CC-PP. String and Number
-[ ] CC-PP. Conditionals and Loops
+[~] CC-PP. Conditionals and Loops
 [ ] CC-PP. Tag management and introspection
 [ ] CC-PP. Stubbed in IO (print, file-to-string)
 
@@ -70,6 +71,7 @@ Finish parsing all langauge features into ast nodes
 [ ] CC-PP. Imports
 [ ] CC-PP. Resources
 [ ] CC-PP. Trails
+[ ] CC-PP. Placeholder operator ???
 
 ## CC. Modules
 
@@ -87,8 +89,6 @@ Structure for code, no more "everything in one global"
 [ ] 02-PP. Pure functions
 [ ] 02-PP. Streams
 [ ] CC-PP. Private data
-[ ] CC-PP. Function dispatch
-[ ] CC-PP. Tag polymorphic dispatch
 [ ] CC-PP. Lazy Evaluation (scope captures)
 [ ] CC-PP. Resources and tracking
 [ ] CC-PP. Describe

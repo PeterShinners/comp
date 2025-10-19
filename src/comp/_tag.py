@@ -45,7 +45,6 @@ class TagRef:
         return hash(self.full_name)
 
 
-
 def is_tag_compatible(input_tag_def, field_tag_def):
     """Check if an input tag is compatible with a field's tag type.
 

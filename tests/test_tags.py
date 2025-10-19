@@ -41,6 +41,7 @@ def test_tag_with_children():
         )
     ])
     result = comptest.run_ast(module_node)
+    assert isinstance(result, comp.Module)
     assert result.lookup_tag(["active"]).value.to_python() == 1
     assert result.lookup_tag(["inactive"]).value.to_python() == 0
     assert result.lookup_tag(["active", "status"])

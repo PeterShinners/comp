@@ -55,18 +55,18 @@ class Pipeline(_base.ValueNode):
             if current is None:
                 return comp.fail("Unseeded pipeline requires $in scope")
 
-        current_is_fail = frame.is_fail(current)
+        current_bypass_value = frame.bypass_value(current)
 
         # Thread through each operation
         for op in self.operations:
             if isinstance(op, PipeFallback):
-                if not current_is_fail:
+                if not current_bypass_value:
                     continue  # Valid values skip fallback
-            elif current_is_fail:
+            elif current_bypass_value:
                 continue  # Failures skip everything else
 
             current = yield comp.Compute(op, allow_failures=True, in_=current)
-            current_is_fail = frame.is_fail(current)
+            current_bypass_value = frame.bypass_value(current)
 
         return current
 
@@ -114,7 +114,7 @@ class PipeFunc(PipelineOp):
         args_value = None
         if self.args is not None:
             args_value = yield comp.Compute(self.args)
-            if frame.is_fail(args_value):
+            if frame.bypass_value(args_value):
                 return args_value
 
         # Try to call as builtin function first (temporary hack)
@@ -133,11 +133,11 @@ class PipeFunc(PipelineOp):
                     return e.value if e.value is not None else comp.Value(None)
             return result
 
-        # Use pre-resolved function definitions if available (fast path)
+        # Get function definitions (pre-resolved or lookup at runtime)
         if self._resolved is not None:
             func_defs = self._resolved
         else:
-            # Slow path: runtime lookup for modules not prepared
+            # Runtime lookup for modules not prepared
             module = frame.scope('module')
             if module is None:
                 return comp.fail(f"Function |{self.func_name} not found (no module scope)")
@@ -153,85 +153,19 @@ class PipeFunc(PipelineOp):
                 # Not found or ambiguous
                 return comp.fail(str(e))
 
-        # Step 1: Select best overload by trying to morph input to each shape
-        best_func = None
-        best_morph = None
-        best_score = None
+        # Get ctx scope for function call
+        ctx_scope = frame.scope('ctx')
+        if ctx_scope is None:
+            ctx_scope = frame.engine.ctx_scope
+
+        # Use prepare_function_call to build the Compute object
+        compute = comp.prepare_function_call(
+            func_defs, input_value, args_value, ctx_scope)
+        if isinstance(compute, comp.Value) and compute.is_fail:
+            return compute  # Preparation failed
         
-        for func_def in func_defs:
-            if func_def.input_shape is None:
-                # No shape constraint - this is a wildcard match
-                # Score it lower than any shaped match (use negative score)
-                morph_result = comp.MorphResult(named_matches=0, tag_depth=0,
-                                               assignment_weight=0, positional_matches=-1,
-                                               value=input_value)
-            else:
-                # Try to morph input to this overload's shape
-                morph_result = comp.morph(input_value, func_def.input_shape)
-                if not morph_result.success:
-                    continue  # This overload doesn't match
-            
-            # Compare scores - higher is better (lexicographic tuple comparison)
-            if best_score is None or morph_result > best_score:
-                best_func = func_def
-                best_morph = morph_result
-                best_score = morph_result
-        
-        # Check if we found any matching overload
-        if best_func is None:
-            return comp.fail(f"Function |{self.func_name}: no overload matches input shape")
-        
-        # Use the morphed input value from the best match
-        func_def = best_func
-        input_value = best_morph.value
-
-        # Step 2: Morph arguments to arg shape with strong morph (~*)
-        # This enables unnamed→named field pairing, tag matching, and strict validation
-        arg_scope = args_value if args_value is not None else comp.Value({})
-        if func_def.arg_shape is not None:
-            arg_morph_result = comp.strong_morph(arg_scope, func_def.arg_shape)
-            if not arg_morph_result.success:
-                return comp.fail(f"Function |{self.func_name}: arguments do not match argument shape (missing required fields or type mismatch)")
-            arg_scope = arg_morph_result.value
-
-        # Step 3: Get shared ctx and mod scopes
-        ctx_shared = frame.scope('ctx')
-        if ctx_shared is None:
-            ctx_shared = frame.engine.ctx_scope
-        
-        # Get mod scope from the function's module (not from frame)
-        mod_shared = func_def.module.scope
-
-        # Step 4: Apply weak morph to ctx and mod (~?)
-        # Filter to only fields in arg shape (no defaults, no validation)
-        ctx_scope = ctx_shared
-        mod_scope = mod_shared
-        if func_def.arg_shape is not None:
-            # Weak morph for $ctx
-            ctx_morph_result = comp.weak_morph(ctx_shared, func_def.arg_shape)
-            if ctx_morph_result.success:
-                ctx_scope = ctx_morph_result.value
-
-            # Weak morph for $mod
-            mod_morph_result = comp.weak_morph(mod_shared, func_def.arg_shape)
-            if mod_morph_result.success:
-                mod_scope = mod_morph_result.value
-
-        local_scope = comp.Value({})  # Empty local scope
-
-        # Evaluate function body with these scopes
-        # Note: module scope comes from func_def.module
-        result = yield comp.Compute(
-            func_def.body,
-            in_=input_value,
-            arg=arg_scope,
-            ctx=ctx_scope,
-            mod=mod_scope,
-            local=local_scope,
-            # Use the function's module for all lookups
-            module=func_def.module,
-        )
-
+        # Execute the prepared function call
+        result = yield compute
         return result
 
     def unparse(self) -> str:
@@ -303,22 +237,29 @@ class PipeBlock(PipelineOp):
 
         # Evaluate the block reference to get the Block value
         block_value = yield comp.Compute(self.block_ref)
-        if frame.is_fail(block_value):
+        if frame.bypass_value(block_value):
             return block_value
 
-        # If the value is a structure with a single unnamed Block, unwrap it
-        # This handles the common case where a function returns a structure containing a block
-        if block_value.is_struct and len(block_value.data) == 1:
-            # Get the first (and only) value from the dict
-            first_value = next(iter(block_value.data.values()))
-            if first_value.is_block and isinstance(first_value.data, comp.Block):
-                block_value = first_value
+        # Unwrap nested single-element structs to get to the actual block
+        # Functions often return {pipeline_result} or {{block}}, so unwrap repeatedly
+        while block_value.is_struct and not block_value.is_block:
+            unwrapped = block_value.as_scalar()
+            if unwrapped is block_value:  # No more unwrapping possible
+                break
+            block_value = unwrapped
 
-        # Check if it's a Block (wrapped in Value)
-        if not block_value.is_block or not isinstance(block_value.data, comp.Block):
+        # Check if it's a Block (not RawBlock) wrapped in Value
+        if not block_value.is_block:
             return comp.fail(f"PipeBlock |: requires Block, got {type(block_value.data).__name__}")
 
         block = block_value.data
+        
+        # RawBlocks must be morphed with a shape before they can be invoked
+        if isinstance(block, comp.RawBlock):
+            return comp.fail(
+                "PipeBlock |: cannot invoke RawBlock directly. "
+                "RawBlock must be morphed with a block shape (e.g., ~:{}) before invocation."
+            )
 
         # Note: We don't morph the input here - that's the responsibility of the
         # code that stores/retrieves blocks. If a block has an input shape, it should
@@ -336,27 +277,27 @@ class PipeBlock(PipelineOp):
         # Create chained scope: $out (accumulator) chains to $in
         chained = comp.ChainedScope(accumulator, input_value)
 
-        # Get module reference - either from block's function or from frame
-        # Blocks defined in functions have function.module, module-scope blocks need frame's module
-        block_module = block.raw_block.function.module if block.raw_block.function else None
+        # Get module reference - either from block's frame or from current frame
+        block_module = block.raw_block.frame.scope('module')
         if block_module is None:
             # Module-scope block - get module from frame
             block_module = frame.scope('module')
             if block_module is None:
                 return comp.fail("Block invocation requires module context")
 
-        # Execute each operation from the block with captured context
+        # Execute each operation from the block with captured frame scopes
+        # Use the scopes from the block's frame to preserve mutations to $var
         for op in block.raw_block.block_ast.ops:
             yield comp.Compute(
                 op,
                 struct_accumulator=accumulator,
                 unnamed=chained,
                 in_=input_value,
-                ctx=block.raw_block.ctx_scope if block.raw_block.ctx_scope is not None else comp.Value({}),
-                local=block.raw_block.local_scope if block.raw_block.local_scope is not None else comp.Value({}),
+                ctx=block.raw_block.frame.scope('ctx') or comp.Value({}),
+                local=block.raw_block.frame.scope('local') or comp.Value({}),
+                var=block.raw_block.frame.scope('var') or comp.Value({}),
                 module=block_module,
-                # If block was defined in a function, pass arg scope
-                arg=frame.scope('arg') if block.raw_block.function is not None else None,
+                arg=block.raw_block.frame.scope('arg'),
             )
 
         # Return the accumulated result

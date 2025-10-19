@@ -54,14 +54,14 @@ class MorphOp(_base.ValueNode):
         """
         # Step 1: Evaluate the expression
         value = yield comp.Compute(self.expr)
-        if frame.is_fail(value):
+        if frame.bypass_value(value):
             return value
 
         # Step 2: Resolve the shape
         # NOTE: Shape resolution returns ShapeDefinition objects, not Values
         # This breaks the evaluate() contract but matches current engine architecture
         shape_def = yield comp.Compute(self.shape)
-        if frame.is_fail(shape_def):
+        if frame.bypass_value(shape_def):
             return shape_def
 
         # Step 3: Perform morphing based on mode

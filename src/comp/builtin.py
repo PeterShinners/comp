@@ -34,6 +34,41 @@ def builtin_identity(frame, input_value, args):
     return input_value
 
 
+def builtin_length(frame, input_value, args):
+    """Get the number of fields in a struct: [{a=1 b=2 c=3} |length] → 3"""
+    if not input_value.is_struct:
+        return comp.fail(f"|length expects struct, got {type(input_value.data).__name__}")
+    
+    # Count the fields in the struct
+    return comp.Value(len(input_value.struct))
+
+
+def builtin_as_block(frame, input_value, args):
+    """Convert RawBlock to Block with empty input shape: [:{...} |as-block] → Block(~:{})
+    
+    This is a workaround for the limitation that block shapes cannot be used in morph
+    expressions yet. It's equivalent to :{...}~:{} once that syntax is supported.
+    """
+    input_value = input_value.as_scalar()
+    
+    if not input_value.is_block:
+        return comp.fail(f"|as-block expects block, got {type(input_value.data).__name__}")
+    
+    # If already a Block (morphed), return as-is
+    if isinstance(input_value.data, comp.Block):
+        return input_value
+    
+    # Convert RawBlock to Block with empty input shape
+    if isinstance(input_value.data, comp.RawBlock):
+        block_shape = comp.BlockShapeDefinition([])  # Empty input shape
+        morph_result = comp.morph(input_value, block_shape)
+        if not morph_result.success:
+            return comp.fail("|as-block: failed to morph RawBlock to Block")
+        return morph_result.value
+    
+    return comp.fail(f"|as-block: unexpected block type {type(input_value.data).__name__}")
+
+
 def builtin_add(frame, input_value, args):
     """Add argument to input: [5 |add ^{n=3}] → 8"""
     input_value = input_value.as_scalar()
@@ -98,21 +133,20 @@ def builtin_if(frame, input_value, args):
         # Condition is a block - evaluate it with input_value
         block_data = cond_arg.data  # This is Block or RawBlock
         
-        # Get block AST and module
+        # Get block AST and frame
         if isinstance(block_data, comp.RawBlock):
             block_ast = block_data.block_ast
-            block_module = block_data.function.module if block_data.function else frame.scope('module')
-            ctx_scope = block_data.ctx_scope if block_data.ctx_scope is not None else comp.Value({})
-            var_scope = block_data.var_scope if block_data.var_scope is not None else comp.Value({})
-            block_function = block_data.function
+            block_frame = block_data.frame
         elif isinstance(block_data, comp.Block):
             block_ast = block_data.raw_block.block_ast
-            block_module = block_data.raw_block.function.module if block_data.raw_block.function else frame.scope('module')
-            ctx_scope = block_data.raw_block.ctx_scope if block_data.raw_block.ctx_scope is not None else comp.Value({})
-            var_scope = block_data.raw_block.var_scope if block_data.raw_block.var_scope is not None else comp.Value({})
-            block_function = block_data.raw_block.function
+            block_frame = block_data.raw_block.frame
         else:
             return comp.fail(f"|if condition block has unexpected type: {type(block_data)}")
+        
+        block_module = block_frame.scope('module') or frame.scope('module')
+        ctx_scope = block_frame.scope('ctx') or comp.Value({})
+        var_scope = block_frame.scope('var') or comp.Value({})
+        arg_scope = block_frame.scope('arg')
         
         # Execute block like PipeBlock does
         struct_dict = {}
@@ -130,13 +164,12 @@ def builtin_if(frame, input_value, args):
                 ctx=ctx_scope,
                 var=var_scope,
                 module=block_module,
-                arg=frame.scope('arg') if block_function is not None else None,
+                arg=arg_scope,
             )
         
         # Get the result
         cond_result = accumulator
-        
-        if frame.is_fail(cond_result):
+        if cond_result.is_fail:
             return cond_result
         
         # Check if result is a boolean tag
@@ -178,21 +211,20 @@ def builtin_if(frame, input_value, args):
         # Branch is a block - evaluate it with input_value
         block_data = branch_arg.data
         
-        # Get block AST and module
+        # Get block AST and frame
         if isinstance(block_data, comp.RawBlock):
             block_ast = block_data.block_ast
-            block_module = block_data.function.module if block_data.function else frame.scope('module')
-            ctx_scope = block_data.ctx_scope if block_data.ctx_scope is not None else comp.Value({})
-            var_scope = block_data.var_scope if block_data.var_scope is not None else comp.Value({})
-            block_function = block_data.function
+            block_frame = block_data.frame
         elif isinstance(block_data, comp.Block):
             block_ast = block_data.raw_block.block_ast
-            block_module = block_data.raw_block.function.module if block_data.raw_block.function else frame.scope('module')
-            ctx_scope = block_data.raw_block.ctx_scope if block_data.raw_block.ctx_scope is not None else comp.Value({})
-            var_scope = block_data.raw_block.var_scope if block_data.raw_block.var_scope is not None else comp.Value({})
-            block_function = block_data.raw_block.function
+            block_frame = block_data.raw_block.frame
         else:
             return comp.fail(f"|if branch block has unexpected type: {type(block_data)}")
+        
+        block_module = block_frame.scope('module') or frame.scope('module')
+        ctx_scope = block_frame.scope('ctx') or comp.Value({})
+        var_scope = block_frame.scope('var') or comp.Value({})
+        arg_scope = block_frame.scope('arg')
         
         # Execute block like PipeBlock does
         struct_dict = {}
@@ -210,7 +242,7 @@ def builtin_if(frame, input_value, args):
                 ctx=ctx_scope,
                 var=var_scope,
                 module=block_module,
-                arg=frame.scope('arg') if block_function is not None else None,
+                arg=arg_scope,
             )
         
         # Return the accumulated result
@@ -250,18 +282,17 @@ def builtin_while(frame, input_value, args):
     
     if isinstance(block_data, comp.RawBlock):
         block_ast = block_data.block_ast
-        block_module = block_data.function.module if block_data.function else frame.scope('module')
-        ctx_scope = block_data.ctx_scope if block_data.ctx_scope is not None else comp.Value({})
-        var_scope = block_data.var_scope if block_data.var_scope is not None else comp.Value({})
-        block_function = block_data.function
+        block_frame = block_data.frame
     elif isinstance(block_data, comp.Block):
         block_ast = block_data.raw_block.block_ast
-        block_module = block_data.raw_block.function.module if block_data.raw_block.function else frame.scope('module')
-        ctx_scope = block_data.raw_block.ctx_scope if block_data.raw_block.ctx_scope is not None else comp.Value({})
-        var_scope = block_data.raw_block.var_scope if block_data.raw_block.var_scope is not None else comp.Value({})
-        block_function = block_data.raw_block.function
+        block_frame = block_data.raw_block.frame
     else:
         return comp.fail(f"|while block has unexpected type: {type(block_data)}")
+    
+    block_module = block_frame.scope('module') or frame.scope('module')
+    ctx_scope = block_frame.scope('ctx') or comp.Value({})
+    var_scope = block_frame.scope('var') or comp.Value({})
+    arg_scope = block_frame.scope('arg')
     
     # Get #break and #skip tags for comparison
     break_tag = frame.engine.builtin_tags.get('break')
@@ -283,8 +314,8 @@ def builtin_while(frame, input_value, args):
         for op in block_ast.ops:
             last_result = yield comp.Compute(op, struct_accumulator=accumulator, unnamed=chained,
                                       in_=input_value, ctx=ctx_scope, var=var_scope,
-                                      module=block_module, func_ctx=block_function)
-            if frame.is_fail(last_result):
+                                      module=block_module, arg=arg_scope)
+            if last_result.is_fail:
                 return last_result
         
         # Get the block's result
@@ -367,6 +398,8 @@ def get_builtin_module():
         "double": builtin_double,
         "print": builtin_print,
         "identity": builtin_identity,
+        "length": builtin_length,
+        "as-block": builtin_as_block,
         "add": builtin_add,
         "wrap": builtin_wrap,
         "if": builtin_if,

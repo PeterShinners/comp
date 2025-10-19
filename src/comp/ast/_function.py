@@ -73,14 +73,14 @@ class FuncDef(ModuleOp):
         input_shape = None
         if self.input_shape is not None:
             input_shape = yield comp.Compute(self.input_shape)
-            if frame.is_fail(input_shape):
+            if frame.bypass_value(input_shape):
                 return input_shape
 
         # Resolve arg shape if present
         arg_shape = None
         if self.arg_shape is not None:
             arg_shape = yield comp.Compute(self.arg_shape)
-            if frame.is_fail(arg_shape):
+            if frame.bypass_value(arg_shape):
                 return arg_shape
 
         # Register function (body is NOT evaluated - it's stored as AST)

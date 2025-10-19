@@ -259,9 +259,11 @@ RBRACE: "}"
 LBRACKET: "["
 RBRACKET: "]"
 COLON_BLOCK_START: ":{"
+COLON_PIPELINE_BLOCK: ":["
 SPREAD: ".."
 structure: LBRACE _structure_content RBRACE
-block: COLON_BLOCK_START _structure_content RBRACE
+block: COLON_BLOCK_START _structure_content RBRACE          -> block_structure
+     | COLON_PIPELINE_BLOCK pipeline RBRACKET               -> block_pipeline
 _structure_content: structure_op*
 ?structure_op: structure_spread | structure_assign | structure_unnamed
 structure_spread: SPREAD expression
@@ -382,6 +384,7 @@ WEAK_MORPH: "~?"
                 | tag_reference                                // #tag
                 | shape_reference                              // ~shapename (full syntax)
                 | shape_inline                                 // ~{...}
+                | shape_block                                  // ~:{...} block with input shape
                 | morph_inline                                 // {...} (without ~)
 
 // Inline shape without leading ~ for morph context

@@ -1,0 +1,16 @@
+
+!func |test-numba ~any = {
+    $var.result = 18.8 + 12.2
+    $var.result
+}
+
+
+!func |ztest-thing ~any = {
+    #fail
+    message="There is no try"
+}
+
+
+!func |assert-thing ~any = {
+    1 + 1 == 2
+}

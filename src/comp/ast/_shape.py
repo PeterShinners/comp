@@ -62,7 +62,7 @@ class ShapeDef(ModuleOp):
                     return comp.fail("Spread field must have shape reference")
 
                 spread_shape = yield comp.Compute(field_def.shape_ref)
-                if frame.is_fail(spread_shape):
+                if frame.bypass_value(spread_shape):
                     return spread_shape
 
                 # Add all fields from the spread shape
@@ -74,8 +74,8 @@ class ShapeDef(ModuleOp):
             else:
                 # Regular field - evaluate it
                 field = yield comp.Compute(field_def)
-                if frame.is_fail(field):
-                    return field
+                if isinstance(field, comp.Value) and frame.bypass_value(field):
+                    return field  # Error during field evaluation
                 shape_fields.append(field)
 
         # Register shape
@@ -152,14 +152,14 @@ class ShapeFieldDef(_base.AstNode):
         shape = None
         if self.shape_ref is not None:
             shape = yield comp.Compute(self.shape_ref)
-            if frame.is_fail(shape):
+            if frame.bypass_value(shape):
                 return shape
 
         # Evaluate default value if present
         default_val = None
         if self.default is not None:
             default_val = yield comp.Compute(self.default)
-            if frame.is_fail(default_val):
+            if frame.bypass_value(default_val):
                 return default_val
 
         # Create _module.ShapeField - this is NOT a Value, it's a _module.ShapeField object
@@ -330,7 +330,7 @@ class ShapeUnion(_base.ShapeNode):
         resolved = []
         for member in self.members:
             shape = yield comp.Compute(member)
-            if frame.is_fail(shape):
+            if frame.bypass_value(shape):
                 return shape
             resolved.append(shape)
 
@@ -390,7 +390,7 @@ class BlockShape(_base.ShapeNode):
                     return comp.fail("Spread field must have shape reference")
 
                 spread_shape = yield comp.Compute(field_def.shape_ref)
-                if frame.is_fail(spread_shape):
+                if frame.bypass_value(spread_shape):
                     return spread_shape
 
                 if hasattr(spread_shape, 'fields'):
@@ -400,7 +400,7 @@ class BlockShape(_base.ShapeNode):
             else:
                 # Regular field - evaluate it
                 field = yield comp.Compute(field_def)
-                if frame.is_fail(field):
+                if frame.bypass_value(field):
                     return field
                 shape_fields.append(field)
 
@@ -464,7 +464,7 @@ class InlineShape(_base.ShapeNode):
                     return comp.fail("Spread field must have shape reference")
 
                 spread_shape = yield comp.Compute(field_def.shape_ref)
-                if frame.is_fail(spread_shape):
+                if frame.bypass_value(spread_shape):
                     return spread_shape
 
                 if hasattr(spread_shape, 'fields'):
@@ -474,7 +474,7 @@ class InlineShape(_base.ShapeNode):
             else:
                 # Regular field - evaluate it
                 field = yield comp.Compute(field_def)
-                if frame.is_fail(field):
+                if frame.bypass_value(field):
                     return field
                 shape_fields.append(field)
 

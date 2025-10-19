@@ -18,7 +18,7 @@
 
 ; !doc "Check if struct is empty (short-circuits on first element)"
 !func |empty? ~struct = {
-    [$in |any? if: {#true}] |if then: {#false} else: {#true}
+    ???
 }
 
 

@@ -155,7 +155,7 @@ class IndexField(_base.FieldNode):
         # Evaluate index if it's an expression
         if isinstance(self.index, _base.ValueNode):
             index_value = yield comp.Compute(self.index)
-            if frame.is_fail(index_value):
+            if frame.bypass_value(index_value):
                 return index_value
             # Auto-extract scalar from structures like {5}
             index_value = index_value.as_scalar()

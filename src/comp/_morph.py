@@ -65,12 +65,16 @@ def morph(value, shape):
     
     Special case: RawBlock + BlockShape → Block
     """
+    # Try to unwrap scalar values from single-element structs
+    # This handles cases like {{5}} ~num or {{RawBlock}} ~:{}
+    scalar_value = value.as_scalar()
+    
     # Special handling for block morphing: RawBlock + BlockShapeDefinition → Block
-    if value.is_block and isinstance(value.data, comp.RawBlock):
+    if scalar_value.is_block and isinstance(scalar_value.data, comp.RawBlock):
         # Check if shape is a BlockShapeDefinition
         if isinstance(shape, comp.BlockShapeDefinition):
             # Create a Block with the raw block and the shape fields as input shape
-            block = comp.Block(value.data, input_shape=shape.fields)
+            block = comp.Block(scalar_value.data, input_shape=shape.fields)
             return MorphResult(named_matches=1, value=comp.Value(block))
         
         # Check if shape is a ShapeDefinition with a single positional BlockShapeDefinition field
@@ -84,7 +88,7 @@ def morph(value, shape):
                 
                 if isinstance(field_shape, comp.BlockShapeDefinition):
                     # Extract the BlockShapeDefinition from the shape field
-                    block = comp.Block(value.data, input_shape=field_shape.fields)
+                    block = comp.Block(scalar_value.data, input_shape=field_shape.fields)
                     return MorphResult(named_matches=1, value=comp.Value(block))
         
         # If shape is not a block type, morphing RawBlock fails

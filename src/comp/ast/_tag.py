@@ -46,11 +46,24 @@ class Module(_base.AstNode):
         if module is None:
             module = comp.Module()
 
-        # Evaluate each operation with module in scope
+        # IMPORTANT: Evaluate shape definitions FIRST, before functions
+        # Functions reference shapes in their signatures, so shapes must be
+        # fully populated (have fields) before functions are defined
+        from . import _shape, _function
+        
+        # Phase 1: Evaluate all ShapeDef operations
         for op in self.operations:
-            result = yield comp.Compute(op, module=module)
-            if frame.is_fail(result):
-                return result
+            if isinstance(op, _shape.ShapeDef):
+                result = yield comp.Compute(op, module=module)
+                if frame.bypass_value(result):
+                    return result
+        
+        # Phase 2: Evaluate all other operations (TagDef, FuncDef, etc.)
+        for op in self.operations:
+            if not isinstance(op, _shape.ShapeDef):
+                result = yield comp.Compute(op, module=module)
+                if frame.bypass_value(result):
+                    return result
 
         # Return the populated module
         return module
@@ -138,7 +151,7 @@ class TagDef(ModuleOp):
         tag_value = None
         if self.value is not None:
             tag_value = yield comp.Compute(self.value)
-            if frame.is_fail(tag_value):
+            if frame.bypass_value(tag_value):
                 return tag_value
 
         # Register this tag
@@ -149,7 +162,7 @@ class TagDef(ModuleOp):
             for child in self.children:
                 # Child paths are relative to this tag
                 result = yield comp.Compute(child, module=module, parent_path=self.path)
-                if frame.is_fail(result):
+                if frame.bypass_value(result):
                     return result
 
         return comp.Value(True)
@@ -237,7 +250,7 @@ class TagChild(ModuleOp):
         tag_value = None
         if self.value is not None:
             tag_value = yield comp.Compute(self.value)
-            if frame.is_fail(tag_value):
+            if frame.bypass_value(tag_value):
                 return tag_value
 
         # Register tag
@@ -247,7 +260,7 @@ class TagChild(ModuleOp):
         if self.children:
             for child in self.children:
                 result = yield comp.Compute(child, module=module, parent_path=full_path)
-                if frame.is_fail(result):
+                if frame.bypass_value(result):
                     return result
 
         return comp.Value(True)

@@ -49,21 +49,22 @@ def load_comp_module(path: str, engine: 'comp.Engine') -> 'comp.Module':
     # Parse the module with filename for position tracking
     module_ast = comp.parse_module(source, filename=str(full_path))
 
-    # Evaluate the module to populate its definitions
-    # Module.evaluate() returns a bare Module entity (not wrapped in Value)
-    result = engine.run(module_ast)
-
-    # The result should be a Module entity
-    if not isinstance(result, comp.Module):
-        raise TypeError(f"Expected Module from evaluation, got {type(result)}")
-
-    # Prepare the module (pre-resolve all references)
-    # This must be done AFTER engine.run() so we don't overwrite the evaluated definitions
+    # Create a module and prepare it (pre-resolve all references)
+    # This must be done BEFORE engine.run() so references are resolved
+    module = comp.Module()
     try:
-        result.prepare(module_ast, engine)
+        module.prepare(module_ast, engine)
     except ValueError as e:
         # Re-raise with more context
         raise ValueError(f"Module preparation failed for {full_path}: {e}") from e
+
+    # Evaluate the module to populate its definitions
+    # Module.evaluate() returns the Module entity (not wrapped in Value)
+    result = engine.run(module_ast, module=module)
+
+    # The result should be the same Module entity
+    if not isinstance(result, comp.Module):
+        raise TypeError(f"Expected Module from evaluation, got {type(result)}")
 
     return result
 

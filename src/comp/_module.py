@@ -776,56 +776,77 @@ class Module(_entity.Entity):
         Args:
             ast_module: AST Module node
             engine: Engine instance for loading modules
+            
+        Raises:
+            ValueError: If any import fails to load
         """
         from . import ast
+        import comp
 
         for op in ast_module.operations:
             if isinstance(op, ast.ImportDef):
                 # Load the imported module
                 imported_module = self._load_import(op, engine)
 
-                if imported_module is not None:
-                    # Recursively prepare the imported module
-                    # (this is safe even with circular imports due to the
-                    # incremental definition creation in phase 1)
-                    if not getattr(imported_module, '_prepared', False):
-                        # The imported module needs its own AST to be prepared
-                        # For now, we assume it's already prepared or will be
-                        # prepared by the loader
-                        pass
+                # Check if import failed (returned a fail Value)
+                if isinstance(imported_module, comp.Value) and imported_module.is_fail:
+                    # Convert fail Value to Python exception to stop preparation immediately
+                    # Extract the error message from the fail structure
+                    try:
+                        msg_key = comp.Value('message')
+                        if isinstance(imported_module.data, dict) and msg_key in imported_module.data:
+                            error_msg = imported_module.data[msg_key].to_python()  # type: ignore
+                        else:
+                            error_msg = "Unknown import error"
+                    except Exception:
+                        error_msg = "Unknown import error"
+                    raise ValueError(f"Import failed: {error_msg}")
 
-                    # Add to our namespaces
-                    self.add_namespace(op.namespace, imported_module)
+                # Module loaded successfully
+                # Recursively prepare the imported module
+                # (this is safe even with circular imports due to the
+                # incremental definition creation in phase 1)
+                if not getattr(imported_module, '_prepared', False):
+                    # The imported module needs its own AST to be prepared
+                    # For now, we assume it's already prepared or will be
+                    # prepared by the loader
+                    pass
+
+                # Add to our namespaces
+                self.add_namespace(op.namespace, imported_module)
 
     def _load_import(self, import_def, engine):
         """Load an imported module based on ImportDef.
 
         This handles different import sources (stdlib, comp, python, etc.)
-        and returns the loaded Module.
+        and returns the loaded Module or a fail Value.
 
         Args:
             import_def: ImportDef AST node
             engine: Engine for evaluation
 
         Returns:
-            Loaded Module, or None if loading failed
+            Loaded Module, or fail Value if loading failed
         """
         if import_def.source == "stdlib":
             from .stdlib import get_stdlib_module
             try:
                 return get_stdlib_module(import_def.path)
-            except Exception:
-                return None
+            except Exception as e:
+                import comp
+                return comp.fail(f"Failed to load stdlib module '{import_def.path}': {e}")
 
         elif import_def.source == "comp":
             from .ast import _loader
             try:
                 return _loader.load_comp_module(import_def.path, engine)
-            except Exception:
-                return None
+            except Exception as e:
+                import comp
+                return comp.fail(f"Failed to load comp module '{import_def.path}': {e}")
 
         # Other sources not yet implemented
-        return None
+        import comp
+        return comp.fail(f"Import source '{import_def.source}' not yet implemented")
 
     def _phase3_build_resolution_namespace(self):
         """Phase 3: Build complete resolution namespace for all partial references.

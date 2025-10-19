@@ -293,9 +293,18 @@ For comprehensive details on pipeline modifier implementation, shape-based opera
 
 Blocks can contain pipelines, with the square brackets providing clear boundaries for the pipeline operations. This keeps the syntax clean for common patterns like filtering and mapping.
 
+For the common case of a block containing a single pipeline, the shorthand syntax `:[pipeline]` can be used instead of `:{[pipeline]}`. This reduces nesting and improves readability for map, filter, and similar operations.
+
 ```comp
-; Block contains pipeline
-items |map :{[$in |validate |enhance]}
+; Block-pipeline shorthand - recommended for single pipelines
+items |map :[|validate |enhance]
+
+; Full block syntax - needed when multiple statements required
+items |map :{
+    validated = [$in |validate]
+    enhanced = [validated |enhance]
+    enhanced
+}
 
 ; At statement level
 $var.result = [$in.data |process |validate]

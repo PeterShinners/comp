@@ -126,24 +126,12 @@ class Block(_base.ValueNode):
 
         Returns comp.Value wrapping a RawBlock entity.
         """
-        # Get module from any of the mod_* scopes
-        # Get function context if we're inside a function
-        # The function provides both $arg access and module reference
-        function = frame.scope('func_ctx')  # FunctionDefinition or None
-
-        # Capture $ctx and @local scopes
-        ctx_scope = frame.scope('ctx')
-        local_scope = frame.scope('local')
-
-        # Create RawBlock entity
-        # Note: Module is accessed via function.module if function exists.
-        # For module-scope blocks (function is None), module must be provided
-        # during block invocation from the frame's mod_funcs scope.
+        # Create RawBlock entity with the frame it was defined in
+        # The block captures the frame to access scopes like $var, $arg, $ctx, @local
+        # This allows blocks to see mutations to $var between invocations
         raw_block = comp.RawBlock(
             block_ast=self,  # The Block AST node itself
-            function=function,
-            ctx_scope=ctx_scope,
-            local_scope=local_scope
+            frame=frame      # Capture the entire frame context
         )
 
         # Return as Value (Value can now wrap Entity objects)
@@ -241,18 +229,21 @@ class FieldOp(StructOp):
 
         # Evaluate the value first
         value_value = yield comp.Compute(self.value)
-        if frame.is_fail(value_value):
+        if frame.bypass_value(value_value):
             return value_value
 
         # Case 1: comp.Unnamed field
         if self.key is None:
+            # Unwrap single-element structs for unnamed fields
+            # This allows {[expr]} to work when expr returns {value}
+            value_value = value_value.as_scalar()
             accumulator.struct[comp.Unnamed()] = value_value
             return comp.Value(True)
 
         # Case 2: Simple named field
         if not isinstance(self.key, list):
             key_value = yield comp.Compute(self.key)
-            if frame.is_fail(key_value):
+            if frame.bypass_value(key_value):
                 return key_value
             accumulator.struct[key_value] = value_value
             return comp.Value(True)
@@ -265,7 +256,7 @@ class FieldOp(StructOp):
         for field_node in self.key[:-1]:
             # Get the key for this path segment
             key_value = yield from self._evaluate_path_field(frame, field_node, current_dict)
-            if frame.is_fail(key_value):
+            if frame.bypass_value(key_value):
                 return key_value
 
             # Navigate or create nested struct
@@ -285,7 +276,7 @@ class FieldOp(StructOp):
         # Handle the final field
         final_field = self.key[-1]
         final_key = yield from self._evaluate_path_field(frame, final_field, current_dict)
-        if frame.is_fail(final_key):
+        if frame.bypass_value(final_key):
             return final_key
 
         # Assign the value at the final key
@@ -345,7 +336,7 @@ class FieldOp(StructOp):
         """
         # Evaluate the value to assign
         value_result = yield comp.Compute(self.value)
-        if frame.is_fail(value_result):
+        if frame.bypass_value(value_result):
             return value_result
 
         # First element is the ScopeField
@@ -353,7 +344,7 @@ class FieldOp(StructOp):
 
         # Evaluate the scope field to get the scope
         scope_value = yield comp.Compute(scope_field)
-        if frame.is_fail(scope_value):
+        if frame.bypass_value(scope_value):
             return scope_value
 
         # Scope must be a struct
@@ -374,7 +365,7 @@ class FieldOp(StructOp):
         current_dict = scope_value.struct
         for field_node in field_path[:-1]:
             key_value = yield from self._evaluate_path_field(frame, field_node, current_dict)
-            if frame.is_fail(key_value):
+            if frame.bypass_value(key_value):
                 return key_value
 
             # Navigate or create nested struct
@@ -392,7 +383,7 @@ class FieldOp(StructOp):
         # Assign to the final field
         final_field = field_path[-1]
         final_key = yield from self._evaluate_path_field(frame, final_field, current_dict)
-        if frame.is_fail(final_key):
+        if frame.bypass_value(final_key):
             return final_key
 
         current_dict[final_key] = value_result
@@ -487,7 +478,7 @@ class ScopeAssignOp(StructOp):
     def evaluate(self, frame):
         # Evaluate the value to assign
         value_result = yield comp.Compute(self.value)
-        if frame.is_fail(value_result):
+        if frame.bypass_value(value_result):
             return value_result
 
         # Get the target scope

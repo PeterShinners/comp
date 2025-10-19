@@ -262,11 +262,20 @@ def _convert_tree(tree):
             ops = [_convert_tree(kid) for kid in kids if isinstance(kid, lark.Tree)]
             return comp.ast.Structure(ops)
 
-        case 'block':
+        case 'block_structure':
             # COLON_BLOCK_START structure_op* RBRACE
             # Similar to structure, but creates a Block node for deferred execution
             ops = [_convert_tree(kid) for kid in kids if isinstance(kid, lark.Tree)]
             return comp.ast.Block(ops)
+        
+        case 'block_pipeline':
+            # COLON_PIPELINE_BLOCK pipeline RBRACKET
+            # Shorthand for :[pipeline] which desugars to :{[pipeline]}
+            # A block containing a single unnamed pipeline expression
+            # kids[0] is the pipeline Tree, filter out tokens (COLON_PIPELINE_BLOCK, RBRACKET)
+            pipeline_tree = [kid for kid in kids if isinstance(kid, lark.Tree)][0]
+            pipeline = _convert_tree(pipeline_tree)
+            return comp.ast.Block([comp.ast.FieldOp(pipeline, None)])
 
         case 'structure_assign':
             # _qualified _assignment_op expression

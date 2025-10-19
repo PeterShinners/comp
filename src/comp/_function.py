@@ -137,6 +137,9 @@ class PythonFunction(Function):
                 return result
             
             # Regular function - ensure result is a struct
+            # BUT: Don't wrap blocks - they need to stay as Block/RawBlock objects
+            if result.is_block or result.is_raw_block:
+                return result
             return result.as_struct()
         except Exception as e:
             return comp.fail(f"Error in function |{self.name}: {e}")
@@ -254,54 +257,45 @@ class RawBlock:
     """An untyped block with captured definition context.
 
     Raw blocks are created with :{...} syntax and capture their definition context
-    (scopes and function reference) but have no input shape yet. They cannot be invoked
+    (the frame they were defined in) but have no input shape yet. They cannot be invoked
     until morphed with a BlockShape to create a Block.
 
-    Raw blocks capture only what they need:
-    - function: Current function context (if defined in a function), provides module and $arg access
-    - ctx_scope: The $ctx scope at definition time
-    - local_scope: The @local scope at definition time
-    - block_ast: The Block AST node itself (operations to execute)
+    Blocks capture the frame they were defined in, giving them access to:
+    - $var: Function-local variables (mutable, shared between invocations)
+    - $arg: Function arguments
+    - $ctx: Execution context
+    - @local: Local scope
+    - module: Module context
+    - function: Function reference
 
-    For blocks defined in a function, the module is accessed via function.module.
-    For blocks defined at module scope (function is None), the module must be obtained
-    from the evaluation context (e.g., frame.scope('module')).
+    By capturing the frame, blocks can see mutations to $var between invocations,
+    which is essential for stateful blocks like generators.
 
     Raw blocks do NOT capture:
     - $in: Set at invocation time
     - $out: Built during block execution
-    - Full frame: Too heavy, only need specific scopes
 
     Attributes:
         block_ast (Block): The Block AST node with operations
-        function (FunctionDefinition | None): FunctionDefinition if defined in function, None otherwise
-        ctx_scope (Value | None): Captured $ctx scope from definition
-        local_scope (Value | None): Captured @local scope from definition
+        frame (_Frame): The frame context where the block was defined
     """
-    def __init__(self, block_ast,
-                 function=None,
-                 ctx_scope=None, local_scope=None):
-        """Initialize raw block with captured context.
+    def __init__(self, block_ast, frame):
+        """Initialize raw block with captured frame.
         
         Args:
             block_ast (Block): Block AST node with operations
-            function (FunctionDefinition | None): Function context if defined in a function
-            ctx_scope (Value | None): Captured $ctx scope
-            local_scope (Value | None): Captured @local scope
+            frame (_Frame): Frame context from block definition
         """
         self.block_ast = block_ast
-        self.function = function
-        self.ctx_scope = ctx_scope
-        self.local_scope = local_scope
+        self.frame = frame
 
     def __repr__(self):
         """Return string representation.
         
         Returns:
-            str: Summary showing operation count and function context
+            str: Summary showing operation count and frame depth
         """
-        func_str = f" in |{self.function.full_name}" if self.function else ""
-        return f"RawBlock({len(self.block_ast.ops)} ops{func_str})"
+        return f"RawBlock({len(self.block_ast.ops)} ops, frame={self.frame})"
 
 
 class Block:
@@ -338,11 +332,10 @@ class Block:
         """Return string representation.
         
         Returns:
-            str: Summary with operation count, shape, and function context
+            str: Summary with operation count and shape
         """
-        func_str = f" in |{self.raw_block.function.full_name}" if self.raw_block.function else ""
         shape_str = f" ~:{self.input_shape}" if self.input_shape else ""
-        return f"Block({len(self.raw_block.block_ast.ops)} ops{shape_str}{func_str})"
+        return f"Block({len(self.raw_block.block_ast.ops)} ops{shape_str}, {self.raw_block.frame})"
 
 
 class BlockShapeDefinition(_entity.Entity):

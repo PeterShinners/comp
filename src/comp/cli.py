@@ -55,7 +55,7 @@ def main():
         module_result = engine.run(ast_module)
 
         # Check if module evaluation returned a fail value
-        if isinstance(module_result, comp.Value) and engine.is_fail(module_result):
+        if isinstance(module_result, comp.Value) and module_result.is_fail:
             print(f"Error loading module {filepath}:", file=sys.stderr)
             print(f"  {module_result}", file=sys.stderr)
             sys.exit(1)
@@ -87,30 +87,15 @@ def main():
             print("  }", file=sys.stderr)
             sys.exit(1)
 
-        # Get the main function definition (use first overload for now)
-        main_func = main_funcs[0]
-
-        # Invoke the main function
-        # Main takes no input ($in will be nil) and no args ($arg will be empty)
-        result = engine.run(
-            main_func.body,
-            in_=comp.Value(None),
-            arg=comp.Value({}),
-            ctx=comp.Value({}),
-            mod=comp.Value({}),
-            local=comp.Value({}),
-            module=module,
-        )
+        result = engine.run_function(main_funcs[0])
 
         # Check for failure
-        if isinstance(result, comp.Value) and engine.is_fail(result):
+        if result.is_fail:
             print("Error executing main:", file=sys.stderr)
             print(f"  {result}", file=sys.stderr)
             sys.exit(1)
 
-        # Print the result if it's not None
-        if isinstance(result, comp.Value) and result.data is not None:
-            print(result.data)
+        print(result.unparse())
 
         sys.exit(0)
 

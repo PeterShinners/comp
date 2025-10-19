@@ -115,16 +115,33 @@ class Value(_entity.Entity):
         return isinstance(self.data, (comp.Block, comp.RawBlock))
 
     @property
+    def is_fail(self):
+        """Check if a value is a fail value."""
+        if not self.is_struct:
+            return False
+
+        # Look for #fail tag or any child of #fail in unnamed fields
+        for val in self.data.values():
+            if val.is_tag:
+                name = val.data.full_name
+                if name == "fail" or name.startswith("fail."):
+                    return True
+        return False
+
+    @property
     def struct(self) -> dict | None:
         """Alias for .data when it's a dict (for compatibility with AST nodes)."""
         return self.data if isinstance(self.data, dict) else None
 
     def as_scalar(self):
-        """Return value as a scalar value or itself."""
+        """Return value as a scalar value or itself.
+        
+        Unwraps single-element structs (named or unnamed).
+        """
         if self.is_struct and isinstance(self.data, dict):
             if len(self.data) == 1:
                 value = list(self.data.values())[0]
-                if value.is_number or value.is_string or value.is_tag:
+                if value.is_number or value.is_string or value.is_tag or value.is_block:
                     return value
             # By returning self we are still a struct, which users who use this will ignore
             return self
@@ -183,10 +200,19 @@ class Value(_entity.Entity):
         Returns:
             - Decimal for numbers
             - str for strings
-            - comp.TagRef for tags
+            - bool for #true/#false tags
+            - comp.TagRef for other tags
             - dict for structures (with recursively converted keys/values)
         """
-        if isinstance(self.data, (decimal.Decimal, str, comp.TagRef)):
+        if isinstance(self.data, comp.TagRef):
+            # Convert #true and #false to Python booleans
+            if self.data.full_name == "true":
+                return True
+            elif self.data.full_name == "false":
+                return False
+            # Other tags remain as TagRef
+            return self.data
+        if isinstance(self.data, (decimal.Decimal, str)):
             return self.data
         if isinstance(self.data, dict):
             # Recursively convert struct fields

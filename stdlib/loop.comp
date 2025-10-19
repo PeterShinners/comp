@@ -1,19 +1,21 @@
+; !import /struct = comp "struct"  ; Commented out - has parse errors, using builtin |length instead
 ; !doc "Iteration and looping functions"
 
 
-; !doc "Infinite counter stream"
+; !doc "Infinite counter stream"  
+; Returns a Block wrapped in a struct (single unnamed field will auto-unwrap).
 !func |infinite ~{} arg ~{start~num=0 step~num=1} = {
-    $var.count = start
-    :{
+    $var.count = $arg.start
+    [:{
         $var.result = $var.count
-        $var.count = $var.count + step
+        $var.count = $var.count + $arg.step
         $var.result
-    }
+    } |as-block]
 }
 
 
 ; !doc "Generate range of numbers from start to end (exclusive) with optional step"
-!func |range ~{} arg ~{start~num=0 end~num step~num=1} = {
+!func |range ~any arg ~{start~num=0 end~num step~num=1} = {
     [|if (step <= 0)
         then={#fail "range step must be positive"}
         else=:{
@@ -36,23 +38,23 @@
 
 ; !doc "Generate indices for input collection (0 to length-1)"
 !func |indices ~struct = {
-    [|range end=($in |length)]
+    [|range end=[$in |length]]
 }
 
 
 
-!func |iter ~struct arg {op ~:{value field index ~num}} = {
+!func |iter ~struct arg ~{op ~:{value field index ~num}} = {
     $var.collection = $in
     
-    ..[$var.collection
-    |indices
-    |while :{
-        [{
-            {value field} = [$var.collection |positional-value-end-field $it]
-            index = $it
-        } 
-        |:arg.op]
-    }]
+    ; ..[$var.collection
+    ; |indices
+    ; |while :{
+    ;     [{
+    ;         {value field} = [$var.collection |positional-value-end-field $it]
+    ;         index = $it
+    ;     } 
+    ;     |:arg.op]
+    ; }]
 }
 
 
@@ -65,67 +67,37 @@
 
 ; !doc "Test if any element matches condition"
 !func |any? ~struct arg ~{if ~:{}} = {
-    [$in |iter :{
-        [[$in.value |:$arg.if] ?!! {!return true}]
-    }]
-    false
+    ???
 }
 
 
 ; !doc "Test if all elements match condition"
 !func |all? ~struct arg ~{if ~:{}} = {
-    [$in |iter :{
-        [[$in.value |:$arg.if] !or {!return false}]
-    }]
-    true
+    ???
 }
 
 
 ; !doc "Test if no elements match condition"
 !func |none? ~struct arg ~{if ~:{}} = {
-    [$in |iter :{
-        [[$in.value |:$arg.if] ?!! {!return false}]
-    }]
-    true
+    ???
 }
 
 
 ; !doc "Count elements matching condition (defaults to non-fail values)"
 !func |count ~struct arg ~{if ~:{}={}} = {
-    $var.counter = 0
-    $var.test = [$arg.if !or :{$in}]
-    [$in |iter :{
-        [[$in.value |:$var.test] ?!! {
-            $var.counter = [$var.counter !add 1]
-        }]
-    }]
-    $var.counter
+    ???
 }
 
 
 ; !doc "Filter elements matching condition"
 !func |filter ~struct arg ~{if ~:{}} = {
-    [$in |iter :{
-        [[$in.value |:$arg.if] ?!! {$in.value}]
-    }]
+    ???
 }
 
 
 ; !doc "Group consecutive elements into fixed-size chunks"
 !func |chunk ~struct arg ~{size ~num} = {
-    [$in |iter :{
-        $var.batch = []
-        [$in.value !each :{
-            $var.batch = [$var.batch !append $in]
-            [[$var.batch |length !equal $arg.size] ?!! {
-                !yield $var.batch
-                $var.batch = []
-            }]
-        }]
-        [[$var.batch |length !greater 0] ?!! {
-            !yield $var.batch
-        }]
-    }]
+    ???
 }
 
 
@@ -146,7 +118,7 @@
 !func |reduce ~struct arg ~{initial ~any fold ~:{accumulator value}} = {
     $var.result = $arg.initial
     [$in |iter :{
-        $var.result = [$arg.fold accumulator: $var.result value: $in.value]
+        $var.result = [{accumulator=$var.result value=$in.value} |:$arg.fold]
     }]
     $var.result
 }
@@ -160,29 +132,13 @@
 
 ; !doc "Partition elements into two groups based on condition"
 !func |partition ~struct arg ~{if ~:{}} = {
-    $var.true-list = []
-    $var.false-list = []
-    [$in |iter :{
-        [[$in.value |:$arg.if] 
-            ?!! {$var.true-list = [$var.true-list !append $in.value]}
-            !or {$var.false-list = [$var.false-list !append $in.value]}
-        ]
-    }]
-    {true: $var.true-list false: $var.false-list}
+    ???
 }
 
 
 ; !doc "Remove duplicate elements (optionally by key)"
 !func |unique ~struct arg ~{key ~:{}={}} = {
-    $var.seen = #{}
-    $var.key-fn = [$arg.key !or :{$in}]
-    [$in |iter :{
-        $var.item-key = [$in.value |:$var.key-fn]
-        [[$var.seen !has $var.item-key] !or {
-            $var.seen = [$var.seen !add $var.item-key]
-            !yield $in.value
-        }]
-    }]
+    ???
 }
 
 

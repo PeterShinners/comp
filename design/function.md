@@ -426,6 +426,28 @@ Blocks are deferred structure definitions that serve as powerful callbacks and c
 
 Blocks exist in two states: ephemeral blocks (raw `:{...}` syntax) that cannot be invoked directly, and callable blocks that have been typed with an input shape. Functions that expect blocks can also accept simple values, which are automatically wrapped in trivial blocks for convenience—write less, express more.
 
+## Block Syntax
+
+Blocks are defined using `:{...}` syntax, which creates a deferred structure that captures its definition context. For the common case of a block containing a single pipeline, the shorthand syntax `:[...]` can be used instead of `:{[...]}`, reducing nesting and improving readability.
+
+```comp
+; Standard block syntax - full structure
+items |map :{
+    validated = [$in |validate]
+    enhanced = [validated |enhance]
+    enhanced
+}
+
+; Pipeline-block shorthand - single pipeline only
+items |map :[|validate |enhance]
+
+; These are equivalent:
+items |filter :{[$in.value > 10]}
+items |filter :[|value > 10]
+```
+
+The `:[...]` shorthand is purely syntactic sugar and desugars to `:{[...]}` at parse time, creating identical AST structures. Use the shorthand for simple transformations and the full block syntax when multiple statements are needed.
+
 Blocks are defined in arguments to functions like a regular structure with a `.`
 dot prefix. Functions that expect block arguments can also accept simple values,
 which are automatically wrapped in trivial blocks for convenience.
@@ -439,7 +461,7 @@ passed as named argument they use the dotted prefix instead of an equal sign.
 For simple values passed to named block parameters, use regular named argument
 syntax without the dot prefix.
 
-Ephemeral blocks are created with `:{...}` syntax but cannot be invoked until they are typed. When passed to function arguments, they are automatically morphed to match the expected block input shape. This provides type safety while allowing flexible block definitions.
+Ephemeral blocks are created with `:{...}` or `:[...]` syntax but cannot be invoked until they are typed. When passed to function arguments, they are automatically morphed to match the expected block input shape. This provides type safety while allowing flexible block definitions.
 
 Block arguments are determined by the function's arg shape definition. When the
 parser encounters `:{}`, it creates a deferred block.

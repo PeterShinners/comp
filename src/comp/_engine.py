@@ -7,7 +7,7 @@ The engine doesn't know about language semantics - it just provides primitives.
 AST nodes orchestrate everything using these tools.
 """
 
-__all__ = ["Engine", "Compute"]
+__all__ = ["Engine", "Compute", "prepare_function_call"]
 
 import comp
 
@@ -58,7 +58,7 @@ class Engine:
             Value: Final Value result from node evaluation
         """
         result = comp.Value({})  # Set by first StopIteration before use
-        result_is_fail = False  # Track if result contains a failure
+        result_bypass = False  # Track if result contains a failure
 
         # Handle Python keyword workarounds: in_ -> in
         if 'in_' in scopes:
@@ -71,13 +71,13 @@ class Engine:
         while current:
             try:
                 # If current is allowed to receive failures and we have one
-                if result_is_fail and current.allowed:
+                if result_bypass and current.allowed:
                     # Parent consumed the failure - clear both flags
                     current.allowed = False
-                    result_is_fail = False
+                    result_bypass = False
 
                 # Failures bypass frames that don't allow them
-                elif result_is_fail:
+                elif result_bypass:
                     current.gen.close()
                     current = current.previous
                     continue
@@ -108,21 +108,58 @@ class Engine:
                 if result is None:
                     print("NONERESULT:", current, current.node)
                 result.ast = current.node  # Minimal temporary tracking of source
-                result_is_fail = current.is_fail(result)
+                result_bypass = self.bypass_value(result)
                 current = current.previous
 
         return result
 
+    def run_function(self, func, in_=None, args=None, ctx=None):
+        """Run a defined function with proper scope setup.
+        
+        This is a Pythonic entry point for invoking Comp functions directly.
+        This is not used by the runtime language.
 
-    # Later this should become a more generic "engine skip these shapes"
-    # but for not its hardcoded to failures
-    def is_fail(self, value):
-        """Check if a value is a fail value.
+        It uses the same logic as PipeFunc for selecting overloads, morphing
+        arguments, and preparing scopes.
+        
+        Args:
+            func: FuncDef or function name (if name, looks up in func.module)
+            in_: Input value (will be wrapped in Value if needed, defaults to empty struct)
+            args: Arguments dict or Value (optional)
+            ctx: Context dict or Value (optional, uses engine.ctx_scope if None)
+            
+        Returns:
+            Value: Result of function execution
+        """
+        # Wrap inputs in Value if needed, default to empty struct for in_
+        if in_ is None:
+            in_ = comp.Value({})
+        elif not isinstance(in_, comp.Value):
+            in_ = comp.Value(in_)
+        if args is not None and not isinstance(args, comp.Value):
+            args = comp.Value(args)
+        if ctx is not None and not isinstance(ctx, comp.Value):
+            ctx = comp.Value(ctx)
+        
+        # Get ctx scope (use provided or engine's default)
+        ctx_scope = ctx if ctx is not None else self.ctx_scope
+        
+        # Prepare the function call (handles overload selection, morphing, scope setup)
+        result = comp.prepare_function_call(
+            func_defs=[func], input_value=in_, args_value=args, ctx_scope=ctx_scope)
+        
+        # Check if preparation returned a failure Value
+        if isinstance(result, comp.Value):
+            return result
+        
+        # result is a Compute object - execute it using the engine
+        return self.run(result.node, **result.scopes)
 
-        A fail value is a structure that contains a #fail tag (or any child of #fail)
-        as an unnamed field. This allows morphing against #fail to detect failures.
+    def bypass_value(self, value):
+        """Check if a value is a type that should be bypassed.
 
-        Supports hierarchical tags: #fail, #fail.syntax, #fail.network, etc.
+        Usually this means any fail value, but in the future this could be
+        expanded so the engine can bypass and handle custom types.
         
         Args:
             value (Value): Value to check for failure
@@ -130,26 +167,7 @@ class Engine:
         Returns:
             bool: True if value contains a #fail tag
         """
-        if not value.is_struct:
-            return False
-
-        # Look for #fail tag or any child of #fail in unnamed fields
-        for val in value.struct.values():
-            if val.is_tag and self._is_fail_tag(val.data):
-                return True
-        return False
-
-    def _is_fail_tag(self, tag):
-        """Check if a tag is #fail or a child of #fail hierarchy.
-
-        Args:
-            tag (TagRef): A TagRef object to check
-
-        Returns:
-            bool: True if tag is #fail or a descendant (e.g., #fail.syntax, #fail.network)
-        """
-        # Check if tag name is "fail" or starts with "fail."
-        return tag.full_name == comp.builtin.FAIL.full_name or tag.full_name.startswith(comp.builtin.FAIL.full_name + ".")
+        return isinstance(value, comp.Value) and value.is_fail
 
 
 class Compute:
@@ -234,7 +252,7 @@ class _Frame:
         """
         return self.scopes.get(key)
 
-    def is_fail(self, value):
+    def bypass_value(self, value):
         """Check if a value is a fail value.
         
         Args:
@@ -243,9 +261,7 @@ class _Frame:
         Returns:
             bool: True if value is a fail value
         """
-        # TODO one day perform this operation without an engine reference
-        # Only Values can be failures - other Entities (Module, ShapeField, etc.) cannot
-        return hasattr(value, 'is_struct') and self.engine.is_fail(value)
+        return self.engine.bypass_value(value)
 
     def __repr__(self):
         """Return string representation showing frame depth.
@@ -259,4 +275,99 @@ class _Frame:
             depth += 1
             frame = frame.previous
         return f"_Frame(depth={depth}, node={self.node!r})"
+
+
+
+def prepare_function_call(func_defs, input_value, args_value, ctx_scope):
+    """Prepare a function call by selecting overload and building Compute.
+    
+    This function encapsulates the logic for:
+    1. Selecting the best matching overload via input morphing
+    2. Morphing arguments to the function's arg shape
+    3. Preparing ctx and mod scopes with weak morphing
+    4. Building a Compute object ready to execute
+    
+    Args:
+        func_defs: List of FunctionDef objects (overloads)
+        input_value: Input value to morph to function's input shape
+        args_value: Arguments to pass (Value or None)
+        ctx_scope: Context scope for the function call
+        
+    Returns:
+        Compute: Ready-to-execute compute object, or fail Value if error
+    """
+    # Get function name for error messages (from first definition)
+    func_name = '.'.join(reversed(func_defs[0].path)) if func_defs else "unknown"
+
+    # Step 1: Select best overload by trying to morph input to each shape
+    best_func = None
+    best_morph = None
+    best_score = None
+    
+    for func_def in func_defs:
+        if func_def.input_shape is None:
+            # No shape constraint - this is a wildcard match
+            # Score it lower than any shaped match (use negative score)
+            morph_result = comp.MorphResult(named_matches=0, tag_depth=0,
+                                           assignment_weight=0, positional_matches=-1,
+                                           value=input_value)
+        else:
+            # Try to morph input to this overload's shape
+            morph_result = comp.morph(input_value, func_def.input_shape)
+            if not morph_result.success:
+                continue  # This overload doesn't match
+        
+        # Compare scores - higher is better (lexicographic tuple comparison)
+        if best_score is None or morph_result > best_score:
+            best_func = func_def
+            best_morph = morph_result
+            best_score = morph_result
+    
+    # Check if we found any matching overload
+    if best_func is None:
+        return comp.fail(f"Function |{func_name}: no overload matches input shape")
+    
+    # Use the morphed input value from the best match
+    func_def = best_func
+    input_value = best_morph.value
+
+    # Step 2: Morph arguments to arg shape with strong morph (~*)
+    # This enables unnamed→named field pairing, tag matching, and strict validation
+    arg_scope = args_value if args_value is not None else comp.Value({})
+    if func_def.arg_shape is not None:
+        arg_morph_result = comp.strong_morph(arg_scope, func_def.arg_shape)
+        if not arg_morph_result.success:
+            return comp.fail(f"Function |{func_name}: arguments do not match argument shape (missing required fields or type mismatch)")
+        arg_scope = arg_morph_result.value
+
+    # Step 3: Get mod scope from the function's module
+    mod_shared = func_def.module.scope
+
+    # Step 4: Apply weak morph to ctx and mod (~?)
+    # Filter to only fields in arg shape (no defaults, no validation)
+    ctx_scope_morphed = ctx_scope
+    mod_scope = mod_shared
+    if func_def.arg_shape is not None:
+        # Weak morph for $ctx
+        ctx_morph_result = comp.weak_morph(ctx_scope, func_def.arg_shape)
+        if ctx_morph_result.success:
+            ctx_scope_morphed = ctx_morph_result.value
+
+        # Weak morph for $mod
+        mod_morph_result = comp.weak_morph(mod_shared, func_def.arg_shape)
+        if mod_morph_result.success:
+            mod_scope = mod_morph_result.value
+
+    var_scope = comp.Value({})  # Empty local scope
+
+    # Build and return Compute object
+    return comp.Compute(
+        func_def.body,
+        in_=input_value,
+        arg=arg_scope,
+        ctx=ctx_scope_morphed,
+        mod=mod_scope,
+        var=var_scope,
+        module=func_def.module,
+    )
 

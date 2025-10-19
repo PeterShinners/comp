@@ -56,7 +56,7 @@ class ReplContext:
                 result = self.engine.run(ast_module)
                 
                 # Check if result is a fail
-                if isinstance(result, comp.Value) and self.engine.is_fail(result):
+                if isinstance(result, comp.Value) and result.is_fail:
                     return result
                 
                 # Update our module reference - definitions return Module entity

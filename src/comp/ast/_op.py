@@ -7,6 +7,55 @@ import comp
 from . import _base
 
 
+def _values_equal(left, right):
+    """Compare two values for equality, handling Unnamed keys in structs.
+    
+    For struct comparison:
+    - Converts dicts to sorted list of (key, value) tuples
+    - Unnamed instances are converted to None for comparison
+    - Order matters for struct equality
+    
+    Args:
+        left: Left value data
+        right: Right value data
+        
+    Returns:
+        bool: True if values are equal
+    """
+    # If both are dicts (structs), handle Unnamed keys specially
+    if isinstance(left, dict) and isinstance(right, dict):
+        # Convert to sorted list of (key, value) tuples
+        # Replace Unnamed instances with None for comparison
+        def to_comparable(d):
+            items = []
+            for k, v in d.items():
+                # Convert Unnamed to None for comparison
+                key = None if isinstance(k, comp.Unnamed) else k
+                # Recursively handle nested structs
+                value = v.data if hasattr(v, 'data') else v
+                items.append((key, value))
+            # Sort by key (None will sort first)
+            return sorted(items, key=lambda x: (x[0] is None, x[0]))
+        
+        left_items = to_comparable(left)
+        right_items = to_comparable(right)
+        
+        # Must have same length
+        if len(left_items) != len(right_items):
+            return False
+        
+        # Compare each pair
+        for (lk, lv), (rk, rv) in zip(left_items, right_items):
+            if lk != rk:
+                return False
+            if not _values_equal(lv, rv):
+                return False
+        return True
+    
+    # For non-struct values, use standard Python equality
+    return left == right
+
+
 class UnaryOp(_base.ValueNode):
     """Unary operation: -x, !!x, etc."""
 
@@ -37,10 +86,10 @@ class UnaryOp(_base.ValueNode):
 
         elif self.op == "!!":
             # Check if value is a tag by checking if it's exactly TRUE or FALSE
-            if operand_value.is_tag and operand_value.data == comp.TRUE:
-                return comp.Value(comp.FALSE)
-            elif operand_value.is_tag and operand_value.data == comp.FALSE:
-                return comp.Value(comp.TRUE)
+            if operand_value.is_tag and operand_value.data == comp.builtin.TRUE:
+                return comp.Value(comp.builtin.FALSE)
+            elif operand_value.is_tag and operand_value.data == comp.builtin.FALSE:
+                return comp.Value(comp.builtin.TRUE)
             else:
                 return comp.fail(f"Cannot apply !! to non-boolean: {operand_value}")
 
@@ -111,7 +160,7 @@ class ComparisonOp(_base.ValueNode):
     == and != work on any values.
     <, <=, >, >= require numbers.
     Always evaluates both operands (no short-circuiting).
-    Returns boolean (comp.TRUE/comp.FALSE tag).
+    Returns boolean (TRUE/FALSE tag).
     """
 
     def __init__(self, op: str, left: _base.ValueNode, right: _base.ValueNode):
@@ -134,11 +183,11 @@ class ComparisonOp(_base.ValueNode):
 
         # Equality comparisons work on any values
         if self.op == "==":
-            result = left_value.data == right_value.data
-            return comp.Value(comp.TRUE if result else comp.FALSE)
+            result = _values_equal(left_value.data, right_value.data)
+            return comp.Value(comp.builtin.TRUE if result else comp.builtin.FALSE)
         elif self.op == "!=":
-            result = left_value.data != right_value.data
-            return comp.Value(comp.TRUE if result else comp.FALSE)
+            result = not _values_equal(left_value.data, right_value.data)
+            return comp.Value(comp.builtin.TRUE if result else comp.builtin.FALSE)
 
         # Ordering comparisons require numbers
         if not (left_value.is_number and right_value.is_number):
@@ -158,7 +207,7 @@ class ComparisonOp(_base.ValueNode):
         elif self.op == ">=":
             result = left_num >= right_num
 
-        return comp.Value(comp.TRUE if result else comp.FALSE)
+        return comp.Value(comp.builtin.TRUE if result else comp.builtin.FALSE)
 
     def unparse(self) -> str:
         return f"({self.left.unparse()} {self.op} {self.right.unparse()})"
@@ -171,10 +220,10 @@ class BooleanOp(_base.ValueNode):
     """Boolean operation: x && y, x || y.
 
     Short-circuits evaluation:
-    - && returns left if comp.FALSE, otherwise returns right
-    - || returns left if comp.TRUE, otherwise returns right
+    - && returns left if comp.builtin.FALSE, otherwise returns right
+    - || returns left if comp.builtin.TRUE, otherwise returns right
 
-    Operands should be boolean values (comp.TRUE/comp.FALSE tags), but any value
+    Operands should be boolean values (comp.builtin.TRUE/comp.builtin.FALSE tags), but any value
     can be used - the tag determines truthiness.
     """
 
@@ -196,28 +245,28 @@ class BooleanOp(_base.ValueNode):
         left_value = left_value.as_scalar()
 
         if self.op == "&&":
-            # Short-circuit: if left is comp.FALSE, return it without evaluating right
-            if left_value.is_tag and left_value.data == comp.FALSE:
+            # Short-circuit: if left is comp.builtin.FALSE, return it without evaluating right
+            if left_value.is_tag and left_value.data == comp.builtin.FALSE:
                 return left_value
-            if not (left_value.is_tag and left_value.data == comp.TRUE):
+            if not (left_value.is_tag and left_value.data == comp.builtin.TRUE):
                 return comp.fail(f"Left operand of && is not boolean: {left_value}")
             # Otherwise evaluate and return right
             right_value = yield comp.Compute(self.right)
             right_value = right_value.as_scalar()
-            if not (right_value.is_tag and (right_value.data == comp.TRUE or right_value.data == comp.FALSE)):
+            if not (right_value.is_tag and (right_value.data == comp.builtin.TRUE or right_value.data == comp.builtin.FALSE)):
                 return comp.fail(f"Right operand of && is not boolean: {right_value}")
             return right_value
 
         else:  # "||"
-            # Short-circuit: if left is comp.TRUE, return it without evaluating right
-            if left_value.is_tag and left_value.data == comp.TRUE:
+            # Short-circuit: if left is comp.builtin.TRUE, return it without evaluating right
+            if left_value.is_tag and left_value.data == comp.builtin.TRUE:
                 return left_value
-            if not (left_value.is_tag and left_value.data == comp.FALSE):
+            if not (left_value.is_tag and left_value.data == comp.builtin.FALSE):
                 return comp.fail(f"Left operand of || is not boolean: {left_value}")
             # Otherwise evaluate and return right
             right_value = yield comp.Compute(self.right)
             right_value = right_value.as_scalar()
-            if not (right_value.is_tag and (right_value.data == comp.TRUE or right_value.data == comp.FALSE)):
+            if not (right_value.is_tag and (right_value.data == comp.builtin.TRUE or right_value.data == comp.builtin.FALSE)):
                 return comp.fail(f"Right operand of || is not boolean: {right_value}")
             return right_value
 
@@ -259,7 +308,7 @@ class FallbackOp(_base.ValueNode):
         left_value = yield comp.Compute(self.left, allow_failures=True)
 
         # If left succeeded, return it
-        if not frame.is_fail(left_value):
+        if not frame.bypass_value(left_value):
             return left_value
 
         # Left failed - evaluate right and return it

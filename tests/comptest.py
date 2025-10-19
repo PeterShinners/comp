@@ -137,8 +137,7 @@ def make_shape(shape_name, *fields):
 
 def assert_value(value: comp.Value, *args, **kwargs):
     """Assert value is not failure and convert to python."""
-    engine = comp.Engine()
-    assert not engine.is_fail(value), f"Value failed, {value[comp.Value('message')]}"
+    assert not value.is_fail, f"Value failed, {value.data[comp.Value('message')]}"
 
     if args:
         python = value.as_scalar().to_python()
@@ -152,8 +151,7 @@ def assert_value(value: comp.Value, *args, **kwargs):
 def assert_fail(value, message=None):
     """Assert that a value is a fail value."""
     assert isinstance(value, comp.Value)
-    engine = comp.Engine()
-    assert engine.is_fail(value)
+    assert value.is_fail
     if message:
         data = value.to_python()
         fail_message = data["message"]

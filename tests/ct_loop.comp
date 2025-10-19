@@ -1,0 +1,9 @@
+!import /loop = comp "loop"
+
+
+!func |assert-infinite ~any = {
+    $var.stream = [|infinite start=5 step=2]
+    $var.data = {[|:$var.stream] [|:$var.stream] [|:$var.stream]}
+    $var.data == {5 7 9}
+}
+
