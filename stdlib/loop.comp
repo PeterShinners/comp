@@ -3,63 +3,64 @@
 
 
 ; !doc "Infinite counter stream"  
-; Returns a Block wrapped in a struct (single unnamed field will auto-unwrap).
 !func |infinite ~{} arg ~{start~num=0 step~num=1} = {
     $var.count = $arg.start
-    [:{
+    :{
         $var.result = $var.count
         $var.count = $var.count + $arg.step
         $var.result
-    } |as-block]
+    }~any-block
 }
 
 
 ; !doc "Generate range of numbers from start to end (exclusive) with optional step"
 !func |range ~any arg ~{start~num=0 end~num step~num=1} = {
-    [|if (step <= 0)
-        then={#fail "range step must be positive"}
-        else=:{
-            $var.current = start
-            
-            [|while :{
-                [|if ($var.current >= end)
-                    then=#break
-                    else=:{
-                        $var.result = $var.current
-                        $var.current = $var.current + step
-                        $var.result
-                    }
-                ]
+    ..[|if ($arg.step <= 0) :{#fail "range step must be positive"} :{
+        $var.current = $arg.start
+        
+        ..[|while :{
+            [|if ($var.current >= $arg.end) :{#break} :{
+                $var.result = $var.current
+                $var.current = $var.current + $arg.step
+                $var.result
             }]
-        }
-    ]
+        }]
+    }]
 }
 
 
 ; !doc "Generate indices for input collection (0 to length-1)"
 !func |indices ~struct = {
-    [|range end=[$in |length]]
+    ..[|range end=[$in |length]]
 }
 
 
 
-!func |iter ~struct arg ~{op ~:{value field index ~num}} = {
-    $var.collection = $in
+!func |iter ~struct arg ~{~any} = {
+    $var.collection-item = [$arg |subscript index=0]
+    $var.collection = $var.collection-item.value
+    $var.op-item = [$arg |subscript index=1]
+    $var.op = $var.op-item.value
+    $var.length = [$var.collection |length]
+    $var.index = 0
     
-    ; ..[$var.collection
-    ; |indices
-    ; |while :{
-    ;     [{
-    ;         {value field} = [$var.collection |positional-value-end-field $it]
-    ;         index = $it
-    ;     } 
-    ;     |:arg.op]
-    ; }]
+    ..[|while :{
+        [|if ($var.index >= $var.length) :{#break} :{
+            $var.item = [$var.collection |subscript index=$var.index]
+            $var.index = ($var.index + 1)
+            $var.data = {
+                value = $var.item.value
+                field = $var.item.field
+                index = ($var.index - 1)
+            }
+            [$var.data |:$var.op]
+        }]
+    }]
 }
 
 
 !func |map ~struct arg ~{op ~:{}} = {
-    [$in |iter :{
+    ..[$in |iter :{
         [$in.value |:$arg.op]
     }]
 }

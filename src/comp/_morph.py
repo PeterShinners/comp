@@ -71,25 +71,31 @@ def morph(value, shape):
     
     # Special handling for block morphing: RawBlock + BlockShapeDefinition → Block
     if scalar_value.is_block and isinstance(scalar_value.data, comp.RawBlock):
-        # Check if shape is a BlockShapeDefinition
+        # Check if shape is a BlockShapeDefinition directly
         if isinstance(shape, comp.BlockShapeDefinition):
             # Create a Block with the raw block and the shape fields as input shape
             block = comp.Block(scalar_value.data, input_shape=shape.fields)
             return MorphResult(named_matches=1, value=comp.Value(block))
         
-        # Check if shape is a ShapeDefinition with a single positional BlockShapeDefinition field
-        # This handles: :{...} ~nil-block where ~nil-block = ~:{}
+        # Check if shape is a ShapeDefinition wrapping a BlockShapeDefinition
+        # This handles: :{...} ~any-block where ~any-block is defined as a shape
+        # with a single positional field that is a BlockShapeDefinition
         if isinstance(shape, comp.ShapeDefinition):
-            if len(shape.fields) == 1 and not shape.fields[0].is_named:
-                # The field shape might be wrapped in a Value
-                field_shape = shape.fields[0].shape
-                if isinstance(field_shape, comp.Value):
-                    field_shape = field_shape.data
-                
-                if isinstance(field_shape, comp.BlockShapeDefinition):
-                    # Extract the BlockShapeDefinition from the shape field
-                    block = comp.Block(scalar_value.data, input_shape=field_shape.fields)
-                    return MorphResult(named_matches=1, value=comp.Value(block))
+            if len(shape.fields) == 1:
+                field = shape.fields[0]
+                # Check if it's a positional field (no name)
+                if field.is_positional:
+                    # In a properly prepared module, field.shape will be a BlockShapeDefinition
+                    # For unprepared AST contexts (testing), field might be ShapeFieldDef with shape_ref
+                    field_shape = field.shape
+                    if field_shape is None:
+                        # Fallback for unprepared AST: try shape_ref attribute
+                        field_shape = getattr(field, 'shape_ref', None)
+                    
+                    if isinstance(field_shape, comp.BlockShapeDefinition):
+                        # Extract the BlockShapeDefinition from the shape field
+                        block = comp.Block(scalar_value.data, input_shape=field_shape.fields)
+                        return MorphResult(named_matches=1, value=comp.Value(block))
         
         # If shape is not a block type, morphing RawBlock fails
         return MorphResult()  # No match

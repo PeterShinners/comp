@@ -24,7 +24,7 @@ def builtin_double(frame, input_value, args):
 def builtin_print(frame, input_value, args):
     """Print a value and pass it through: [5 |print] → 5 (with side effect)"""
     # Print the value using unparse() for clean output
-    print(f"[PRINT] {input_value.as_scalar().unparse()}")
+    print(input_value.as_scalar().unparse())
     # Pass through unchanged
     return input_value
 
@@ -41,32 +41,6 @@ def builtin_length(frame, input_value, args):
     
     # Count the fields in the struct
     return comp.Value(len(input_value.struct))
-
-
-def builtin_as_block(frame, input_value, args):
-    """Convert RawBlock to Block with empty input shape: [:{...} |as-block] → Block(~:{})
-    
-    This is a workaround for the limitation that block shapes cannot be used in morph
-    expressions yet. It's equivalent to :{...}~:{} once that syntax is supported.
-    """
-    input_value = input_value.as_scalar()
-    
-    if not input_value.is_block:
-        return comp.fail(f"|as-block expects block, got {type(input_value.data).__name__}")
-    
-    # If already a Block (morphed), return as-is
-    if isinstance(input_value.data, comp.Block):
-        return input_value
-    
-    # Convert RawBlock to Block with empty input shape
-    if isinstance(input_value.data, comp.RawBlock):
-        block_shape = comp.BlockShapeDefinition([])  # Empty input shape
-        morph_result = comp.morph(input_value, block_shape)
-        if not morph_result.success:
-            return comp.fail("|as-block: failed to morph RawBlock to Block")
-        return morph_result.value
-    
-    return comp.fail(f"|as-block: unexpected block type {type(input_value.data).__name__}")
 
 
 def builtin_add(frame, input_value, args):
@@ -245,8 +219,8 @@ def builtin_if(frame, input_value, args):
                 arg=arg_scope,
             )
         
-        # Return the accumulated result
-        return accumulator
+        # Return the accumulated result as a scalar if it's a single value
+        return accumulator.as_scalar()
     else:
         # Branch is a plain value - return it
         return branch_arg
@@ -294,10 +268,6 @@ def builtin_while(frame, input_value, args):
     var_scope = block_frame.scope('var') or comp.Value({})
     arg_scope = block_frame.scope('arg')
     
-    # Get #break and #skip tags for comparison
-    break_tag = frame.engine.builtin_tags.get('break')
-    skip_tag = frame.engine.builtin_tags.get('skip')
-    
     # Accumulate results
     result_list = []
     
@@ -326,20 +296,83 @@ def builtin_while(frame, input_value, args):
             # Block returned a single value
             block_result = last_result
         
+        # Unwrap single-item struct if needed
+        block_result = block_result.as_scalar()
+        
         # Check for #break tag
-        if block_result.is_tag and block_result.data == break_tag:
+        if block_result.is_tag and block_result.data.full_name == "break":
             break
         
         # Check for #skip tag
-        if block_result.is_tag and block_result.data == skip_tag:
+        if block_result.is_tag and block_result.data.full_name == "skip":
             continue
         
         # Add result to accumulator
         result_list.append(block_result)
     
     # Convert list to structure with unnamed fields
-    result_dict = {comp.Unnamed(): value for value in result_list}
+    # Each value gets its own Unnamed key
+    result_dict = {}
+    for value in result_list:
+        result_dict[comp.Unnamed()] = value
+    
     return comp.Value(result_dict)
+
+
+def builtin_subscript(frame, input_value, args):
+    """Get field value and name at given index position.
+    
+    Usage: [{a=1 b=2 c=3} |subscript index=1] → {value=2 field="b"}
+           [{10 20 30} |subscript index=0] → {value=10 field="_"}
+    
+    Returns a struct with:
+    - value: The field's value at that position
+    - field: The field's name (string) or "_" for unnamed fields
+    
+    Supports negative indexing: -1 is last element, -2 is second-to-last, etc.
+    """
+    if not input_value.is_struct:
+        return comp.fail(f"|subscript expects struct, got {type(input_value.data).__name__}")
+    
+    if args is None or not args.is_struct:
+        return comp.fail("|subscript requires index argument")
+    
+    # Get the index argument
+    index_key = comp.Value("index")
+    if index_key not in args.struct:
+        return comp.fail("|subscript requires index argument")
+    
+    index_value = args.struct[index_key]
+    if not index_value.is_number:
+        return comp.fail(f"|subscript index must be number, got {type(index_value.data).__name__}")
+    
+    index = int(index_value.data)
+    
+    # Convert struct to list to handle indexing
+    fields = list(input_value.struct.items())
+    
+    # Handle negative indexing
+    if index < 0:
+        index = len(fields) + index
+    
+    # Check bounds
+    if index < 0 or index >= len(fields):
+        return comp.fail(f"subscript index {index} out of bounds (length {len(fields)})")
+    
+    # Get the field at this index
+    field_key, field_value = fields[index]
+    
+    # Build result struct with value and field
+    if isinstance(field_key, comp.Unnamed):
+        field_name = comp.Value("_")
+    else:
+        # Field key is already a Value
+        field_name = field_key
+    
+    return comp.Value({
+        comp.Value('value'): field_value,
+        comp.Value('field'): field_name,
+    })
 
 
 def get_builtin_module():
@@ -392,6 +425,22 @@ def get_builtin_module():
     module.define_shape(["any"], fields=[])
     module.define_shape(["struct"], fields=[])
     module.define_shape(["nil"], fields=[])
+    
+    # Block shape - defined as ~:{} (block with empty input shape)
+    # This is a real shape definition with a BlockShapeDefinition
+    # Used to type blocks: :{...}~any-block
+    # Create the BlockShapeDefinition directly (not an AST node)
+    from . import _function
+    from . import _module as _module_runtime
+    block_shape_def = _function.BlockShapeDefinition(fields=[])
+    
+    # Create a ShapeField (runtime entity) with the BlockShapeDefinition
+    # This is a single positional field that is the block shape itself
+    module.define_shape(["any-block"], fields=[_module_runtime.ShapeField(
+        name=None,  # Positional field (no name)
+        shape=block_shape_def,  # The ~:{} block shape (runtime entity)
+        default=None
+    )])
 
     # Register Python-backed functions
     funcs = {
@@ -399,11 +448,11 @@ def get_builtin_module():
         "print": builtin_print,
         "identity": builtin_identity,
         "length": builtin_length,
-        "as-block": builtin_as_block,
         "add": builtin_add,
         "wrap": builtin_wrap,
         "if": builtin_if,
         "while": builtin_while,
+        "subscript": builtin_subscript,
     }
     for name, func in funcs.items():
         # Create a FunctionDefinition with the Python function as body

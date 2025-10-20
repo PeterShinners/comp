@@ -1,5 +1,7 @@
 """Tests for module preparation and imports."""
 
+import pytest
+
 import comp
 import comptest
 
@@ -40,6 +42,26 @@ def test_import_statement():
     # Check that imported module has the expected tags
     greeting = imported.lookup_tag(["greeting"])
     assert greeting is not None
+
+
+def test_undefined():
+    """Test preparing modules with undefined references"""
+    engine = comp.Engine()
+
+    fast = comp.parse_module("!func |nofunc ~any = {{1 2 [|skiperoo]}}")
+    module = comp.Module()
+    with pytest.raises(ValueError):
+        module.prepare(fast, engine)
+
+    sast = comp.parse_module("!func |nofunc ~any = {{1 2} ~skiperoo}")
+    module = comp.Module()
+    with pytest.raises(ValueError):
+        module.prepare(sast, engine)
+
+    tast = comp.parse_module("!func |nofunc ~any = {{1 #skiperoo}}")
+    module = comp.Module()
+    with pytest.raises(ValueError):
+        module.prepare(tast, engine)
 
 
 def test_import_parse_errors():

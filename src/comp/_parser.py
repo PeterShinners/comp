@@ -424,6 +424,14 @@ def _convert_tree(tree):
             # Create InlineShape for morphing with inline shape definition
             return comp.ast.InlineShape(fields)
 
+        case 'morph_block':
+            # ":" LBRACE shape_field* RBRACE (no tilde)
+            # For morph operations with inline block shape
+            # Example: $var ~:{name~str age~num} or $var~:{name~str age~num}
+            fields = _convert_children(kids[2:-1]) if len(kids) > 3 else []  # Skip ":", LBRACE, RBRACE
+            # Create a BlockShape node to represent this type
+            return comp.ast.BlockShape(fields)
+
         case 'shape_union':
             # shape_type_atom (PIPE shape_type_atom)+
             members = []

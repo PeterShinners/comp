@@ -386,9 +386,14 @@ WEAK_MORPH: "~?"
                 | shape_inline                                 // ~{...}
                 | shape_block                                  // ~:{...} block with input shape
                 | morph_inline                                 // {...} (without ~)
+                | morph_block                                  // :{...} block without ~ for morph context
 
 // Inline shape without leading ~ for morph context
 morph_inline: LBRACE shape_field* RBRACE
+
+// Inline block shape without leading ~ for morph context
+// Use ":" + LBRACE instead of COLON_BLOCK_START to allow ~ :{...} with space
+morph_block: ":" LBRACE shape_field* RBRACE
 
 morph_union: morph_type_base (PIPE morph_type_base)+
 

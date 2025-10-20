@@ -478,6 +478,29 @@
     "blocks": {
       "patterns": [
         {
+          "name": "meta.block.pipeline.comp",
+          "begin": ":\\[",
+          "end": "\\]",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.section.block.pipeline.begin.comp"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.block.pipeline.end.comp"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#pipeline-operators"
+            },
+            {
+              "include": "$self"
+            }
+          ]
+        },
+        {
           "name": "meta.block.comp",
           "begin": ":\\{",
           "end": "\\}",
