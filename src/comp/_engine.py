@@ -7,7 +7,7 @@ The engine doesn't know about language semantics - it just provides primitives.
 AST nodes orchestrate everything using these tools.
 """
 
-__all__ = ["Engine", "Compute", "prepare_function_call"]
+__all__ = ["Engine", "Compute", "prepare_function_call", "prepare_block_call"]
 
 import comp
 
@@ -370,4 +370,59 @@ def prepare_function_call(func_defs, input_value, args_value, ctx_scope):
         var=var_scope,
         module=func_def.module,
     )
+
+
+def prepare_block_call(block, input):
+    """Prepare a block invocation by extracting context and building Compute list.
+    
+    Blocks capture their definition context (frame) and can be invoked with
+    different input values. This function handles:
+    1. Extracting the block AST and captured frame
+    2. Getting scopes from the captured frame (ctx, var, arg, module)
+    3. Creating an accumulator for the block's struct building
+    4. Building a list of Compute objects for each operation in the block
+    
+    Args:
+        block (Value): Block or RawBlock value to invoke
+        input (Value): Input value to pass as $in
+        
+    Returns:
+        tuple: (compute_list, accumulator) where:
+            - compute_list: List of Compute objects to execute sequentially
+            - accumulator: The struct accumulator to collect results
+            Or returns a fail Value if error
+    """
+    block = block.as_scalar()
+    input = input.as_struct()
+    if not block.is_block:
+        return comp.fail("Expected block value")
+
+    # Likely a raw block for now, as builtin funcs do not morph
+    # arguments like a comp function should
+    if isinstance(block.data, comp.RawBlock):
+        block = comp.Value(comp.Block(block.data, comp.ast.BlockShape([])))
+
+    # # RawBlocks must be morphed with a shape before they can be invoked
+    # if isinstance(block, comp.RawBlock):
+    #     return comp.fail(
+    #         "PipeBlock |: cannot invoke Raw block directly. "
+    #         "Raw block must be morphed with a block shape (e.g., ~:{}) before invocation."
+    #     )
+
+    block_ast = block.data.raw_block.block_ast
+    block_frame = block.data.raw_block.frame
+    block_module = block_frame.scope('module')
+    ctx_scope = block_frame.scope('ctx') or comp.Value({})
+    var_scope = block_frame.scope('var') or comp.Value({})
+    arg_scope = block_frame.scope('arg')
+    
+    compute = comp.Compute(
+        block_ast.body,
+        in_=input,
+        ctx=ctx_scope,
+        var=var_scope,
+        module=block_module,
+        arg=arg_scope,
+    )
+    return compute
 

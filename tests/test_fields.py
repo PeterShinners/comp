@@ -8,8 +8,8 @@ def test_literal_index_access():
     """Test data.#1 - literal positional index"""
     value = comptest.run_func("""
     !func |test ~{} = {
-        data = {10 20 30}
-        result = data.#1
+        $var.data = {10 20 30}
+        result = $var.data.#1
     }
     """)
     comptest.assert_value(value, result=20)
@@ -20,8 +20,8 @@ def test_computed_index_from_variable():
     value = comptest.run_func("""
     !func |test ~{} = {
         $var.index = 1
-        data = {10 20 30 40 50}
-        result = data.#($var.index + 1)
+        $var.data = {10 20 30 40 50}
+        result = $var.data.#($var.index + 1)
     }
     """)
     comptest.assert_value(value, result=30)
@@ -32,8 +32,8 @@ def test_computed_index_out_of_bounds():
     value = comptest.run_func("""
     !func |test ~{} = {
         $var.index = 1
-        data = {10 20 30}
-        result = data.#($var.index + 10)
+        $var.data = {10 20 30}
+        result = $var.data.#($var.index + 10)
     }
     """)
     comptest.assert_fail(value, "bounds")
@@ -44,8 +44,8 @@ def test_computed_index_non_numeric():
     value = comptest.run_func("""
     !func |test ~{} = {
         $var.index = "not-a-number"
-        data = {10 20 30}
-        result = data.#($var.index)
+        $var.data = {10 20 30}
+        result = $var.data.#($var.index)
     }
     """)
     comptest.assert_fail(value, "number")

@@ -1,22 +1,20 @@
 !doc module """Get top weekly thumbed issues from github
 https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
 """
-
-!import .gh = comp "github-api"
-!import .time = std "core/time"
+!import /gh = comp "github-api"
+!import /time = std "core/time"
 
 !main = {
-	@after = (|now/time) - 1#week
-	@fields = ("title url created-at reactions" |tokenize/str)
-		
-	[{@fields repo="nushell/nushell"} 
-		|list-issues.gh  ; applies $repo from ctx
-		|filter :{created-at >= @after}
-		|map :{
-			@thumbs-up = [reactions |count-if :{content == #thumbs-up}]
-			{thumbs-up=@. title=. url=.}
-		}
-		|sort #reverse :{thumbs-up}
-		|first 5
+	$var.after = [|now] - 1#week
+
+	[{repo="nushell/nushell" fields={title url created-at reactions}}
+	|gh.list-issues
+	|filter :{.created-at >= $var.after}
+	|map :{
+		{title url} = $in
+		thumbs-up = [$in.reactions |count-if [$in.content == #thumbs-up]]
+	}
+	|sort #reverse [$in.thumbs-up]
+	|first 5
 	]
 }

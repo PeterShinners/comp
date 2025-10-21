@@ -41,7 +41,7 @@ def pytest_generate_tests(metafunc):
         for base in comps:
             short = os.path.splitext(base)[0][3:]
             content = open(os.path.join(test_dir, base)).read()
-            funcs = re.findall(r"!func \|(test-|assert-)(\w+)", content)
+            funcs = re.findall(r"!func \|(test-|assert-)([-\w]+)", content)
             for func in funcs:
                 names.append(f"{short}-{func[1]}")
                 contents_and_func.append((content, func))

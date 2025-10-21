@@ -41,33 +41,15 @@ class Structure(_base.ValueNode):
 
         Returns comp.Value with the assembled struct dict.
         """
-        struct_dict = {}
-
-        # Create a Value that directly wraps the dict without conversion
-        # (the dict will be populated with already-converted Values)
-        accumulator = comp.Value.__new__(comp.Value)
-        accumulator.data = struct_dict
-        accumulator.tag = None
-
-        # Create a chained scope for field lookups: $out (accumulator) chains to $in
-        # This allows fields to reference previously assigned fields and the input
-        in_scope = frame.scope('in')
-        chained = comp.ChainedScope(accumulator, in_scope)
-
-        # Push accumulator and chained scope onto scope stack
-        # Evaluate each operation - they will populate the accumulator
-        # Note: local, mod, ctx scopes are managed by function invocation (PipeFunc)
+        out_struct = comp.Value({})
         for op in self.ops:
-            yield comp.Compute(op, struct_accumulator=accumulator, unnamed=chained)
-
-        # All operations evaluated successfully - return the struct
-        return accumulator
+            yield comp.Compute(op, struct_accumulator=out_struct)
+        return out_struct
 
     def unparse(self) -> str:
         """Convert back to source code."""
         if not self.ops:
             return "{}"
-        # Whitespace separated - no commas in Comp syntax
         ops_str = " ".join(op.unparse() for op in self.ops)
         return f"{{{ops_str}}}"
 
@@ -88,22 +70,21 @@ class Block(_base.ValueNode):
     blocks are used as function arguments.
 
     Correct by Construction:
-    - ops is a list (can be empty for :{})
-    - All ops are StructOp instances
+    - body is a Structure AST node
     """
 
-    def __init__(self, ops: list['StructOp']):
+    def __init__(self, body: Structure):
         """Create block literal.
 
         Args:
-            ops: List of structure operations (FieldOp, SpreadOp)
+            body (Structure): Structure AST node containing the block's operations
 
         Raises:
-            TypeError: If any op is not a StructOp
+            TypeError: If body is not a Structure instance
         """
-        if not all(isinstance(op, StructOp) for op in ops):
-            raise TypeError("All operations must be StructOp instances")
-        self.ops = ops
+        if not isinstance(body, Structure):
+            raise TypeError("Block requires a Structure body")
+        self.body = body
 
     def evaluate(self, frame):
         """Create a RawBlock that captures context for later typing and invocation.
@@ -140,14 +121,14 @@ class Block(_base.ValueNode):
 
     def unparse(self) -> str:
         """Convert back to source code."""
-        if not self.ops:
+        if not self.structure.ops:
             return ":{}"
         # Whitespace separated - no commas in Comp syntax
-        ops_str = " ".join(op.unparse() for op in self.ops)
+        ops_str = " ".join(op.unparse() for op in self.structure.ops)
         return f":{{{ops_str}}}"
 
     def __repr__(self):
-        return f"Block({len(self.ops)} ops)"
+        return f"Block({len(self.structure.ops)} ops)"
 
 
 class StructOp(_base.ValueNode):

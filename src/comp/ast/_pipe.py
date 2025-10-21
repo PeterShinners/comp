@@ -240,26 +240,10 @@ class PipeBlock(PipelineOp):
         if frame.bypass_value(block_value):
             return block_value
 
-        # Unwrap nested single-element structs to get to the actual block
-        # Functions often return {pipeline_result} or {{block}}, so unwrap repeatedly
-        while block_value.is_struct and not block_value.is_block:
-            unwrapped = block_value.as_scalar()
-            if unwrapped is block_value:  # No more unwrapping possible
-                break
-            block_value = unwrapped
-
         # Check if it's a Block (not RawBlock) wrapped in Value
+        block_value = block_value.as_scalar()
         if not block_value.is_block:
             return comp.fail(f"PipeBlock |: requires Block, got {type(block_value.data).__name__}")
-
-        block = block_value.data
-        
-        # RawBlocks must be morphed with a shape before they can be invoked
-        if isinstance(block, comp.RawBlock):
-            return comp.fail(
-                "PipeBlock |: cannot invoke RawBlock directly. "
-                "RawBlock must be morphed with a block shape (e.g., ~:{}) before invocation."
-            )
 
         # Note: We don't morph the input here - that's the responsibility of the
         # code that stores/retrieves blocks. If a block has an input shape, it should
@@ -267,41 +251,11 @@ class PipeBlock(PipelineOp):
         # with block type shapes). For now, we trust that the Block is being invoked
         # with appropriate input.
 
-        # Execute block operations like Structure does, but with captured context
-        # Create an accumulator dict for the block output
-        struct_dict = {}
-        accumulator = comp.Value.__new__(comp.Value)
-        accumulator.data = struct_dict
-        accumulator.tag = None
-
-        # Create chained scope: $out (accumulator) chains to $in
-        chained = comp.ChainedScope(accumulator, input_value)
-
-        # Get module reference - either from block's frame or from current frame
-        block_module = block.raw_block.frame.scope('module')
-        if block_module is None:
-            # Module-scope block - get module from frame
-            block_module = frame.scope('module')
-            if block_module is None:
-                return comp.fail("Block invocation requires module context")
-
-        # Execute each operation from the block with captured frame scopes
-        # Use the scopes from the block's frame to preserve mutations to $var
-        for op in block.raw_block.block_ast.ops:
-            yield comp.Compute(
-                op,
-                struct_accumulator=accumulator,
-                unnamed=chained,
-                in_=input_value,
-                ctx=block.raw_block.frame.scope('ctx') or comp.Value({}),
-                local=block.raw_block.frame.scope('local') or comp.Value({}),
-                var=block.raw_block.frame.scope('var') or comp.Value({}),
-                module=block_module,
-                arg=block.raw_block.frame.scope('arg'),
-            )
-
-        # Return the accumulated result
-        return accumulator
+        compute = comp.prepare_block_call(block_value, input_value)
+        if isinstance(compute, comp.Value):
+            return compute  # Error during preparation
+        result = yield compute
+        return result
 
     def unparse(self) -> str:
         return f"|:{self.block_ref.unparse()}"

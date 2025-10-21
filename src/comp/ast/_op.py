@@ -184,6 +184,7 @@ class ComparisonOp(_base.ValueNode):
         # Equality comparisons work on any values
         if self.op == "==":
             result = _values_equal(left_value.data, right_value.data)
+            #print("COMPARISON EQ:", left_value.unparse(), right_value.unparse(), "->", result)
             return comp.Value(comp.builtin.TRUE if result else comp.builtin.FALSE)
         elif self.op == "!=":
             result = not _values_equal(left_value.data, right_value.data)

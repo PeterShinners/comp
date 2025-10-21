@@ -7,12 +7,12 @@ import comptest
 def test_block_create_morph_run():
     """Test block invocation with structured input."""
     # Create a block that creates output
-    block_ast = comp.ast.Block([
+    block_ast = comp.ast.Block(comp.ast.Structure([
         comp.ast.FieldOp(
             key=comp.ast.String("output"),
             value=comp.ast.String("processed")
         )
-    ])
+    ]))
     raw_block_value = comptest.run_ast(block_ast)
 
     # Verify it's a RawBlock

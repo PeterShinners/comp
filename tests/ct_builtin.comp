@@ -1,0 +1,14 @@
+
+!func |assert-loop ~any = {
+    $var.data = [|loop :{
+        [|if :{$in == 0} 1.1 :{
+            [|if :{$in == 1} #skip :{
+                [|if :{$in == 2} "cat" :{
+                    [|if :{$in == 3} {#break} 2.2]
+                }]
+            }]
+        }]
+    }]
+    $var.data == {1.1 "cat"}
+}
+

@@ -105,63 +105,21 @@ def builtin_if(frame, input_value, args):
     # Evaluate condition
     if cond_arg.is_block:
         # Condition is a block - evaluate it with input_value
-        block_data = cond_arg.data  # This is Block or RawBlock
+        compute = comp.prepare_block_call(cond_arg, input_value)
+        if isinstance(compute, comp.Value):
+            return compute  # Error during preparation
         
-        # Get block AST and frame
-        if isinstance(block_data, comp.RawBlock):
-            block_ast = block_data.block_ast
-            block_frame = block_data.frame
-        elif isinstance(block_data, comp.Block):
-            block_ast = block_data.raw_block.block_ast
-            block_frame = block_data.raw_block.frame
-        else:
-            return comp.fail(f"|if condition block has unexpected type: {type(block_data)}")
-        
-        block_module = block_frame.scope('module') or frame.scope('module')
-        ctx_scope = block_frame.scope('ctx') or comp.Value({})
-        var_scope = block_frame.scope('var') or comp.Value({})
-        arg_scope = block_frame.scope('arg')
-        
-        # Execute block like PipeBlock does
-        struct_dict = {}
-        accumulator = comp.Value.__new__(comp.Value)
-        accumulator.data = struct_dict
-        chained = comp.ChainedScope(accumulator, input_value)
-        
-        # Execute each operation from the block
-        for op in block_ast.ops:
-            yield comp.Compute(
-                op,
-                struct_accumulator=accumulator,
-                unnamed=chained,
-                in_=input_value,
-                ctx=ctx_scope,
-                var=var_scope,
-                module=block_module,
-                arg=arg_scope,
-            )
-        
-        # Get the result
-        cond_result = accumulator
-        if cond_result.is_fail:
-            return cond_result
-        
-        # Check if result is a boolean tag
-        cond_result = cond_result.as_scalar()
-        if cond_result.is_tag:
-            tag_ref = cond_result.data
-            if tag_ref.full_name == "true":
-                condition = True
-            elif tag_ref.full_name == "false":
-                condition = False
-            else:
-                return comp.fail(f"|if condition block must return #true or #false, got #{tag_ref.full_name}")
-        else:
-            return comp.fail(f"|if condition block must return boolean tag, got {cond_result}")
-    
-    elif cond_arg.is_tag:
+        # Execute each operation in the block
+        result = yield compute
+        if frame.bypass_value(result):
+            return result
+        result = result.as_scalar()
+    else:
+        result = cond_arg
+
+    if result.is_tag:
         # Condition is already a boolean tag
-        tag_ref = cond_arg.data
+        tag_ref = result.data
         if tag_ref.full_name == "true":
             condition = True
         elif tag_ref.full_name == "false":
@@ -182,54 +140,23 @@ def builtin_if(frame, input_value, args):
     
     # Evaluate the selected branch
     if branch_arg.is_block:
-        # Branch is a block - evaluate it with input_value
-        block_data = branch_arg.data
-        
-        # Get block AST and frame
-        if isinstance(block_data, comp.RawBlock):
-            block_ast = block_data.block_ast
-            block_frame = block_data.frame
-        elif isinstance(block_data, comp.Block):
-            block_ast = block_data.raw_block.block_ast
-            block_frame = block_data.raw_block.frame
-        else:
-            return comp.fail(f"|if branch block has unexpected type: {type(block_data)}")
-        
-        block_module = block_frame.scope('module') or frame.scope('module')
-        ctx_scope = block_frame.scope('ctx') or comp.Value({})
-        var_scope = block_frame.scope('var') or comp.Value({})
-        arg_scope = block_frame.scope('arg')
-        
-        # Execute block like PipeBlock does
-        struct_dict = {}
-        accumulator = comp.Value.__new__(comp.Value)
-        accumulator.data = struct_dict
-        chained = comp.ChainedScope(accumulator, input_value)
-        
-        # Execute each operation from the block
-        for op in block_ast.ops:
-            yield comp.Compute(
-                op,
-                struct_accumulator=accumulator,
-                unnamed=chained,
-                in_=input_value,
-                ctx=ctx_scope,
-                var=var_scope,
-                module=block_module,
-                arg=arg_scope,
-            )
-        
-        # Return the accumulated result as a scalar if it's a single value
-        return accumulator.as_scalar()
-    else:
-        # Branch is a plain value - return it
-        return branch_arg
+        compute = comp.prepare_block_call(branch_arg, input_value)
+        if isinstance(compute, comp.Value):
+            return compute  # Error during preparation
+        result = yield compute
+        if frame.bypass_value(result):
+            return result
+        return result.as_scalar()
+
+    # Branch is a plain value - return it
+    return branch_arg
 
 
-def builtin_while(frame, input_value, args):
-    """Repeatedly invoke a block until it returns #break: [|while :{...}]
+def builtin_loop(frame, input_value, args):
+    """Repeatedly invoke a block until it returns #break: [|loop :{...}]
     
-    Takes a single block argument that is invoked repeatedly.
+    Takes a single block argument that is invoked repeatedly with an
+    incrementing counter starting at 0.
     Returns a structure with accumulated unnamed fields from each iteration.
     
     Special tag values:
@@ -238,85 +165,38 @@ def builtin_while(frame, input_value, args):
     - Any other value: Added as unnamed field to result structure
     """
     if args is None or not args.is_struct:
-        return comp.fail("|while requires argument ^{:{...}}")
+        return comp.fail("|loop requires block argument")
     
-    # Get the block (should be first positional arg)
-    argvalues = [v for k, v in args.struct.items() if isinstance(k, comp.Unnamed)]
-    
-    if len(argvalues) != 1:
-        return comp.fail("|while requires exactly one block argument")
-    
-    block_arg = argvalues[0]
-    
-    if not block_arg.is_block:
-        return comp.fail("|while block must be a block")
-    
-    # Get block components
-    block_data = block_arg.data
-    
-    if isinstance(block_data, comp.RawBlock):
-        block_ast = block_data.block_ast
-        block_frame = block_data.frame
-    elif isinstance(block_data, comp.Block):
-        block_ast = block_data.raw_block.block_ast
-        block_frame = block_data.raw_block.frame
-    else:
-        return comp.fail(f"|while block has unexpected type: {type(block_data)}")
-    
-    block_module = block_frame.scope('module') or frame.scope('module')
-    ctx_scope = block_frame.scope('ctx') or comp.Value({})
-    var_scope = block_frame.scope('var') or comp.Value({})
-    arg_scope = block_frame.scope('arg')
-    
-    # Accumulate results
-    result_list = []
-    
+    # Get the block arg by name or first positional
+    block = args.data.get(comp.Value("op"))
+    if block is None:
+        unnamed = [v for k, v in args.data.items() if isinstance(k, comp.Unnamed)]
+        if len(unnamed) != 1:
+            return comp.fail("|loop requires exactly one block argument")
+        block = unnamed[0]
+
     # Iterate until #break
+    results = []
+    counter = -1
     while True:
-        # Execute block with input_value as $in
-        struct_dict = {}
-        accumulator = comp.Value.__new__(comp.Value)
-        accumulator.data = struct_dict
-        chained = comp.ChainedScope(accumulator, input_value)
+        counter += 1
+        compute = comp.prepare_block_call(block, comp.Value(counter))
+        if isinstance(compute, comp.Value):
+            return compute  # Error during preparation
         
-        # Execute each operation
-        last_result = input_value  # Default to input if no ops
-        for op in block_ast.ops:
-            last_result = yield comp.Compute(op, struct_accumulator=accumulator, unnamed=chained,
-                                      in_=input_value, ctx=ctx_scope, var=var_scope,
-                                      module=block_module, arg=arg_scope)
-            if last_result.is_fail:
-                return last_result
-        
-        # Get the block's result
-        if struct_dict:
-            # Block built a structure
-            block_result = accumulator
-        else:
-            # Block returned a single value
-            block_result = last_result
-        
-        # Unwrap single-item struct if needed
-        block_result = block_result.as_scalar()
-        
-        # Check for #break tag
-        if block_result.is_tag and block_result.data.full_name == "break":
-            break
-        
-        # Check for #skip tag
-        if block_result.is_tag and block_result.data.full_name == "skip":
-            continue
-        
-        # Add result to accumulator
-        result_list.append(block_result)
+        result = yield compute
+        if frame.bypass_value(result):
+            return result
+        result = result.as_scalar()
+        if result.is_tag:
+            if result.data.full_name == "break":
+                break
+            elif result.data.full_name == "skip":
+                continue
+        results.append(result)
     
-    # Convert list to structure with unnamed fields
-    # Each value gets its own Unnamed key
-    result_dict = {}
-    for value in result_list:
-        result_dict[comp.Unnamed()] = value
-    
-    return comp.Value(result_dict)
+    value = comp.Value(results)
+    return value
 
 
 def builtin_subscript(frame, input_value, args):
@@ -342,7 +222,7 @@ def builtin_subscript(frame, input_value, args):
     if index_key not in args.struct:
         return comp.fail("|subscript requires index argument")
     
-    index_value = args.struct[index_key]
+    index_value = args.struct[index_key].as_scalar()
     if not index_value.is_number:
         return comp.fail(f"|subscript index must be number, got {type(index_value.data).__name__}")
     
@@ -400,6 +280,7 @@ def get_builtin_module():
     # Control flow tags
     module.define_tag(["break"], value=None)
     module.define_tag(["skip"], value=None)
+    # module.define_tag(["return"], value=None)
 
     # Failure tags
     fail_def = module.define_tag(["fail"], value=None)
@@ -451,7 +332,7 @@ def get_builtin_module():
         "add": builtin_add,
         "wrap": builtin_wrap,
         "if": builtin_if,
-        "while": builtin_while,
+        "loop": builtin_loop,
         "subscript": builtin_subscript,
     }
     for name, func in funcs.items():

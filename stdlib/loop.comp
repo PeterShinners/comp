@@ -18,7 +18,7 @@
     ..[|if ($arg.step <= 0) :{#fail "range step must be positive"} :{
         $var.current = $arg.start
         
-        ..[|while :{
+        ..[|loop :{
             [|if ($var.current >= $arg.end) :{#break} :{
                 $var.result = $var.current
                 $var.current = $var.current + $arg.step
@@ -27,6 +27,18 @@
         }]
     }]
 }
+
+; !func |range-b ~num arg ~{end ~num start ~num =0 step ~num = 1} = {
+;     [|if ($arg.step == 0) :{#fail "range step cannot be zero"}]
+;     $var.current = $arg.start
+;     ..[|loop :{
+;         (($arg.step > 0 && $var.current >= $arg.end) ||
+;          ($arg.step < 0 && $var.current <= $arg.end)) |if :{#break}
+;         $var.value = $var.current
+;         $var.current = $var.current + $arg.step
+;         $var.value
+;     }]
+; }
 
 
 ; !doc "Generate indices for input collection (0 to length-1)"
@@ -44,7 +56,7 @@
     $var.length = [$var.collection |length]
     $var.index = 0
     
-    ..[|while :{
+    ..[|loop :{
         [|if ($var.index >= $var.length) :{#break} :{
             $var.item = [$var.collection |subscript index=$var.index]
             $var.index = ($var.index + 1)

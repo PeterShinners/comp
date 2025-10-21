@@ -82,6 +82,17 @@ class AstNode:
         """
         raise NotImplementedError(f"{self.__class__.__name__}.unparse() not implemented")
 
+    def print_tree(self, depth=0):
+        """Print ast nodes for debugging."""
+        indent = "  " * depth
+        print(f"{indent}{self!r}")
+        for value in vars(self).values():
+            if isinstance(value, AstNode):
+                value.print_tree(depth + 1)
+            elif isinstance(value, list):
+                for child in value:
+                    if isinstance(child, AstNode):
+                        child.print_tree(depth + 1)
 
 class ValueNode(AstNode):
     """Base class for nodes that evaluate to runtime Values.
