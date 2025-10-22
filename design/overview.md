@@ -137,12 +137,12 @@ hierarchy to resolve ambuguities.
 
 ; Use them as values
 current = #active
-problem = #maintenance.error
+problem = #error.maintenance
 
 ; Use them for dispatch
 [$in |handle-request
-    '#timeout.error.status' :{|retry-with-backoff}
-    '#error.status' :{[|log-error] [|use-fallback]}
+    '#status.error.timeout' :{|retry-with-backoff}
+    '#status.error' :{[|log-error] [|use-fallback]}
 ]
 ```
 

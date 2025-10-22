@@ -287,18 +287,18 @@ class TagChild(ModuleOp):
 
 
 class TagValueRef(_base.ValueNode):
-    """Tag reference as a value: #timeout.error.status
+    """Tag reference as a value: #status.error.timeout
 
-    References are written in reverse order (leaf first), but stored
-    as a list for matching. The lookup uses partial suffix matching.
+    References are written in natural order and stored as a list for matching.
+    The lookup uses partial suffix matching (last N elements of definition path).
 
     Examples:
         #active              -> ["active"]
-        #timeout.error       -> ["timeout", "error"]
-        #timeout.error.status -> ["timeout", "error", "status"]
+        #error.timeout       -> ["error", "timeout"]
+        #status.error.timeout -> ["status", "error", "timeout"]
 
     Args:
-        path: Reversed path (leaf first), e.g., ["timeout", "error", "status"]
+        path: Path in natural order, e.g., ["status", "error", "timeout"]
         namespace: Optional module namespace for cross-module refs (future)
 
     Attributes:
@@ -355,13 +355,13 @@ class TagValueRef(_base.ValueNode):
 
     def unparse(self) -> str:
         """Convert back to source code."""
-        ref = "#" + ".".join(reversed(self.path))
+        ref = "#" + ".".join(self.path)
         if self.namespace:
             ref += "/" + self.namespace
         return ref
 
     def __repr__(self):
-        path_str = ".".join(reversed(self.path))
+        path_str = ".".join(self.path)
         if self.namespace:
             return f"TagValueRef(#{path_str}/{self.namespace})"
         return f"TagValueRef(#{path_str})"

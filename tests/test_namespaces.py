@@ -12,7 +12,7 @@ def test_tag_lookup_with_namespace():
     main_module.add_namespace("lib", lib_module)
 
     # Lookup with explicit namespace
-    tag_def = main_module.lookup_tag(["ok", "status"], namespace="lib")
+    tag_def = main_module.lookup_tag(["status", "ok"], namespace="lib")
     assert tag_def.value.data == 200
 
 
@@ -25,7 +25,7 @@ def test_tag_lookup_fallback_to_namespace():
     main_module.add_namespace("lib", lib_module)
 
     # Lookup without namespace should find it in lib
-    tag_def = main_module.lookup_tag(["ok", "status"])
+    tag_def = main_module.lookup_tag(["status", "ok"])
     assert tag_def.value.data == 200
 
 
@@ -39,11 +39,11 @@ def test_tag_local_overrides_namespace():
     main_module.add_namespace("lib", lib_module)
 
     # Lookup without namespace should find local first
-    tag_def = main_module.lookup_tag(["ok", "status"])
+    tag_def = main_module.lookup_tag(["status", "ok"])
     assert tag_def.value.data == 999
 
     # Explicit namespace should find lib version
-    tag_def_lib = main_module.lookup_tag(["ok", "status"], namespace="lib")
+    tag_def_lib = main_module.lookup_tag(["status", "ok"], namespace="lib")
     assert tag_def_lib.value.data == 200
 
 
@@ -127,5 +127,5 @@ def test_multiple_namespaces():
     main_module.add_namespace("lib2", lib2)
 
     # Lookup without namespace should find in namespace
-    tag_def = main_module.lookup_tag(["ok", "status"])
+    tag_def = main_module.lookup_tag(["status", "ok"])
     assert tag_def.value.data == 1

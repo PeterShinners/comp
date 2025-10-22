@@ -194,7 +194,7 @@ The `$out` scope can be directly modified to build output structures incremental
     $out.created = [|now]
     
     ; Append operations using spread-assignment
-    $out ..= #active.status
+    $out ..= #status.active
     $out ..= [$arg.name |calculate-permissions]
     
     ; Conditional additions
@@ -543,12 +543,12 @@ user-record ~database.record = {id=123 data="user data"}
 [{sql="SELECT *" params=[]} |database.query]
 
 ; Shapes in function signatures
-!func |save-user ~{user ~database.record} = {
+!func |save-user ~{user ~record.database} = {
     user |database.insert
 }
 ```
 
-This hierarchical organization follows the same principles as tag hierarchies—the most specific part comes first in the path, enabling natural grouping while maintaining clear, readable names.
+This hierarchical organization allows logical grouping of related types while maintaining readable names.
 
 ## Core modules
 

@@ -274,21 +274,19 @@ class FunctionDefinition(_entity.Entity):
         return self.path[:-1] if len(self.path) > 1 else None
 
     def matches_partial(self, partial):
-        """Check if this function matches a partial path (suffix match).
+        """Check if this function matches a partial path (prefix match).
 
         Args:
-            partial (list[str]): Reversed partial path, e.g., ["area", "geometry"]
-                    for |area.geometry (leaf first)
+            partial (list[str]): Partial path in natural order, e.g., ["geometry", "area"]
+                    for |geometry.area or just ["area"] for leaf-only reference
 
         Returns:
-            bool: True if function's path ends with the partial path
+            bool: True if function's path ends with the partial path (prefix match on reversed path)
         """
         if len(partial) > len(self.path):
             return False
-        # Match from the end of our path (which is already in definition order)
-        # partial is in reference order (reversed), so we need to reverse it
-        partial_def_order = list(reversed(partial))
-        return self.path[-len(partial):] == partial_def_order
+        # For prefix matching: partial matches if it equals the last N elements of our path
+        return self.path[-len(partial):] == partial
 
     def invoke(self, input_value, args_value=None, ctx_scope=None):
         """Invoke this specific function definition.

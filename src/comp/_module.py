@@ -212,21 +212,21 @@ class TagDefinition(_entity.Entity):
         return other.is_ancestor_of(self)
 
     def matches_partial(self, partial):
-        """Check if this tag matches a partial path (suffix match).
+        """Check if this tag matches a partial path (prefix match).
 
         Args:
-            partial (list[str]): Reversed partial path, e.g., ["timeout", "error"]
-                    for #timeout.error (leaf first)
+            partial (list[str]): Partial path in natural order, e.g., ["error", "timeout"]
+                    for #error.timeout or just ["timeout"] for leaf-only reference
 
         Returns:
-            bool: True if tag's path ends with the partial path
+            bool: True if tag's path ends with the partial path (prefix match on reversed path)
         """
         if len(partial) > len(self.path):
             return False
-        # Match from the end of our path (which is already in definition order)
-        # partial is in reference order (reversed), so we need to reverse it
-        partial_def_order = list(reversed(partial))
-        return self.path[-len(partial):] == partial_def_order
+        # For prefix matching: partial matches if it equals the last N elements of our path
+        # E.g., path=["stove", "hot"], partial=["hot"] matches
+        # E.g., path=["stove", "hot"], partial=["stove", "hot"] matches
+        return self.path[-len(partial):] == partial
 
 
 class ShapeDefinition(_entity.Entity):
@@ -281,21 +281,19 @@ class ShapeDefinition(_entity.Entity):
         return self.path[:-1] if len(self.path) > 1 else None
 
     def matches_partial(self, partial):
-        """Check if this shape matches a partial path (suffix match).
+        """Check if this shape matches a partial path (prefix match).
 
         Args:
-            partial (list[str]): Reversed partial path, e.g., ["2d", "point"]
-                    for ~2d.point (leaf first)
+            partial (list[str]): Partial path in natural order, e.g., ["point", "2d"]
+                    for ~point.2d or just ["2d"] for leaf-only reference
 
         Returns:
-            bool: True if shape's path ends with the partial path
+            bool: True if shape's path ends with the partial path (prefix match on reversed path)
         """
         if len(partial) > len(self.path):
             return False
-        # Match from the end of our path (which is already in definition order)
-        # partial is in reference order (reversed), so we need to reverse it
-        partial_def_order = list(reversed(partial))
-        return self.path[-len(partial):] == partial_def_order
+        # For prefix matching: partial matches if it equals the last N elements of our path
+        return self.path[-len(partial):] == partial
 
     @property
     def named_fields(self):
@@ -421,8 +419,8 @@ class Module(_entity.Entity):
         """Find tag by partial path, optionally in a specific namespace.
 
         Args:
-            partial_path (list[str]): Reversed partial path (leaf first),
-                         e.g., ["timeout", "error"] for #timeout.error
+            partial_path (list[str]): Partial path in natural order,
+                         e.g., ["error", "timeout"] for #error.timeout
             namespace (str | None): Optional namespace to search in (e.g., "std" for /std)
 
         Returns:
@@ -439,7 +437,7 @@ class Module(_entity.Entity):
             # Explicit namespace - look only there
             ns_module = self.namespaces.get(namespace)
             if ns_module is None:
-                partial_str = ".".join(reversed(partial_path))
+                partial_str = ".".join(partial_path)
                 raise ValueError(f"Namespace not found: /{namespace} for tag #{partial_str}")
             return ns_module.lookup_tag(partial_path)
 
@@ -454,7 +452,7 @@ class Module(_entity.Entity):
         elif len(matches) > 1:
             # Ambiguous in local module
             match_names = [t.full_name for t in matches]
-            partial_str = ".".join(reversed(partial_path))
+            partial_str = ".".join(partial_path)
             raise ValueError(
                 f"Ambiguous tag reference #{partial_str} matches: "
                 f"{', '.join('#' + n for n in match_names)}"
@@ -474,13 +472,13 @@ class Module(_entity.Entity):
                 continue
 
         if len(found_results) == 0:
-            partial_str = ".".join(reversed(partial_path))
+            partial_str = ".".join(partial_path)
             raise ValueError(f"Tag not found: #{partial_str}")
         elif len(found_results) == 1:
             return found_results[0]
         else:
             # Found in multiple namespaces - ambiguous
-            partial_str = ".".join(reversed(partial_path))
+            partial_str = ".".join(partial_path)
             ns_list = ", ".join(f"/{ns}" for ns in found_namespaces)
             raise ValueError(
                 f"Ambiguous tag reference #{partial_str} found in multiple namespaces: {ns_list}"
@@ -687,8 +685,8 @@ class Module(_entity.Entity):
         """Find shape by partial path, optionally in a specific namespace.
 
         Args:
-            partial_path (list[str]): Reversed partial path (leaf first),
-                         e.g., ["2d", "point"] for ~2d.point
+            partial_path (list[str]): Partial path in natural order,
+                         e.g., ["point", "2d"] for ~point.2d
             namespace (str | None): Optional namespace to search in (e.g., "std" for /std)
 
         Returns:
@@ -705,7 +703,7 @@ class Module(_entity.Entity):
             # Explicit namespace - look only there
             ns_module = self.namespaces.get(namespace)
             if ns_module is None:
-                partial_str = ".".join(reversed(partial_path))
+                partial_str = ".".join(partial_path)
                 raise ValueError(f"Namespace not found: /{namespace} for shape ~{partial_str}")
             return ns_module.lookup_shape(partial_path)
 
@@ -720,7 +718,7 @@ class Module(_entity.Entity):
         elif len(matches) > 1:
             # Ambiguous in local module
             match_names = [s.full_name for s in matches]
-            partial_str = ".".join(reversed(partial_path))
+            partial_str = ".".join(partial_path)
             raise ValueError(
                 f"Ambiguous shape reference ~{partial_str} matches: "
                 f"{', '.join('~' + n for n in match_names)}"
@@ -740,13 +738,13 @@ class Module(_entity.Entity):
                 continue
 
         if len(found_results) == 0:
-            partial_str = ".".join(reversed(partial_path))
+            partial_str = ".".join(partial_path)
             raise ValueError(f"Shape not found: ~{partial_str}")
         elif len(found_results) == 1:
             return found_results[0]
         else:
             # Found in multiple namespaces - ambiguous
-            partial_str = ".".join(reversed(partial_path))
+            partial_str = ".".join(partial_path)
             ns_list = ", ".join(f"/{ns}" for ns in found_namespaces)
             raise ValueError(
                 f"Ambiguous shape reference ~{partial_str} found in multiple namespaces: {ns_list}"
@@ -757,8 +755,8 @@ class Module(_entity.Entity):
         """Find function by partial path, optionally in a specific namespace.
 
         Args:
-            partial_path (list[str]): Reversed partial path (leaf first),
-                         e.g., ["area", "geometry"] for |area.geometry
+            partial_path (list[str]): Partial path in natural order,
+                         e.g., ["geometry", "area"] for |geometry.area
             namespace (str | None): Optional namespace to search in (e.g., "std" for /std)
 
         Returns:
@@ -775,7 +773,7 @@ class Module(_entity.Entity):
             # Explicit namespace - look only there
             ns_module = self.namespaces.get(namespace)
             if ns_module is None:
-                partial_str = ".".join(reversed(partial_path))
+                partial_str = ".".join(partial_path)
                 raise ValueError(f"Namespace not found: /{namespace} for function |{partial_str}")
             return ns_module.lookup_function(partial_path)
 
@@ -791,7 +789,7 @@ class Module(_entity.Entity):
         elif len(matches) > 1:
             # Ambiguous in local module
             match_names = [funcs[0].full_name for funcs in matches]
-            partial_str = ".".join(reversed(partial_path))
+            partial_str = ".".join(partial_path)
             raise ValueError(
                 f"Ambiguous function reference |{partial_str} matches: "
                 f"{', '.join('|' + n for n in match_names)}"
@@ -811,13 +809,13 @@ class Module(_entity.Entity):
                 continue
 
         if len(found_results) == 0:
-            partial_str = ".".join(reversed(partial_path))
+            partial_str = ".".join(partial_path)
             raise ValueError(f"Function not found: |{partial_str}")
         elif len(found_results) == 1:
             return found_results[0]
         else:
             # Found in multiple namespaces - ambiguous
-            partial_str = ".".join(reversed(partial_path))
+            partial_str = ".".join(partial_path)
             ns_list = ", ".join(f"/{ns}" for ns in found_namespaces)
             raise ValueError(
                 f"Ambiguous function reference |{partial_str} found in multiple namespaces: {ns_list}"
@@ -1039,18 +1037,18 @@ class Module(_entity.Entity):
         Args:
             resolution_ns: Resolution namespace dictionary to populate
         """
-        # Add tags - generate all possible partial suffixes
+        # Add tags - generate all possible partial prefixes
         for tag_def in self.tags.values():
-            # Generate all partial paths (suffix matching)
-            # E.g., ["status", "error", "timeout"] generates reference paths (reversed):
+            # Generate all partial paths (prefix matching from end)
+            # E.g., ["status", "error", "timeout"] generates reference paths:
             #   ("timeout",)  - matches #timeout
-            #   ("timeout", "error")  - matches #timeout.error
-            #   ("timeout", "error", "status")  - matches #timeout.error.status
+            #   ("error", "timeout")  - matches #error.timeout
+            #   ("status", "error", "timeout")  - matches #status.error.timeout
             # Note: tag_def.path is in definition order ["status", "error", "timeout"]
-            # But references are reversed ["timeout", "error", "status"]
+            # References are also in natural order, matching from end
             for i in range(len(tag_def.path)):
-                # Take suffix of definition path, then reverse for reference notation
-                partial = tuple(reversed(tag_def.path[i:]))
+                # Take suffix of definition path (no reversing needed)
+                partial = tuple(tag_def.path[i:])
                 key = ('tag', partial, None)  # None = no explicit namespace
 
                 if key in resolution_ns:
@@ -1060,10 +1058,10 @@ class Module(_entity.Entity):
                 else:
                     resolution_ns[key] = tag_def
 
-        # Add shapes - generate all possible partial suffixes
+        # Add shapes - generate all possible partial prefixes
         for shape_def in self.shapes.values():
             for i in range(len(shape_def.path)):
-                partial = tuple(reversed(shape_def.path[i:]))
+                partial = tuple(shape_def.path[i:])
                 key = ('shape', partial, None)
 
                 if key in resolution_ns:
@@ -1072,12 +1070,12 @@ class Module(_entity.Entity):
                 else:
                     resolution_ns[key] = shape_def
 
-        # Add functions - generate all possible partial suffixes
+        # Add functions - generate all possible partial prefixes
         for _func_name, func_overloads in self.functions.items():
             if func_overloads:
                 func_def = func_overloads[0]  # Use first overload for path
                 for i in range(len(func_def.path)):
-                    partial = tuple(reversed(func_def.path[i:]))
+                    partial = tuple(func_def.path[i:])
                     key = ('function', partial, None)
 
                     if key in resolution_ns:
@@ -1101,7 +1099,7 @@ class Module(_entity.Entity):
         for tag_def in ns_module.tags.values():
             # Add with explicit namespace qualifier
             for i in range(len(tag_def.path)):
-                partial = tuple(reversed(tag_def.path[i:]))
+                partial = tuple(tag_def.path[i:])
 
                 # Add explicit namespace reference: #tag/namespace
                 key_explicit = ('tag', partial, ns_name)
@@ -1128,7 +1126,7 @@ class Module(_entity.Entity):
         # Add shapes from namespace
         for shape_def in ns_module.shapes.values():
             for i in range(len(shape_def.path)):
-                partial = tuple(reversed(shape_def.path[i:]))
+                partial = tuple(shape_def.path[i:])
 
                 key_explicit = ('shape', partial, ns_name)
                 if key_explicit not in resolution_ns:
@@ -1149,7 +1147,7 @@ class Module(_entity.Entity):
             if func_overloads:
                 func_def = func_overloads[0]
                 for i in range(len(func_def.path)):
-                    partial = tuple(reversed(func_def.path[i:]))
+                    partial = tuple(func_def.path[i:])
 
                     key_explicit = ('function', partial, ns_name)
                     if key_explicit not in resolution_ns:

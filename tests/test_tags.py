@@ -20,13 +20,13 @@ def test_simple_tag_definition():
     # Module evaluation returns a Module entity
     assert isinstance(result, comp.Module)
     
-    # Lookup with reversed path (leaf-first): ["active"] matches end of ["status", "active"]
+    # Lookup with leaf-only path: ["active"] matches end of ["status", "active"]
     assert result.lookup_tag(["active"]).value.to_python() == 1
     
-    # Lookup with full reversed path: ["active", "status"]
-    assert result.lookup_tag(["active", "status"])
+    # Lookup with full path in natural order: ["status", "active"]
+    assert result.lookup_tag(["status", "active"])
     
-    # NOTE: Cannot lookup ["status"] - no tag defined with path ending in "status"
+    # NOTE: Cannot lookup ["status"] alone - it doesn't uniquely identify a leaf
     # The defined tag is ["status", "active"] which ends with "active", not "status"
 
 
@@ -44,7 +44,7 @@ def test_tag_with_children():
     assert isinstance(result, comp.Module)
     assert result.lookup_tag(["active"]).value.to_python() == 1
     assert result.lookup_tag(["inactive"]).value.to_python() == 0
-    assert result.lookup_tag(["active", "status"])
+    assert result.lookup_tag(["status", "active"])
     assert result.lookup_tag(["status"]).value is None
 
 

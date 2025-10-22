@@ -216,17 +216,17 @@ class ShapeRef(_base.ShapeNode):
     """Shape reference: ~path.to.shape or ~path.to.shape/namespace
 
     References a defined shape for use in field types, morphing, etc.
-    References use reversed paths (leaf first) like tags, e.g., ~2d.point.geometry
+    References use natural path order, e.g., ~geometry.point.2d
 
     Examples:
         ~point          # Reference to shape (single element path)
-        ~2d.point       # Reference with reversed path (leaf first)
+        ~geometry.point.2d  # Reference with natural path order
         ~user           # Reference in field type
         ~point/geometry # Reference from geometry namespace
         data ~point     # Morph operation
 
     Args:
-        path: Reversed partial path (leaf first), e.g., ["2d", "point"]
+        path: Partial path in natural order, e.g., ["geometry", "point", "2d"]
         namespace: Optional namespace for cross-module references
 
     Attributes:
@@ -283,14 +283,14 @@ class ShapeRef(_base.ShapeNode):
 
     def unparse(self) -> str:
         """Convert back to source code."""
-        path_str = ".".join(reversed(self.path))
+        path_str = ".".join(self.path)
         ref = f"~{path_str}"
         if self.namespace:
             ref += "/" + self.namespace
         return ref
 
     def __repr__(self):
-        path_str = ".".join(reversed(self.path))
+        path_str = ".".join(self.path)
         if self.namespace:
             return f"ShapeRef(~{path_str}/{self.namespace})"
         return f"ShapeRef(~{path_str})"
@@ -308,7 +308,7 @@ class TagShape(_base.ShapeNode):
         #success | #error      # Result union
 
     Args:
-        path: Reversed partial path (leaf first), e.g., ["none"] or ["true"]
+        path: Partial path in natural order, e.g., ["none"] or ["bool", "true"]
         namespace: Optional namespace for cross-module references
 
     Attributes:
@@ -359,14 +359,14 @@ class TagShape(_base.ShapeNode):
 
     def unparse(self) -> str:
         """Convert back to source code."""
-        path_str = ".".join(reversed(self.path))
+        path_str = ".".join(self.path)
         ref = f"#{path_str}"
         if self.namespace:
             ref += "/" + self.namespace
         return ref
 
     def __repr__(self):
-        path_str = ".".join(reversed(self.path))
+        path_str = ".".join(self.path)
         if self.namespace:
             return f"TagShape(#{path_str}/{self.namespace})"
         return f"TagShape(#{path_str})"

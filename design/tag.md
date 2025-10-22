@@ -4,11 +4,11 @@
 
 ## Overview
 
-Tags are build-time tokens that serve as values, types, and dispatch mechanisms. They form hierarchical taxonomies that enable polymorphic behavior, provide enumerated constants, and create extensible categorization systems. Tags are always prefixed with `#` when referenced and use reversed hierarchy notation where the most specific part comes first.
+Tags are build-time tokens that serve as values, types, and dispatch mechanisms. They form hierarchical taxonomies that enable polymorphic behavior, provide enumerated constants, and create extensible categorization systems. Tags are always prefixed with `#` when referenced and use natural hierarchy notation matching their definition order.
 
 The tag system bridges multiple roles - they work as simple enumerations, as type markers that influence shape matching, and as dispatch keys for polymorphic functions. Tags are declarative entities that are fully resolved and validated at module build time, ensuring type safety and enabling build-time optimizations. This versatility makes them fundamental to Comp's approach to categorization and polymorphism. For information about how tags integrate with shape validation, see [Shapes, Units, and Type System](shape.md).
 
-The tag system embodies several key design principles that guide its use throughout Comp. Tags provide hierarchical organization without class inheritance complexity. They enable polymorphic dispatch through structural matching rather than virtual methods. The reversed hierarchy notation puts the most important information first. Automatic value generation reduces boilerplate while maintaining flexibility. Cross-module extension allows domain specialization without fragmenting the ecosystem.
+The tag system embodies several key design principles that guide its use throughout Comp. Tags provide hierarchical organization without class inheritance complexity. They enable polymorphic dispatch through structural matching rather than virtual methods. Minimal unambiguous references allow concise code while maintaining clarity. Automatic value generation reduces boilerplate while maintaining flexibility. Cross-module extension allows domain specialization without fragmenting the ecosystem.
 
 Tags bridge the gap between simple enumerations and complex type hierarchies. They provide just enough structure for real-world categorization needs while remaining simple enough to reason about. The consistent `#` prefix makes them visually distinct in code, and their multiple roles as values, types, and dispatch keys create a unified approach to categorization throughout the language. For details about the primitive types that tags can represent, see [Core Types](type.md).
 
@@ -61,39 +61,44 @@ All definition styles are equivalent and produce the same hierarchy. Choose the 
 
 ## Tag Reference and Notation
 
-Tags are referenced using reversed hierarchy notation with `.` as the separator for hierarchy levels. The most specific part comes first, with parent components added only when disambiguation is needed. Partial names automatically match if unambiguous - for example, `#cat` will match `#animal.pet.cat` if there's only one tag named "cat" in the hierarchy. When tags are imported from other modules, the full reference includes the module namespace using `/` as the separator.
+Tags are referenced using natural hierarchy notation with `.` as the separator for hierarchy levels. References use the same order as definitions - parent to child. Partial names automatically match if unambiguous - for example, `#cat` will match `#animal.pet.cat` if there's only one tag named "cat" in the hierarchy. When tags are imported from other modules, the full reference includes the module namespace using `/` as the separator.
 
 ```comp
-; Local hierarchy references
-@status = #timeout.error.status
-@parent = #error.status         ; Parent of timeout
+; Local hierarchy references using natural order
+@status = #status.error.timeout
+@parent = #status.error         ; Parent of timeout
 @root = #status                 ; Root with value "unknown"
 
-; Short forms when unique - partial name matching
+; Short forms when unique - minimal unambiguous references
 state = #active                    ; Matches #status.active if unambiguous
 error = #timeout                   ; Matches #error.timeout if unique
 pet = #cat                         ; Matches #animal.pet.cat if only one 'cat'
 
-; Disambiguation with parent context when needed
-@color = #red.color                ; If #red and #red.color both exist
-@fruit = #red.fruit                ; Specify which 'red' is meant
+; Disambiguation with full path when needed
+@color = #color.red                ; If #red exists in multiple hierarchies
+@fruit = #fruit.red                ; Specify which 'red' is meant
 
 ; Cross-module references with namespace
-@imported = #active.status/other   ; Tag from "other" module
-@std-tag = #error/std              ; Tag from standard library
+@imported = #other/status.active   ; Tag from "other" module
+@std-tag = #std/error              ; Tag from standard library
 
-; Full reference format: #tag.hierarchy/module
-#specific.parent.root/namespace
+; Full reference format: #module/hierarchy.path
+#namespace/root.parent.specific
 ```
 
-The reference format follows the pattern `#tag.hierarchy/module` where:
-- `tag` is the most specific tag name (leaf)
-- `hierarchy` (optional) provides parent context for disambiguation
-- `module` (optional) specifies the source module namespace
-- `.` separates hierarchy levels (child.parent.grandparent)
-- `/` separates tag hierarchy from module namespace
+The reference format follows the pattern `#module/hierarchy.path` where:
+- `module` (optional) specifies the source module namespace  
+- `hierarchy.path` provides the tag path from root to leaf
+- `/` separates module namespace from tag hierarchy
+- `.` separates hierarchy levels (root.parent.child)
 
-Partial name matching uses suffix matching from the tag's full path. The reference `#red` matches any tag whose full path ends with "red" (like `color.red`), and `#red.color` matches any tag ending with `color.red`. Matches must be unambiguous - if multiple tags match the partial name, an error is raised.
+Partial name matching uses suffix matching from the tag's full path. The reference `#red` matches any tag whose full path ends with "red" (like `color.red`), and `#color.red` matches the full path. Matches must be unambiguous - if multiple tags match the partial name, a build-time error is raised.
+
+When referencing tags:
+- Minimal form: `#leaf` - matches if unambiguous
+- Full path: `#root.parent.leaf` - always unambiguous  
+- With namespace: `#module/leaf` or `#module/root.parent.leaf`
+- Local definitions take priority over imported namespaces
 
 ## Automatic Value Generation
 

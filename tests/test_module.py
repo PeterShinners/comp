@@ -11,7 +11,7 @@ def test_module_preparation():
     # Create AST with definitions and references
     ast_module = comp.ast.Module([
         comp.ast.TagDef(["status", "ok"], value=comp.ast.Number(200)),
-        comp.ast.TagDef(["test"], value=comp.ast.TagValueRef(["ok", "status"])),
+        comp.ast.TagDef(["test"], value=comp.ast.TagValueRef(["status", "ok"])),
     ])
 
     engine = comp.Engine()
@@ -21,7 +21,7 @@ def test_module_preparation():
     assert isinstance(result, comp.Module)
 
     # Both tags should be defined
-    ok_tag = result.lookup_tag(["ok", "status"])
+    ok_tag = result.lookup_tag(["status", "ok"])
     test_tag = result.lookup_tag(["test"])
     
     assert ok_tag.value.data == 200

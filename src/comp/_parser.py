@@ -315,8 +315,8 @@ def _convert_tree(tree):
             for kid in kids:
                 if isinstance(kid, lark.Token) and kid.type == 'TOKEN':
                     path.append(kid.value)
-            # Return as ShapeRef with reversed path (leaf-first)
-            return comp.ast.ShapeRef(list(reversed(path)))
+            # Return as ShapeRef with natural path order
+            return comp.ast.ShapeRef(path)
 
         # === STRUCTURES ===
         case 'structure':

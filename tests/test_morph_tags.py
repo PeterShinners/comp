@@ -20,7 +20,7 @@ def test_morph_single_tag_field():
     """)
     
     test_shape = module.lookup_shape(["test"])
-    active_tag = _make_tag_value(module, ["active", "status"])
+    active_tag = _make_tag_value(module, ["status", "active"])
     data = comp.Value({comp.Unnamed(): active_tag})
     
     result = comp.morph(data, test_shape)
@@ -41,8 +41,8 @@ def test_morph_multiple_tag_fields():
     """)
     
     test_shape = module.lookup_shape(["sort-args"])
-    desc_tag = _make_tag_value(module, ["desc", "sort-order"])
-    stable_tag = _make_tag_value(module, ["stable", "stability"])
+    desc_tag = _make_tag_value(module, ["sort-order", "desc"])
+    stable_tag = _make_tag_value(module, ["stability", "stable"])
     
     data = comp.Value({
         comp.Unnamed(): desc_tag,
@@ -66,7 +66,7 @@ def test_morph_tag_field_with_named_fields():
     """)
     
     test_shape = module.lookup_shape(["file-op"])
-    write_tag = _make_tag_value(module, ["write", "mode"])
+    write_tag = _make_tag_value(module, ["mode", "write"])
     data = comp.Value({
         comp.Value("path"): comp.Value("/tmp/test.txt"),
         comp.Unnamed(): write_tag
@@ -87,7 +87,7 @@ def test_morph_tag_field_with_positional_fields():
     """)
     
     test_shape = module.lookup_shape(["move"])
-    forward_tag = _make_tag_value(module, ["forward", "direction"])
+    forward_tag = _make_tag_value(module, ["direction", "forward"])
     data = comp.Value({
         comp.Unnamed(): comp.Value(Decimal("10")),
         comp.Unnamed(): forward_tag
@@ -107,7 +107,7 @@ def test_morph_tag_hierarchy_matching():
     """)
     
     test_shape = module.lookup_shape(["error-handler"])
-    timeout_tag = _make_tag_value(module, ["timeout", "error"])
+    timeout_tag = _make_tag_value(module, ["error", "timeout"])
     data = comp.Value({comp.Unnamed(): timeout_tag})
     
     result = comp.morph(data, test_shape)
@@ -124,7 +124,7 @@ def test_morph_tag_field_ambiguity_error():
     """)
     
     test_shape = module.lookup_shape(["ambiguous"])
-    red_tag = _make_tag_value(module, ["red", "color"])
+    red_tag = _make_tag_value(module, ["color", "red"])
     data = comp.Value({comp.Unnamed(): red_tag})
     
     result = comp.morph(data, test_shape)
@@ -142,7 +142,7 @@ def test_morph_tag_field_wrong_hierarchy():
     """)
     
     test_shape = module.lookup_shape(["test"])
-    red_tag = _make_tag_value(module, ["red", "color"])
+    red_tag = _make_tag_value(module, ["color", "red"])
     data = comp.Value({comp.Unnamed(): red_tag})
     
     result = comp.morph(data, test_shape)

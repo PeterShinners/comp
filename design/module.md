@@ -217,13 +217,13 @@ graphics/accel.windows.comd  ; Windows acceleration
 
 ## Namespace Management and Aliasing
 
-After import, modules provide their definitions through their namespace. The reversed notation puts the most specific part first, with namespace qualification added when needed for disambiguation.
+After import, modules provide their definitions through their namespace, with namespace qualification added when needed for disambiguation.
 
 ```comp
-; Reversed notation - specific first
-[text |length/str]          ; Function from str module
-data ~matrix/math           ; Shape from math module
-#initialized.state/store    ; Tag from store module
+; Natural notation with namespace
+[text |str/length]          ; Function from str module
+data ~math/matrix           ; Shape from math module
+#store/state.initialized    ; Tag from store module
 
 ; Short forms when unique
 [text |length]              ; If only one 'length' function
@@ -231,12 +231,12 @@ data ~matrix                ; If only one 'matrix' shape
 state = #initialized        ; If tag is unique
 
 ; Create local aliases for convenience
-!alias |sqrt = |sqrt/math
-!alias ~vec = ~vector-3d/math
-!alias #error = #error.net
+!alias |sqrt = |math/sqrt
+!alias ~vec = |math/vector-3d
+!alias #error = #net.error
 
 ; Now use short forms
-{[4 |sqrt] [9 |cbrt/math]}  ; Mix aliased and qualified
+{[4 |sqrt] [9 |math/cbrt]}  ; Mix aliased and qualified
 ```
 
 ## Module Caching and Optimization

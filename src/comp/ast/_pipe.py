@@ -128,11 +128,10 @@ class PipeFunc(PipelineOp):
 
             # Parse the function path (support dotted names)
             func_path = self.func_name.split('.')
-            func_path_reversed = list(reversed(func_path))
 
             # Look up function in module (with optional namespace)
             try:
-                func_defs = module.lookup_function(func_path_reversed, self.namespace)
+                func_defs = module.lookup_function(func_path, self.namespace)
             except ValueError as e:
                 # Not found or ambiguous
                 return comp.fail(str(e))
