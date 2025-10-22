@@ -15,15 +15,12 @@
 
 ; !doc "Generate range of numbers from start to end (exclusive) with optional step"
 !func |range ~any arg ~{start~num=0 end~num step~num=1} = {
-    ..[|if ($arg.step <= 0) :{#fail "range step must be positive"} :{
-        $var.current = $arg.start
-        
-        ..[|loop :{
-            [|if ($var.current >= $arg.end) :{#break} :{
-                $var.result = $var.current
-                $var.current = $var.current + $arg.step
-                $var.result
-            }]
+    $var.check = [|if ($arg.step == 0) :{#fail "range step cannot be zero"}]
+    $var.current = $arg.start
+    ..[|loop :{
+        [|if ($var.current >= $arg.end) :{#break} :{
+            $var.current
+            $var.current = $var.current + $arg.step
         }]
     }]
 }

@@ -68,8 +68,11 @@ class ShapeField(_entity.Entity):
         return f"ShapeField({name_part}{shape_part}){array_part}"
 
 
-class TagDefinition:
+class TagDefinition(_entity.Entity):
     """A single tag definition in the module.
+
+    Inherits from Entity so it can be returned from evaluate() and passed
+    through scopes, similar to ShapeDefinition.
 
     Attributes:
         path (list[str]): Full path as list, e.g., ["status", "error", "timeout"]
@@ -107,6 +110,106 @@ class TagDefinition:
             list[str] | None: Parent path or None
         """
         return self.path[:-1] if len(self.path) > 1 else None
+
+    @property
+    def parent(self):
+        """Get the parent TagDefinition, or None for root tags.
+        
+        Returns:
+            TagDefinition | None: Parent tag definition or None
+        """
+        parent_path = self.parent_path
+        if parent_path is None:
+            return None
+        return self.module.get_tag_by_full_path(parent_path)
+
+    @property
+    def children(self):
+        """Get all direct children of this tag.
+        
+        Returns:
+            list[TagDefinition]: List of child tag definitions
+        """
+        children = []
+        prefix = self.full_name + "."
+        for tag_name, tag_def in self.module.tags.items():
+            # Check if this is a direct child (one level deeper)
+            if tag_name.startswith(prefix):
+                # Count dots to ensure it's a direct child, not a grandchild
+                remainder = tag_name[len(prefix):]
+                if "." not in remainder:
+                    children.append(tag_def)
+        return children
+
+    @property
+    def descendants(self):
+        """Get all descendants (children, grandchildren, etc.) of this tag.
+        
+        Returns:
+            list[TagDefinition]: List of all descendant tag definitions
+        """
+        descendants = []
+        prefix = self.full_name + "."
+        for tag_name, tag_def in self.module.tags.items():
+            if tag_name.startswith(prefix):
+                descendants.append(tag_def)
+        return descendants
+
+    @property
+    def ancestors(self):
+        """Get all ancestors (parent, grandparent, etc.) of this tag.
+        
+        Returns:
+            list[TagDefinition]: List of ancestor tag definitions, from parent to root
+        """
+        ancestors = []
+        current = self.parent
+        while current is not None:
+            ancestors.append(current)
+            current = current.parent
+        return ancestors
+
+    @property
+    def is_root(self):
+        """Check if this is a root tag (no parent).
+        
+        Returns:
+            bool: True if this tag has no parent
+        """
+        return len(self.path) == 1
+
+    @property
+    def depth(self):
+        """Get the depth of this tag in the hierarchy (root = 1).
+        
+        Returns:
+            int: Depth level, starting at 1 for root tags
+        """
+        return len(self.path)
+
+    def is_ancestor_of(self, other):
+        """Check if this tag is an ancestor of another tag.
+        
+        Args:
+            other (TagDefinition): Another tag definition
+            
+        Returns:
+            bool: True if this tag is an ancestor of other
+        """
+        if len(self.path) >= len(other.path):
+            return False
+        return other.path[:len(self.path)] == self.path
+
+    def is_descendant_of(self, other):
+        """Check if this tag is a descendant of another tag.
+        
+        Args:
+            other (TagDefinition): Another tag definition
+            
+        Returns:
+            bool: True if this tag is a descendant of other
+        """
+        return other.is_ancestor_of(self)
 
     def matches_partial(self, partial):
         """Check if this tag matches a partial path (suffix match).
@@ -402,6 +505,57 @@ class Module(_entity.Entity):
             list[TagDefinition]: All tag definitions
         """
         return list(self.tags.values())
+
+    def find_tags_by_value(self, value, parent_tag=None):
+        """Find all tags whose value matches the given value.
+        
+        This searches for tags that have the exact same value. Useful for
+        implementing value-to-tag morphing.
+        
+        Args:
+            value: The value to search for (typically a comp.Value)
+            parent_tag (TagDefinition | None): If provided, only search within
+                this tag's descendants
+        
+        Returns:
+            list[TagDefinition]: List of tags with matching values
+        """
+        import comp
+        
+        matches = []
+        search_tags = self.tags.values()
+        
+        # If parent_tag is specified, only search its descendants
+        if parent_tag is not None:
+            search_tags = parent_tag.descendants
+        
+        for tag_def in search_tags:
+            if tag_def.value is None:
+                continue
+            
+            # Compare values - handle both Value objects and raw values
+            tag_val = tag_def.value
+            search_val = value
+            
+            # Normalize to comp.Value if needed
+            if not isinstance(tag_val, comp.Value):
+                tag_val = comp.Value(tag_val)
+            if not isinstance(search_val, comp.Value):
+                search_val = comp.Value(search_val)
+            
+            # Simple equality check - compare data
+            # This could be enhanced with deep equality for structs
+            if tag_val.is_number and search_val.is_number:
+                if tag_val.data == search_val.data:
+                    matches.append(tag_def)
+            elif tag_val.is_string and search_val.is_string:
+                if tag_val.data == search_val.data:
+                    matches.append(tag_def)
+            elif tag_val.is_tag and search_val.is_tag:
+                if tag_val.data.tag_def == search_val.data.tag_def:
+                    matches.append(tag_def)
+        
+        return matches
 
     def define_shape(self, path, fields,
                      is_union=False, union_members=None):

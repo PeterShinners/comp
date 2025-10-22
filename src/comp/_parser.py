@@ -7,7 +7,7 @@ This parser is designed for the engine's AST nodes which require:
 
 from __future__ import annotations
 
-__all__ = ["parse_module", "parse_expr"]
+__all__ = ["parse_module", "parse_expr", "parse_shape"]
 
 import decimal
 import pathlib
@@ -16,9 +16,8 @@ import lark
 
 import comp
 
-# Global parser instances
-_module_parser: lark.Lark | None = None
-_expr_parser: lark.Lark | None = None
+# Global parser instances (cached by start rule)
+_parsers: dict[str, lark.Lark] = {}
 
 # Current filename being parsed (for position tracking)
 _current_filename: str | None = None
@@ -40,7 +39,7 @@ def parse_module(text, filename=None):
     global _current_filename
     _current_filename = filename
     try:
-        parser = _get_module_parser()
+        parser = _get_parser("module")
         tree = parser.parse(text)
         ops = _convert_children(tree.children)
         return comp.ast.Module(ops)
@@ -70,7 +69,7 @@ def parse_expr(text, filename=None):
     global _current_filename
     _current_filename = filename
     try:
-        parser = _get_expr_parser()
+        parser = _get_parser("expression_start")
         tree = parser.parse(text)
         # expression_start has one child: the actual expression
         if tree.children:
@@ -85,6 +84,70 @@ def parse_expr(text, filename=None):
         raise comp.ParseError(error_msg) from e
     finally:
         _current_filename = None
+
+
+def parse_shape(text, module=None, filename=None):
+    """Parse a shape expression and return a ShapeDefinition.
+
+    This is useful for defining shapes programmatically (e.g., in builtin functions)
+    without needing to manually construct ShapeField objects.
+
+    Args:
+        text: Shape expression, e.g., "~{count~num=2}" or "~num"
+        module: Module to use for shape/tag lookups (default: builtin module)
+        filename: Optional source filename for error messages
+
+    Returns:
+        ShapeDefinition: The evaluated shape definition
+
+    Raises:
+        comp.ParseError: If the text contains invalid syntax
+        ValueError: If the shape cannot be evaluated
+
+    Examples:
+        >>> parse_shape("~num")  # Returns num shape from builtin
+        >>> parse_shape("~{x~num y~num}")  # Returns inline shape with two fields
+        >>> parse_shape("~{count~num=0}")  # Field with default value
+    """
+    global _current_filename
+    _current_filename = filename
+    try:
+        # Parse using shape_type grammar rule
+        parser = _get_parser("shape_type")
+        tree = parser.parse(text)
+
+        # Convert the parse tree to AST
+        if tree.children:
+            shape_ast = _convert_tree(tree.children[0])
+        else:
+            raise ValueError(f"Empty shape expression: {text!r}")
+    except lark.exceptions.LarkError as e:
+        error_msg = str(e)
+        if "DUBQUOTE" in error_msg and "$END" in error_msg:
+            error_msg = "Unterminated string literal"
+        raise comp.ParseError(error_msg) from e
+    finally:
+        _current_filename = None
+
+    # Get or create module for evaluation context
+    if module is None:
+        module = comp.builtin.get_builtin_module()
+
+    # Create engine and evaluate the shape AST
+    engine = comp.Engine()
+    try:
+        result = engine.run(shape_ast, module=module)
+    except Exception as e:
+        raise ValueError(f"Failed to evaluate shape {text!r}: {e}") from e
+
+    # The result should be a ShapeDefinition
+    if not isinstance(result, comp.ShapeDefinition):
+        raise ValueError(
+            f"Shape expression {text!r} did not evaluate to ShapeDefinition, "
+            f"got {type(result).__name__}"
+        )
+
+    return result
 
 
 def _convert_tree(tree):
@@ -436,14 +499,49 @@ def _convert_tree(tree):
 
         case 'shape_union':
             # shape_type_atom (PIPE shape_type_atom)+
+            # Need to convert tag_reference to TagShape
             members = []
             for kid in kids:
                 if isinstance(kid, lark.Tree):
-                    members.append(_convert_tree(kid))
+                    # Check if this is a tag_reference that needs converting
+                    if kid.data == 'tag_reference':
+                        path, namespace = _extract_reference_path(kid.children)
+                        node = comp.ast.TagShape(path, namespace)
+                        members.append(_apply_position(node, kid))
+                    else:
+                        members.append(_convert_tree(kid))
+            return comp.ast.ShapeUnion(members)
+
+        case 'morph_union':
+            # morph_type_base (PIPE morph_type_base)+
+            # Same as shape_union but in morph context
+            # Need to convert tag_reference to TagShape
+            members = []
+            for kid in kids:
+                if isinstance(kid, lark.Tree):
+                    # Check if this is a tag_reference that needs converting
+                    if kid.data == 'tag_reference':
+                        path, namespace = _extract_reference_path(kid.children)
+                        node = comp.ast.TagShape(path, namespace)
+                        members.append(_apply_position(node, kid))
+                    else:
+                        members.append(_convert_tree(kid))
             return comp.ast.ShapeUnion(members)
 
         # Pass-through for shape type wrappers
-        case 'shape_type' | 'shape_type_atom' | 'shape_body' | 'morph_type':
+        case 'shape_type_atom' | 'morph_type_base':
+            # Special handling: if child is a tag_reference, convert to TagShape
+            if len(kids) == 1 and isinstance(kids[0], lark.Tree) and kids[0].data == 'tag_reference':
+                # Extract path and namespace from tag_reference
+                path, namespace = _extract_reference_path(kids[0].children)
+                node = comp.ast.TagShape(path, namespace)
+                return _apply_position(node, kids[0])
+            # Otherwise pass through
+            if len(kids) == 1:
+                return _convert_tree(kids[0])
+            return _convert_children(kids)
+
+        case 'shape_type' | 'shape_body' | 'morph_type':
             if len(kids) == 1:
                 return _convert_tree(kids[0])
             # Multiple children means union or complex structure
@@ -904,31 +1002,22 @@ def _convert_import_statement(kids):
     return comp.ast.ImportDef(namespace, source, path)
 
 
-def _get_module_parser() -> lark.Lark:
-    """Get the singleton Lark parser instance for module parsing."""
-    global _module_parser
-    if _module_parser is None:
+def _get_parser(start: str) -> lark.Lark:
+    """Get a cached Lark parser instance for the given start rule.
+
+    Args:
+        start: Grammar start rule (e.g., "module", "expression_start", "shape_type")
+
+    Returns:
+        Cached Lark parser instance
+    """
+    if start not in _parsers:
         grammar_path = pathlib.Path(__file__).parent / "comp.lark"
-        _module_parser = lark.Lark(
+        _parsers[start] = lark.Lark(
             grammar_path.read_text(encoding="utf-8"),
             parser="lalr",
-            start="module",
+            start=start,
             propagate_positions=True,
             keep_all_tokens=True,
         )
-    return _module_parser
-
-
-def _get_expr_parser() -> lark.Lark:
-    """Get the singleton Lark parser instance for expression parsing."""
-    global _expr_parser
-    if _expr_parser is None:
-        grammar_path = pathlib.Path(__file__).parent / "comp.lark"
-        _expr_parser = lark.Lark(
-            grammar_path.read_text(encoding="utf-8"),
-            parser="lalr",
-            start="expression_start",
-            propagate_positions=True,
-            keep_all_tokens=True,
-        )
-    return _expr_parser
+    return _parsers[start]

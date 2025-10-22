@@ -15,10 +15,10 @@ FAIL_DIV_ZERO = comp.TagRef(None)
 
 def builtin_double(frame, input_value, args):
     """Double a number: [5 |double] → 10"""
+    # Input shape ~num ensures input_value is a number
     input_value = input_value.as_scalar()
-    if not input_value.is_number:
-        return comp.fail(f"|double expects number, got {input_value.data}")
     return comp.Value(input_value.data * 2)
+    yield  # Make it a generator (unreachable)
 
 
 def builtin_print(frame, input_value, args):
@@ -27,53 +27,38 @@ def builtin_print(frame, input_value, args):
     print(input_value.as_scalar().unparse())
     # Pass through unchanged
     return input_value
+    yield  # Make it a generator (unreachable)
 
 
 def builtin_identity(frame, input_value, args):
     """Identity function - returns input unchanged: [5 |identity] → 5"""
     return input_value
+    yield  # Make it a generator (unreachable)
 
 
 def builtin_length(frame, input_value, args):
     """Get the number of fields in a struct: [{a=1 b=2 c=3} |length] → 3"""
-    if not input_value.is_struct:
-        return comp.fail(f"|length expects struct, got {type(input_value.data).__name__}")
-    
-    # Count the fields in the struct
+    # Input shape ~struct ensures input_value is a struct
     return comp.Value(len(input_value.struct))
+    yield  # Make it a generator (unreachable)
 
 
 def builtin_add(frame, input_value, args):
     """Add argument to input: [5 |add ^{n=3}] → 8"""
+    # Input shape ~num ensures input_value is a number
+    # Arg shape ~{n~num} ensures args has field 'n' with a number value
     input_value = input_value.as_scalar()
-    if not input_value.is_number:
-        return comp.fail(f"|add expects number input, got {input_value.data}")
-
-    if args is None or not args.is_struct:
-        return comp.fail("|add requires argument ^{n=...}")
-
-    n_key = comp.Value("n")
-    if n_key not in args.struct:
-        return comp.fail("|add requires argument ^{n=...}")
-
-    n_value = args.struct[n_key]
-    if not n_value.is_number:
-        return comp.fail(f"|add argument n must be number, got {n_value.data}")
-
+    n_value = args.struct[comp.Value("n")]
     return comp.Value(input_value.data + n_value.data)
+    yield  # Make it a generator (unreachable)
 
 
 def builtin_wrap(frame, input_value, args):
     """Wrap input in a struct with given key: [5 |wrap ^{key="x"}] → {x: 5}"""
-    if args is None or not args.is_struct:
-        return comp.fail("|wrap requires argument ^{key=...}")
-
-    key_key = comp.Value("key")
-    if key_key not in args.struct:
-        return comp.fail("|wrap requires argument ^{key=...}")
-
-    key_value = args.struct[key_key]
+    # Arg shape ~{key~str} ensures args has field 'key' with a string value
+    key_value = args.struct[comp.Value("key")]
     return comp.Value({key_value: input_value})
+    yield  # Make it a generator (unreachable)
 
 
 def builtin_if(frame, input_value, args):
@@ -101,6 +86,12 @@ def builtin_if(frame, input_value, args):
     cond_arg = argvalues[0]
     then_arg = argvalues[1]
     else_arg = argvalues[2] if len(argvalues) == 3 else None
+
+    # Check if else_arg is the default empty struct {} (meaning no else was provided)
+    if else_arg is not None:
+        if else_arg.is_struct and len(else_arg.data) == 0:
+            # Default value {} means no else argument was provided
+            else_arg = None
     
     # Evaluate condition
     if cond_arg.is_block:
@@ -211,21 +202,11 @@ def builtin_subscript(frame, input_value, args):
     
     Supports negative indexing: -1 is last element, -2 is second-to-last, etc.
     """
-    if not input_value.is_struct:
-        return comp.fail(f"|subscript expects struct, got {type(input_value.data).__name__}")
-    
-    if args is None or not args.is_struct:
-        return comp.fail("|subscript requires index argument")
-    
+    # Input shape ~any accepts any value (no restriction)
+    # Arg shape ~{index~num} ensures args has field 'index' with a number value
+
     # Get the index argument
-    index_key = comp.Value("index")
-    if index_key not in args.struct:
-        return comp.fail("|subscript requires index argument")
-    
-    index_value = args.struct[index_key].as_scalar()
-    if not index_value.is_number:
-        return comp.fail(f"|subscript index must be number, got {type(index_value.data).__name__}")
-    
+    index_value = args.struct[comp.Value("index")].as_scalar()
     index = int(index_value.data)
     
     # Convert struct to list to handle indexing
@@ -253,6 +234,7 @@ def builtin_subscript(frame, input_value, args):
         comp.Value('value'): field_value,
         comp.Value('field'): field_name,
     })
+    yield  # Make it a generator (unreachable)
 
 
 def get_builtin_module():
@@ -323,23 +305,36 @@ def get_builtin_module():
         default=None
     )])
 
-    # Register Python-backed functions
-    funcs = {
-        "double": builtin_double,
-        "print": builtin_print,
-        "identity": builtin_identity,
-        "length": builtin_length,
-        "add": builtin_add,
-        "wrap": builtin_wrap,
-        "if": builtin_if,
-        "loop": builtin_loop,
-        "subscript": builtin_subscript,
-    }
-    for name, func in funcs.items():
+    # Register Python-backed functions with their arg shapes
+    # Format: name: (func, arg_shape_text or None)
+    # Use parse_shape() to create shapes from text
+    funcs_with_shapes = [
+        ("double", builtin_double, "~num", None),
+        ("print", builtin_print, "~any", None),
+        ("identity", builtin_identity, "~any", None),
+        ("length", builtin_length, "~struct", None),
+        ("add", builtin_add, "~num", "~{n~num}"),
+        ("wrap", builtin_wrap, "~any", "~{key~str}"),
+        ("subscript", builtin_subscript, "~any", "~{index~num}"),
+        # if accepts blocks OR values for all arguments (checked at runtime)
+        ("if", builtin_if, "~any", "~{~any ~any ~any={}}"),  # cond, then, else (optional, default empty struct)
+        # loop requires a block
+        ("loop", builtin_loop, "~any", "~{op~any-block}"),
+    ]
+
+    for name, func, input_shape_text, arg_shape_text in funcs_with_shapes:
+        # Parse shape if provided
+        input_shape = None
+        if input_shape_text is not None:
+            input_shape = comp.parse_shape(input_shape_text, module=module)
+        arg_shape = None
+        if arg_shape_text is not None:
+            arg_shape = comp.parse_shape(arg_shape_text, module=module)
+
         # Create a FunctionDefinition with the Python function as body
         module.define_function(
             path=[name],
-            body=comp.PythonFunction(name, func),
+            body=comp.PythonFunction(name, func, input_shape=input_shape, arg_shape=arg_shape),
             is_pure=False,  # I/O functions aren't pure
             doc=getattr(func, "__doc__", None),
         )

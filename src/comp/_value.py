@@ -111,8 +111,13 @@ class Value(_entity.Entity):
 
     @property
     def is_block(self) -> bool:
-        """Check if this Value wraps a Block or RawBlock."""
-        return isinstance(self.data, (comp.Block, comp.RawBlock))
+        """Check if this Value wraps a Block (typed, ready to invoke)."""
+        return isinstance(self.data, comp.Block)
+
+    @property
+    def is_raw_block(self) -> bool:
+        """Check if this Value wraps a RawBlock (untyped, needs morphing)."""
+        return isinstance(self.data, comp.RawBlock)
 
     @property
     def is_fail(self):
@@ -135,13 +140,13 @@ class Value(_entity.Entity):
 
     def as_scalar(self):
         """Return value as a scalar value or itself.
-        
+
         Unwraps single-element structs (named or unnamed).
         """
         if self.is_struct and isinstance(self.data, dict):
             if len(self.data) == 1:
                 value = list(self.data.values())[0]
-                if value.is_number or value.is_string or value.is_tag or value.is_block:
+                if value.is_number or value.is_string or value.is_tag or value.is_block or value.is_raw_block:
                     return value
             # By returning self we are still a struct, which users who use this will ignore
             return self

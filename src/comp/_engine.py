@@ -280,149 +280,61 @@ class _Frame:
 
 def prepare_function_call(func_defs, input_value, args_value, ctx_scope):
     """Prepare a function call by selecting overload and building Compute.
-    
-    This function encapsulates the logic for:
-    1. Selecting the best matching overload via input morphing
-    2. Morphing arguments to the function's arg shape
-    3. Preparing ctx and mod scopes with weak morphing
-    4. Building a Compute object ready to execute
-    
+
+    This function delegates to:
+    1. select_overload() - Select best matching overload via input morphing
+    2. FunctionDefinition.invoke() - Prepare the function call
+
     Args:
         func_defs: List of FunctionDef objects (overloads)
         input_value: Input value to morph to function's input shape
         args_value: Arguments to pass (Value or None)
         ctx_scope: Context scope for the function call
-        
+
     Returns:
         Compute: Ready-to-execute compute object, or fail Value if error
     """
-    # Get function name for error messages (from first definition)
-    func_name = '.'.join(reversed(func_defs[0].path)) if func_defs else "unknown"
+    # Step 1: Select best overload
+    result = comp.select_overload(func_defs, input_value)
+    if isinstance(result, comp.Value):  # It's a fail Value
+        return result
 
-    # Step 1: Select best overload by trying to morph input to each shape
-    best_func = None
-    best_morph = None
-    best_score = None
-    
-    for func_def in func_defs:
-        if func_def.input_shape is None:
-            # No shape constraint - this is a wildcard match
-            # Score it lower than any shaped match (use negative score)
-            morph_result = comp.MorphResult(named_matches=0, tag_depth=0,
-                                           assignment_weight=0, positional_matches=-1,
-                                           value=input_value)
-        else:
-            # Try to morph input to this overload's shape
-            morph_result = comp.morph(input_value, func_def.input_shape)
-            if not morph_result.success:
-                continue  # This overload doesn't match
-        
-        # Compare scores - higher is better (lexicographic tuple comparison)
-        if best_score is None or morph_result > best_score:
-            best_func = func_def
-            best_morph = morph_result
-            best_score = morph_result
-    
-    # Check if we found any matching overload
-    if best_func is None:
-        return comp.fail(f"Function |{func_name}: no overload matches input shape")
-    
-    # Use the morphed input value from the best match
-    func_def = best_func
-    input_value = best_morph.value
+    best_func, morphed_input = result
 
-    # Step 2: Morph arguments to arg shape with strong morph (~*)
-    # This enables unnamed→named field pairing, tag matching, and strict validation
-    arg_scope = args_value if args_value is not None else comp.Value({})
-    if func_def.arg_shape is not None:
-        arg_morph_result = comp.strong_morph(arg_scope, func_def.arg_shape)
-        if not arg_morph_result.success:
-            return comp.fail(f"Function |{func_name}: arguments do not match argument shape (missing required fields or type mismatch)")
-        arg_scope = arg_morph_result.value
-
-    # Step 3: Get mod scope from the function's module
-    mod_shared = func_def.module.scope
-
-    # Step 4: Apply weak morph to ctx and mod (~?)
-    # Filter to only fields in arg shape (no defaults, no validation)
-    ctx_scope_morphed = ctx_scope
-    mod_scope = mod_shared
-    if func_def.arg_shape is not None:
-        # Weak morph for $ctx
-        ctx_morph_result = comp.weak_morph(ctx_scope, func_def.arg_shape)
-        if ctx_morph_result.success:
-            ctx_scope_morphed = ctx_morph_result.value
-
-        # Weak morph for $mod
-        mod_morph_result = comp.weak_morph(mod_shared, func_def.arg_shape)
-        if mod_morph_result.success:
-            mod_scope = mod_morph_result.value
-
-    var_scope = comp.Value({})  # Empty local scope
-
-    # Build and return Compute object
-    return comp.Compute(
-        func_def.body,
-        in_=input_value,
-        arg=arg_scope,
-        ctx=ctx_scope_morphed,
-        mod=mod_scope,
-        var=var_scope,
-        module=func_def.module,
-    )
+    # Step 2: Delegate to the function definition's invoke method
+    return best_func.invoke(morphed_input, args_value, ctx_scope)
 
 
 def prepare_block_call(block, input):
-    """Prepare a block invocation by extracting context and building Compute list.
-    
-    Blocks capture their definition context (frame) and can be invoked with
-    different input values. This function handles:
-    1. Extracting the block AST and captured frame
-    2. Getting scopes from the captured frame (ctx, var, arg, module)
-    3. Creating an accumulator for the block's struct building
-    4. Building a list of Compute objects for each operation in the block
-    
+    """Prepare a block invocation by delegating to Block.invoke().
+
+    RawBlocks must be morphed to Blocks before invocation (via arg_shape morphing).
+    This function no longer provides a fallback conversion.
+
     Args:
-        block (Value): Block or RawBlock value to invoke
+        block (Value): Block value to invoke (must be typed Block, not RawBlock)
         input (Value): Input value to pass as $in
-        
+
     Returns:
-        tuple: (compute_list, accumulator) where:
-            - compute_list: List of Compute objects to execute sequentially
-            - accumulator: The struct accumulator to collect results
-            Or returns a fail Value if error
+        Compute: Ready-to-execute compute object, or fail Value if error
     """
     block = block.as_scalar()
     input = input.as_struct()
+
+    # Check for RawBlock and fail - these must be morphed first
+    if block.is_raw_block:
+        return comp.fail(
+            "Cannot invoke RawBlock directly. "
+            "RawBlock must be morphed with a block shape (e.g., ~any-block) before invocation."
+        )
+
     if not block.is_block:
-        return comp.fail("Expected block value")
+        return comp.fail("Expected Block value")
 
-    # Likely a raw block for now, as builtin funcs do not morph
-    # arguments like a comp function should
-    if isinstance(block.data, comp.RawBlock):
-        block = comp.Value(comp.Block(block.data, comp.ast.BlockShape([])))
+    # Delegate to the Block's invoke method
+    block_obj = block.data
+    if not isinstance(block_obj, comp.Block):
+        return comp.fail(f"Expected Block, got {type(block_obj).__name__}")
 
-    # # RawBlocks must be morphed with a shape before they can be invoked
-    # if isinstance(block, comp.RawBlock):
-    #     return comp.fail(
-    #         "PipeBlock |: cannot invoke Raw block directly. "
-    #         "Raw block must be morphed with a block shape (e.g., ~:{}) before invocation."
-    #     )
-
-    block_ast = block.data.raw_block.block_ast
-    block_frame = block.data.raw_block.frame
-    block_module = block_frame.scope('module')
-    ctx_scope = block_frame.scope('ctx') or comp.Value({})
-    var_scope = block_frame.scope('var') or comp.Value({})
-    arg_scope = block_frame.scope('arg')
-    
-    compute = comp.Compute(
-        block_ast.body,
-        in_=input,
-        ctx=ctx_scope,
-        var=var_scope,
-        module=block_module,
-        arg=arg_scope,
-    )
-    return compute
+    return block_obj.invoke(input)
 

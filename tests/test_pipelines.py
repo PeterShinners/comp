@@ -51,13 +51,14 @@ def test_pipeline_with_wrong_input_type():
         "not a string",
         comp.ast.PipeFunc("double"),
     )
-    comptest.assert_fail(result, "expects number")
+    comptest.assert_fail(result, "expects num")
 
 
 def test_pipe_fallback():
     """Test comp.ast.PipeFallback recovers from a failure."""
     def fail_func(engine, input_value, args):
         return comp.fail("Something went wrong")
+        yield  # Make it a generator (unreachable)
 
     result = comptest.run_pipe(
         5,
@@ -85,6 +86,7 @@ def test_pipefallback_fail_in_recovery():
     """Test that if recovery expression fails, pipeline fails."""
     def fail_func(engine, input_value, args):
         return comp.fail("Something went wrong")
+        yield  # Make it a generator (unreachable)
 
     # comp.ast.Pipeline: [5 |fail_func |? [1 |fail_func]]
     result = comptest.run_pipe(

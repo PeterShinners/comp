@@ -1,4 +1,41 @@
+; Test |if with true condition
+!func |test-if-true ~any = {
+    [5 |if #true 10 20] == 10
+}
 
+; Test |if with false condition and else branch
+!func |test-if-false ~any = {
+    [5 |if #false 10 20] == 20
+}
+
+; Test |if without else branch (returns input when false)
+!func |test-if-no-else ~any = {
+    [5 |if #false 10] == 5
+}
+
+; Test |length with struct
+!func |test-length-struct ~any = {
+    [{a=1 b=2 c=3} |length] == 3
+}
+
+; Test |length with empty struct
+!func |test-length-empty ~any = {
+    [{} |length] == 0
+}
+
+; Test |subscript with positive index
+!func |test-subscript-positive ~any = {
+    $var.result = [{a=1 b=2 c=3} |subscript index=1]
+    ($var.result.value == 2) && ($var.result.field == "b")
+}
+
+; Test |subscript with negative index
+!func |test-subscript-negative ~any = {
+    $var.result = [{a=1 b=2 c=3} |subscript index=-1]
+    ($var.result.value == 3) && ($var.result.field == "c")
+}
+
+; Test |loop with break
 !func |assert-loop ~any = {
     $var.data = [|loop :{
         [|if :{$in == 0} 1.1 :{

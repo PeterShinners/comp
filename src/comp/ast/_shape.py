@@ -1,6 +1,6 @@
 """AST nodes for shape definitions and references."""
 
-__all__ = ["ShapeDef", "ShapeFieldDef", "ShapeRef", "ShapeUnion", "BlockShape", "InlineShape"]
+__all__ = ["ShapeDef", "ShapeFieldDef", "ShapeRef", "TagShape", "ShapeUnion", "BlockShape", "InlineShape"]
 
 import comp
 
@@ -296,6 +296,82 @@ class ShapeRef(_base.ShapeNode):
         return f"ShapeRef(~{path_str})"
 
 
+class TagShape(_base.ShapeNode):
+    """Tag reference used as a shape: #tagname
+
+    Represents a tag reference when used in a shape context (like union types).
+    The tag value itself serves as the shape constraint.
+
+    Examples:
+        #true | #false         # Boolean union
+        #none | ~str           # Optional string
+        #success | #error      # Result union
+
+    Args:
+        path: Reversed partial path (leaf first), e.g., ["none"] or ["true"]
+        namespace: Optional namespace for cross-module references
+
+    Attributes:
+        _resolved: Pre-resolved TagDefinition (set by Module.prepare())
+    """
+
+    def __init__(self, path: list[str], namespace: str | None = None):
+        if not isinstance(path, list):
+            raise TypeError("Tag path must be a list")
+        if not path:
+            raise ValueError("Tag path cannot be empty")
+        if not all(isinstance(p, str) for p in path):
+            raise TypeError("Tag path must be list of strings")
+        if namespace is not None and not isinstance(namespace, str):
+            raise TypeError("Tag namespace must be string or None")
+
+        self.path = path
+        self.namespace = namespace
+        self._resolved = None  # Pre-resolved definition (set by Module.prepare())
+
+    def evaluate(self, frame):
+        """Look up tag in module and return TagDefinition.
+
+        Returns the TagDefinition directly, which the morphing system
+        can use as a shape constraint for matching tag values.
+        """
+        # Fast path: use pre-resolved definition if available
+        if self._resolved is not None:
+            return self._resolved
+            yield  # Unreachable but makes this a generator
+
+        # Slow path: runtime lookup (for modules not prepared)
+        # Get module from scope
+        module = frame.scope('module')
+        if module is None:
+            return comp.fail("Tag shapes require module scope")
+
+        # Look up tag with namespace support
+        try:
+            tag_def = module.lookup_tag(self.path, self.namespace)
+        except ValueError as e:
+            # Not found or ambiguous reference
+            return comp.fail(str(e))
+
+        # Return TagDefinition directly (like ShapeRef returns ShapeDefinition)
+        return tag_def
+        yield  # Unreachable but makes this a generator
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        path_str = ".".join(reversed(self.path))
+        ref = f"#{path_str}"
+        if self.namespace:
+            ref += "/" + self.namespace
+        return ref
+
+    def __repr__(self):
+        path_str = ".".join(reversed(self.path))
+        if self.namespace:
+            return f"TagShape(#{path_str}/{self.namespace})"
+        return f"TagShape(#{path_str})"
+
+
 class ShapeUnion(_base.ShapeNode):
     """Shape union: ~shape1 | ~shape2 | ~shape3
 
@@ -324,7 +400,8 @@ class ShapeUnion(_base.ShapeNode):
     def evaluate(self, frame):
         """Evaluate union by resolving all member shapes.
 
-        Returns a special union marker structure.
+        Returns a ShapeDefinition with is_union=True and the resolved members.
+        MorphOp will detect this and try morphing with each member shape.
         """
         # Resolve all member shapes
         resolved = []
@@ -334,10 +411,21 @@ class ShapeUnion(_base.ShapeNode):
                 return shape
             resolved.append(shape)
 
-        # HACK: Return a marker structure indicating this is a union
-        # The morphing system will need to handle this specially
-        return {"__union__": resolved}
-        yield  # Make this a generator
+        # Get module for creating the union shape definition
+        module = frame.scope('module')
+        if module is None:
+            return comp.fail("Shape unions require module scope")
+
+        # Create a ShapeDefinition representing the union
+        # Use empty path since this is an anonymous union
+        union_shape = comp.ShapeDefinition(
+            path=[],
+            module=module,
+            fields=[],
+            is_union=True,
+            union_members=resolved
+        )
+        return union_shape
 
     def unparse(self) -> str:
         """Convert back to source code."""

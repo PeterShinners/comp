@@ -48,6 +48,8 @@ class MorphOp(_base.ValueNode):
         3. Call morph() from comp._morph with the value and shape
         4. Return morphed value or fail
 
+        For union shapes, tries each member shape in order until one succeeds.
+
         The morph function returns a MorphResult with:
         - score: Tuple of (named_matches, tag_depth, assignment_weight, positional_matches)
         - value: The morphed Value or None if morphing failed
@@ -64,7 +66,27 @@ class MorphOp(_base.ValueNode):
         if frame.bypass_value(shape_def):
             return shape_def
 
-        # Step 3: Perform morphing based on mode
+        # Step 2.5: Handle union shapes
+        # If shape_def is a union, try each member shape until one succeeds
+        if hasattr(shape_def, 'is_union') and shape_def.is_union:
+            # Try each member shape in order
+            for member_shape in shape_def.union_members:
+                # Try morphing with this member
+                if self.mode == "strong":
+                    result = comp.strong_morph(value, member_shape)
+                elif self.mode == "weak":
+                    result = comp.weak_morph(value, member_shape)
+                else:
+                    result = comp.morph(value, member_shape)
+                
+                # If this shape worked, use it!
+                if result.success:
+                    return result.value
+            
+            # None of the union members worked
+            return comp.fail("Value does not match any shape in union")
+
+        # Step 3: Perform morphing based on mode (non-union case)
         if self.mode == "strong":
             result = comp.strong_morph(value, shape_def)
         elif self.mode == "weak":

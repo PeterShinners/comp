@@ -146,14 +146,21 @@ def _morph_any(value, shape, was_wrapped=False):
     Returns:
         MorphResult with the morphed value or failure
     """
-    # Handle unions by trying all variants and picking the best
-    if hasattr(shape, 'variants'):  # ShapeUnion check
+    # Handle unions by trying all members and picking the best
+    # Check for both is_union (ShapeDefinition) and variants (old ShapeUnion)
+    union_members = None
+    if hasattr(shape, 'is_union') and shape.is_union and hasattr(shape, 'union_members'):
+        union_members = shape.union_members
+    elif hasattr(shape, 'variants'):  # Legacy ShapeUnion
+        union_members = shape.variants
+    
+    if union_members:
         best_result = MorphResult()  # Zero score, no value
 
-        for variant in shape.variants:
-            variant_result = _morph_any(value, variant, was_wrapped=was_wrapped)
-            if variant_result.success and variant_result > best_result:
-                best_result = variant_result
+        for member in union_members:
+            member_result = _morph_any(value, member, was_wrapped=was_wrapped)
+            if member_result.success and member_result > best_result:
+                best_result = member_result
 
         return best_result
 
@@ -225,6 +232,85 @@ def _morph_struct(value, shape, was_wrapped=False):
 
     Returns both the match score and the morphed value in a single pass.
     """
+    # Handle TagDefinition shapes - validate tag hierarchy or value-to-tag morphing
+    if isinstance(shape, comp.TagDefinition):
+        # Unwrap single-field structures
+        if value.is_struct and len(value.data) == 1:
+            value = value.data[next(iter(value.data.keys()))]
+        
+        # Case 1: Value is NOT a tag - try value-to-tag morphing
+        # Find tags within the required hierarchy that have this value
+        if not value.is_tag:
+            required_tag_def = shape
+            
+            # Search for tags with matching value within this tag's hierarchy
+            # This includes the tag itself and all its descendants
+            matches = required_tag_def.module.find_tags_by_value(value, parent_tag=required_tag_def)
+            
+            # Also check if the required tag itself has this value
+            if required_tag_def.value is not None:
+                tag_value = required_tag_def.value
+                if not isinstance(tag_value, comp.Value):
+                    tag_value = comp.Value(tag_value)
+                
+                # Simple value comparison
+                values_match = False
+                if value.is_number and tag_value.is_number:
+                    values_match = (value.data == tag_value.data)
+                elif value.is_string and tag_value.is_string:
+                    values_match = (value.data == tag_value.data)
+                
+                if values_match:
+                    # Value matches the required tag itself
+                    # Return the tag as a value
+                    tag_ref = comp.TagRef(required_tag_def)
+                    result_value = comp.Value(tag_ref)
+                    depth = len(required_tag_def.path)
+                    return MorphResult(tag_depth=depth, value=result_value)
+            
+            # Check descendant matches
+            if matches:
+                # Return the first (shallowest) match
+                # Sort by depth to prefer closer matches
+                matches.sort(key=lambda t: t.depth)
+                best_match = matches[0]
+                tag_ref = comp.TagRef(best_match)
+                result_value = comp.Value(tag_ref)
+                depth = len(best_match.path)
+                return MorphResult(tag_depth=depth, value=result_value)
+            
+            # No matching tag found
+            return MorphResult()
+        
+        # Case 2: Value IS a tag - validate tag hierarchy
+        # Get the tag reference
+        tag_ref = value.data
+        
+        # Check if the value's tag matches or is a child of the shape's tag
+        # e.g., #fail.not_found matches #fail or #fail.not_found
+        # but not #fail.ambiguous or #true
+        
+        # Rule: value tag must match exactly OR be a descendant of the required tag
+        # Both paths are in definition order: ["parent", "child", "grandchild"]
+        value_tag_def = tag_ref.tag_def
+        required_tag_def = shape
+        
+        # Check if same tag
+        if value_tag_def.path == required_tag_def.path:
+            depth = len(value_tag_def.path)
+            return MorphResult(tag_depth=depth, value=value)
+        
+        # Check if value tag is a child of required tag
+        # Required tag path must be a prefix of value tag path
+        if len(required_tag_def.path) < len(value_tag_def.path):
+            # Check if required path is a prefix
+            if value_tag_def.path[:len(required_tag_def.path)] == required_tag_def.path:
+                depth = len(value_tag_def.path)
+                return MorphResult(tag_depth=depth, value=value)
+        
+        # Tag doesn't match the required hierarchy
+        return MorphResult()
+
     # Handle primitive type shapes (~num, ~str, ~bool, ~tag, ~any, ~struct)
     if isinstance(shape, comp.ShapeDefinition):
         if shape.full_name in ("num", "str"):
@@ -267,6 +353,20 @@ def _morph_struct(value, shape, was_wrapped=False):
     # If shape has no fields, accept any struct with minimal score
     if not shape_fields:
         return MorphResult(positional_matches=0, value=value)
+
+    # Extract tag value if morphing a wrapped tag to a structural shape
+    # This handles: #origin ~point where #origin has struct value {x=5 y=10}
+    # The tag gets wrapped to {#origin}, and we need to extract its value
+    if value.is_struct and len(value.data) == 1:
+        single_key = next(iter(value.data.keys()))
+        single_value = value.data[single_key]
+        
+        # Check if the single field is a tag with a struct value
+        if single_value.is_tag:
+            tag_ref = single_value.data
+            if tag_ref.tag_def.value is not None and tag_ref.tag_def.value.is_struct:
+                # Extract the tag's struct value and continue morphing with it
+                value = tag_ref.tag_def.value
 
     # PHASE 1: Match named fields
     # Build a mapping from field names to ShapeField objects for quick lookup

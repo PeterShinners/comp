@@ -74,9 +74,9 @@ def run_frame(name, input, args=None):
 
 def run_pipe(seed, *operations, func=None, **scopes) -> comp.Value:
     """Create and execute a pipeline from seed and operations.
-    
-    If func is provided, it will be temporarily added to comp.builtin
-    as builtin_{func.__name__} so it can be called in the pipeline.
+
+    If func is provided, it will be registered as a PythonFunction
+    in the builtin module so it can be called in the pipeline.
     """
 
     if isinstance(seed, int):
@@ -93,26 +93,32 @@ def run_pipe(seed, *operations, func=None, **scopes) -> comp.Value:
         value_scopes[key] = val
 
     engine = comp.Engine()
-    
-    # Temporarily add custom function to comp.builtin for test
+
+    # Get or create builtin module with registered functions
+    builtin_module = comp.builtin.get_builtin_module()
+
+    # Temporarily add custom function to builtin module for test
     if func is not None:
         name = func.__name__
-        builtin_name = f"builtin_{name}"
-        # Save old value if it exists
-        old_func = getattr(comp.builtin, builtin_name, None)
-        # Set the test function
-        setattr(comp.builtin, builtin_name, func)
+        # Save old function if it exists
+        old_func_defs = builtin_module.functions.get(name)
+        # Register as PythonFunction
+        builtin_module.define_function(
+            path=[name],
+            body=comp.PythonFunction(name, func),
+            is_pure=False,
+        )
         try:
-            result = engine.run(pipeline, **value_scopes)
+            result = engine.run(pipeline, module=builtin_module, **value_scopes)
         finally:
             # Restore old value or remove if didn't exist
-            if old_func is None:
-                delattr(comp.builtin, builtin_name)
+            if old_func_defs is None:
+                del builtin_module.functions[name]
             else:
-                setattr(comp.builtin, builtin_name, old_func)
+                builtin_module.functions[name] = old_func_defs
         return result
-    
-    result = engine.run(pipeline, **value_scopes)
+
+    result = engine.run(pipeline, module=builtin_module, **value_scopes)
     return result
 
 

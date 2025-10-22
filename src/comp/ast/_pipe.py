@@ -117,22 +117,6 @@ class PipeFunc(PipelineOp):
             if frame.bypass_value(args_value):
                 return args_value
 
-        # Try to call as builtin function first (temporary hack)
-        builtin_func = getattr(comp.builtin, f"builtin_{self.func_name}", None)
-        if builtin_func is not None:
-            result = builtin_func(frame, input_value, args_value)
-            # Check if result is a generator (function yields Compute)
-            if hasattr(result, '__next__'):
-                # Drive the generator to completion
-                try:
-                    compute = next(result)
-                    while True:
-                        value = yield compute
-                        compute = result.send(value)
-                except StopIteration as e:
-                    return e.value if e.value is not None else comp.Value(None)
-            return result
-
         # Get function definitions (pre-resolved or lookup at runtime)
         if self._resolved is not None:
             func_defs = self._resolved
@@ -153,6 +137,22 @@ class PipeFunc(PipelineOp):
                 # Not found or ambiguous
                 return comp.fail(str(e))
 
+        # Check if this is a PythonFunction (needs special handling)
+        # PythonFunctions return generators that must be driven to completion
+        if len(func_defs) == 1 and isinstance(func_defs[0].body, comp.PythonFunction):
+            python_func = func_defs[0].body
+            gen = python_func.invoke(input_value, args_value, frame)
+
+            # All PythonFunctions are generators - drive to completion
+            try:
+                compute = next(gen)  # type: ignore
+                while True:
+                    value = yield compute
+                    compute = gen.send(value)  # type: ignore
+            except StopIteration as e:
+                return e.value if e.value is not None else comp.Value(None)
+
+        # Regular Comp function - use prepare_function_call
         # Get ctx scope for function call
         ctx_scope = frame.scope('ctx')
         if ctx_scope is None:
@@ -163,7 +163,7 @@ class PipeFunc(PipelineOp):
             func_defs, input_value, args_value, ctx_scope)
         if isinstance(compute, comp.Value) and compute.is_fail:
             return compute  # Preparation failed
-        
+
         # Execute the prepared function call
         result = yield compute
         return result
