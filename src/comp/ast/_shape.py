@@ -44,13 +44,21 @@ class ShapeDef(ModuleOp):
         """Register this shape in the module.
 
         1. Get module from module scope
-        2. Evaluate field definitions (expanding spreads)
-        3. Register shape in module
+        2. Consume any pending documentation from !doc statements
+        3. Evaluate field definitions (expanding spreads)
+        4. Register shape in module
         """
         # Get module from scope
         module = frame.scope('module')
         if module is None:
             return comp.fail("ShapeDef requires module scope")
+
+        # Consume pending documentation from !doc statements
+        doc = None
+        if module.pending_doc is not None:
+            doc = module.pending_doc
+            module.pending_doc = None  # Clear after consuming
+        # Note: Shape definitions don't use impl_doc (that's for polymorphic functions)
 
         # Process field definitions, expanding spreads
         shape_fields = []
@@ -78,8 +86,12 @@ class ShapeDef(ModuleOp):
                     return field  # Error during field evaluation
                 shape_fields.append(field)
 
-        # Register shape
-        module.define_shape(self.path, shape_fields)
+        # Register shape (define_shape returns the ShapeDefinition)
+        shape_def = module.define_shape(self.path, shape_fields)
+
+        # Store documentation on the shape definition if we got any
+        if doc is not None:
+            shape_def.doc = doc
 
         return comp.Value(True)
 

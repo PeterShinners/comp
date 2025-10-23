@@ -1,0 +1,64 @@
+!doc module "Examples of Comp module features"
+
+!import /loop = comp "loop"
+;!import /str = stdlib "str"
+
+
+; === MODULE CONFIGURATION ===
+$mod.name = "example-app"
+$mod.version = "1.0.0"
+$mod.author = "Comp Developer"
+
+$mod.config = {
+    debug = 0
+    max_items = 100
+}
+
+; === TAG DEFINITIONS ===
+!tag #status
+!tag #status.active = 1
+!tag #status.inactive = 0
+
+; === SHAPE DEFINITIONS ===
+!doc "Represents an item with ID and name"
+!shape ~item = {
+    id ~num
+    name ~str
+}
+
+!doc "Configuration settings for the application"
+!shape ~config = {
+    debug ~num
+    max_items ~num
+}
+
+; === FUNCTION DEFINITIONS ===
+!doc "Process a count by doubling it"
+!func |process ~{count ~num} = {
+    ; Process some items
+    $in.count * 2
+}
+
+!doc "Format an item as a string"
+!func |format ~{~item} = {
+    ; Format item (placeholder)
+    "formatted"
+}
+
+; === ENTRY POINT ===
+; Runs when module is imported (all imports loaded first)
+!entry = {
+    ; Initialize module state
+    $mod.initialized = 1
+    $mod.items = {}
+}
+
+; === MAIN ENTRY POINT ===
+; Runs when module is executed as a program
+!main = {
+    ; Process 10 items
+    result = [{count=10} |process]
+
+    ; Return the result
+    result
+}

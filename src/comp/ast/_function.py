@@ -1,6 +1,6 @@
 """AST nodes for function definitions and references."""
 
-__all__ = ["FuncDef", "FuncRef"]
+__all__ = ["FuncDef", "FuncRef", "MainDef", "EntryDef"]
 
 import comp
 
@@ -61,13 +61,25 @@ class FuncDef(ModuleOp):
         """Register this function in the module.
 
         1. Get module from module scope
-        2. Resolve input and arg shapes if present
-        3. Register function (body is stored as AST, not evaluated)
+        2. Consume any pending documentation from !doc statements
+        3. Resolve input and arg shapes if present
+        4. Register function (body is stored as AST, not evaluated)
         """
         # Get module from scope
         module = frame.scope('module')
         if module is None:
             return comp.fail("FuncDef requires module scope")
+
+        # Consume pending documentation from !doc statements
+        # This overrides any documentation passed to __init__
+        doc = self.doc
+        impl_doc = self.impl_doc
+        if module.pending_doc is not None:
+            doc = module.pending_doc
+            module.pending_doc = None  # Clear after consuming
+        if module.pending_impl_doc is not None:
+            impl_doc = module.pending_impl_doc
+            module.pending_impl_doc = None  # Clear after consuming
 
         # Resolve input shape if present
         input_shape = None
@@ -90,8 +102,8 @@ class FuncDef(ModuleOp):
             input_shape=input_shape,
             arg_shape=arg_shape,
             is_pure=self.is_pure,
-            doc=self.doc,
-            impl_doc=self.impl_doc
+            doc=doc,
+            impl_doc=impl_doc
         )
 
         return comp.Value(True)
@@ -250,3 +262,100 @@ class FuncRef(_base.ValueNode):
         if self.namespace:
             return f"FuncRef(|{path_str}/{self.namespace})"
         return f"FuncRef(|{path_str})"
+
+
+class MainDef(ModuleOp):
+    """Main entry point definition: !main = {...}
+
+    Defines the program's main entry point. Only valid in executable modules.
+    Has no input shape or argument shape - just a body that runs when the program starts.
+    Stored separately in the module (not in the function registry).
+
+    Examples:
+        !main = {
+            @args = [|parse/cli]
+            [@args.command |run]
+        }
+
+    Args:
+        body: Structure definition AST node (the main body)
+    """
+
+    def __init__(self, body: _base.AstNode):
+        if not isinstance(body, _base.AstNode):
+            raise TypeError("Main body must be AstNode")
+        self.body = body
+
+    def evaluate(self, frame):
+        """Store the main function in the module.
+
+        The body is stored as-is (AST node) and will be evaluated when
+        the program is executed.
+        """
+        # Get module from scope
+        module = frame.scope('module')
+        if module is None:
+            return comp.fail("MainDef requires module scope")
+
+        # Store the main function body in the module
+        module.main_func = self.body
+
+        return comp.Value(True)
+        yield  # Make this a generator
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        return f"!main = {self.body.unparse()}"
+
+    def __repr__(self):
+        return "MainDef"
+
+
+class EntryDef(ModuleOp):
+    """Entry point definition: !entry = {...}
+
+    Defines the module's entry point that runs when the module is imported.
+    Has no input shape or argument shape - just a body that runs during import.
+    Stored separately in the module (not in the function registry).
+
+    All imports will have been loaded and their entry functions executed before
+    this entry function runs.
+
+    Examples:
+        !entry = {
+            $mod.cache = [|initialize-cache]
+            $mod.validators = [|build-validators]
+        }
+
+    Args:
+        body: Structure definition AST node (the entry body)
+    """
+
+    def __init__(self, body: _base.AstNode):
+        if not isinstance(body, _base.AstNode):
+            raise TypeError("Entry body must be AstNode")
+        self.body = body
+
+    def evaluate(self, frame):
+        """Store the entry function in the module.
+
+        The body is stored as-is (AST node) and will be evaluated when
+        the module is imported.
+        """
+        # Get module from scope
+        module = frame.scope('module')
+        if module is None:
+            return comp.fail("EntryDef requires module scope")
+
+        # Store the entry function body in the module
+        module.entry_func = self.body
+
+        return comp.Value(True)
+        yield  # Make this a generator
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        return f"!entry = {self.body.unparse()}"
+
+    def __repr__(self):
+        return "EntryDef"

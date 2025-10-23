@@ -1,4 +1,5 @@
-!func |main ~_ = {
-    message = "Hello from Comp!"
-    result = [message |upper]
+; Simple hello world example using !main entry point
+
+!main = {
+    "Hello from Comp!"
 }

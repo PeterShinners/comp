@@ -1,6 +1,6 @@
 """AST nodes for tag definitions and references."""
 
-__all__ = ["Module", "ModuleOp", "TagDef", "TagChild", "TagValueRef"]
+__all__ = ["Module", "ModuleOp", "TagDef", "TagChild", "TagValueRef", "ModuleAssign", "DocStatement"]
 
 
 import comp
@@ -46,24 +46,43 @@ class Module(_base.AstNode):
         if module is None:
             module = comp.Module()
 
-        # IMPORTANT: Evaluate shape definitions FIRST, before functions
-        # Functions reference shapes in their signatures, so shapes must be
-        # fully populated (have fields) before functions are defined
+        # IMPORTANT: Evaluate in phases to ensure dependencies are met:
+        # Phase 1: Shape definitions (functions reference shapes in their signatures)
+        # Phase 2: Everything else (functions, tags, module assigns, etc.)
+        #
+        # DocStatements are evaluated immediately before their target definition
+        # to ensure pending_doc is set right when the definition consumes it.
         from . import _shape, _function
-        
-        # Phase 1: Evaluate all ShapeDef operations
-        for op in self.operations:
+
+        # Phase 1: Evaluate ShapeDef operations and their preceding DocStatements
+        # Process in source order to preserve doc-before-definition pairing
+        for i, op in enumerate(self.operations):
             if isinstance(op, _shape.ShapeDef):
+                # Check if there's a DocStatement right before this shape
+                if i > 0 and isinstance(self.operations[i-1], DocStatement):
+                    # Evaluate the doc first
+                    doc_result = yield comp.Compute(self.operations[i-1], module=module)
+                    if frame.bypass_value(doc_result):
+                        return doc_result
+                # Now evaluate the shape
                 result = yield comp.Compute(op, module=module)
                 if frame.bypass_value(result):
                     return result
-        
+
         # Phase 2: Evaluate all other operations (TagDef, FuncDef, etc.)
-        for op in self.operations:
-            if not isinstance(op, _shape.ShapeDef):
-                result = yield comp.Compute(op, module=module)
-                if frame.bypass_value(result):
-                    return result
+        # Process in source order to preserve doc-before-definition pairing
+        for i, op in enumerate(self.operations):
+            # Skip shapes (already done) and docs that preceded shapes
+            if isinstance(op, _shape.ShapeDef):
+                continue
+            if isinstance(op, DocStatement):
+                # Check if this doc precedes a shape (already evaluated)
+                if i < len(self.operations) - 1 and isinstance(self.operations[i+1], _shape.ShapeDef):
+                    continue
+            # Evaluate this operation
+            result = yield comp.Compute(op, module=module)
+            if frame.bypass_value(result):
+                return result
 
         # Return the populated module
         return module
@@ -365,4 +384,246 @@ class TagValueRef(_base.ValueNode):
         if self.namespace:
             return f"TagValueRef(#{path_str}/{self.namespace})"
         return f"TagValueRef(#{path_str})"
+
+
+class ModuleAssign(ModuleOp):
+    """Module-level assignment: $mod.field.path = value
+
+    Assigns a value to the module's $mod scope at module definition time.
+    Only allows assignments to $mod (enforced at evaluation time).
+    Values must be simple expressions (same as tag values - literals, references, arithmetic).
+
+    Examples:
+        $mod.server.port = 8000
+        $mod.version = "1.0.0"
+        $mod.config.debug = #false
+
+    Args:
+        path: List of field nodes representing the assignment path
+        value: Expression that evaluates to the value (must be simple like tag values)
+
+    Note:
+        The grammar accepts any identifier, but evaluation will fail if it doesn't
+        start with $mod. This allows better error messages.
+    """
+
+    def __init__(self, path: list, value: _base.ValueNode):
+        if not isinstance(path, list) or not path:
+            raise TypeError("ModuleAssign path must be a non-empty list")
+        if not isinstance(value, _base.ValueNode):
+            raise TypeError("ModuleAssign value must be a ValueNode")
+
+        self.path = path
+        self.value = value
+
+    def evaluate(self, frame):
+        """Assign value to $mod scope in the module.
+
+        1. Validate that path starts with $mod scope
+        2. Evaluate the value expression
+        3. Navigate/create nested structs in $mod as needed
+        4. Assign the value at the final path location
+        """
+        # Validate that first element is a ScopeField for 'mod'
+        from . import _ident
+        if not isinstance(self.path[0], _ident.ScopeField):
+            return comp.fail("Module assignment must start with a scope (e.g., $mod)")
+
+        scope_field = self.path[0]
+        if scope_field.scope_name != 'mod':
+            return comp.fail(f"Module assignment only allowed for $mod, not ${scope_field.scope_name}")
+
+        if len(self.path) < 2:
+            return comp.fail("Module assignment must specify a field path (e.g., $mod.field)")
+
+        # Get the module from scope
+        module = frame.scope('module')
+        if module is None:
+            return comp.fail("ModuleAssign requires module scope")
+
+        # Get or create $mod scope on the module
+        # The module should have a mod_scope attribute that is a Value({})
+        if not hasattr(module, 'mod_scope'):
+            module.mod_scope = comp.Value({})
+
+        # Evaluate the value
+        value_result = yield comp.Compute(self.value)
+        if frame.bypass_value(value_result):
+            return value_result
+
+        # Navigate the path (skipping the $mod ScopeField)
+        current_dict = module.mod_scope.struct
+        field_path = self.path[1:]  # Skip $mod
+
+        # Walk all but the last field, creating nested structs as needed
+        for field_node in field_path[:-1]:
+            # Get the key for this path segment
+            key_value = yield from self._evaluate_path_field(frame, field_node, current_dict)
+            if frame.bypass_value(key_value):
+                return key_value
+
+            # Navigate or create nested struct
+            if key_value in current_dict:
+                current_value = current_dict[key_value]
+                if not current_value.is_struct:
+                    # Replace non-struct with empty struct
+                    current_value = comp.Value({})
+                    current_dict[key_value] = current_value
+                current_dict = current_value.struct
+            else:
+                # Create new nested struct
+                new_struct = comp.Value({})
+                current_dict[key_value] = new_struct
+                current_dict = new_struct.struct
+
+        # Handle the final field
+        final_field = field_path[-1]
+        final_key = yield from self._evaluate_path_field(frame, final_field, current_dict)
+        if frame.bypass_value(final_key):
+            return final_key
+
+        # Assign the value at the final key
+        current_dict[final_key] = value_result
+        return comp.Value(True)
+
+    def _evaluate_path_field(self, frame, field_node, current_dict):
+        """Evaluate a field node to get its key value.
+
+        Handles TokenField, IndexField, ComputeField, and String nodes.
+        """
+        from . import _ident, _literal
+
+        if isinstance(field_node, _ident.TokenField):
+            # TokenField: use the field name directly as a string key
+            return comp.Value(field_node.name)
+        elif isinstance(field_node, _ident.IndexField):
+            # IndexField: get existing key at that position
+            # Note: field_node.index can be either an int or a ValueNode (for computed indexes)
+            if isinstance(field_node.index, int):
+                # Static index
+                keys_list = list(current_dict.keys())
+                if not (0 <= field_node.index < len(keys_list)):
+                    return comp.fail(
+                        f"Index #{field_node.index} out of bounds "
+                        f"(dict has {len(keys_list)} fields)"
+                    )
+                return keys_list[field_node.index]
+            else:
+                # Computed index - evaluate it first
+                index_value = yield comp.Compute(field_node.index)
+                if frame.bypass_value(index_value):
+                    return index_value
+                # Then get the key at that position
+                if not index_value.is_num:
+                    return comp.fail(f"Index must be a number, got {index_value}")
+                idx = int(index_value.num)
+                keys_list = list(current_dict.keys())
+                if not (0 <= idx < len(keys_list)):
+                    return comp.fail(
+                        f"Index #{idx} out of bounds "
+                        f"(dict has {len(keys_list)} fields)"
+                    )
+                return keys_list[idx]
+        elif isinstance(field_node, _ident.ComputeField):
+            # ComputeField: evaluate its expression to get the key
+            key_value = yield comp.Compute(field_node.expr)
+            return key_value
+        elif isinstance(field_node, _literal.String):
+            # String literal: use as key directly
+            return comp.Value(field_node.value)
+        else:
+            # Other nodes: evaluate normally
+            key_value = yield comp.Compute(field_node)
+            return key_value
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        # Reconstruct the path
+        from . import _ident
+        path_parts = []
+        for field in self.path:
+            if isinstance(field, _ident.ScopeField):
+                path_parts.append(f"${field.scope_name}")
+            elif isinstance(field, _ident.TokenField):
+                path_parts.append(field.name)
+            else:
+                path_parts.append(field.unparse())
+
+        path_str = ".".join(path_parts)
+        return f"{path_str} = {self.value.unparse()}"
+
+    def __repr__(self):
+        return f"ModuleAssign({len(self.path)} fields)"
+
+
+class DocStatement(ModuleOp):
+    """Documentation statement: !doc "text", !doc impl "text", or !doc module "text"
+
+    Attaches documentation to the module or to the next definition (function, shape, tag, etc.).
+    The documentation is stored temporarily and applied when the next definition is processed.
+
+    Three forms:
+    - Module: !doc module "description" (for the module itself)
+    - General: !doc "description" (for next definition)
+    - Implementation-specific: !doc impl "description" (for polymorphic functions)
+
+    Examples:
+        !doc module "Math utilities module"
+
+        !doc "Calculate square root"
+        !func |sqrt ~{~num} = {...}
+
+        !doc impl "Optimized for integers"
+        !func |sqrt ~{~int} = {...}
+
+    Args:
+        text: Documentation string
+        is_impl: True if this is implementation-specific documentation
+        is_module: True if this is module-level documentation
+    """
+
+    def __init__(self, text: str, is_impl: bool = False, is_module: bool = False):
+        if not isinstance(text, str):
+            raise TypeError("Documentation text must be a string")
+        self.text = text
+        self.is_impl = is_impl
+        self.is_module = is_module
+
+    def evaluate(self, frame):
+        """Store documentation for the module or next definition.
+
+        For module documentation, stores directly on the module.
+        For definition documentation, stores in pending_doc for the next definition.
+        """
+        # Get module from scope
+        module = frame.scope('module')
+        if module is None:
+            return comp.fail("DocStatement requires module scope")
+
+        # Handle module-level documentation
+        if self.is_module:
+            module.doc = self.text
+        # Handle pending documentation for next definition
+        elif self.is_impl:
+            module.pending_impl_doc = self.text
+        else:
+            module.pending_doc = self.text
+
+        return comp.Value(True)
+        yield  # Make this a generator
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        if self.is_module:
+            return f'!doc module "{self.text}"'
+        elif self.is_impl:
+            return f'!doc impl "{self.text}"'
+        return f'!doc "{self.text}"'
+
+    def __repr__(self):
+        if self.is_module:
+            return "DocStatement(module)"
+        elif self.is_impl:
+            return "DocStatement(impl)"
+        return "DocStatement(general)"
 

@@ -1,0 +1,6 @@
+!doc module "Test module with nested dependencies"
+!import /loop = comp "loop"
+
+!func |test_nested ~{} = {
+    "test"
+}

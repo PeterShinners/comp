@@ -1,7 +1,8 @@
 """Nodes for arithmetic, comparison, and boolean ops."""
 
-__all__ = ["UnaryOp", "ArithmeticOp", "ComparisonOp", "BooleanOp", "FallbackOp"]
+__all__ = ["UnaryOp", "ArithmeticOp", "ComparisonOp", "BooleanOp", "FallbackOp", "TemplateOp"]
 
+import re
 import comp
 
 from . import _base
@@ -322,3 +323,109 @@ class FallbackOp(_base.ValueNode):
 
     def __repr__(self):
         return f"FallbackOp({self.left}, {self.right})"
+
+
+class TemplateOp(_base.ValueNode):
+    """Template operation: data % "template string with %{field} placeholders".
+
+    Left operand provides the data structure for field substitution.
+    Right operand must be a string containing %{...} placeholders.
+    
+    Placeholder syntax:
+    - %{field} - Named field from structure
+    - %{nested.field} - Nested field access
+    - %{#0}, %{#1} - Positional (index) access
+    - %{} - Empty placeholder uses entire left structure
+    
+    Examples:
+        {name="Alice"} % "Hello, %{name}!"           # "Hello, Alice!"
+        {10 20} % "Values: %{#0}, %{#1}"             # "Values: 10, 20"
+        42 % "Answer: %{}"                            # "Answer: 42"
+    """
+
+    def __init__(self, left: _base.ValueNode, right: _base.ValueNode):
+        if not isinstance(left, _base.ValueNode):
+            raise TypeError(f"TemplateOp left must be _base.ValueNode, got {type(left)}")
+        if not isinstance(right, _base.ValueNode):
+            raise TypeError(f"TemplateOp right must be _base.ValueNode, got {type(right)}")
+
+        self.left = left
+        self.right = right
+
+    def evaluate(self, frame):
+        # Evaluate both operands
+        left_value = yield comp.Compute(self.left)
+        right_value = yield comp.Compute(self.right)
+        right_value = right_value.as_scalar()
+
+        # Right side must be a string
+        if not right_value.is_string:
+            return comp.fail(f"Template operator requires string on right side, got {type(right_value.data).__name__}")
+
+        template_str = right_value.data
+        
+        # Find all placeholders: %{...}
+        placeholder_pattern = r'%\{([^}]*)\}'
+        
+        def replace_placeholder(match):
+            """Replace a single placeholder with its value from left_value."""
+            field_expr = match.group(1).strip()
+            
+            # Empty placeholder %{} - use entire left value
+            if not field_expr:
+                return str(left_value.data)
+            
+            # Index placeholder %{#0}, %{#1}, etc.
+            if field_expr.startswith('#'):
+                try:
+                    index = int(field_expr[1:])
+                    # Access positional field from structure
+                    if isinstance(left_value.data, dict):
+                        # Get the nth unnamed field
+                        unnamed_values = [v for k, v in left_value.data.items() if isinstance(k, comp.Unnamed)]
+                        if 0 <= index < len(unnamed_values):
+                            value = unnamed_values[index]
+                            return str(value.data if hasattr(value, 'data') else value)
+                        else:
+                            return f"{{#fail index {index} out of range}}"
+                    else:
+                        return f"{{#fail cannot index non-structure}}"
+                except (ValueError, IndexError):
+                    return f"{{#fail invalid index: {field_expr}}}"
+            
+            # Named field placeholder %{field} or %{nested.field}
+            current_data = left_value.data
+            
+            # If left_value is not a structure, we can't access named fields
+            if not isinstance(current_data, dict):
+                return f"{{#fail cannot access field '{field_expr}' on non-structure}}"
+            
+            for field_name in field_expr.split('.'):
+                # Look for the field in the current dict using comp.Value as key
+                field_key = comp.Value(field_name)
+                
+                if field_key not in current_data:
+                    return f"{{#fail field '{field_name}' not found}}"
+                
+                # Get the value (might be a Value object or raw data)
+                value = current_data[field_key]
+                
+                # Unwrap if it's a Value
+                if hasattr(value, 'data'):
+                    current_data = value.data
+                else:
+                    current_data = value
+            
+            # Convert final value to string
+            return str(current_data)
+        
+        # Replace all placeholders
+        result = re.sub(placeholder_pattern, replace_placeholder, template_str)
+        
+        return comp.Value(result)
+
+    def unparse(self) -> str:
+        return f"({self.left.unparse()} % {self.right.unparse()})"
+
+    def __repr__(self):
+        return f"TemplateOp({self.left}, {self.right})"

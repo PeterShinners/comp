@@ -323,6 +323,14 @@ class FieldOp(StructOp):
         # First element is the ScopeField
         scope_field = self.key[0]
 
+        # Prevent assignments to $mod inside structures/functions
+        # $mod can only be assigned at module level using ModuleAssign
+        if scope_field.scope_name == 'mod':
+            return comp.fail(
+                "$mod cannot be assigned inside functions or structures. "
+                "Use module-level assignments like: $mod.field = value"
+            )
+
         # Evaluate the scope field to get the scope
         scope_value = yield comp.Compute(scope_field)
         if frame.bypass_value(scope_value):

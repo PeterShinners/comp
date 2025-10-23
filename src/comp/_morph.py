@@ -14,15 +14,17 @@ class MorphResult:
     determines how well the value matched the shape. Higher scores are better matches.
 
     The value is the morphed result, or None if morphing failed.
+    The failure_reason provides diagnostic information when morphing fails.
     """
-    __slots__ = ("named_matches", "tag_depth", "assignment_weight", "positional_matches", "value")
+    __slots__ = ("named_matches", "tag_depth", "assignment_weight", "positional_matches", "value", "failure_reason")
 
-    def __init__(self, named_matches=0, tag_depth=0, assignment_weight=0, positional_matches=-1, value=None):
+    def __init__(self, named_matches=0, tag_depth=0, assignment_weight=0, positional_matches=-1, value=None, failure_reason=None):
         self.named_matches = named_matches
         self.tag_depth = tag_depth
         self.assignment_weight = assignment_weight
         self.positional_matches = positional_matches
         self.value = value
+        self.failure_reason = failure_reason
 
     def as_tuple(self):
         """Get the score components as a tuple for comparison."""
@@ -392,7 +394,13 @@ def _morph_struct(value, shape, was_wrapped=False):
                     field_result = _morph_any(field_value, shape_field.shape)
                     if not field_result.success:
                         # Field type mismatch - morph fails
-                        return MorphResult()
+                        # Get expected type name for error message
+                        expected_type = _get_shape_name(shape_field.shape)
+                        actual_type = _get_value_type(field_value)
+                        reason = f"Wrong type for field '{field_name}': expected {expected_type}, got {actual_type}"
+                        if field_result.failure_reason:
+                            reason = f"Field '{field_name}': {field_result.failure_reason}"
+                        return MorphResult(failure_reason=reason)
                     matched_fields[field_key] = (shape_field, field_result.value)
                 else:
                     # No type constraint - pass through
@@ -474,7 +482,12 @@ def _morph_struct(value, shape, was_wrapped=False):
             if shape_field.shape is not None:
                 field_result = _morph_any(pos_value, shape_field.shape)
                 if not field_result.success:
-                    return MorphResult()
+                    expected_type = _get_shape_name(shape_field.shape)
+                    actual_type = _get_value_type(pos_value)
+                    reason = f"Wrong type for positional field #{i}: expected {expected_type}, got {actual_type}"
+                    if field_result.failure_reason:
+                        reason = f"Positional field #{i}: {field_result.failure_reason}"
+                    return MorphResult(failure_reason=reason)
                 matched_fields[pos_key] = (shape_field, field_result.value)
             else:
                 matched_fields[pos_key] = (shape_field, pos_value)
@@ -506,7 +519,12 @@ def _morph_struct(value, shape, was_wrapped=False):
             if shape_field.shape is not None:
                 field_result = _morph_any(pos_value, shape_field.shape)
                 if not field_result.success:
-                    return MorphResult()
+                    expected_type = _get_shape_name(shape_field.shape)
+                    actual_type = _get_value_type(pos_value)
+                    reason = f"Wrong type for field '{shape_field.name}': expected {expected_type}, got {actual_type}"
+                    if field_result.failure_reason:
+                        reason = f"Field '{shape_field.name}': {field_result.failure_reason}"
+                    return MorphResult(failure_reason=reason)
                 matched_fields[field_key] = (shape_field, field_result.value)
             else:
                 matched_fields[field_key] = (shape_field, pos_value)
@@ -529,7 +547,7 @@ def _morph_struct(value, shape, was_wrapped=False):
             matched_fields[field_key] = (shape_field, shape_field.default)
         else:
             # Required field missing - morph fails
-            return MorphResult()
+            return MorphResult(failure_reason=f"Missing required field '{field_name}'")
 
     # Check unmatched positional fields
     for shape_field in positional_shape_fields:
@@ -539,7 +557,7 @@ def _morph_struct(value, shape, was_wrapped=False):
             matched_fields[field_key] = (shape_field, shape_field.default)
         else:
             # Required positional field missing - morph fails
-            return MorphResult()
+            return MorphResult(failure_reason="Missing required positional field")
 
     # Build result structure (matched fields + extra fields)
     result_struct = {}
@@ -608,11 +626,11 @@ def strong_morph(value, shape):
             if isinstance(field_key, comp.Unnamed):
                 # Unnamed field in result means it wasn't paired/consumed
                 if not has_positional:
-                    return MorphResult()
+                    return MorphResult(failure_reason="Extra positional field not allowed in strong morph")
             elif field_key.is_string:
                 if field_key.data not in allowed_names:
                     # Extra named field not allowed
-                    return MorphResult()
+                    return MorphResult(failure_reason=f"Extra field '{field_key.data}' not allowed in strong morph")
 
     return result
 
@@ -660,3 +678,32 @@ def weak_morph(value, shape):
 
     # Always succeeds (even if empty)
     return MorphResult(named_matches=matched_count, value=filtered_value)
+
+
+def _get_shape_name(shape) -> str:
+    """Get a human-readable name for a shape for error messages."""
+    if isinstance(shape, comp.ShapeDefinition):
+        return f"~{shape.full_name}"
+    elif isinstance(shape, comp.TagDefinition):
+        return f"#{shape.full_name}"
+    else:
+        return str(type(shape).__name__)
+
+
+def _get_value_type(value: comp.Value) -> str:
+    """Get a human-readable type description for a value for error messages."""
+    if value.is_number:
+        return "number"
+    elif value.is_string:
+        return "string"
+    elif value.is_tag:
+        tag_ref = value.data
+        return f"#{tag_ref.full_name}"
+    elif value.is_struct:
+        return "structure"
+    elif value.is_block:
+        return "block"
+    elif value.is_fail:
+        return "fail"
+    else:
+        return "unknown"

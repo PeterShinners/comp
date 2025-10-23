@@ -286,14 +286,112 @@ ab * 3                    ; ERROR - no * for strings
 
 ; Use templates or functions instead
 (hello |concat/str world)
-{hello world} % ${} ${}    ; Template formatting
+{name="Alice"} % "Hello, %{name}!"    ; Template formatting
 ```
 
 ### Template Formatting
 
-The `%` operator provides powerful template formatting that actually makes sense. Use `${}` placeholders and fill them from structures—no more string concatenation headaches or format string ceremony.
+The `%` operator provides simple, safe template formatting without the complexity of format specifiers or pipeline operations. Templates use `%{...}` placeholders that are replaced with values from the left-hand structure.
 
-Template formatting follows intuitive Python-style rules. Positional placeholders fill in order, named placeholders match field names, and the pipeline operator `|%` lets you apply templates in data flows naturally.
+#### Basic Syntax
+
+```comp
+; Binary operator: structure % "template string"
+{name="Alice"} % "Hello, %{name}!"              ; "Hello, Alice!"
+{x=5 y=10} % "Point at (%{x}, %{y})"           ; "Point at (5, 10)"
+
+; Works with any structure
+user = {name="Bob" age=30}
+user % "%{name} is %{age} years old"            ; "Bob is 30 years old"
+```
+
+#### Placeholder Types
+
+Templates support four types of placeholders:
+
+**Named Fields** - Access structure fields by name:
+```comp
+{name="Alice" role="admin"} % "User %{name} has role %{role}"
+; Result: "User Alice has role admin"
+```
+
+**Nested Fields** - Access nested structure fields with dot notation:
+```comp
+{user={name="Bob" id=123}} % "User: %{user.name} (ID: %{user.id})"
+; Result: "User: Bob (ID: 123)"
+```
+
+**Positional Access** - Access unnamed fields by index:
+```comp
+{10 20 30} % "Values: %{#0}, %{#1}, %{#2}"
+; Result: "Values: 10, 20, 30"
+```
+
+**Empty Placeholder** - Use the entire left value:
+```comp
+42 % "Answer: %{}"              ; "Answer: 42"
+"hello" % "Echo: %{}"           ; "Echo: hello"
+```
+
+#### Design Philosophy
+
+Template formatting in Comp follows three key principles:
+
+1. **Simple field substitution only** - No format specifiers, no pipeline operations in templates. This keeps templates predictable and easy to reason about.
+
+2. **Use intermediate steps for complex cases** - If you need formatting or transformations, do them before the template:
+```comp
+; Don't try to format inside template - not supported
+; Instead, format first, then template
+formatted-price = [price |format-money "$"]
+{formatted-price} % "Total: %{formatted-price}"
+
+; Or use blocks for complex cases
+message = :{
+    $var.price-str = [$in.price |format-money "$"]
+    $var.date-str = [$in.date |format-date "YYYY-MM-DD"]
+    {price=$var.price-str date=$var.date-str} % "Price: %{price} on %{date}"
+}
+```
+
+3. **Blocks as the escape hatch** - For complex formatting needs, use blocks which provide full control:
+```comp
+; Complex multi-step formatting with blocks
+format-report = :{
+    $var.name = [$in.user.name |title-case]
+    $var.balance = [$in.account.balance |format-money "$"]
+    $var.status = [$in.account.status |if :{$in == active} :"Active" :"Inactive"]
+    {name=$var.name balance=$var.balance status=$var.status} 
+        % "%{name}: %{balance} (%{status})"
+}
+```
+
+#### Error Handling
+
+Missing or invalid fields generate inline error messages:
+
+```comp
+{name="Alice"} % "Hello %{name}, age %{age}"
+; Result: "Hello Alice, age {#fail field 'age' not found}"
+
+{10 20} % "Value at index 5: %{#5}"
+; Result: "Value at index 5: {#fail index 5 out of range}"
+```
+
+#### Precedence
+
+The `%` operator has precedence between comparison operators and morph operators:
+
+```comp
+; Template happens before comparison
+{name="test"} % "Value: %{name}" == "Value: test"     ; true
+
+; Morph happens before template
+data ~user % "User: %{name}"                          ; Morph first, then format
+
+; Use parentheses for clarity when needed
+result = ({x=5} % "X is %{x}") ++ " exactly"
+```
 
 ### String Operations
 
@@ -325,17 +423,17 @@ String units attach to strings using tag notation, providing semantic meaning an
 ```comp
 ; String with unit tag
 email = "user@example.com"#email
-query = SELECT * FROM users WHERE id = ${id}#sql
-markup = <h1>${title}</h1>#html
+query = "SELECT * FROM users WHERE id = %{id}"#sql
+markup = "<h1>%{title}</h1>"#html
 
 ; Units affect template formatting
-user-id = '; DROP TABLE users; --
-safe-query = SELECT * FROM users WHERE id = ${user-id}#sql % {user-id}
+user-id = "'; DROP TABLE users; --"
+safe-query = {user-id} % "SELECT * FROM users WHERE id = %{user-id}"#sql
 ; SQL unit ensures proper escaping
 
 ; Unit validation
-invalid = not-an-email#email       ; Fails validation
-normalized = USER@EXAMPLE.COM#email ; Becomes lowercase
+invalid = "not-an-email"#email         ; Fails validation
+normalized = "USER@EXAMPLE.COM"#email  ; Becomes lowercase
 
 ; Custom string units
 !tag #url ~str = {
@@ -418,26 +516,6 @@ apple < banana              ; Lexicographic comparison
 ; Complex structure ordering
 {a=1 b=2} < {a=1 b=3}       ; Compares fields alphabetically
 {x=1} < {x=1 y=2}           ; Subset is less than superset
-
-; Binary template operator
-template = "Hello, ${name}!"
-result = {name="Alice"} % template     ; "Hello, Alice!"
-
-; Template string prefix for immediate expansion
-name = "Alice"
-result = %"Hello, ${name}!"           ; "Hello, Alice!"
-
-; Positional placeholders
-%"${} + ${} = ${}" % {2 3 5}         ; "2 + 3 = 5"
-
-; Named and positional mixing
-%"Hi ${name}, you are a ${}" % {name="Bob" "Developer"}
-
-; Index-based placeholders
-%"${#1} before ${#0}" % {"first" "second"}  ; "second before first"
-
-; Pipeline template operator
-{greeting="World"} |% "Hello, ${greeting}!"  ; "Hello, World!"
 ```
 
 ## Type Conversion
@@ -459,6 +537,6 @@ bool = (empty |to-bool/str)          ; Returns #false (empty)
 bool = (false |to-bool/str)          ; Returns #false (special case)
 
 ; Template formatting converts automatically
-Value: ${} % {42}                     ; Number to string
-Count: ${} % {#true}                  ; Boolean to string
+{42} % "Value: %{}"                   ; Number to string
+{#true} % "Count: %{}"                ; Boolean to string
 ```

@@ -19,9 +19,13 @@ module: module_statement*
 
 // Module-level statements (definitions and top-level expressions)
 ?module_statement: import_statement
+                 | doc_statement
                  | tag_definition
                  | shape_definition
                  | function_definition
+                 | main_definition
+                 | entry_definition
+                 | module_assign
                  | expression         // Allow expressions for REPL/testing compatibility
 
 // Expression-level parsing (for REPL, testing, embedded evaluation)
@@ -241,6 +245,20 @@ import_source: TOKEN
 SLASH: "/"
 
 
+// === MODULE ASSIGNMENT ===
+// Module-level assignment to $mod: $mod.field.path = value
+// Allows literals, expressions, and structure literals (unlike tag values)
+// Examples:
+//   $mod.server.port = 8000
+//   $mod.version = "1.0.0"
+//   $mod.config = {debug=1 timeout=30}
+module_assign: identifier _assignment_op module_value
+
+// Module values extend tag values to include structure literals
+// This allows: $mod.server = {port=8000 host="localhost"}
+module_value: structure | tag_value
+
+
 // === FUNCTION DEFINITION ===
 BANG_FUNC: "!func"
 ARG_KEYWORD: "arg"
@@ -251,6 +269,42 @@ function_definition: BANG_FUNC function_path function_shape ARG_KEYWORD shape_ty
 function_path: PIPE TOKEN ("." TOKEN)*
 
 function_shape: shape_type
+
+
+// === MAIN AND ENTRY DEFINITIONS ===
+BANG_MAIN: "!main"
+BANG_ENTRY: "!entry"
+
+// !main and !entry are simplified function definitions with just a body
+// No function path, no input shape, no argument shape
+// Examples:
+//   !main = { |run-app }
+//   !entry = { $mod.cache = [|init-cache] }
+main_definition: BANG_MAIN _assignment_op structure
+entry_definition: BANG_ENTRY _assignment_op structure
+
+
+// === DOCUMENTATION STATEMENT ===
+BANG_DOC: "!doc"
+IMPL_KEYWORD: "impl"
+MODULE_KEYWORD: "module"
+
+// !doc attaches documentation to definitions or the module itself
+// Three forms:
+//   !doc module "description"  - Module-level documentation
+//   !doc "description"         - General documentation for next definition
+//   !doc impl "description"    - Implementation-specific documentation
+// Examples:
+//   !doc module "This module provides math utilities"
+//
+//   !doc "Calculate the square root"
+//   !func |sqrt ~{~num} = {...}
+//
+//   !doc impl "Optimized for integers"
+//   !func |sqrt ~{~int} = {...}
+doc_statement: BANG_DOC MODULE_KEYWORD string  -> doc_module
+             | BANG_DOC IMPL_KEYWORD string    -> doc_impl
+             | BANG_DOC string                  -> doc_general
 
 
 // === STRUCTURE DEFINITION ===
@@ -343,7 +397,8 @@ _pipeline_seed_expression: or_expr_no_union
 ?or_expr_no_union: and_expr_no_union | or_expr_no_union LOGICAL_OR and_expr_no_union -> binary_op
 ?and_expr_no_union: not_expr_no_union | and_expr_no_union LOGICAL_AND not_expr_no_union -> binary_op
 ?not_expr_no_union: comparison_no_union | LOGICAL_NOT not_expr_no_union -> unary_op
-?comparison_no_union: morph_expr_no_union | comparison_no_union comp_op morph_expr_no_union -> binary_op
+?comparison_no_union: template_expr_no_union | comparison_no_union comp_op template_expr_no_union -> binary_op
+?template_expr_no_union: morph_expr_no_union | template_expr_no_union TEMPLATE morph_expr_no_union -> binary_op
 ?morph_expr_no_union: arith_expr
                     | morph_expr_no_union "~" morph_type_base -> morph_op
                     | morph_expr_no_union STRONG_MORPH morph_type_base -> strong_morph_op
@@ -365,7 +420,11 @@ LESS_EQUAL: "<="
 GREATER_THAN: ">"
 GREATER_EQUAL: ">="
 ?comp_op: EQUAL_EQUAL | NOT_EQUAL | LESS_THAN | LESS_EQUAL | GREATER_THAN | GREATER_EQUAL
-?comparison: morph_expr | comparison comp_op morph_expr -> binary_op
+?comparison: template_expr | comparison comp_op template_expr -> binary_op
+
+// Template operator
+TEMPLATE: "%"
+?template_expr: morph_expr | template_expr TEMPLATE morph_expr -> binary_op
 
 // Shape morph operators
 // Morph: Transforms data to match a shape specification
@@ -408,16 +467,14 @@ MINUS: "-"
 KEBAB_MINUS: "+-"  // Disambiguation for subtraction vs kebab-case identifiers
 MULTIPLY: "*"
 DIVIDE: "/"
-MODULO: "%"
 POWER: "**"
 ?arith_expr: term  // Arith (+, -, +-)
            | arith_expr PLUS term -> binary_op
            | arith_expr MINUS term -> binary_op
            | arith_expr KEBAB_MINUS term -> binary_op
-?term: unary  // Terms (*, /, %)
+?term: unary  // Terms (*, /, **)
      | term MULTIPLY unary -> binary_op
      | term DIVIDE unary -> binary_op
-     | term MODULO unary -> binary_op
 ?unary: power  // Factors (unary +/-)
        | PLUS unary -> unary_op
        | MINUS unary -> unary_op

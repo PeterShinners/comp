@@ -1,0 +1,7 @@
+!doc module "Example showing nested dependencies"
+!import /nested = comp "test_nested"
+!import /loop = comp "loop"
+
+!main = {
+    "Hello nested deps"
+}

@@ -1,5 +1,5 @@
+!doc module "Iteration and looping functions"
 ; !import /struct = comp "struct"  ; Commented out - has parse errors, using builtin |length instead
-; !doc "Iteration and looping functions"
 
 
 ; !doc "Infinite counter stream"  

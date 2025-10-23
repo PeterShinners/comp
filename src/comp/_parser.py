@@ -558,13 +558,28 @@ def _convert_tree(tree):
         case 'function_definition' | 'func_with_args' | 'func_no_args':
             return _convert_function_definition(tree)
 
+        # === MAIN AND ENTRY DEFINITIONS ===
+        case 'main_definition':
+            return _convert_main_definition(kids)
+
+        case 'entry_definition':
+            return _convert_entry_definition(kids)
+
+        # === DOCUMENTATION STATEMENTS ===
+        case 'doc_general' | 'doc_impl' | 'doc_module':
+            return _convert_doc_statement(tree)
+
         # === IMPORT STATEMENTS ===
         case 'import_statement':
             return _convert_import_statement(kids)
 
+        # === MODULE ASSIGNMENTS ===
+        case 'module_assign':
+            return _convert_module_assign(kids)
+
         # === PASS-THROUGH / UNWRAP ===
         case ('tag_value' | 'tag_arithmetic' | 'tag_term' | 'tag_bitwise' |
-              'tag_comparison' | 'tag_unary' | 'tag_atom' |
+              'tag_comparison' | 'tag_unary' | 'tag_atom' | 'module_value' |
               'or_expr' | 'and_expr' | 'not_expr' | 'comparison' |
               'morph_expr' | 'arith_expr' | 'term' | 'unary' | 'power' |
               'atom_in_expr' | '_prepipeline_expression' | 'pipeline' |
@@ -856,8 +871,11 @@ def _create_binary_op(op, left, right):
     # Fallback operator
     elif op == '??':
         return comp.ast.FallbackOp(left, right)
+    # Template operator
+    elif op == '%':
+        return comp.ast.TemplateOp(left, right)
     # Unsupported operators (may be added later)
-    elif op in ('%', '**', '+-'):
+    elif op in ('**', '+-'):
         raise comp.ParseError(f"Operator {op} not yet implemented")
     else:
         raise comp.ParseError(f"Unknown binary operator: {op}")
@@ -1000,6 +1018,128 @@ def _convert_import_statement(kids):
         raise comp.ParseError("Invalid import statement: missing namespace, source, or path")
 
     return comp.ast.ImportDef(namespace, source, path)
+
+
+def _convert_module_assign(kids):
+    """Convert module assignment to ModuleAssign node.
+
+    Expected structure: identifier _assignment_op tag_value
+    kids will contain: identifier tree, assignment operator token, tag_value tree
+    """
+    # First child is the identifier (the path being assigned to)
+    identifier_tree = kids[0]
+
+    # Convert the identifier to a field path
+    # We need to extract the fields from the identifier
+    path = _convert_module_assign_path(identifier_tree)
+
+    # Third child is the value expression (tag_value)
+    value = _convert_tree(kids[2])
+
+    return comp.ast.ModuleAssign(path, value)
+
+
+def _convert_module_assign_path(tree):
+    """Convert identifier to a list of field nodes for module assignment.
+
+    The path should start with a ScopeField ($mod) and continue with field nodes.
+    Returns a list of field nodes (ScopeField, TokenField, IndexField, ComputeField, etc.)
+    """
+    if not isinstance(tree, lark.Tree) or tree.data != 'identifier':
+        raise comp.ParseError(f"Module assignment path must be an identifier, got {tree.data}")
+
+    # Convert identifier fields to field nodes
+    fields = []
+    for kid in tree.children:
+        if isinstance(kid, lark.Token):
+            if kid.type == 'TOKEN':
+                fields.append(comp.ast.TokenField(kid.value))
+            elif kid.type == 'INDEXFIELD':
+                index = int(kid.value[1:])  # Remove '#'
+                fields.append(comp.ast.IndexField(index))
+            # Skip dots
+        elif isinstance(kid, lark.Tree):
+            # Process tree nodes
+            if kid.data == 'scope':
+                # $name format - extract the scope name
+                if len(kid.children) > 1 and isinstance(kid.children[1], lark.Token):
+                    scope_name = kid.children[1].value
+                    fields.append(comp.ast.ScopeField(scope_name))
+            elif kid.data == 'tokenfield':
+                # tokenfield contains a TOKEN
+                token = kid.children[0]
+                if isinstance(token, lark.Token) and token.type == 'TOKEN':
+                    fields.append(comp.ast.TokenField(token.value))
+            elif kid.data == 'indexfield':
+                # indexfield - convert to IndexField
+                if len(kid.children) == 1 and isinstance(kid.children[0], lark.Token) and kid.children[0].type == 'INDEXFIELD':
+                    # Literal index like #0, #1
+                    index = int(kid.children[0].value[1:])
+                    fields.append(comp.ast.IndexField(index))
+                else:
+                    # Expression form: #(expr)
+                    expr = _convert_tree(kid.children[2])
+                    fields.append(comp.ast.IndexField(expr))
+            elif kid.data == 'stringfield':
+                # stringfield is a string used as field name
+                string_content = _convert_string(kid.children[0].children)
+                fields.append(comp.ast.TokenField(string_content))
+            elif kid.data == 'computefield':
+                # computefield is an expression
+                expr = _convert_tree(kid.children[1])
+                fields.append(comp.ast.ComputeField(expr))
+
+    return fields
+
+
+def _convert_main_definition(kids):
+    """Convert main definition to MainDef node.
+
+    Expected structure: BANG_MAIN _assignment_op structure
+    kids will contain: BANG_MAIN token, assignment operator token, structure tree
+    """
+    # Third child is the structure (the main body)
+    body = _convert_tree(kids[2])
+    return comp.ast.MainDef(body)
+
+
+def _convert_entry_definition(kids):
+    """Convert entry definition to EntryDef node.
+
+    Expected structure: BANG_ENTRY _assignment_op structure
+    kids will contain: BANG_ENTRY token, assignment operator token, structure tree
+    """
+    # Third child is the structure (the entry body)
+    body = _convert_tree(kids[2])
+    return comp.ast.EntryDef(body)
+
+
+def _convert_doc_statement(tree):
+    """Convert documentation statement to DocStatement node.
+
+    Three forms:
+    - doc_module: BANG_DOC MODULE_KEYWORD string
+    - doc_impl: BANG_DOC IMPL_KEYWORD string
+    - doc_general: BANG_DOC string
+    """
+    kids = tree.children
+    is_impl = tree.data == 'doc_impl'
+    is_module = tree.data == 'doc_module'
+
+    # For doc_impl and doc_module, string is the third child (after BANG_DOC and keyword)
+    # For doc_general, string is the second child (after BANG_DOC)
+    string_index = 2 if (is_impl or is_module) else 1
+
+    # Convert the string node
+    string_node = _convert_tree(kids[string_index])
+
+    # Extract the string value
+    if hasattr(string_node, 'value'):
+        doc_text = string_node.value
+    else:
+        raise comp.ParseError(f"Expected string for documentation, got {type(string_node)}")
+
+    return comp.ast.DocStatement(doc_text, is_impl=is_impl, is_module=is_module)
 
 
 def _get_parser(start: str) -> lark.Lark:

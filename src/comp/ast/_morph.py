@@ -98,9 +98,9 @@ class MorphOp(_base.ValueNode):
         if result.success:
             return result.value
         else:
-            # Morphing failed - return a failure
-            # TODO: Better error messages with details about what didn't match
-            return comp.fail("Failed to morph value to shape")
+            # Morphing failed - return a failure with details
+            error_msg = result.failure_reason if result.failure_reason else "Failed to morph value to shape"
+            return comp.fail(error_msg)
         yield  # Unreachable, but makes this a proper generator
 
     def unparse(self) -> str:

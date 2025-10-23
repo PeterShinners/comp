@@ -252,6 +252,7 @@ class ShapeDefinition(_entity.Entity):
         self.fields = fields
         self.is_union = is_union
         self.union_members = union_members or []
+        self.doc = None  # Documentation from !doc statement
 
     @property
     def name(self):
@@ -338,6 +339,71 @@ class ShapeDefinition(_entity.Entity):
         resolved = "resolved" if self.fields else "unresolved"
         return f"ShapeDef(~{self.full_name}, {len(self.fields)} fields ({resolved}))"
 
+    def unparse(self):
+        """Convert shape definition to source-like representation.
+
+        Returns:
+            str: Human-readable shape definition string
+        """
+        if self.is_union and self.union_members:
+            # Union shape: ~name = ~shape1 | ~shape2 | ~shape3
+            members = []
+            for member in self.union_members:
+                if hasattr(member, 'full_name'):
+                    members.append(f"~{member.full_name}")
+                else:
+                    members.append(str(member))
+            return f"~{self.full_name} = {' | '.join(members)}"
+
+        # Regular shape with fields
+        if not self.fields:
+            return f"~{self.full_name} = {{}}"
+
+        # Build field definitions
+        field_strs = []
+        for field in self.fields:
+            field_str = ""
+
+            # Named field: name
+            if field.is_named:
+                field_str = field.name
+
+            # Shape constraint
+            if field.shape:
+                if hasattr(field.shape, 'full_name'):
+                    shape_name = field.shape.full_name
+                elif hasattr(field.shape, 'data'):
+                    # Tag reference
+                    shape_name = f"#{field.shape.data}"
+                else:
+                    shape_name = str(field.shape)
+
+                if field.is_named:
+                    field_str += f" ~{shape_name}"
+                else:
+                    field_str = f"~{shape_name}"
+
+            # Array modifier
+            if field.is_array:
+                field_str += "[]"
+                if field.array_min is not None or field.array_max is not None:
+                    min_str = str(field.array_min) if field.array_min is not None else ""
+                    max_str = str(field.array_max) if field.array_max is not None else ""
+                    if min_str or max_str:
+                        field_str += f"[{min_str}:{max_str}]"
+
+            # Default value
+            if field.default is not None:
+                if hasattr(field.default, 'unparse'):
+                    default_str = field.default.unparse()
+                else:
+                    default_str = str(field.default)
+                field_str += f" = {default_str}"
+
+            field_strs.append(field_str)
+
+        return f"~{self.full_name} = {{{' '.join(field_strs)}}}"
+
 
 class Module(_entity.Entity):
     """Runtime module containing tag definitions and other module-level entities.
@@ -363,7 +429,7 @@ class Module(_entity.Entity):
 
     def __init__(self, is_builtin=False):
         """Initialize a module.
-        
+
         Args:
             is_builtin (bool): True if this is the builtin module
         """
@@ -380,6 +446,21 @@ class Module(_entity.Entity):
         self.scope = Value(None)  # Empty struct initially
         if self.scope.struct is None:
             self.scope.struct = {}
+
+        # Alias for mod_scope to match ModuleAssign usage
+        self.mod_scope = self.scope
+
+        # Entry points (stored as AST nodes, not in function registry)
+        self.main_func = None  # AST node for !main body
+        self.entry_func = None  # AST node for !entry body
+
+        # Documentation
+        self.doc = None  # Module-level documentation from !doc module
+
+        # Pending documentation from !doc statements
+        # Consumed by the next definition that's evaluated
+        self.pending_doc = None  # General documentation
+        self.pending_impl_doc = None  # Implementation-specific documentation
 
         # Add builtin namespace to all non-builtin modules
         if not is_builtin:
@@ -415,13 +496,14 @@ class Module(_entity.Entity):
 
         return tag_def
 
-    def lookup_tag(self, partial_path, namespace=None):
+    def lookup_tag(self, partial_path, namespace=None, local_only=False):
         """Find tag by partial path, optionally in a specific namespace.
 
         Args:
             partial_path (list[str]): Partial path in natural order,
                          e.g., ["error", "timeout"] for #error.timeout
             namespace (str | None): Optional namespace to search in (e.g., "std" for /std)
+            local_only (bool): If True, only search locally defined tags, not imported namespaces
 
         Returns:
             TagDefinition: TagDefinition if unique match found
@@ -432,19 +514,20 @@ class Module(_entity.Entity):
         Notes:
             - If namespace is provided, searches only that namespace
             - If namespace is None, searches local module first, then all namespaces
+            - local_only is used when searching imported namespaces to avoid pollution
         """
         if namespace is not None:
-            # Explicit namespace - look only there
+            # Explicit namespace - look only there (with local_only=True to avoid recursion)
             ns_module = self.namespaces.get(namespace)
             if ns_module is None:
                 partial_str = ".".join(partial_path)
                 raise ValueError(f"Namespace not found: /{namespace} for tag #{partial_str}")
-            return ns_module.lookup_tag(partial_path)
+            return ns_module.lookup_tag(partial_path, local_only=True)
 
-        # No namespace - check local first
+        # No namespace - check local first (only tags defined in THIS module)
         matches = [
             tag_def for tag_def in self.tags.values()
-            if tag_def.matches_partial(partial_path)
+            if tag_def.module == self and tag_def.matches_partial(partial_path)
         ]
 
         if len(matches) == 1:
@@ -458,13 +541,18 @@ class Module(_entity.Entity):
                 f"{', '.join('#' + n for n in match_names)}"
             )
 
-        # Not found locally - check all namespaces
+        # If local_only, don't search namespaces
+        if local_only:
+            partial_str = ".".join(partial_path)
+            raise ValueError(f"Tag not found: #{partial_str}")
+
+        # Not found locally - check all namespaces (with local_only=True for each)
         found_results = []
         found_namespaces = []
 
         for ns_name, ns_module in self.namespaces.items():
             try:
-                result = ns_module.lookup_tag(partial_path)
+                result = ns_module.lookup_tag(partial_path, local_only=True)
                 found_results.append(result)
                 found_namespaces.append(ns_name)
             except ValueError:
@@ -681,13 +769,14 @@ class Module(_entity.Entity):
         """
         self.namespaces[name] = module
 
-    def lookup_shape(self, partial_path, namespace=None):
+    def lookup_shape(self, partial_path, namespace=None, local_only=False):
         """Find shape by partial path, optionally in a specific namespace.
 
         Args:
             partial_path (list[str]): Partial path in natural order,
                          e.g., ["point", "2d"] for ~point.2d
             namespace (str | None): Optional namespace to search in (e.g., "std" for /std)
+            local_only (bool): If True, only search locally defined shapes, not imported namespaces
 
         Returns:
             ShapeDefinition: ShapeDefinition if unique match found
@@ -698,19 +787,20 @@ class Module(_entity.Entity):
         Notes:
             - If namespace is provided, searches only that namespace
             - If namespace is None, searches local module first, then all namespaces
+            - local_only is used when searching imported namespaces to avoid pollution
         """
         if namespace is not None:
-            # Explicit namespace - look only there
+            # Explicit namespace - look only there (with local_only=True to avoid recursion)
             ns_module = self.namespaces.get(namespace)
             if ns_module is None:
                 partial_str = ".".join(partial_path)
                 raise ValueError(f"Namespace not found: /{namespace} for shape ~{partial_str}")
-            return ns_module.lookup_shape(partial_path)
+            return ns_module.lookup_shape(partial_path, local_only=True)
 
-        # No namespace - check local first
+        # No namespace - check local first (only shapes defined in THIS module)
         matches = [
             shape_def for shape_def in self.shapes.values()
-            if shape_def.matches_partial(partial_path)
+            if shape_def.module == self and shape_def.matches_partial(partial_path)
         ]
 
         if len(matches) == 1:
@@ -724,13 +814,18 @@ class Module(_entity.Entity):
                 f"{', '.join('~' + n for n in match_names)}"
             )
 
-        # Not found locally - check all namespaces
+        # If local_only, don't search namespaces
+        if local_only:
+            partial_str = ".".join(partial_path)
+            raise ValueError(f"Shape not found: ~{partial_str}")
+
+        # Not found locally - check all namespaces (with local_only=True for each)
         found_results = []
         found_namespaces = []
 
         for ns_name, ns_module in self.namespaces.items():
             try:
-                result = ns_module.lookup_shape(partial_path)
+                result = ns_module.lookup_shape(partial_path, local_only=True)
                 found_results.append(result)
                 found_namespaces.append(ns_name)
             except ValueError:
@@ -751,13 +846,14 @@ class Module(_entity.Entity):
             )
 
     def lookup_function(self, partial_path,
-                        namespace=None):
+                        namespace=None, local_only=False):
         """Find function by partial path, optionally in a specific namespace.
 
         Args:
             partial_path (list[str]): Partial path in natural order,
                          e.g., ["geometry", "area"] for |geometry.area
             namespace (str | None): Optional namespace to search in (e.g., "std" for /std)
+            local_only (bool): If True, only search locally defined functions, not imported namespaces
 
         Returns:
             list[_function.FunctionDefinition]: List of FunctionDefinition overloads
@@ -768,20 +864,21 @@ class Module(_entity.Entity):
         Notes:
             - If namespace is provided, searches only that namespace
             - If namespace is None, searches local module first, then all namespaces
+            - local_only is used when searching imported namespaces to avoid pollution
         """
         if namespace is not None:
-            # Explicit namespace - look only there
+            # Explicit namespace - look only there (with local_only=True to avoid recursion)
             ns_module = self.namespaces.get(namespace)
             if ns_module is None:
                 partial_str = ".".join(partial_path)
                 raise ValueError(f"Namespace not found: /{namespace} for function |{partial_str}")
-            return ns_module.lookup_function(partial_path)
+            return ns_module.lookup_function(partial_path, local_only=True)
 
-        # No namespace - check local first
+        # No namespace - check local first (only functions defined in THIS module)
         matches = []
         for _full_name, overloads in self.functions.items():
-            # Check if any overload matches
-            if overloads and overloads[0].matches_partial(partial_path):
+            # Check if any overload matches and is locally defined
+            if overloads and overloads[0].module == self and overloads[0].matches_partial(partial_path):
                 matches.append(overloads)
 
         if len(matches) == 1:
@@ -795,13 +892,18 @@ class Module(_entity.Entity):
                 f"{', '.join('|' + n for n in match_names)}"
             )
 
-        # Not found locally - check all namespaces
+        # If local_only, don't search namespaces
+        if local_only:
+            partial_str = ".".join(partial_path)
+            raise ValueError(f"Function not found: |{partial_str}")
+
+        # Not found locally - check all namespaces (with local_only=True for each)
         found_results = []
         found_namespaces = []
 
         for ns_name, ns_module in self.namespaces.items():
             try:
-                result = ns_module.lookup_function(partial_path)
+                result = ns_module.lookup_function(partial_path, local_only=True)
                 found_results.append(result)
                 found_namespaces.append(ns_name)
             except ValueError:
@@ -981,7 +1083,7 @@ class Module(_entity.Entity):
             Loaded Module, or fail Value if loading failed
         """
         if import_def.source == "stdlib":
-            from .stdlib import get_stdlib_module
+            from .corelib import get_stdlib_module
             try:
                 return get_stdlib_module(import_def.path)
             except Exception as e:
@@ -1090,13 +1192,22 @@ class Module(_entity.Entity):
         Definitions from namespaces are added with lower priority than local definitions.
         They are added both with and without explicit namespace qualifiers.
 
+        IMPORTANT: Only definitions that are locally defined in ns_module are added.
+        Definitions inherited from ns_module's dependencies are NOT included to avoid
+        namespace pollution (e.g., if loop.comp imports builtin, we don't want builtin's
+        definitions appearing in the loop namespace when someone imports loop).
+
         Args:
             resolution_ns: Resolution namespace dictionary to populate
             ns_name: Name of the namespace
             ns_module: Module to import definitions from
         """
-        # Add tags from namespace
+        # Add tags from namespace (only local definitions)
         for tag_def in ns_module.tags.values():
+            # Skip definitions inherited from dependencies
+            if tag_def.module != ns_module:
+                continue
+            
             # Add with explicit namespace qualifier
             for i in range(len(tag_def.path)):
                 partial = tuple(tag_def.path[i:])
@@ -1123,8 +1234,12 @@ class Module(_entity.Entity):
                         # Both are from namespaces - mark as ambiguous
                         resolution_ns[key_implicit] = 'AMBIGUOUS'
 
-        # Add shapes from namespace
+        # Add shapes from namespace (only local definitions)
         for shape_def in ns_module.shapes.values():
+            # Skip definitions inherited from dependencies
+            if shape_def.module != ns_module:
+                continue
+            
             for i in range(len(shape_def.path)):
                 partial = tuple(shape_def.path[i:])
 
@@ -1142,10 +1257,14 @@ class Module(_entity.Entity):
                     else:
                         resolution_ns[key_implicit] = 'AMBIGUOUS'
 
-        # Add functions from namespace
+        # Add functions from namespace (only local definitions)
         for _func_name, func_overloads in ns_module.functions.items():
             if func_overloads:
                 func_def = func_overloads[0]
+                # Skip definitions inherited from dependencies
+                if func_def.module != ns_module:
+                    continue
+                
                 for i in range(len(func_def.path)):
                     partial = tuple(func_def.path[i:])
 
