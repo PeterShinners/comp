@@ -112,7 +112,7 @@ Streams are blocks that maintain internal state and generate values when invoked
 ; Stream generator returns a block
 !func |counter arg ~{start ~num = 0} = &{
     $var.current = $arg.start - 1
-    
+
     ; Return block that generates values
     $out = :{
         $var.current = $var.current + 1
@@ -148,17 +148,17 @@ Functions use loose morphing (extra fields ignored), while blocks use strict mor
 
 ; Two-way communication streams
 !func |stateful-stream = &{
-    @state = 0
+    $var.state = 0
     
     $out = :{value ~num?} {
-        @state = value ?? @state + 1
-        @state
+        $var.state = value ?? $var.state + 1
+        $var.state
     }
 }
 
-@stream = [|stateful-stream]
-|:@stream           ; 1 (default increment)
-10 |:@stream        ; 10 (explicit value)
+$var.stream = [|stateful-stream]
+|:$var.stream           ; 1 (default increment)
+10 |:$var.stream        ; 10 (explicit value)
 ```
 
 ## Core Iterator Functions
@@ -214,8 +214,8 @@ Reduces a sequence to a single value using an accumulator.
 }
 
 ; Usage
-[{1 2 3} |fold 0 :{$in.accumulator + $in.element}]  ; 6
-[$var.stream |take 100 |fold {} :{..$in.accumulator $in.element}]  ; Collect stream
+[{1 2 3} |fold 0 :{accumulator + element}]  ; 6
+[$var.stream |take 100 |fold {} :{..accumulator element}]  ; Collect stream
 ```
 
 ### |each
@@ -226,7 +226,10 @@ Executes a block for each element, primarily for side effects.
     ; Forces evaluation, returns empty structure
 }
 
-````
+; Usage
+[{1 2 3} |each :{$in |print}]
+[$var.stream |take 10 |each :{$in |process}]
+```
 
 ### |range
 Creates a sequence of numbers as a lazy structure.
@@ -247,7 +250,7 @@ Creates an infinite counting stream.
 ```comp
 !func |counter arg ~{start ~num = 0 step ~num = 1} = &{
     $var.current = $arg.start - $arg.step
-    
+
     $out = :{
         $var.current = $var.current + $arg.step
         $var.current
@@ -294,13 +297,10 @@ Checks if a sequence contains any elements without forcing evaluation.
 Streams can defer expensive initialization until first use:
 
 ```comp
-Streams can defer expensive initialization until first use:
-
-```comp
 !func |file-lines arg ~{path ~str} = &{
     $var.file = #nil
     $var.done = #false
-    
+
     $out = :{
         $var.file == #nil |when :{
             $var.file = $arg.path |open/file
@@ -329,26 +329,7 @@ $ctx.random = [123 |seed/random]
 ; Functions use context stream
 !func |create-values arg ~{count ~num} = {
     $var.rng = $ctx.random ?? [|default-random]
-    
-    [1 |range $arg.count |map :{
-        [|:$var.rng |uniform {0 1}]
-    }]
-}
-````
-```
 
-### Integration with Context
-
-Streams naturally integrate with Comp's context system:
-
-```comp
-; Set random generator in context
-$ctx.random = [123 |seed/random]
-
-; Functions use context stream
-!func |create-values arg ~{count ~num} = {
-    $var.rng = $ctx.random ?? [|default-random]
-    
     [1 |range $arg.count |map :{
         [|:$var.rng |uniform {0 1}]
     }]

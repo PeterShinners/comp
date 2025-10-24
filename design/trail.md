@@ -25,17 +25,17 @@ A trail literal using `/path/` syntax creates a structure containing navigation 
 
 ```comp
 ; Simple trail literal
-@path = /users/profile/theme/
+$var.path = /users/profile/theme/
 
 ; Trail with expression segments
-@dynamic = /users/'user-id'/settings/
+$var.dynamic = /users/'user-id'/settings/
 
 ; Trail with axis shift
-@archive = /backup.zip/zip:/data/config.json/
+$var.archive = /backup.zip/zip:/data/config.json/
 
 ; Apply trails to navigate data
 config |get /database/host/
-data |set @path new-value
+data |set $var.path new-value
 ```
 
 The trail syntax provides convenient shorthand for creating navigation structures. Trails are always relative to whatever object they're applied to - there's no concept of absolute trails.
@@ -93,13 +93,13 @@ data |set /users/profile/ value
 data |exists? /users/alice/
 
 ; Filesystem operations with trails
-@dir |get /src/lib/utils/
-@dir |set /config/settings.json/ content
-@dir |exists? /build/output/
+$var.dir |get /src/lib/utils/
+$var.dir |set /config/settings.json/ content
+$var.dir |exists? /build/output/
 
 ; Archive navigation
-@archive = ("/data.zip" |open-as-filesystem)
-@file = (@archive |get /documents/report.pdf/)
+$var.archive = ("/data.zip" |open-as-filesystem)
+$var.file = ($var.archive |get /documents/report.pdf/)
 ```
 
 The standard library provides trail operations that interpret these structures. For information about the module system and standard library organization, see [Modules, Imports, and Namespaces](module.md).
@@ -119,17 +119,17 @@ Since trails are just structures, they compose using normal structure operations
 
 ```comp
 ; Dynamic segments with expressions
-@user = "alice"
-@data = data |get /users/'@user'/profile/
+$var.user = "alice"
+$var.data = data |get /users/'$var.user'/profile/
 
 ; Trail variables
-@base = /api/v2/
-@endpoint = /users/
-@full = @base/'@endpoint'/    ; Expression joins paths
+$var.base = /api/v2/
+$var.endpoint = /users/
+$var.full = $var.base/'$var.endpoint'/    ; Expression joins paths
 
 ; Computed field names
-@field = "email"
-profile |get /user/'@field'/
+$var.field = "email"
+profile |get /user/'$var.field'/
 ```
 
 ## Filesystem Integration
@@ -138,9 +138,9 @@ Trails are the primary way to navigate filesystem hierarchies, with axis-shift n
 
 ```comp
 ; Directory operations with trails
-@project = ("./myapp" |open-dir)
-@config = (@project |get /config/settings.json/)
-@source = (@project |list /src/*/)
+$var.project = ("./myapp" |open-dir)
+$var.config = ($var.project |get /config/settings.json/)
+$var.source = ($var.project |list /src/*/)
 
 ; Archive navigation
 /backups/2024.tar/tar:/january/data.json/
@@ -161,7 +161,7 @@ The import system uses trail notation for consistency with the rest of Comp's pa
 !import /math = std /core/math/
 
 ; Git repository imports
-!import /lib = comp /git@github.com:/user/repo.git/
+!import /lib = comp /git$var.github.com:/user/repo.git/
 
 ; Local filesystem imports
 !import /utils = comp /./lib/utils/
@@ -182,13 +182,13 @@ Trail operations can include wildcards and recursive patterns:
 
 ```comp
 ; Wildcard selection
-@dir |list /src/*/
+$var.dir |list /src/*/
 
 ; Recursive descent (with explicit axis)
 /photos:dir/**.jpg/exif:/DateTaken/
 
 ; Pattern matching
-@dir |match /tests/*_test.comp/
+$var.dir |match /tests/*_test.comp/
 
 ; Future: predicate filtering
 /users:/array/[age > 18]/email/
@@ -200,13 +200,13 @@ The Store system uses trails for navigating mutable state:
 
 ```comp
 ; Store operations with trails
-@store |get /users/alice/profile/
-@store |set /cache/results/ data
-@store |delete /temp/*/
+$var.store |get /users/alice/profile/
+$var.store |set /cache/results/ data
+$var.store |delete /temp/*/
 
 ; Axis shifts clarify navigation intent
-@store |get /users:/key/alice/field:/email/
-@store |set /cache:/ttl/3600/data:/results/ value
+$var.store |get /users:/key/alice/field:/email/
+$var.store |set /cache:/ttl/3600/data:/results/ value
 ```
 
 ## Type Safety and Validation
@@ -228,7 +228,7 @@ While trails are runtime values (just structures), they can integrate with Comp'
 ; Trail validation
 !func |safe-navigate ~{data} arg ~{path} = {
     $arg.path |valid?/trail |if {
-        $in.data |get $arg.path
+        data |get $arg.path
     } {
         {#invalid-trail.fail path=$arg.path}
     }
@@ -245,10 +245,10 @@ Trail operations can be optimized through caching and compilation:
 
 ```comp
 ; First use parses and caches
-@path = /users/profile/settings/
-data |get @path     ; Cached trail structure reused
+$var.path = /users/profile/settings/
+data |get $var.path     ; Cached trail structure reused
 
 ; Compiled accessors for hot paths
-@hot-path = /api/v2/users/ |compile/trail
-requests |map {$in |get @hot-path}
+$var.hot-path = /api/v2/users/ |compile/trail
+requests |map {$in |get $var.hot-path}
 ```

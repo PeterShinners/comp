@@ -18,8 +18,8 @@ The runtime provides a single `resource` token that controls access to all exter
 ; Regular function - has resource access
 !func |process-file arg ~{path ~str} = {
     content = [$arg.path |fetch]          ; Needs resource token
-    processed = [content |transform]       ; Pure computation
-    [processed |save-to-cache]            ; Needs resource token
+    processed = [content |transform]   ; Pure computation
+    [processed |save-to-cache]        ; Needs resource token
 }
 
 ; Pure function - no resource access
@@ -91,7 +91,7 @@ Stores require resources internally, preventing their use in pure functions. Thi
 !pure
 !func |analyze ~{snapshot} = {
     ; Read from immutable snapshot (no resource needed)
-    value = $in.snapshot.data
+    value = snapshot.data
     ; Cannot modify - snapshot is immutable
     value |transform
 }
@@ -140,7 +140,7 @@ The standard library enforces purity through internal resource requirements. Eve
 
 !func |print ~{message} = {
     $var.output = [|acquire-resource io]    ; Fails in pure context
-    [$var.output |write $in.message]
+    [$var.output |write message]
 }
 
 ; File operations through capability system

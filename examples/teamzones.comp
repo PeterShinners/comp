@@ -1,0 +1,69 @@
+; Team Timezone Display
+;
+; Original nushell script:
+; https://github.com/nushell/nu_scripts/blob/main/sourced/examples/date_in_local_timezones.nu
+;
+; This example demonstrates:
+; - Working with structured data (list of records)
+; - Timezone conversion and formatting
+; - Templates as first-class data values
+; - Structure spreading with {..$in field=value}
+; - Module-level data with $mod
+;
+; TODO: Add !doc statements once parser supports them
+
+; Core team members with their timezone information
+$mod.core-team = {
+    {name="andres" tz="America/Guayaquil"}
+    {name="fdncred" tz="US/Central"}
+    {name="gedge" tz="US/Eastern"}
+    {name="jt" tz="NZ"}
+    {name="wycats" tz="US/Pacific"}
+    {name="kubouch" tz="Europe/Helsinki"}
+    {name="elferherrera" tz="Europe/London"}
+}
+
+; Enriches a list of people with local time for a given event.
+;
+; Takes each person's timezone and calculates what time the event
+; occurs in their local timezone. Also capitalizes names.
+;
+; Returns a new structure with original fields plus:
+; - name: Capitalized version of the original name
+; - time: Formatted local time for the event
+!func |with-local-time ~{people} arg ~{event ~datetime} = {
+    [people |map :{
+        {..$in
+         name=[$in.name |capitalize/str]
+         time=[$arg.event |to-timezone/time $in.tz |format/time "%c"]}
+    }]
+}
+
+; Formats each item in a collection using a template string.
+;
+; This demonstrates templates as data - the template is just a string
+; with %{field} placeholders that gets composed with each structure
+; using the % operator.
+;
+; Example:
+;   [people |format-each template="%{name} lives in %{city}"]
+!func |format-each ~{people} arg ~{template ~str} = {
+    [people |map :{[$in % $arg.template]} |join/str "\n"]
+}
+
+; Main entry point - displays team timezones for an upcoming meeting.
+;
+; Shows three things:
+; 1. Each person's timezone
+; 2. A header with the meeting time
+; 3. What time the meeting is for each person in their local timezone
+!main = {
+    $var.event = ["2021-08-31 15:00:21.290597200 -05:00" |parse-datetime/time]
+    $var.people = [$mod.core-team |with-local-time event=$var.event]
+
+    [$var.people |format-each template="%{name}'s timezone is %{tz}" |print]
+
+    [%"\n\nfor the next call happening on %{$var.event |format/time \"%c\"}.. in their timezones they would be:\n\n" |print]
+
+    [$var.people |format-each template="%{name}'s: %{time}" |print]
+}

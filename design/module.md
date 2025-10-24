@@ -30,8 +30,8 @@ The import system's real power comes from its variety of sources. Instead of for
 !import /shared = comp /home/shared/libs/
 
 ; Git repository imports with trail notation
-!import /project = comp /git@github.com:company/project.git/
-!import /versioned = comp /git@github.com:org/lib.git/tag:/v2.0.1/
+!import /project = comp /git$var.github.com:company/project.git/
+!import /versioned = comp /git$var.github.com:org/lib.git/tag:/v2.0.1/
 
 ; Archive imports using axis-shift notation
 !import /vendor = comp /vendor.tar/tar:/libs/database/
@@ -74,9 +74,9 @@ The trail notation in imports provides consistent, readable module references:
 !import /absolute = comp /opt/comp/libs/math/
 
 ; Git repositories with axis shifts
-!import /lib = comp /git@github.com:user/repo.git/
-!import /branch = comp /git@example.com:project.git:branch/develop/
-!import /tag = comp /git@github.com:org/lib.git:tag/v1.2.3/
+!import /lib = comp /git$var.github.com:user/repo.git/
+!import /branch = comp /git$var.example.com:project.git:branch/develop/
+!import /tag = comp /git$var.github.com:org/lib.git:tag/v1.2.3/
 
 ; Archives with axis notation
 !import /archived = comp /downloads/libs.tar:tar/core/
@@ -102,8 +102,8 @@ Imports can define fallbacks using the `??` operator—if a module can't be foun
 !import /graphics = comp /./graphics-gpu/ ?? comp /./graphics-cpu/
 
 ; Version preferences with trails
-!import /db = comp /git@github.com:db/postgres.git/tag:/v3.0/
-            ?? comp /git@github.com:db/postgres.git/tag:/v2.0/
+!import /db = comp /git$var.github.com:db/postgres.git/tag:/v3.0/
+            ?? comp /git$var.github.com:db/postgres.git/tag:/v2.0/
             ?? std /core/db/
 ```
 
@@ -118,7 +118,7 @@ By default, imports coordinate through the main entry module. Libraries check if
 !import /json =* std /core/json/    ; Always use standard library
 
 ; In main module - becomes source for libraries
-!import /json = comp /git@github.com:fast/json.git/tag:/v2.0/
+!import /json = comp /git$var.github.com:fast/json.git/tag:/v2.0/
 ```
 
 ## Entry Points and Initialization
@@ -140,11 +140,11 @@ Modules can define two special entry points that eliminate initialization headac
     ; Program entry point - only in executable modules
     ; All module initialization is complete
     
-    @args = [|parse/cli]
-    [@args.config-file |load-config] @config =
+    $var.args = [|parse/cli]
+    [$var.args.config-file |load-config] $var.config =
     
-    @args.command |match
-        {serve} {[@config |start-server]}
+    $var.args.command |match
+        {serve} {[$var.config |start-server]}
         {test} {|run-tests}
         {#true} {|show-help}
 }
@@ -158,9 +158,9 @@ A module defines its package metadata directly in the `$mod` namespace rather th
 $mod.package = {
     name = image-processor
     version = 2.1.0
-    author = Alice Smith <alice@example.com>
+    author = Alice Smith <alice$var.example.com>
     homepage = https://example.com/image-processor
-    repository = /git@github.com:alice/image-processor.git/
+    repository = /git$var.github.com:alice/image-processor.git/
 }
 ```
 
@@ -195,7 +195,7 @@ While most imports are static, the language supports runtime module loading thro
 
 ; Use generated namespaces normally
 user = [|get/users/api id=123]
-result = [|find-by-email/users/db email=user@example.com]
+result = [|find-by-email/users/db email=user$var.example.com]
 ```
 
 ## Module File Organization
@@ -217,13 +217,13 @@ graphics/accel.windows.comd  ; Windows acceleration
 
 ## Namespace Management and Aliasing
 
-After import, modules provide their definitions through their namespace, with namespace qualification added when needed for disambiguation.
+After import, modules provide their definitions through their namespace. The reversed notation puts the most specific part first, with namespace qualification added when needed for disambiguation.
 
 ```comp
-; Natural notation with namespace
-[text |str/length]          ; Function from str module
-data ~math/matrix           ; Shape from math module
-#store/state.initialized    ; Tag from store module
+; Reversed notation - specific first
+[text |length/str]          ; Function from str module
+data ~matrix/math           ; Shape from math module
+#initialized.state/store    ; Tag from store module
 
 ; Short forms when unique
 [text |length]              ; If only one 'length' function
@@ -231,12 +231,12 @@ data ~matrix                ; If only one 'matrix' shape
 state = #initialized        ; If tag is unique
 
 ; Create local aliases for convenience
-!alias |sqrt = |math/sqrt
-!alias ~vec = |math/vector-3d
-!alias #error = #net.error
+!alias |sqrt = |sqrt/math
+!alias ~vec = ~vector-3d/math
+!alias #error = #error.net
 
 ; Now use short forms
-{[4 |sqrt] [9 |math/cbrt]}  ; Mix aliased and qualified
+{[4 |sqrt] [9 |cbrt/math]}  ; Mix aliased and qualified
 ```
 
 ## Module Caching and Optimization

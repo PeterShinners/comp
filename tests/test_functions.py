@@ -7,14 +7,13 @@ import comptest
 def test_function_with_wrong_input_type():
     """Test function with wrong input type."""
     value = comptest.run_frame("double", "not a number", None)
-    comptest.assert_fail(value, "not a number")
+    comptest.assert_fail(value, "expects num")
 
 
 def test_function_missing_required_arg():
     """Test function with missing required argument."""
     value = comptest.run_frame("add", 5, None)
-    comptest.assert_fail(value, "argument")
-
+    comptest.assert_fail(value, "Missing required field 'n'")
 
 
 def test_function_dispatch_by_shape():

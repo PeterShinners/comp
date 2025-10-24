@@ -36,9 +36,9 @@ System](shape.md).
 
 ```comp
 !func |calculate-area ~{width ~num height ~num} = {
-    area = $in.width * $in.height
-    perimeter = ($in.width + $in.height) * 2
-    diagonal = ($in.width ** 2 + $in.height ** 2) ** 0.5
+    area = width * height
+    perimeter = (width + height) * 2
+    diagonal = (width ** 2 + height ** 2) ** 0.5
     {area perimeter diagonal}
 }
 
@@ -76,7 +76,7 @@ file. A function is comprised of several required and optional parts.
 * **Name** Must be prefixed with `|` pipe, which matches how this
 function is referenced later. This immediately follows the `!func` operator.
 * **Body** The final part of the function definition is a regular structure
-definition. Its contents are not executed immediately but will be performed
+definition. It's contents are not executed immediately but will be performed
 when the function is invoked to create a new structure value.
 * **Documentation** The `!doc` operator is used before the function definition
 to attach an optional description. This is intended for a shorter summary
@@ -84,14 +84,13 @@ definition. Longer form descriptions and examples can be attached from other
 parts of the module.
 * **Shape** Either a shape reference or an inline shape definition. This
 describes the type of data the function expects to work on. The fields this
-provides will be available from the `$in` scope, or by using its fields as
+provides will be available from the `$in` scope, or by using it's fields as
 undecorated field names inside the function.
 * **Arguments** Is a secondary, optional shape definition that is used to
-provide arguments to the function. Arguments are introduced with the `arg` keyword
-followed by a shape (either inline or reference). Arguments are intended to control
-the way a function behaves, not the data it works on. Arguments can also define special
-block values which are like callbacks. The argument shape also controls what
-fields are visible in `$mod` and `$ctx` through automatic shape masking.
+provide arguments to the function. Arguments are intended to control the way a
+function behaves, not the data it works on. Arguments can also define special
+block values which are like callbacks. The arguments are available in the `^arg`
+namespace, which is normally accessed through the `^` operator.
 * **Pure** The function can be preceded with a `!pure` statement to guarantee
 it has no side effects and executes deterministically.
 
@@ -110,14 +109,14 @@ results it wants to become its value.
 !func |filter-items
     ~{items[]}
     arg ~{threshold ~num = 0} = {
-    [$in.items |filter :{$in > $arg.threshold}]
+    [items |filter :{$in > $arg.threshold}]
 }
 
 !func |process-order ~order-data arg ~process-config = {
     ; Implementation focuses on logic, not type declarations
     validated = [$arg.validate? |if :{#true}
-        :{[$in.order |validate]}
-        :{$in.order}]
+        :{[order |validate]}
+        :{order}]
 
     processed = [validated |apply-priority $arg.priority]
 }
@@ -203,7 +202,7 @@ Functions have access to multiple scopes with well-defined semantics:
     $var.temp = 42    ; Writes to function-local variable
 ````
     ; Invalid operations
-    ^x = 100          ; ❌ ERROR: ^ is read-only
+    $ctx.$x = 100     ; ❌ ERROR: $ctx$ is read-only
     $arg.x = 100      ; ❌ ERROR: $arg is immutable
 }
 ```
@@ -238,37 +237,6 @@ Writes to `$ctx` and `$mod` update both the function's local masked view and the
 ```
 
 This write-through behavior enables functions to communicate through shared scopes while maintaining argument discipline through masking.
-
-### Explicit Masking Operations
-
-The mask operators used automatically in functions are also available for manual use:
-
-```comp
-; Permissive mask (^) - intersection filter
-!shape ~safe-fields = {user ~str session ~str}
-
-untrusted-data = {
-    user="alice"
-    session="abc123"
-    admin-key="secret"
-    internal-state="xyz"
-}
-
-safe-data = untrusted-data ^ ~safe-fields
-; Result: {user="alice" session="abc123"}
-; Filtered out: admin-key, internal-state
-
-; Strict mask (^*) - exact validation
-!shape ~api-request = {method ~str path ~str timeout ~num = 30}
-
-validated = {method="GET" path="/api"} ^* ~api-request
-; ✅ Result: {method="GET" path="/api" timeout=30}
-
-invalid = {method="GET" path="/api" hacker="code"} ^* ~api-request
-; ❌ FAILS: Extra field 'hacker' not in shape
-```
-
-For complete details on mask operators and their relationship to morph operators, see [Shapes, Units, and Type System](shape.md).
 
 ### Isolated Function Boundaries
 
@@ -313,13 +281,11 @@ Functions are lazy by default—their fields compute on-demand rather than all a
 This solves the common problem of expensive calculations in objects: do you compute everything upfront (slow startup) or compute on-demand every time (slow access)? Lazy functions give you the best of both worlds.
 
 ```comp
-```comp
 !func |infinite-sequence arg ~{start ~num step ~num} = {
     [range |count |map :{$arg.start + $in * $arg.step}]
 }
 
 !func |expensive-analysis ~{data} = {
-````
     summary = [data |compute-summary]
     statistics = [data |deep-statistical-analysis]
     visualization = [data |generate-charts]
@@ -344,17 +310,17 @@ Privacy structures solve the common problem of functions that need complex inter
 ; Regular function - every statement contributes to output
 !func |messy-calculation ~{data} = {
     validation = [data |validate]        ; This becomes output field
-    temp-result = [validation |process]  ; This becomes output field
+    temp-result = [validation |process]  ; This becomes output field  
     final = [temp-result |finalize]      ; This becomes output field
     ; Result: {validation=... temp-result=... final=...}
 }
 
 ; Privacy function - only explicit $out modifications are exported
 !func |clean-calculation ~{data} = &{
-    $var.validation = [$in.data |validate]        ; Internal only
+    $var.validation = [data |validate]        ; Internal only
     $var.temp-result = [$var.validation |process]  ; Internal only
-    $var.final = [$var.temp-result |finalize]      ; Internal only
-
+    $var.final = [$var.temp-result |finalize]     ; Internal only
+    
     ; Only these become output
     $out.result = $var.final
     $out.success = #true
@@ -363,11 +329,11 @@ Privacy structures solve the common problem of functions that need complex inter
 
 ; Privacy function for controlled generators (still lazy by default)
 !func |filtered-sequence arg ~{filter-fn} = &{
-    $var.raw-data = [|get-large-dataset]           ; Internal processing
+    $var.raw-data = [|get-large-dataset]      ; Internal processing
     $var.processed = [$var.raw-data |expensive-transform]
 
     ; Only expose the final filtered results
-    $out.result = [$in.data |:$arg.filter-fn $var.processed]
+    $out.result = [data |$arg.filter-fn $var.processed]
 }
 ```
 
@@ -376,14 +342,14 @@ Privacy structures work with all the same mechanisms as regular structures—sha
 ```comp
 ; Mixed approach - some fields automatic, some controlled
 !func |user-profile ~{user-id} = &{
-    $var.user-data = [$in.user-id |database.fetch]
+    $var.user-data = [user-id |database.fetch]
     $var.permissions = [$var.user-data |calculate-permissions]
     $var.preferences = [$var.user-data |load-preferences]
-
+    
     ; Automatic exports (these create output fields)
     display-name = $var.user-data.name
     avatar-url = $var.user-data.avatar
-
+    
     ; Controlled exports via $out
     $out.can-admin = ($var.permissions.admin?)
     $out ..= [$var.preferences |filter-public]
@@ -399,9 +365,9 @@ The `!pure` decorator creates hard enforcement—these functions literally canno
 ```comp
 !pure
 !func |fibonacci ~{n ~num} = {
-    [$in.n |if :{$in <= 1} :{$in} :{
-        $var.a = [$in.n - 1 |fibonacci]
-        $var.b = [$in.n - 2 |fibonacci]
+    [n |if :{$in <= 1} :{$in} :{
+        $var.a = [n - 1 |fibonacci]
+        $var.b = [n - 2 |fibonacci]
         $var.a + $var.b
     }]
 }
@@ -461,7 +427,7 @@ passed as named argument they use the dotted prefix instead of an equal sign.
 For simple values passed to named block parameters, use regular named argument
 syntax without the dot prefix.
 
-Ephemeral blocks are created with `:{...}` or `:[...]` syntax but cannot be invoked until they are typed. When passed to function arguments, they are automatically morphed to match the expected block input shape. This provides type safety while allowing flexible block definitions.
+Ephemeral blocks are created with `:{...}` syntax but cannot be invoked until they are typed. When passed to function arguments, they are automatically morphed to match the expected block input shape. This provides type safety while allowing flexible block definitions.
 
 Block arguments are determined by the function's arg shape definition. When the
 parser encounters `:{}`, it creates a deferred block.
@@ -475,15 +441,14 @@ the current pipeline value as input. Block parameters in function argument
 shapes can specify the expected input shape using `~:{shape}` syntax.
 
 ```comp
-```comp
 !func |with-retry ~{operation} arg ~{on-error ~:{~str}} = {
     $var.attempts = 0
-    [$in.operation |while :{$var.attempts < 3} :{
-        $var.result = [$in.operation |execute |? :{
+    [operation |while :{$var.attempts < 3} :{
+        $var.result = [operation |execute |? :{
             $var.attempts = $var.attempts + 1
-            $var.error-msg = %"Attempt ${$var.attempts} failed"
+            $var.error-msg = %"Attempt %{$var.attempts} failed"
             [$var.error-msg |: $arg.on-error]  ; Invoke block with string input
-            [$var.attempts |if :{$in >= 3} :{$in.operation} :{#skip}]
+            [$var.attempts |if :{$in >= 3} :{operation} :{#skip}]
         }]
     }]
     $var.result
@@ -494,26 +459,25 @@ shapes can specify the expected input shape using `~:{shape}` syntax.
     validate ~:{~item}
     callback ~:{~num ~num}
 } = {
-    $var.processed = [$in.items |map :{[$in |: $arg.transform]}]
+    $var.processed = [items |map :{[$in |: $arg.transform]}]
     $var.valid = [$var.processed |filter :{[$in |: $arg.validate]}]
     $var.count = [$var.valid |count]
-    $var.total = [$var.valid |sum :{$in.amount}]
+    $var.total = [$var.valid |sum :{amount}]
     [{$var.count $var.total} |: $arg.callback]  ; Invoke with two numbers
 }
-```
 
 ; Usage with explicit blocks
 [data |with-retry on-error:{[error-msg |log]}]
 
 ; Usage with simple values - automatically wrapped
-@style = [complete |if :{$in} :"strikethrough" :"normal"]
-@variant = [priority |if :{$in == urgent} :"primary" :"secondary"]
+$var.style = [complete |if :{$in} :"strikethrough" :"normal"]
+$var.variant = [priority |if :{$in == $in.urgent} :"primary" :"secondary"]
 
 ; Named block arguments can use simple values too
 [items |process-items
     transform:{[$in |enhance |normalize]}  ; explicit block
     validate=#true                         ; simple value for block parameter
-    callback:{[@count @total |summarize]}] ; explicit block with two inputs
+    callback:{[$var.count $var.total |summarize]}] ; explicit block with two inputs
 
 ; Mixed usage in conditionals
 [|prepare-data :{[|called-unnamed-block]} named:{[|called-named-block]}]
@@ -522,7 +486,7 @@ shapes can specify the expected input shape using `~:{shape}` syntax.
 ; Complex control flow with mixed block styles
 [items |process-batch
     transform:{[$in |enhance |normalize]}
-    validate:{score > threshold}
+    validate:{$in.score > $in.threshold}
     on-success="completed"]  ; Simple string wrapped automatically
 ```
 
@@ -532,8 +496,8 @@ Blocks can be invoked using the `|:` operator, which executes the block with the
 
 ```comp
 ; Block stored in variable
-@validator = :{[$in |check-format |validate-rules]}
-result = [data |: @validator]  ; Invoke the block
+$var.validator = :{[$in |check-format |validate-rules]}
+$var.result = [data |: $var.validator]  ; Invoke the block
 
 ; Block literals can be invoked directly
 result = [data |: :{[$in |transform |validate]}]
@@ -558,41 +522,41 @@ Unlike complete pipelines that start with specific data, partial pipeline fragme
 
 ```comp
 ; Partial pipeline fragments for data processing
-@validation-chain = :{
-    [$in |check-format
-         |validate-schema
-         |sanitize-input]
-}
+$var.validation-chain = :[
+    $in |check-format
+         |validate-schema  
+         |sanitize-input
+]
 
-@enrichment-chain = :{
-    [$in |lookup-metadata
+$var.enrichment-chain = :[
+    $in |lookup-metadata
          |calculate-scores
-         |add-timestamps]
-}
+         |add-timestamps
+]
 
-@output-chain = :{
-    [$in |format-results
+$var.output-chain = :[
+    $in |format-results
          |apply-templates
-         |compress-data]
-}
+         |compress-data
+]
 
 ; Apply fragments to different data sources
-user-data = [raw-users |: @validation-chain |: @enrichment-chain]
-system-data = [raw-systems |: @validation-chain |: @output-chain]
+user-data = [raw-users |: $var.validation-chain |: $var.enrichment-chain]
+system-data = [raw-systems |: $var.validation-chain |: $var.output-chain]
 
 ; Compose fragments into complete workflows
-@complete-workflow = :{
-    [$in |: @validation-chain
-         |: @enrichment-chain
-         |: @output-chain]
-}
+$var.complete-workflow = :[
+    $in |: $var.validation-chain
+         |: $var.enrichment-chain  
+         |: $var.output-chain
+]
 
 ; Use in function arguments for flexible behavior
 !func |process-data ~{data} arg ~{pipeline ~block} = {
     [$in.data |: $arg.pipeline |save-results]
 }
 
-[$in.user-records |process-data pipeline=$var.complete-workflow]
+[user-records |process-data pipeline=$var.complete-workflow]
 ```
 
 Partial pipeline fragments excel at creating reusable transformation logic. They enable separation of concerns where data validation, enrichment, and formatting can be defined independently and combined as needed. Functions can accept pipeline fragments as arguments, allowing callers to customize processing behavior while maintaining type safety through block shapes.
@@ -601,7 +565,7 @@ This can also be done by defining regular functions in the module, but some situ
 
 ```comp
 ; Library of reusable pipeline fragments
-@fragments = {
+$var.fragments = {
     clean = :{[$in |trim |normalize |remove-duplicates]}
     analyze = :{[$in |extract-features |calculate-metrics]}
     secure = :{[$in |encrypt-sensitive |hash-identifiers]}
@@ -610,24 +574,24 @@ This can also be done by defining regular functions in the module, but some situ
 
 ; Flexible composition for different use cases
 batch-job = :{
-    [$in |: @fragments.clean
-         |: @fragments.analyze
-         |: @fragments.format]
+    [$in |: $var.fragments.clean
+         |: $var.fragments.analyze
+         |: $var.fragments.format]
 }
 
 secure-batch = :{
-    [$in |: @fragments.clean
-         |: @fragments.secure
-         |: @fragments.format]
+    [$in |: $var.fragments.clean
+         |: $var.fragments.secure
+         |: $var.fragments.format]
 }
 
 ; Pipeline fragments can be modified by wrench operators too
 enhanced-workflow = :{
-    [$in |: @fragments.clean
+    [$in |: $var.fragments.clean
          |-|progressbar           ; Add progress tracking
-         |: @fragments.analyze
+         |: $var.fragments.analyze
          |-|profile-time         ; Add timing profiling
-         |: @fragments.format]
+         |: $var.fragments.format]
 }
 ```
 
@@ -646,16 +610,16 @@ and composable argument definitions.
     ..rest   ; Collect remaining fields
 }
 
-!func |process ^process-args = {
-    [^verbose |if :{#true} :{
-        [|log "Verbose mode enabled"]
-    }]
+!func |process var process-args = {
+    [|if $var.verbose :[
+        |log "Verbose mode enabled"
+    ]]
     ; ^rest contains unmatched fields
 }
 
 ; Spread operators work like Python **kwargs
-@preset = {verbose=#true debug=#true port=8080}
-[server |configure ..@preset host="localhost" port=3000]
+$var.preset = {verbose=#true debug=#true port=8080}
+[server |configure ..$var.preset host="localhost" port=3000]
 ; Results in: {verbose=#true debug=#true host="localhost" port=3000}
 ; Note: explicit port=3000 overrides preset port=8080
 
@@ -795,27 +759,11 @@ The security model is refreshingly honest: instead of pretending to offer fine-g
 
 ```comp
 ; Regular function with resource access
-```comp
-; Regular function with resource access
 !func |backup-file arg ~{source ~str dest ~str} = {
     [$arg.source |read/file      ; Uses resource capability
                  |compress
                  |write/file $arg.dest]  ; Uses resource capability
 }
-
-; Pure function - no resource access
-!pure
-!func |compress ~{data} = {
-    ; Deterministic compression algorithm
-    ; Cannot access filesystem, network, time, etc.
-    [$in.data |apply-compression-algorithm]
-}
-
-; Mixed usage
-!func |process-safely = {
-    ; Validate with pure function first
-    validated = [untrusted-input |validate-pure]
-````
 
 ; Pure function - no resource access
 !pure
@@ -829,7 +777,7 @@ The security model is refreshingly honest: instead of pretending to offer fine-g
 !func |process-safely = {
     ; Validate with pure function first
     validated = [untrusted-input |validate-pure]
-
+    
     ; Then use resources if valid
     [validated |if :{$in} :{
         [$in |save-to-disk]

@@ -121,7 +121,7 @@ Optional fields are expressed using union types with `~nil` and default values, 
 
 ; Pattern comparison
 ({name="Alice"} ~user)           ; email and age get {} default
-({name="Bob" email="b@x.co"} ~user)  ; age gets {} default
+({name="Bob" email="b$var.x.co"} ~user)  ; age gets {} default
 ({user="alice" active?=#false} ~session)  ; verified? gets #false default
 ```
 
@@ -158,135 +158,39 @@ The morphing process follows these phases:
 
 ; Function parameters automatically morph
 !func |connect ~{conn ~connection} = {
-    (Connecting to ${host}:${port} |log)
+    (%"Connecting to %{host}:%{port}" |log)
 }
 ```
 
 ## Shape Application Operators
 
-Comp provides a unified family of morphing operators (`~`, `~*`, `~?`) for shape operations. These operators form a consistent weak/strong pattern similar to other operator families in the language.
+Different morphing operators control strictness and error handling. Morphing transforms data to match shape specifications, with the morph operation either succeeding with a typed value or failing with an error structure.
 
-### Morphing Operator Family
+### Morphing Operators
 
 ```comp
-data ~ shape             ; Normal morph - apply defaults, allow extra fields
-data ~* shape            ; Strong morph - no extra fields allowed, strict matching
-data ~? shape            ; Weak morph - field filtering without validation
+data ~shape             ; Normal morph - apply defaults, allow extra fields
+data ~* shape           ; Strong morph - no extra fields allowed, strict matching
+data ~? shape           ; Weak morph - missing fields acceptable, partial matching
 ```
 
-**Normal morph (`~`)** is the default for function parameters and data transformation:
-- Applies default values for missing fields
-- Ignores extra fields not in the shape
-- Restructures data to match the shape (named↔positional)
-- Validates type constraints on all fields
-- Fails if required fields are missing or type mismatches occur
+The tilde (`~`) connects directly to the shape reference in normal morphing, while strong (`~*`) and weak (`~?`) variants include a space before the shape name.
 
-**Strong morph (`~*`)** enforces exact structural conformance:
-- Applies default values for missing fields
-- **Rejects extra fields** - structure must match shape exactly
-- Validates type constraints on all fields
-- Fails if any fields don't match the shape
-- Used for configuration validation and security-critical inputs
-
-**Weak morph (`~?`)** filters to field intersection without validation or transformation:
-- Returns only fields present in **both** the data and the shape
-- Does **not** apply defaults for missing fields
-- Does **not** validate types or constraints
-- Does **not** restructure data (preserves original structure)
-- Never fails - returns empty structure if no fields match
-- Allows missing fields silently
-
-The weak morph operator is conceptually similar to **field masking** - it filters a structure to only expose fields defined in the shape, preserving values as-is. This makes `~?` ideal for scope filtering and partial data extraction where validation isn't needed.
-
-### Operator Comparison
-
-| Feature | Normal `~` | Strong `~*` | Weak `~?` |
-|---------|------------|-------------|-----------|
-| **Purpose** | Transform & validate | Exact validation | Filter fields |
-| **Extra fields** | Ignore | **FAIL** | **Ignore** |
-| **Missing required** | **FAIL** | **FAIL** | **Ignore** |
-| **Missing + default** | Add default | Add default | **Ignore** |
-| **Type validation** | Yes | Yes | **No** |
-| **Restructuring** | Yes | Yes | **No** |
-| **Can fail** | Yes | Yes | **No** |
-
-### Usage Examples
+**Validation is handled through fallback operators**, not separate check operators:
 
 ```comp
-!shape ~user = {name ~str email ~str age ~num = 0}
+; Use fallback to handle morph failures
+validated = input ~user ?? {#fail message="Invalid user"}
 
-; Normal morph - flexible transformation
-{name="Alice" email="a@example.com"} ~ ~user
-; ✅ Result: {name="Alice" email="a@example.com" age=0}
-; Applies default for 'age'
+; Conditional processing based on morph success
+input ~user ?? default-user |process-user
 
-{name="Alice" email="a@example.com" extra="data"} ~ ~user
-; ✅ Result: {name="Alice" email="a@example.com" age=0}
-; Extra 'extra' field is ignored
-
-; Strong morph - exact structure required
-{name="Alice" email="a@example.com" extra="data"} ~* ~user
-; ❌ FAILS: Extra field 'extra' not in shape
-
-{name="Alice" email="a@example.com"} ~* ~user
-; ✅ Result: {name="Alice" email="a@example.com" age=0}
-; Exact match with default applied
-
-; Weak morph - field filtering without validation
-{name="Alice" email="a@example.com" extra="data"} ~? ~user
-; ✅ Result: {name="Alice" email="a@example.com"}
-; Only fields in both data and shape (no defaults, no 'age')
-
-{name="Alice"} ~? ~user
-; ✅ Result: {name="Alice"}
-; Missing fields silently ignored, no defaults applied
-
-{name=123 email="bad"} ~? ~user
-; ✅ Result: {name=123 email="bad"}
-; No type validation - preserves values as-is
-
-{extra="data" other="stuff"} ~? ~user
-; ✅ Result: {}
-; No matching fields - empty structure (never fails)
-```
-
-### Pattern Matching and Type Testing
-
-The weak morph operator (`~?`) is particularly useful for pattern matching and type testing, since it never fails:
-
-```comp
-; Type testing - check if data has required fields
-has-user-fields = (data ~? ~user) != {}
-
-; Pattern matching with weak morph
+; Pattern matching with morph attempts
 data |match
-    :{($in ~? ~user) != {}} :{$in ~ ~user |handle-user}      ; Has user fields
-    :{($in ~? ~admin) != {}} :{$in ~ ~admin |handle-admin}   ; Has admin fields
-    :{#true} :{|reject}                                       ; No match
-
-; Extract subset of fields safely
-user-data = full-context ~? ~user
-; Always succeeds, returns intersection
-
-; Validation with fallback for transforming morphs
-validated = input ~ ~user ?? {#fail message="Invalid user"}
-processed = input ~* ~config ?* |use-defaults
+    :{($in ~user) != #fail} :{$in ~user |handle-user}
+    :{($in ~admin) != #fail} :{$in ~admin |handle-admin}
+    :{#true} :{|reject}
 ```
-
-### Consistency with Language Patterns
-
-The morph operators follow Comp's established weak/strong operator pattern:
-
-**Fallback operators:**
-- `??` - weak fallback (return right if left is fail)
-- `?*` - strong fallback (return right if left is nil OR fail)
-
-**Morph operators:**
-- `~` - normal morph (transform with validation)
-- `~*` - strong morph (strict, no extra fields)
-- `~?` - weak morph (lenient, no validation)
-
-The `?` suffix consistently indicates lenient/permissive behavior, while `*` indicates strict/strong behavior. This creates a predictable mental model across the language.
 
 ### Union Morphing and Specificity
 
@@ -294,12 +198,12 @@ Unions in morphing use **specificity ranking** to select the best match, not seq
 
 ```comp
 ; Union morph - picks most specific match
-data ~ ~success | ~error              ; Morph to whichever matches best
-value ~ ~num | ~str                   ; Specificity determines which wins
+data ~success | ~error              ; Morph to whichever matches best
+value ~num | ~str                   ; Specificity determines which wins
 
 ; Order independence (mostly)
-~record | ~nil ≈ ~nil | ~record      ; Both try, most specific wins
-                                      ; Ties use left-to-right order
+~record | ~nil ≈ ~nil | ~record    ; Both try, most specific wins
+                                    ; Ties use left-to-right order
 
 ; Union composition is safe
 !shape ~result = ~success | ~error
@@ -360,7 +264,7 @@ The tuple is compared lexicographically: earlier components are more important t
 
 ; For input: {state=#network.error}
 ; ~generic:    {named=1, tag=0, weight=0, pos=0}
-; ~error-case: {named=1, tag=1, weight=0, pos=0}
+; ~error-case: {named=1, tag=1, weight=0, pos=0}  
 ; ~network:    {named=1, tag=2, weight=0, pos=0}  ; WINS - deepest tag
 ```
 
@@ -383,7 +287,7 @@ When morphing to unions, the system calculates a match percentage for each candi
 !shape ~user = {name ~str email ~str}
 !shape ~group = {name ~str members ~user[]}
 
-; Input: {name="Alice" email="a@example.com"}
+; Input: {name="Alice" email="a$var.example.com"}
 ; ~user:  2/2 required fields match = 100%  ; WINS
 ; ~group: 1/2 required fields match = 50%
 
@@ -429,7 +333,7 @@ This scoring system creates predictable, composable behavior for both union morp
 
 ```comp
 !shape ~predicate = {test ~:{value ~num}}
-$var.test = :{$in.value > 10}
+$var.test = :{value > 10}
 
 {value=5 extra="data"} |:$var.test  ; FAILS - extra field not allowed
 {value=5} |:$var.test               ; Works - exact match
@@ -459,7 +363,7 @@ maintaining composability.
 ; Constraint functions for complex validation
 !pure
 !func |valid-username ~{name ~str} = {
-    ($in |length/str) >= 3 &&
+    ($in |length/str) >= 3 && 
     ($in |match/str "^[a-z][a-z0-9_]*$") &&
     !($in |contains/reserved-words)
 }
@@ -496,11 +400,11 @@ Blocks can be typed through shape definitions that specify their expected input 
 
 ; Usage in function signatures
 !func |process arg ~{transform ~:{~any}} = {
-    [$in.data |map $arg.transform]  ; Block used with map
+    [data |map $arg.transform]  ; Block used with map
 }
 
 !func |repeat arg ~{count ~num op ~:{value ~str}} = {
-    [$arg.count |times :{[$in.value |: $arg.op]}]
+    [$arg.count |times :{[value |: $arg.op]}]
 }
 ```
 
@@ -535,15 +439,15 @@ Shape morphing with tag fields enables clean flag-style arguments without specia
 
 ; Tags in variables work naturally
 $var.order = #desc
-[$in.data |sort $var.order]
+[data |sort $var.order]
 
 ; Conditional tag selection
-$var.order = [$in.reverse? |if :{#true} :{#desc} :{#asc}]
-[$in.data |sort $var.order]
+$var.order = [reverse? |if :{#true} :{#desc} :{#asc}]
+[data |sort $var.order]
 
 ; Pass through arguments
 !func |process-sorted arg ~{order #sort-order = #asc} = {
-    [$in.data |sort $arg.order]  ; Forward the tag
+    [data |sort $arg.order]  ; Forward the tag
 }
 ```
 
@@ -603,108 +507,6 @@ The spread operation is purely mechanical - "copy all fields that have defaults"
 For detailed information about spread operations and structure composition, see
 [Structures, Spreads, and Lazy Evaluation](structure.md).
 
-## Weak Morph and Scope Filtering
-
-The weak morph operator (`~?`) provides field filtering without validation or transformation. This is conceptually similar to **field masking** - it filters a structure to only expose fields defined in a shape, preserving the original structure and values.
-
-Weak morph is central to function argument handling, where it filters the module scope (`$mod`) and context scope (`$ctx`) to only expose fields declared in the function's argument shape. This creates disciplined function boundaries while maintaining flexibility in scope access.
-
-### Weak Morph for Field Filtering
-
-The weak morph operator filters a structure to only include fields present in both the data and the shape:
-
-```comp
-!shape ~api-fields = {user ~str session ~str timeout ~num}
-
-; Large scope with many fields
-full-scope = {
-    user="alice"
-    session="abc123"
-    timeout=30
-    debug=#true
-    api-key="secret"
-    internal-state="xyz"
-}
-
-; Filter to only API-relevant fields
-filtered = full-scope ~? ~api-fields
-; Result: {user="alice" session="abc123" timeout=30}
-; Removed: debug, api-key, internal-state (not in shape)
-
-; No defaults applied for missing fields
-partial-data = {user="bob"} ~? ~api-fields
-; Result: {user="bob"}
-; Missing: session, timeout (not in data, no defaults)
-
-; Empty result if no overlap
-{a=1 b=2 c=3} ~? ~api-fields
-; Result: {}
-```
-
-**Weak morph behavior:**
-- Returns intersection of data fields and shape fields
-- Never applies defaults for missing fields
-- Never fails - returns empty structure if no matches
-- Preserves field values and structure exactly (no type validation)
-- Used for scope filtering in function contexts
-
-### Strong Morph for Validation
-
-The strong morph operator (`~*`) validates that data exactly matches a shape, applying defaults and failing on mismatches:
-
-```comp
-!shape ~config = {host ~str port ~num = 8080 timeout ~num = 30}
-
-; Valid input with defaults
-validated = {host="localhost" port=3000} ~* ~config
-; ✅ Result: {host="localhost" port=3000 timeout=30}
-; Default 'timeout' applied
-
-; Fails on extra fields
-{host="localhost" port=3000 debug=#true} ~* ~config
-; ❌ FAILS: Extra field 'debug' not in shape
-
-; Fails on missing required fields
-{port=8080} ~* ~config
-; ❌ FAILS: Missing required field 'host'
-```
-
-### Transformation vs Filtering
-
-The morph operator family provides a natural progression from filtering to strict validation:
-
-```comp
-; Weak morph - filter only (like masking)
-{x=5 y=10 z=15} ~? ~point-2d
-; Result: {x=5 y=10}  (z removed, no validation)
-
-; Normal morph - transform with validation
-{5 10} ~ ~point-2d
-; Result: {x=5 y=10}  (positional → named, with validation)
-
-; Strong morph - strict validation
-{x=5 y=10 z=15} ~* ~point-2d
-; FAILS: Extra field 'z' not allowed
-```
-
-### Filtering in Function Contexts
-
-Function argument shapes use weak morph for scope filtering and strong morph for argument validation. This is covered in detail in [Functions and Blocks](function.md), but the basic pattern is:
-
-```comp
-!func |process arg ~{x ~num y ~num timeout ~num = 30} = {
-    ; Automatic morphing at function entry:
-    ; $arg = merged from passed_args + $ctx + $mod with precedence
-    ; $ctx_local = $ctx_shared ~? {x ~num y ~num timeout ~num = 30}
-    ; $mod_local = $mod_shared ~? {x ~num y ~num timeout ~num = 30}
-
-    $arg.x      ; Reads from merged argument scope
-    $ctx.data   ; Can write to $ctx (adds to both local and shared)
-}
-```
-
-The weak morph operator (`~?`) provides explicit access to the same filtering behavior used automatically in function scope processing, enabling manual scope filtering patterns.
-
 ## Unit System Fundamentals
 
 Units provide semantic typing for primitive values through the tag system. Units
@@ -732,7 +534,7 @@ kelvin = temp ~num#kelvin        ; 293.15
 
 Units follow algebraic rules:
 - Addition/subtraction require compatible units
-- First operand's unit determines result unit
+- First operand's unit determines result unit  
 - Multiplication/division create compound units
 - Incompatible operations fail immediately
 
@@ -761,11 +563,11 @@ based on context.
 
 ; Usage with automatic validation
 address = "User@Example.COM"#email
-normalized = address ~str#email    ; user@example.com
+normalized = address ~str#email    ; user$var.example.com
 
 ; Template safety through units
-query = SELECT * FROM users WHERE id = ${id}#sql
-html = <h1>${title}</h1>#html
+query = SELECT * FROM users WHERE id = %{id}#sql
+html = <h1>%{title}</h1>#html
 ; Units ensure proper escaping in templates
 ```
 
@@ -796,7 +598,12 @@ and variant handling.
 
 ## Shape-Based Pattern Matching
 
-Shapes integrate with pattern matching to enable type-directed control flow. The weak morph operator (`~?`) tests shape compatibility by filtering to matching fields - if the result is non-empty, the data has the required fields. Normal morph (`~`) then transforms and validates the data for processing. For comprehensive information about pattern matching and control flow patterns, see [Pipelines, Flow Control, and Failure Handling](pipeline.md).
+Shapes integrate with pattern matching to enable type-directed control flow. The
+`~?` operator tests shape compatibility, while morphing operations transform
+data for processing. This creates elegant APIs where function behavior adapts to
+input structure. For comprehensive information about pattern matching and
+control flow patterns, see [Pipelines, Flow Control, and Failure
+Handling](pipeline.md).
 
 ```comp
 !shape ~get-request = {method=#get path ~str}
@@ -805,17 +612,17 @@ Shapes integrate with pattern matching to enable type-directed control flow. The
 
 !func |handle-request ~{request} = {
     $in |match
-        :{($in ~? ~get-request) != {}} :{
-            $in ~ ~get-request |fetch-resource
+        :{$in ~? get-request} :{
+            $in ~get-request |fetch-resource
         }
-        :{($in ~? ~post-request) != {}} :{
-            $in ~ ~post-request |create-resource
+        :{$in ~? post-request} :{
+            $in ~post-request |create-resource
         }
-        :{($in ~? ~delete-request) != {}} :{
-            $in ~ ~delete-request |delete-resource
+        :{$in ~? delete-request} :{
+            $in ~delete-request |delete-resource
         }
         :{#true} :{
-            {#http.fail status=405 message="Method not allowed"}
+            {#http.fail status=405 message=Method not allowed}
         }
 }
 ```

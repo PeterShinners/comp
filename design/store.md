@@ -58,7 +58,7 @@ $var.store |clear                   ; Remove all data
 
 ; Functional updates
 $var.store |update /counter/ {$in + 1}
-$var.store |modify /users/ |filter {$in.active?}
+$var.store |modify /users/ |filter {active?}
 
 ; Batch operations
 $var.store |set-many {

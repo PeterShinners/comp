@@ -15,13 +15,8 @@ def test_morph_missing_field_error():
 """
     result = comptest.run_func(code)
     
-    # Should be a fail value
-    assert result.is_fail
-    
-    # Check the error message
-    fail_struct = result.data
-    message = fail_struct[comp.Value('message')]
-    assert message.data == "Missing required field 'email'"
+    # Should be a fail value with message containing field name
+    comptest.assert_fail(result, "Missing required field 'email'")
 
 
 def test_morph_type_mismatch_error():
@@ -35,13 +30,10 @@ def test_morph_type_mismatch_error():
 """
     result = comptest.run_func(code)
     
-    # Should be a fail value
-    assert result.is_fail
-    
-    # Check the error message
-    fail_struct = result.data
-    message = fail_struct[comp.Value('message')]
-    assert message.data == "Wrong type for field 'age': expected ~num, got string"
+    # Should be a fail value with type mismatch message
+    comptest.assert_fail(result, "Wrong type")
+    comptest.assert_fail(result, "'age'")
+    comptest.assert_fail(result, "expected ~num")
 
 
 def test_strong_morph_extra_field_error():

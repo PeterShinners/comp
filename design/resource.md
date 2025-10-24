@@ -42,7 +42,7 @@ $var.temp = ["/tmp/data" |open/file]
 !pure
 !func |pure-process ~{data} = {
     ; $var.file = ["path" |open/file]   ; FAILS - no resource token
-    [$in.data |transform]                    ; Can only do computation
+    [data |transform]                 ; Can only do computation
 }
 ```
 
@@ -56,8 +56,8 @@ While pure functions cannot create or access resources, they can pass them throu
 !func |transform-container ~{data} = {
     ; Can pass resource through without accessing it
     {
-        transformed = $in.data.value |calculate
-        resource = $in.data.resource     ; Passes through untouched
+        transformed = data.value |calculate
+        resource = data.resource     ; Passes through untouched
     }
 }
 
@@ -69,7 +69,7 @@ While pure functions cannot create or access resources, they can pass them throu
     result = [container |transform-container]  ; Pure function
     
     ; Can access resource after pure function returns it
-    [result.resource |query "SELECT * FROM users"]
+    [$var.result.resource |query "SELECT * FROM users"]
 }
 ```
 
@@ -87,9 +87,9 @@ Transactions coordinate multiple operations that should succeed or fail as a uni
 
 ; Multiple coordinated resources
 !transact $var.database $var.cache $var.search {
-    $var.user-id = [$in.user |insert/db |get-id]
-    [$in.user |set/cache "user:${$var.user-id}"]
-    [$in.user |index/search "users"]
+    $var.user-id = [user |insert/db |get-id]
+    [user |set/cache %"user:%{$var.user-id}"]
+    [user |index/search "users"]
 }
 ; All three systems update atomically
 ```
@@ -106,7 +106,7 @@ $var.pool = [|create-pool/db url="database-url" max=10]
 ; Pool automatically multiplexes connections
 [requests |map {
     [$var.pool |with {[$in |
-        [|query "SELECT * FROM users WHERE id = ${$in.id}"]
+        [|query %"SELECT * FROM users WHERE id = %{id}"]
     ]}]
 }]
 
@@ -131,7 +131,7 @@ Transactions maintain consistency through several mechanisms. State capture pres
 $var.counter = 0
 !transact $var.resource {
     $var.counter = $var.counter + 1     ; Local change
-    [|risky-operation]                   ; Might fail
+    [|risky-operation]          ; Might fail
 }
 ; If operation fails, $var.counter remains 0
 

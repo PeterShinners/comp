@@ -54,21 +54,38 @@ def run_func(code: str, **scopes) -> comp.Value:
 def run_frame(name, input, args=None):
     """Invoke defined function directly by name.
     
-    This is a test helper that calls builtin functions directly.
+    This is a test helper that calls builtin functions with proper morphing.
     For testing user-defined functions, use run_func() instead.
     """
+    # Get the builtin module and look up the function
+    builtin_module = comp.builtin.get_builtin_module()
+    func_overloads = builtin_module.lookup_function([name])
+    
+    if not func_overloads:
+        return comp.fail(f"Unknown builtin function: |{name}")
+    
+    # Convert inputs to Values
+    input_value = comp.Value(input)
+    args_value = comp.Value(args) if args is not None else None
+    
+    # Use the first overload (for builtins, there's typically only one)
+    func_def = func_overloads[0]
+    
+    # Invoke through the function system (which handles morphing)
     engine = comp.Engine()
     dummy_node = comp.ast.Number(0)
     frame = comp._engine._Frame(dummy_node, None, {}, False, engine)
-    input = comp.Value(input)
-    args = comp.Value(args) if args is not None else None
     
-    # Call builtin function directly
-    builtin_func = getattr(comp.builtin, f"builtin_{name}", None)
-    if builtin_func is None:
-        return comp.fail(f"Unknown builtin function: |{name}")
+    result_gen = func_def.body.invoke(input_value, args_value, None, frame)
     
-    result = builtin_func(frame, input, args)
+    # Evaluate the generator through the engine
+    class WrapperNode:
+        def evaluate(self, frame):
+            return result_gen
+    
+    wrapper = WrapperNode()
+    result = engine.run(wrapper)
+    
     return result
 
 

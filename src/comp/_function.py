@@ -137,26 +137,30 @@ class PythonFunction(Function):
         if self.input_shape is not None:
             morph_result = comp.morph(input_value, self.input_shape)
             if not morph_result.success:
-                # Return a generator that yields the fail value
+                # Return a generator that yields the fail value with detailed error
                 shape_name = self.input_shape.full_name if hasattr(self.input_shape, 'full_name') else str(self.input_shape)
+                error_detail = morph_result.failure_reason if morph_result.failure_reason else "incompatible input"
                 def fail_gen():
-                    return comp.fail(f"Function |{self.name} expects {shape_name}, got incompatible input")
+                    return comp.fail(f"Function |{self.name} expects {shape_name}: {error_detail}")
                     yield  # Make it a generator (unreachable)
                 return fail_gen()
             input_value = morph_result.value
 
         # Morph arguments if arg_shape is defined
-        if self.arg_shape is not None and args_value is not None:
+        # Convert None args to empty struct before morphing
+        if args_value is None:
+            args_value = comp.Value({})
+        
+        if self.arg_shape is not None:
             arg_morph_result = comp.strong_morph(args_value, self.arg_shape)
             if not arg_morph_result.success:
-                # Return a generator that yields the fail value
+                # Return a generator that yields the fail value with detailed error
+                error_detail = arg_morph_result.failure_reason if arg_morph_result.failure_reason else "do not match argument shape"
                 def fail_gen():
-                    return comp.fail(f"Function |{self.name}: arguments do not match argument shape")
+                    return comp.fail(f"Function |{self.name}: {error_detail}")
                     yield  # Make it a generator (unreachable)
                 return fail_gen()
             args_value = arg_morph_result.value
-        elif args_value is None:
-            args_value = comp.Value({})
 
         # Python functions execute immediately - no Compute object needed
         return self(frame, input_value, args_value)

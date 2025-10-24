@@ -72,7 +72,7 @@ def morph(value, shape):
     scalar_value = value.as_scalar()
     
     # Special handling for block morphing: RawBlock + BlockShapeDefinition → Block
-    if scalar_value.is_block and isinstance(scalar_value.data, comp.RawBlock):
+    if scalar_value.is_raw_block:
         # Check if shape is a BlockShapeDefinition directly
         if isinstance(shape, comp.BlockShapeDefinition):
             # Create a Block with the raw block and the shape fields as input shape
@@ -100,6 +100,32 @@ def morph(value, shape):
                         return MorphResult(named_matches=1, value=comp.Value(block))
         
         # If shape is not a block type, morphing RawBlock fails
+        return MorphResult()  # No match
+    
+    # Special handling for already-typed Block values
+    # Block (not RawBlock) can morph to compatible BlockShapeDefinition
+    if scalar_value.is_block:
+        # Check if shape is a BlockShapeDefinition directly
+        if isinstance(shape, comp.BlockShapeDefinition):
+            # Block is already typed, just return it
+            # TODO: Validate that the block's input shape is compatible with the target shape
+            return MorphResult(named_matches=1, value=scalar_value)
+        
+        # Check if shape is a ShapeDefinition wrapping a BlockShapeDefinition
+        if isinstance(shape, comp.ShapeDefinition):
+            if len(shape.fields) == 1:
+                field = shape.fields[0]
+                if field.is_positional:
+                    field_shape = field.shape
+                    if field_shape is None:
+                        field_shape = getattr(field, 'shape_ref', None)
+                    
+                    if isinstance(field_shape, comp.BlockShapeDefinition):
+                        # Block is already typed, just return it
+                        # TODO: Validate compatibility
+                        return MorphResult(named_matches=1, value=scalar_value)
+        
+        # If shape is not a block type, morphing Block fails
         return MorphResult()  # No match
     
     # Track if we wrapped a non-struct value
@@ -166,6 +192,56 @@ def _morph_any(value, shape, was_wrapped=False):
 
         return best_result
 
+    # Special handling for Block values (same as top-level morph())
+    if value.is_block:
+        # Check if shape is a BlockShapeDefinition directly
+        if isinstance(shape, comp.BlockShapeDefinition):
+            return MorphResult(named_matches=1, value=value)
+        
+        # Check if shape is a ShapeDefinition wrapping a BlockShapeDefinition
+        if isinstance(shape, comp.ShapeDefinition):
+            if len(shape.fields) == 1:
+                field = shape.fields[0]
+                if field.is_positional:
+                    field_shape = field.shape
+                    if field_shape is None:
+                        field_shape = getattr(field, 'shape_ref', None)
+                    
+                    if isinstance(field_shape, comp.BlockShapeDefinition):
+                        return MorphResult(named_matches=1, value=value)
+        
+        # If shape is not a block type, morphing Block fails
+        return MorphResult(failure_reason="Block value does not match expected shape")
+    
+    # Special handling for RawBlock values (same as top-level morph())
+    if value.is_raw_block:
+        # Check if shape is a BlockShapeDefinition directly
+        if isinstance(shape, comp.BlockShapeDefinition):
+            block = comp.Block(value.data, input_shape=shape.fields)
+            return MorphResult(named_matches=1, value=comp.Value(block))
+        
+        # Check if shape is a ShapeDefinition wrapping a BlockShapeDefinition
+        if isinstance(shape, comp.ShapeDefinition):
+            if len(shape.fields) == 1:
+                field = shape.fields[0]
+                if field.is_positional:
+                    field_shape = field.shape
+                    if field_shape is None:
+                        field_shape = getattr(field, 'shape_ref', None)
+                    
+                    if isinstance(field_shape, comp.BlockShapeDefinition):
+                        block = comp.Block(value.data, input_shape=field_shape.fields)
+                        return MorphResult(named_matches=1, value=comp.Value(block))
+                else:
+                    # Shape has named field, not positional - can't morph RawBlock to it
+                    return MorphResult(failure_reason=f"Cannot morph raw block to shape with named field '{field.name}'")
+            else:
+                # Shape doesn't have exactly 1 field
+                return MorphResult(failure_reason=f"Cannot morph raw block to shape with {len(shape.fields)} fields")
+        
+        # If shape is not a block type, morphing RawBlock fails
+        return MorphResult(failure_reason=f"Raw block does not match expected shape (shape type: {type(shape).__name__})")
+
     # For non-union shapes, delegate to the appropriate handler
     # Struct values go to _morph_struct, primitives to _morph_primitive
     return _morph_struct(value, shape, was_wrapped=was_wrapped)
@@ -218,7 +294,8 @@ def _morph_primitive(value, type_name):
 
 
     # Step 3: Type mismatch - fail the morph
-    return MorphResult()
+    actual_type = _get_value_type(value)
+    return MorphResult(failure_reason=f"Wrong type: expected ~{type_name}, got {actual_type}")
 
 
 def _morph_struct(value, shape, was_wrapped=False):
@@ -356,6 +433,12 @@ def _morph_struct(value, shape, was_wrapped=False):
     if not shape_fields:
         return MorphResult(positional_matches=0, value=value)
 
+    # Safety check: for structural shapes, value must actually be a struct
+    # This should not happen in normal operation
+    if not value.is_struct:
+        actual_type = _get_value_type(value)
+        return MorphResult(failure_reason=f"Cannot morph {actual_type} to structural shape")
+    
     # Extract tag value if morphing a wrapped tag to a structural shape
     # This handles: #origin ~point where #origin has struct value {x=5 y=10}
     # The tag gets wrapped to {#origin}, and we need to extract its value
@@ -394,12 +477,15 @@ def _morph_struct(value, shape, was_wrapped=False):
                     field_result = _morph_any(field_value, shape_field.shape)
                     if not field_result.success:
                         # Field type mismatch - morph fails
-                        # Get expected type name for error message
-                        expected_type = _get_shape_name(shape_field.shape)
-                        actual_type = _get_value_type(field_value)
-                        reason = f"Wrong type for field '{field_name}': expected {expected_type}, got {actual_type}"
                         if field_result.failure_reason:
+                            # Nested morph provided a reason (e.g., nested structure issue)
+                            # Prefix with field name for context
                             reason = f"Field '{field_name}': {field_result.failure_reason}"
+                        else:
+                            # Direct type mismatch - generate error message
+                            expected_type = _get_shape_name(shape_field.shape)
+                            actual_type = _get_value_type(field_value)
+                            reason = f"Wrong type for field '{field_name}': expected {expected_type}, got {actual_type}"
                         return MorphResult(failure_reason=reason)
                     matched_fields[field_key] = (shape_field, field_result.value)
                 else:
@@ -703,6 +789,8 @@ def _get_value_type(value: comp.Value) -> str:
         return "structure"
     elif value.is_block:
         return "block"
+    elif value.is_raw_block:
+        return "raw block"
     elif value.is_fail:
         return "fail"
     else:

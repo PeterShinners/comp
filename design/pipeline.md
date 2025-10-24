@@ -47,7 +47,7 @@ Each statement in Comp performs one of three actions based on its target. These
 actions determine how the pipeline's result is used and whether it contributes
 to the output structure being built.
 
-**Variable Assignment** uses `$var.name` followed by `=` to create
+**Variable Assignment** uses `@name` followed by `=` to create
 function-local variables that can be referenced later in the function. These
 variables exist only within the function's scope and are immutable once
 assigned.
@@ -64,10 +64,10 @@ order and can be accessed by position.
 ```comp
 !func |process-data ~{data} = {
     ; Local variables store intermediate results
-    $var.threshold = [$in.average |multiply 1.5]
+    $var.threshold = [average |multiply 1.5]
     
     ; Use local variable in pipeline
-    high-values = [$in.data |filter :{$in.value > $var.threshold}]
+    high-values = [data |filter :{value > $var.threshold}]
 ```
 
 Function-local variables provide a crucial scope separate from field
@@ -95,7 +95,7 @@ scope and execute conditionally.
                                    :queued]
     
     [response-type |when :{$in == immediate} :{
-        [%"Urgent: ${summary}" |alert-team]
+        [%"Urgent: %{summary}" |alert-team]
     }]
     
     [status |match
@@ -207,22 +207,22 @@ operators creating a chain of handlers tested in order.
 
 ```comp
 !func |process-transaction ~{data} = {
-    [$in.data |validate
+    [data |validate
           |execute-steps
-          |? :{#io.fail} :{[$in.data |retry-with-backoff]}
-          |? :{#deadlock.database.fail} :{[$in.data |wait-and-retry]}
+          |? :{#io.fail} :{[data |retry-with-backoff]}
+          |? :{#deadlock.database.fail} :{[data |wait-and-retry]}
           |? :{
               ; General failure - multiple operations for recovery
               $var.error = $in
-              [%"Operation failed: ${$var.error.message}" |log]
+              [%"Operation failed: %{$var.error.message}" |log]
               [$var.error |cleanup-resources |{status=#failed original=$var.error}]
           }]
 }
 
 ; Complex recovery in a single block
-[$in.data |risky-operation |? :{
+[data |risky-operation |? :{
     $var.error = $in
-    [%"Operation failed: ${$var.error.message}" |log]
+    [%"Operation failed: %{$var.error.message}" |log]
     [$var.error.code |match
         :{$in >= 500} :{[$var.error |wait-and-retry]}
         :{$in == 429} :{[$var.error |backoff-exponentially]}
@@ -293,24 +293,15 @@ For comprehensive details on pipeline modifier implementation, shape-based opera
 
 Blocks can contain pipelines, with the square brackets providing clear boundaries for the pipeline operations. This keeps the syntax clean for common patterns like filtering and mapping.
 
-For the common case of a block containing a single pipeline, the shorthand syntax `:[pipeline]` can be used instead of `:{[pipeline]}`. This reduces nesting and improves readability for map, filter, and similar operations.
-
 ```comp
-; Block-pipeline shorthand - recommended for single pipelines
-items |map :[|validate |enhance]
-
-; Full block syntax - needed when multiple statements required
-items |map :{
-    validated = [$in |validate]
-    enhanced = [validated |enhance]
-    enhanced
-}
+; Block contains pipeline
+items |map :{[$in |validate |enhance]}
 
 ; At statement level
-$var.result = [$in.data |process |validate]
+$var.result = [data |process |validate]
 
 ; Pipelines compose naturally
-total = [$in.base |calculate] + [$in.bonus |calculate]
+total = [base |calculate] + [bonus |calculate]
 
 ; Adjacent pipelines merge into single chain
 result = [|fetch] [|validate] [|transform]  ; Equivalent to [|fetch |validate |transform]
@@ -326,7 +317,7 @@ result = [|fetch |validate |transform]
 result = [|fetch] [|validate] [|transform]
 
 ; Readable multi-line composition
-result = [$in.data |validate]
+result = [data |validate]
          [|normalize]
          [|enrich]
          [|save]
