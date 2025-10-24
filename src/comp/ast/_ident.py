@@ -1,6 +1,6 @@
 """Nodes for identifier and field lookups."""
 
-__all__ = ["Identifier", "ScopeField", "TokenField", "IndexField", "ComputeField"]
+__all__ = ["Identifier", "ScopeField", "TokenField", "IndexField", "ComputeField", "PrivateField"]
 
 import comp
 
@@ -59,7 +59,30 @@ class Identifier(_base.ValueNode):
         return current_value
 
     def unparse(self) -> str:
-        return "".join(field.unparse() for field in self.fields)
+        parts = []
+        for i, field in enumerate(self.fields):
+            if i == 0:
+                # First field - no separator needed
+                if isinstance(field, (TokenField, IndexField, ComputeField)):
+                    # These fields normally add their own separator, but first field shouldn't
+                    parts.append(field.unparse()[1:] if field.unparse().startswith('.') else field.unparse())
+                else:
+                    parts.append(field.unparse())
+            elif isinstance(field, PrivateField):
+                # PrivateField is a separator itself, just add it
+                parts.append(field.unparse())
+            elif i > 0 and isinstance(self.fields[i-1], PrivateField):
+                # Field after &, don't add dot (& is the separator)
+                if isinstance(field, TokenField):
+                    parts.append(field.name)  # Just the name, no dot
+                elif isinstance(field, IndexField):
+                    parts.append(field.unparse()[1:] if field.unparse().startswith('.') else field.unparse())
+                else:
+                    parts.append(field.unparse())
+            else:
+                # Normal field after dot
+                parts.append(field.unparse())
+        return "".join(parts)
 
 
 class ScopeField(_base.FieldNode):
@@ -256,4 +279,49 @@ class ComputeField(_base.FieldNode):
 
     def unparse(self) -> str:
         return f".[{self.expr.unparse()}]"
+
+
+class PrivateField(_base.FieldNode):
+    """Private data context switch: &
+    
+    Switches from public data access to private data access. When used in
+    an identifier chain like `value&data.info`, this node represents the `&`
+    which switches context. Subsequent fields then access the private structure.
+    
+    The `&` operator is always standalone - it doesn't take a field name.
+    - `value.&` - Switch to private data (returns entire private structure)
+    - `value.&.data` - Switch to private, then access 'data' field
+    - `value.&.data.info` - Switch to private, access 'data', then 'info'
+    
+    Args:
+        None - always a standalone context switch
+    """
+    
+    def __init__(self):
+        pass
+    
+    def evaluate(self, frame):
+        # Get the current value from identifier scope
+        current = frame.scope('identifier')
+        
+        if current is None:
+            return comp.fail("Cannot access private data without a value")
+        
+        # Get current module from scope
+        module = frame.scope('module')
+        if module is None:
+            return comp.fail("Cannot access private data without module context")
+        
+        # Get private data for this module
+        private_data = current.get_private(module.module_id)
+        if private_data is None:
+            return comp.fail(f"No private data for module {module.module_id}")
+        
+        # Return the entire private structure - subsequent fields will access within it
+        return private_data
+        yield  # Make it a generator
+    
+    def unparse(self) -> str:
+        return "&"
+
 

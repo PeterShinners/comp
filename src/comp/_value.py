@@ -36,9 +36,16 @@ class Value(_entity.Entity):
                 - dict (recursively converted)
                 - list/tuple (converted to unnamed struct fields)
         """
+        # Module-private data storage
+        # Maps module_id -> Value (structure containing private data)
+        # Used by the & syntax for module-scoped private data
+        self.private = {}
+        
         # Handle Value copying
         if isinstance(data, Value):
             self.data = data.data
+            # Share private data reference - values are immutable, no need to copy
+            self.private = data.private
             return
 
         # Handle None -> empty struct
@@ -142,21 +149,77 @@ class Value(_entity.Entity):
         """Return value as a scalar value or itself.
 
         Unwraps single-element structs (named or unnamed).
+        Returns self if already scalar (preserves object identity).
+        Preserves private data when unwrapping.
         """
-        if self.is_struct and isinstance(self.data, dict):
-            if len(self.data) == 1:
-                value = list(self.data.values())[0]
-                if value.is_number or value.is_string or value.is_tag or value.is_block or value.is_raw_block:
-                    return value
-            # By returning self we are still a struct, which users who use this will ignore
+        # Already scalar - return self
+        if not self.is_struct:
             return self
+            
+        # Check if struct can be unwrapped
+        if isinstance(self.data, dict) and len(self.data) == 1:
+            value = list(self.data.values())[0]
+            if value.is_number or value.is_string or value.is_tag or value.is_block or value.is_raw_block:
+                # Check if we need to preserve private data
+                if self.private:
+                    # If the inner value already has the same private reference, return it directly
+                    # (this happens when as_struct() was called on a value with private data)
+                    if value.private is self.private:
+                        return value
+                    # Otherwise, create new value with combined private data
+                    unwrapped = Value(value.data)
+                    unwrapped.private = self.private
+                    return unwrapped
+                # No private data - return the inner value directly
+                return value
+        
+        # Can't unwrap - return self
         return self
 
     def as_struct(self):
-        """Wrap scalar values into single field structure."""
+        """Wrap scalar values into single field structure.
+        
+        Returns self if already a struct (preserves object identity).
+        Preserves private data when wrapping.
+        """
+        # Already struct - return self
         if self.is_struct:
             return self
-        return Value({Unnamed(): self})
+            
+        # Wrap scalar and preserve private data
+        # Important: Create the dict manually to avoid Value() constructor
+        # converting self into a copy
+        wrapped = Value.__new__(Value)
+        wrapped.data = {Unnamed(): self}
+        wrapped.private = self.private
+        return wrapped
+
+    def get_private(self, module_id):
+        """Get module-private data for a specific module.
+        
+        Args:
+            module_id: Module identifier (from Module.module_id)
+            
+        Returns:
+            Value | None: Private data structure for the module, or None if not set
+        """
+        return self.private.get(module_id)
+    
+    def set_private(self, module_id, data: 'Value'):
+        """Set module-private data for a specific module.
+        
+        Args:
+            module_id: Module identifier (from Module.module_id)
+            data: Value containing the private data (typically a structure)
+            
+        Notes:
+            - Mutates the private dict in place
+            - Private data is shared across value transformations (as_struct, etc.)
+            - Data must already be a Value instance
+        """
+        if not isinstance(data, Value):
+            raise TypeError(f"Private data must be a Value, got {type(data).__name__}")
+        self.private[module_id] = data
 
     def unparse(self) -> str:
         """Convert value back to a source-like representation.

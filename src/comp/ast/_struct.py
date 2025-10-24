@@ -4,7 +4,7 @@ __all__ = ["Structure", "Block", "StructOp", "FieldOp", "SpreadOp"]
 
 import comp
 
-from . import _base, _ident
+from . import _base, _ident, _literal
 
 
 class Structure(_base.ValueNode):
@@ -194,11 +194,18 @@ class FieldOp(StructOp):
     def evaluate(self, frame):
         # Handles multiple cases:
         # 0. Scope assignment: key starts with ScopeField (e.g., @name = value)
-        # 1. comp.Unnamed: key is None, use comp.Unnamed() as key
-        # 2. Simple named: key is single _base.ValueNode, evaluate and use
-        # 3. Deep path: key is list, walk path creating nested structs
+        # 1. Private assignment: key contains PrivateField (e.g., value.&.data = 42)
+        # 2. Unnamed: key is None, use comp.Unnamed() as key
+        # 3. Simple named: key is single _base.ValueNode, evaluate and use
+        # 4. Deep path: key is list, walk path creating nested structs
 
-        # Check for scope assignment first (key is list starting with ScopeField)
+        # Check for private field assignment first (key is list containing PrivateField)
+        # This includes both @var.&.field and value.&.field patterns
+        if isinstance(self.key, list) and any(isinstance(f, _ident.PrivateField) for f in self.key):
+            # This is a private assignment like value.&.data = 42 or @var.value.& = data
+            return (yield from self._evaluate_private_assignment(frame))
+
+        # Check for scope assignment (key is list starting with ScopeField, no PrivateField)
         if isinstance(self.key, list) and len(self.key) >= 2 and isinstance(self.key[0], _ident.ScopeField):
             # This is a scope assignment like @name = value
             return (yield from self._evaluate_scope_assignment(frame))
@@ -213,7 +220,7 @@ class FieldOp(StructOp):
         if frame.bypass_value(value_value):
             return value_value
 
-        # Case 1: comp.Unnamed field
+        # Case 1: Unnamed field
         if self.key is None:
             # Unwrap single-element structs for unnamed fields
             # This allows {[expr]} to work when expr returns {value}
@@ -371,6 +378,133 @@ class FieldOp(StructOp):
 
         # Assign to the final field
         final_field = field_path[-1]
+        final_key = yield from self._evaluate_path_field(frame, final_field, current_dict)
+        if frame.bypass_value(final_key):
+            return final_key
+
+        current_dict[final_key] = value_result
+        return comp.Value(True)
+
+    def _evaluate_private_assignment(self, frame):
+        """Handle private field assignment like value.&.data = 42.
+
+        The key is a list containing a PrivateField somewhere in the path.
+        Everything before the & is evaluated to get the target value,
+        then we access/modify its private data, and everything after & is
+        the path within the private structure.
+
+        Returns:
+            comp.Value(True) on success, fail value on error
+        """
+        # Evaluate the value to assign
+        value_result = yield comp.Compute(self.value)
+        if frame.bypass_value(value_result):
+            return value_result
+
+        # Find the PrivateField in the key path
+        private_field_index = None
+        for i, field_node in enumerate(self.key):
+            if isinstance(field_node, _ident.PrivateField):
+                private_field_index = i
+                break
+
+        if private_field_index is None:
+            return comp.fail("Internal error: PrivateField not found in key path")
+
+        # Get module for private data access
+        module = frame.scope('module')
+        if module is None:
+            return comp.fail("Cannot assign to private data without module context")
+
+        # Split the path: before &, the &, and after &
+        path_before = self.key[:private_field_index]
+        path_after = self.key[private_field_index + 1:]
+
+        # Evaluate the path before & to get the target value
+        if not path_before:
+            return comp.fail("Cannot assign to private data without a target value")
+
+        # Start with the first field in path_before
+        first_field = path_before[0]
+        
+        # If it's a ScopeField, evaluate it to get the scope value
+        if isinstance(first_field, _ident.ScopeField):
+            current_value = yield comp.Compute(first_field)
+            if frame.bypass_value(current_value):
+                return current_value
+            # Continue with remaining path
+            path_before = path_before[1:]
+        else:
+            # Start from unnamed scope and walk to the target value
+            current_value = frame.scope('unnamed')
+            if current_value is None:
+                return comp.fail("No implicit scope available for private assignment")
+
+        # Walk the remaining path before &
+        for field_node in path_before:
+            if isinstance(field_node, _ident.TokenField):
+                # Look up field in current value (from identifier context)
+                if not current_value.is_struct:
+                    return comp.fail(f"Cannot access field '{field_node.name}' on non-struct")
+                key = comp.Value(field_node.name)
+                if key not in current_value.struct:
+                    return comp.fail(f"Field '{field_node.name}' not found")
+                current_value = current_value.struct[key]
+            elif isinstance(field_node, _literal.String):
+                # Look up field in current value (from assignment key context)
+                if not current_value.is_struct:
+                    return comp.fail(f"Cannot access field '{field_node.value}' on non-struct")
+                key = comp.Value(field_node.value)
+                if key not in current_value.struct:
+                    return comp.fail(f"Field '{field_node.value}' not found")
+                current_value = current_value.struct[key]
+            else:
+                # Evaluate other field types normally
+                current_value = yield comp.Compute(field_node, identifier=current_value)
+                if frame.bypass_value(current_value):
+                    return current_value
+
+        # Now current_value is the target that has private data
+        # Get its private data for this module
+        private_data = current_value.get_private(module.module_id)
+
+        # If no path after &, we're replacing entire private data
+        if not path_after:
+            # Assign entire value as new private data
+            current_value.set_private(module.module_id, value_result)
+            return comp.Value(True)
+
+        # Otherwise, we need to modify a field within the private data
+        # If no private data exists yet, create empty struct
+        if private_data is None:
+            private_data = comp.Value({})
+            current_value.set_private(module.module_id, private_data)
+
+        # Private data must be a struct to assign fields
+        if not private_data.is_struct:
+            return comp.fail("Cannot assign field in non-struct private data")
+
+        # Walk the path after &, creating nested structs as needed
+        current_dict = private_data.struct
+        for field_node in path_after[:-1]:
+            key_value = yield from self._evaluate_path_field(frame, field_node, current_dict)
+            if frame.bypass_value(key_value):
+                return key_value
+
+            # Navigate or create nested struct
+            if key_value in current_dict:
+                current_struct = current_dict[key_value]
+                if not current_struct.is_struct:
+                    current_struct = comp.Value({})
+                    current_dict[key_value] = current_struct
+                current_dict = current_struct.struct
+            else:
+                new_struct = comp.Value({})
+                current_dict[key_value] = new_struct
+                current_dict = new_struct.struct
+
+        # Assign to the final field in private data
+        final_field = path_after[-1]
         final_key = yield from self._evaluate_path_field(frame, final_field, current_dict)
         if frame.bypass_value(final_key):
             return final_key

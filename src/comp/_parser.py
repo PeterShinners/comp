@@ -209,18 +209,26 @@ def _convert_tree(tree):
         # === IDENTIFIERS ===
         case 'identifier':
             fields = _convert_identifier_fields(kids)
-            
-            # Bare token becomes a string literal: foo -> "foo"
-            # But dotted or scoped identifiers stay as-is: foo.bar, $var.name
-            if (len(fields) == 1 and 
-                isinstance(fields[0], comp.ast.TokenField)):
-                # Single TokenField with no scope/dots -> convert to string
-                node = comp.ast.String(fields[0].name)
-                return _apply_position(node, tree)
-            
-            # Multi-field or scoped identifier stays as Identifier
+            # Always create an Identifier node - no conversion here
             node = comp.ast.Identifier(fields)
             return _apply_position(node, tree)
+        
+        case 'atom_identifier':
+            # In atom context: convert simple tokens to string literals
+            # This enables: {USERNAME USER LOGNAME} → {"USERNAME" "USER" "LOGNAME"}
+            # But preserves: $var.name, foo.bar, #(expr) as identifiers
+            identifier = _convert_tree(kids[0])  # kids[0] is the identifier
+            
+            # Check if it's a simple single-token identifier (no dots, no scope)
+            if (isinstance(identifier, comp.ast.Identifier) and
+                len(identifier.fields) == 1 and
+                isinstance(identifier.fields[0], comp.ast.TokenField)):
+                # Convert: foo → "foo"
+                node = comp.ast.String(identifier.fields[0].name)
+                return _apply_position(node, tree)
+            
+            # Otherwise keep as identifier: $var.name, foo.bar, #(expr), etc.
+            return identifier
 
         case 'tokenfield':
             return comp.ast.TokenField(_convert_tree(kids[0]))
@@ -247,6 +255,10 @@ def _convert_tree(tree):
             # "'" expression "'" - extract the expression (middle child)
             expr = _convert_tree(kids[1])
             return comp.ast.ComputeField(expr)
+
+        case 'privatefield':
+            # AMPERSAND - just & (switches to private data context)
+            return comp.ast.PrivateField()
 
         case 'scope':
             # "$" TOKEN - extract the scope name
@@ -708,7 +720,10 @@ def _convert_string(kids):
 
 
 def _convert_identifier_fields(kids):
-    """Convert identifier children to field nodes."""
+    """Convert identifier children to field nodes.
+    
+    When an AMPERSAND token is found, insert a PrivateField node before the next field.
+    """
     fields = []
     for kid in kids:
         if isinstance(kid, lark.Token):
@@ -717,6 +732,9 @@ def _convert_identifier_fields(kids):
             elif kid.type == 'INDEXFIELD':
                 index = int(kid.value[1:])  # Remove '#'
                 fields.append(comp.ast.IndexField(index))
+            elif kid.type == 'AMPERSAND':
+                # Insert a PrivateField node - the next field will follow
+                fields.append(comp.ast.PrivateField())
             # Skip dots and other tokens
         else:
             # Tree node
@@ -776,6 +794,9 @@ def _convert_field_assignment_key(tree):
             elif kid.type == 'INDEXFIELD':
                 index = int(kid.value[1:])  # Remove '#'
                 field_keys.append(comp.ast.IndexField(index))
+            elif kid.type == 'AMPERSAND':
+                # & separator - insert PrivateField
+                field_keys.append(comp.ast.PrivateField())
             # Skip dots
         elif isinstance(kid, lark.Tree):
             # Process tree nodes
@@ -799,6 +820,9 @@ def _convert_field_assignment_key(tree):
                 # computefield is an expression - keep as ComputeField
                 expr = _convert_tree(kid.children[1])
                 field_keys.append(comp.ast.ComputeField(expr))
+            elif kid.data == 'privatefield':
+                # privatefield is &  - keep as PrivateField
+                field_keys.append(comp.ast.PrivateField())
             # Skip other nodes
 
     # If we have a scope marker, prepend it as a ScopeField

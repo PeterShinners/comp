@@ -427,11 +427,17 @@ class Module(_entity.Entity):
         is_builtin (bool): True if this is the builtin module (to avoid circular namespace refs)
     """
 
-    def __init__(self, is_builtin=False):
+    # Class-level counter for unique module IDs
+    _module_counter = 0
+
+    def __init__(self, is_builtin=False, module_id=None):
         """Initialize a module.
 
         Args:
             is_builtin (bool): True if this is the builtin module
+            module_id (str | None): Optional human-readable module identifier.
+                If None, uses id(self) for uniqueness. This identifier is used
+                for private data lookups (& syntax).
         """
         self.tags = {}  # full_path_str -> TagDefinition
         self.shapes = {}  # full_path_str -> ShapeDefinition
@@ -439,13 +445,19 @@ class Module(_entity.Entity):
         self.namespaces = {}  # namespace -> imported Module
         self.package_info = {}
         self.is_builtin = is_builtin
+        
+        # Module identifier for private data lookups
+        # Always unique - uses incrementing counter appended to optional name
+        Module._module_counter += 1
+        if module_id is not None:
+            self._module_id = f"{module_id}:{Module._module_counter}"
+        else:
+            self._module_id = Module._module_counter
 
         # Module scope storage for $mod namespace
         # This is a Value with a struct containing module-level state
         from ._value import Value
-        self.scope = Value(None)  # Empty struct initially
-        if self.scope.struct is None:
-            self.scope.struct = {}
+        self.scope = Value({})  # Start with empty struct
 
         # Alias for mod_scope to match ModuleAssign usage
         self.mod_scope = self.scope
@@ -467,6 +479,20 @@ class Module(_entity.Entity):
             # Import happens lazily to avoid circular dependency
             from .builtin import get_builtin_module
             self.namespaces['builtin'] = get_builtin_module()
+
+    @property
+    def module_id(self):
+        """Get the unique module identifier used for private data lookups.
+        
+        This identifier is used as a key when accessing module-private data
+        via the & syntax. Always unique - uses an incrementing counter.
+        If a name is provided, it's formatted as "name:counter" for debugging.
+        Otherwise, just the counter is used.
+        
+        Returns:
+            int | str: Module identifier (hashable and unique)
+        """
+        return self._module_id
 
     def define_tag(self, path, value=None):
         """Register a tag definition.

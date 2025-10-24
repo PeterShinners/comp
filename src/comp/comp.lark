@@ -75,6 +75,7 @@ string: _short_string | _long_string
 // Allows dashes and single optional trailing question mark
 TOKEN: /[^\W\d][\w-]*[?]?/
 INDEXFIELD: /#\d+/
+AMPERSAND: "&"
 
 // Individual field types - explicit rules for each context
 tokenfield: TOKEN
@@ -82,6 +83,7 @@ indexfield: INDEXFIELD                              // #0, #1, #2 (literal)
           | "#" "(" expression ")"                  // #(expr), #(@index), #([|:stream])
 stringfield: string
 computefield: "'" expression "'"
+privatefield: AMPERSAND                             // & (switches to private data)
 
 // Scope field types
 scope: "$" TOKEN
@@ -90,14 +92,16 @@ scope: "$" TOKEN
 // First field in a chain (cannot be a string literal - that would be standalone)
 ?identifier_first_field: tokenfield | indexfield | computefield
 
-// Fields after a dot (can include strings for quoted field names like obj."field")
+// Fields after a separator (can include strings for quoted field names like obj."field")
 ?identifier_next_field: tokenfield | indexfield | string | computefield
 
 // Identifier uses the $scope.field pattern or is a bare field reference
-// Examples: $var.name, $arg.value, $ctx.field, $mod.export, foo.bar
+// Examples: $var.name, $arg.value, $ctx.field, $mod.export, foo.bar, n&my
 // Bare scope markers are also identifiers: $var, $mod
-identifier: scope ("." identifier_next_field)*                          // $var.foo
-          | identifier_first_field ("." identifier_next_field)*         // foo.bar
+// Fields can be chained with . (regular field) or & (private field)
+// When & is used, we insert a PrivateField node in the parser
+identifier: scope ("." identifier_next_field | AMPERSAND identifier_next_field)*        // $var.foo or $var.n&my
+          | identifier_first_field ("." identifier_next_field | AMPERSAND identifier_next_field)*  // foo.bar or n&my
 
 _qualified: identifier
 
@@ -354,9 +358,12 @@ pipeline_expr: LBRACKET pipeline RBRACKET                           -> pipeline_
 
 // Atoms only match single entities
 // String is an atom (standalone literal), but can also appear as a field via stringfield
+// atom_identifier wraps _qualified in atom context to enable token->string conversion
+atom_identifier: _qualified
+
 ?atom: number
      | string
-     | _qualified
+     | atom_identifier
      | tag_reference
      | structure
      | block
@@ -488,6 +495,4 @@ FALLBACK: "??"
 ?atom_in_expr: atom
              | atom_in_expr "." identifier_next_field -> atom_field
              | atom_in_expr FALLBACK expression -> atom_fallback
-//          //  | atom_in_expr PRIVATEATTACH -> atom_private
-//          //  | atom_in_expr PRIVATEFIELD identifier -> atom_private_field
 
