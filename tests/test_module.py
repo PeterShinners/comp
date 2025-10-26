@@ -64,6 +64,17 @@ def test_undefined():
         module.prepare(tast, engine)
 
 
+def test_private():
+    """Test reference of private function."""
+    engine = comp.Engine()
+    
+    # Referencing a private function from another module should fail like undefined
+    past = comp.parse_module('!import /test = comp "test"\n!func |die ~any = {[2|half/test]}')
+    module = comp.Module()
+    with pytest.raises(ValueError, match="Undefined function"):
+        module.prepare(past, engine)
+
+
 def test_import_parse_errors():
     """Test that invalid import syntax raises errors."""
     with comptest.pytest.raises(comp.ParseError):

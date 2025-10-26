@@ -24,12 +24,26 @@ def test_comp_files(module_content_and_func):
     func = funcs[0]
 
     result = engine.run_function(func)
-    if result.is_fail:
-        raise AssertionError(f"Function failed with: {result.to_python()}")
-    if func_prefix == "assert-":
-        value = result.as_scalar().to_python()
-        if value is not True:
-            raise AssertionError(f"Assertion failed")
+    if func_prefix == "fail-":
+        # Expect the function to fail
+        if not result.is_fail:
+            raise AssertionError(f"Expected failure but succeeded with: {result.unparse()}")
+        # If function has a doc string, expect it as substring in fail message
+        if func.doc:
+            data = result.to_python()
+            if isinstance(data, dict):
+                fail_message = data.get("message", "")
+                if func.doc not in fail_message:
+                    raise AssertionError(f"Expected fail message to contain '{func.doc}', but got: {fail_message}")
+        return
+    else:
+        # Non-fail tests should not return a failure value
+        if result.is_fail:
+            raise AssertionError(f"Function failed with: {result.to_python()}")
+        if func_prefix == "assert-":
+            value = result.as_scalar().to_python()
+            if value is not True:
+                raise AssertionError(f"Assertion failed: got {value}, result was {result.to_python()}")
 
 
 def pytest_generate_tests(metafunc):
@@ -41,7 +55,8 @@ def pytest_generate_tests(metafunc):
         for base in comps:
             short = os.path.splitext(base)[0][3:]
             content = open(os.path.join(test_dir, base)).read()
-            funcs = re.findall(r"!func \|(test-|assert-)([-\w]+)", content)
+            # Support function names with optional '|' and prefixes: test-, assert-, fail-
+            funcs = re.findall(r"!func\s+\|?(test-|assert-|fail-)([-\w]+)", content)
             for func in funcs:
                 names.append(f"{short}-{func[1]}")
                 contents_and_func.append((content, func))

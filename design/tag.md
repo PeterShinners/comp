@@ -16,6 +16,8 @@ Tags bridge the gap between simple enumerations and complex type hierarchies. Th
 
 Tags are defined using the `!tag` keyword, creating hierarchical structures where each tag can have both a value and children. The `#` prefix must be used consistently on each tag name in the definition. When the same tag name appears multiple times in a definition, the last assignment wins - there's no concept of strong or weak assignment for tag definitions.
 
+Tags can be marked as module-private by adding a trailing `&` to the tag name (e.g., `!tag #internal-status& = {...}`). Module-private tags are only accessible within the defining module and cannot be referenced by code in other modules. For comprehensive information about module privacy, see [Modules, Imports, and Namespaces](module.md) and [Functions and Blocks](function.md).
+
 Tag values can be any build-time constant - numbers, strings, or even other tags. Tags without explicit values cannot be automatically converted from values but can still be used as markers and for dispatch. A tag can simultaneously have a value and children, and even the root of a hierarchy can carry a value.
 
 Tag definitions support multiple definition styles that can be mixed within the same module for flexibility and readability:

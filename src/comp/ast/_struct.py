@@ -128,7 +128,7 @@ class Block(_base.ValueNode):
         return f":{{{ops_str}}}"
 
     def __repr__(self):
-        return f"Block({len(self.structure.ops)} ops)"
+        return f"Block({len(self.body.ops)} ops)"
 
 
 class StructOp(_base.ValueNode):
@@ -219,6 +219,10 @@ class FieldOp(StructOp):
         value_value = yield comp.Compute(self.value)
         if frame.bypass_value(value_value):
             return value_value
+
+        # Register any handles in the value with the current frame
+        # This handles field assignments that contain handles
+        frame.register_handles(value_value)
 
         # Case 1: Unnamed field
         if self.key is None:
@@ -561,6 +565,10 @@ class SpreadOp(StructOp):
         if not spread_value.is_struct:
             return comp.fail(f"Cannot spread non-struct value: {spread_value}")
 
+        # Register any handles in the spread value with the current frame
+        # This handles spreading structs containing handles into outgoing structures
+        frame.register_handles(spread_value)
+
         # Merge into accumulator
         accumulator.struct.update(spread_value.struct)
 
@@ -612,6 +620,9 @@ class ScopeAssignOp(StructOp):
         # The scope should be a Value wrapping a struct (dict)
         if not scope.is_struct:
             return comp.fail(f"Scope '{self.scope_name}' is not a struct")
+
+        # Register any handles in the value with the current frame
+        frame.register_handles(value_result)
 
         # Assign to the scope using a String key
         key = comp.Value(self.field_name)

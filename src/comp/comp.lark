@@ -21,6 +21,7 @@ module: module_statement*
 ?module_statement: import_statement
                  | doc_statement
                  | tag_definition
+                 | handle_definition
                  | shape_definition
                  | function_definition
                  | main_definition
@@ -114,6 +115,7 @@ _reference_path:  reference_identifiers reference_namespace?
 tag_reference: "#" _reference_path
 shape_reference: "~" _reference_path
 function_reference: "|" _reference_path
+handle_reference: "@" _reference_path
 _function_piped: "|" _reference_path  // ignored for pipeline parsing
 
 
@@ -136,7 +138,7 @@ tag_definition: BANG_TAG tag_path                                           -> t
               | BANG_TAG tag_path ASSIGN tag_value                          -> tag_val
               | BANG_TAG tag_path ASSIGN tag_body                           -> tag_body_only
 
-tag_path: "#" reference_identifiers                       // Tag path without namespace
+tag_path: "#" reference_identifiers AMPERSAND?            // Tag path without namespace (optional private)
 
 tag_generator: function_reference | block                 // Generator function or inline block
 
@@ -181,6 +183,25 @@ tag_value: tag_arithmetic
          | paren_expr          // Parenthesized expressions
 
 
+// === HANDLE DEFINITIONS ===
+
+// Handle definitions (!handle)
+// Handles are similar to tags but represent external resources/capabilities
+// They do not have values - they're pure type markers
+// Supports similar hierarchy to tags:
+//   Simple:        !handle @fs
+//   Nested:        !handle @fs = {@file @dir}
+//   Flat:          !handle @fs.file.readonly
+//   Hierarchical:  !handle @fs = {@file = {@readonly @writeonly}}
+// Note: Handle definitions cannot include module namespace (no /module suffix)
+BANG_HANDLE: "!handle"
+
+handle_definition: BANG_HANDLE handle_path                          -> handle_simple
+                 | BANG_HANDLE handle_path ASSIGN structure         -> handle_body_only
+
+handle_path: "@" reference_identifiers AMPERSAND?        // Handle path without namespace (optional private)
+
+
 // === SHAPE DEFINITIONS ===
 
 // Shape definitions (!shape)
@@ -196,7 +217,7 @@ BANG_SHAPE: "!shape"
 
 shape_definition: BANG_SHAPE shape_path ASSIGN shape_body
 
-shape_path: "~" reference_identifiers                     // Shape path without namespace
+shape_path: "~" reference_identifiers AMPERSAND?          // Shape path without namespace (optional private)
 
 shape_body: LBRACE shape_field* RBRACE                    // Shape with fields
           | shape_type (ASSIGN expression)?               // Alias or union, optionally with default
@@ -215,6 +236,7 @@ shape_union: shape_type_atom (PIPE shape_type_atom)+      // ~type1 | ~type2 | ~
 // Renamed to shape_type_atom - individual type without union
 shape_type_atom: shape_reference                          // ~typename
                | tag_reference                            // #tagname (tag as type)
+               | handle_reference                         // @handle (handle as type)
                | shape_inline                             // ~{...} inline shape
                | shape_block                              // ~:{...} block with input shape
 
@@ -230,6 +252,7 @@ shape_type: shape_union | shape_type_atom
 TILDE: "~"
 HASH: "#"
 PIPE: "|"
+AT: "@"
 QUESTION: "?"
 
 
@@ -270,7 +293,7 @@ ARG_KEYWORD: "arg"
 function_definition: BANG_FUNC function_path function_shape ARG_KEYWORD shape_type _assignment_op structure  -> func_with_args
                    | BANG_FUNC function_path function_shape _assignment_op structure                         -> func_no_args
 
-function_path: PIPE TOKEN ("." TOKEN)*
+function_path: PIPE TOKEN ("." TOKEN)* AMPERSAND?         // Optional private on final name
 
 function_shape: shape_type
 
@@ -347,6 +370,7 @@ _assignment_op: ASSIGN | STRONG_ASSIGN | WEAK_ASSIGN | SPREAD_ASSIGN | WEAK_SPRE
 LPAREN: "("
 RPAREN: ")"
 PLACEHOLDER: "???"
+BANG_GRAB: "!grab"
 placeholder: PLACEHOLDER
 
 // Parenthesized expressions - simple grouping only (no pipelines)
@@ -361,10 +385,14 @@ pipeline_expr: LBRACKET pipeline RBRACKET                           -> pipeline_
 // atom_identifier wraps _qualified in atom context to enable token->string conversion
 atom_identifier: _qualified
 
+// Handle grab operation is an atom - creates a handle instance
+grab_atom: BANG_GRAB handle_reference
+
 ?atom: number
      | string
      | atom_identifier
      | tag_reference
+     | grab_atom
      | structure
      | block
      | placeholder
@@ -415,9 +443,13 @@ _pipeline_seed_expression: or_expr_no_union
 LOGICAL_AND: "&&"
 LOGICAL_OR: "||"
 LOGICAL_NOT: "!!"
+BANG_DROP: "!drop"
+
 ?or_expr: and_expr | or_expr LOGICAL_OR and_expr -> binary_op
 ?and_expr: not_expr | and_expr LOGICAL_AND not_expr -> binary_op
-?not_expr: comparison | LOGICAL_NOT not_expr -> unary_op
+?not_expr: resource_expr | LOGICAL_NOT not_expr -> unary_op
+?resource_expr: comparison 
+              | BANG_DROP _qualified -> drop_op
 
 // Comparison operators
 EQUAL_EQUAL: "=="

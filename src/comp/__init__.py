@@ -14,6 +14,7 @@ from ._function import *
 from ._engine import *
 from ._module import *
 from ._tag import *
+from ._handle import *
 from ._morph import *
 from ._parser import *
 from . import builtin, ast, corelib

@@ -94,9 +94,13 @@ def builtin_if(frame, input_value, args):
             else_arg = None
     
     # Evaluate condition
-    if cond_arg.is_block:
+    if cond_arg.is_block or cond_arg.is_raw_block:
         # Condition is a block - evaluate it with input_value
-        compute = comp.prepare_block_call(cond_arg, input_value)
+        block_value = cond_arg
+        if cond_arg.is_raw_block:
+            # Convert RawBlock to typed Block with empty input shape (any-block)
+            block_value = comp.Value(comp.Block(cond_arg.data, input_shape=[]))
+        compute = comp.prepare_block_call(block_value, input_value)
         if isinstance(compute, comp.Value):
             return compute  # Error during preparation
         
@@ -130,8 +134,11 @@ def builtin_if(frame, input_value, args):
         return input_value
     
     # Evaluate the selected branch
-    if branch_arg.is_block:
-        compute = comp.prepare_block_call(branch_arg, input_value)
+    if branch_arg.is_block or branch_arg.is_raw_block:
+        block_value = branch_arg
+        if branch_arg.is_raw_block:
+            block_value = comp.Value(comp.Block(branch_arg.data, input_shape=[]))
+        compute = comp.prepare_block_call(block_value, input_value)
         if isinstance(compute, comp.Value):
             return compute  # Error during preparation
         result = yield compute

@@ -356,6 +356,14 @@ Privacy structures work with all the same mechanisms as regular structures—sha
 }
 ```
 
+    ## Module-Private Definitions
+
+    Privacy syntax is defined centrally in the Syntax and Style Guide. Briefly: append `&` to a definition name to make it module-private (functions, shapes, tags, handles). References within the same module omit `&`; other modules cannot access private definitions. See the Privacy System section in [Syntax and Style Guide](syntax.md#privacy-system) for full details and examples.
+
+    ## Private Data Attachments
+
+    Structures can carry per-module private data using `&{...}` attachments. Access is restricted to the attaching module via `value&.field`. Private data travels through pipelines and full spreads and merges predictably from multiple sources. See [Syntax and Style Guide](syntax.md#privacy-system) for the canonical specification and examples.
+
 ## Pure Functions and Isolation
 
 Pure functions guarantee deterministic computation without side effects. Defined with `!pure`, they execute in a completely resource-free context. This enables build-time evaluation, safe parallelization, and use in shape constraints or unit definitions.

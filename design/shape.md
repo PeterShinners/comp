@@ -18,6 +18,8 @@ to a structure definition, but this is focused on types and default values.
 A shape is not a value. It is a referencable part of the module namespace that
 is accessed within the module and other modules after !import.
 
+Shapes can be marked as module-private by adding a trailing `&` to the shape name (e.g., `!shape ~internal-config& = {...}`). Module-private shapes are only accessible within the defining module and cannot be referenced by code in other modules. For comprehensive information about module privacy, see [Modules, Imports, and Namespaces](module.md) and [Functions and Blocks](function.md).
+
 ```comp
 !shape ~point-2d = {
     x ~num = 0

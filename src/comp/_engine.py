@@ -213,6 +213,7 @@ class _Frame:
     - Scope lookup (flattened dict with parent fallback)
     - Failure checking
     - Function calls
+    - Handle tracking (for automatic cleanup)
 
     The generator is created automatically during initialization.
 
@@ -223,13 +224,14 @@ class _Frame:
         allow_failures (bool): Whether this frame can receive failures
         engine (Engine): Engine reference for function registry and fail_tag
     """
-    __slots__ = ('node', 'gen', 'previous', 'scopes', 'allowed', 'engine')
+    __slots__ = ('node', 'gen', 'previous', 'scopes', 'allowed', 'engine', 'handles')
 
     def __init__(self, node, previous, scopes, allow_failures, engine):
         self.node = node
         self.previous = previous
         self.allowed = allow_failures  # Can frame receive failure values? (modified as engine loops)
         self.engine = engine  # Temporary for function registry
+        self.handles = set()  # HandleInstances reachable from this frame
 
         if not previous:
             self.scopes = scopes
@@ -251,6 +253,28 @@ class _Frame:
             Value | None: Scope value or None if not found
         """
         return self.scopes.get(key)
+    
+    def register_handles(self, value):
+        """Register all handles in a value with this frame (bidirectional).
+        
+        Establishes bidirectional tracking between handles and frame:
+        - frame.handles tracks all HandleInstances reachable from frame
+        - handle.frames tracks all frames that can reach the handle
+        
+        This enables automatic cleanup: when frame exits and unregisters,
+        if handle.frames becomes empty, the handle can be automatically dropped.
+        
+        Args:
+            value: comp.Value to register (registers all contained handles)
+        """
+        if not isinstance(value, comp.Value):
+            return
+        
+        # Leverage Value.handles (computed at creation, O(1) iteration)
+        for handle in value.handles:
+            # Bidirectional registration
+            self.handles.add(handle)
+            handle.frames.add(self)
 
     def bypass_value(self, value):
         """Check if a value is a fail value.

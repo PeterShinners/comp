@@ -99,8 +99,8 @@ def morph(value, shape):
                         block = comp.Block(scalar_value.data, input_shape=field_shape.fields)
                         return MorphResult(named_matches=1, value=comp.Value(block))
         
-        # If shape is not a block type, morphing RawBlock fails
-        return MorphResult()  # No match
+        # RawBlock didn't match directly - fall through to struct morphing
+        # This allows Phase 3b to match unnamed blocks to named fields (like numbers, strings, etc.)
     
     # Special handling for already-typed Block values
     # Block (not RawBlock) can morph to compatible BlockShapeDefinition
@@ -174,6 +174,25 @@ def _morph_any(value, shape, was_wrapped=False):
     Returns:
         MorphResult with the morphed value or failure
     """
+    # Special handling for HandleDefinition targets - unwrap and check compatibility
+    if isinstance(shape, comp.HandleDefinition):
+        # Unwrap value to get the actual handle (if wrapped in single-field struct)
+        unwrapped = value.as_scalar()
+        if unwrapped.is_handle:
+            handle_data = unwrapped.data
+            # Fail if this is a dropped handle instance
+            if isinstance(handle_data, comp.HandleInstance) and handle_data.is_dropped:
+                return MorphResult(failure_reason=f"Cannot use dropped handle @{handle_data.full_name}")
+            # Check handle compatibility
+            input_handle_def = handle_data.handle_def
+            from . import _handle
+            if _handle.is_handle_compatible(input_handle_def, shape):
+                return MorphResult(named_matches=1, value=unwrapped)
+            else:
+                return MorphResult(failure_reason=f"Handle @{input_handle_def.full_name} incompatible with @{shape.full_name}")
+        else:
+            return MorphResult(failure_reason=f"Expected handle, got {_get_value_type(unwrapped)}")
+    
     # Handle unions by trying all members and picking the best
     # Check for both is_union (ShapeDefinition) and variants (old ShapeUnion)
     union_members = None
@@ -215,6 +234,9 @@ def _morph_any(value, shape, was_wrapped=False):
     
     # Special handling for RawBlock values (same as top-level morph())
     if value.is_raw_block:
+        # ~any should accept raw blocks without forcing typing
+        if isinstance(shape, comp.ShapeDefinition) and getattr(shape, "full_name", None) == "any":
+            return MorphResult(positional_matches=0, value=value)
         # Check if shape is a BlockShapeDefinition directly
         if isinstance(shape, comp.BlockShapeDefinition):
             block = comp.Block(value.data, input_shape=shape.fields)
@@ -311,6 +333,51 @@ def _morph_struct(value, shape, was_wrapped=False):
 
     Returns both the match score and the morphed value in a single pass.
     """
+    # Handle HandleDefinition shapes - validate handle hierarchy
+    # Handles cannot morph from values (unlike tags) - they either match or fail
+    if isinstance(shape, comp.HandleDefinition):
+        # Unwrap single-field structures
+        if value.is_struct and len(value.data) == 1:
+            value = value.data[next(iter(value.data.keys()))]
+        
+        # Value must be a handle - no value-to-handle morphing
+        if not value.is_handle:
+            return MorphResult(failure_reason="Expected handle, got non-handle value")
+        
+        # Get the handle reference or instance
+        handle_data = value.data
+        
+        # Check if this is a dropped handle instance
+        if isinstance(handle_data, comp.HandleInstance) and handle_data.is_dropped:
+            return MorphResult(
+                failure_reason=f"Cannot use dropped handle @{handle_data.full_name}"
+            )
+        
+        # Check if the value's handle matches or is a child of the shape's handle
+        # e.g., @file.readonly.text matches @file.readonly or @file
+        # but not @file.writable or @network
+        
+        # Rule: value handle must match exactly OR be a descendant of the required handle
+        # Both paths are in definition order: ["parent", "child", "grandchild"]
+        value_handle_def = handle_data.handle_def
+        required_handle_def = shape
+        
+        # Check if same handle
+        if value_handle_def.path == required_handle_def.path:
+            depth = len(value_handle_def.path)
+            return MorphResult(tag_depth=depth, value=value)
+        
+        # Check if value handle is a child of required handle
+        # Required handle path must be a prefix of value handle path
+        if len(required_handle_def.path) < len(value_handle_def.path):
+            # Check if required path is a prefix
+            if value_handle_def.path[:len(required_handle_def.path)] == required_handle_def.path:
+                depth = len(value_handle_def.path)
+                return MorphResult(tag_depth=depth, value=value)
+        
+        # Handle doesn't match the required hierarchy
+        return MorphResult(failure_reason=f"Handle @{value_handle_def.full_name} does not match required @{required_handle_def.full_name}")
+
     # Handle TagDefinition shapes - validate tag hierarchy or value-to-tag morphing
     if isinstance(shape, comp.TagDefinition):
         # Unwrap single-field structures
@@ -501,6 +568,69 @@ def _morph_struct(value, shape, was_wrapped=False):
             # Non-string key - treat as extra field
             unmatched_value_fields.append((field_key, field_value))
 
+    # PHASE 1.5: Handle field matching
+    # Match unnamed handle values to shape fields with handle type constraints
+    # This happens before tag matching, as handles are more specialized
+    
+    # Identify shape fields with handle types and unnamed handle values
+    handle_shape_fields = {}  # field_name -> (shape_field, handle_def)
+    for field in shape_fields:
+        if field.is_named and field.name in named_shape_fields and field.shape is not None:
+            # Check if the shape constraint is a HandleDefinition (direct) or Value wrapping a handle
+            handle_def = None
+            if isinstance(field.shape, comp.HandleDefinition):
+                # Direct HandleDefinition in shape field
+                handle_def = field.shape
+            elif isinstance(field.shape, comp.Value) and field.shape.is_handle:
+                # Value wrapping a HandleInstance
+                handle_def = field.shape.data.handle_def
+            
+            if handle_def is not None:
+                handle_shape_fields[field.name] = (field, handle_def)
+    
+    # Find unnamed handle values in input
+    unnamed_handles = [(k, v) for k, v in unmatched_value_fields 
+                       if isinstance(k, comp.Unnamed) and isinstance(v, comp.Value) and v.is_handle]
+    
+    # Match handles to fields
+    matched_handle_keys = []
+    handle_depth_sum = 0
+    for pos_key, handle_value in unnamed_handles:
+        input_handle_def = handle_value.data.handle_def
+        
+        # Try to find a compatible handle field
+        matched_field = None
+        for field_name, (shape_field, field_handle_def) in handle_shape_fields.items():
+            # Check if input handle is compatible with field's handle type
+            # Compatible means: same handle or input is a child of field's handle
+            from . import _handle
+            if _handle.is_handle_compatible(input_handle_def, field_handle_def):
+                matched_field = (field_name, shape_field, field_handle_def)
+                break
+        
+        if matched_field:
+            field_name, shape_field, field_handle_def = matched_field
+            field_key = comp.Value(field_name)
+            
+            # Assign the handle value to this field
+            # Handles pass through unchanged (no morphing)
+            matched_fields[field_key] = (shape_field, handle_value)
+            
+            # Count this as a named match (filling a named field)
+            named_matches += 1
+            
+            # Track handle depth for specificity (deeper handles = more specific)
+            handle_depth_sum += len(input_handle_def.path)
+            
+            # Remove from unmatched collections
+            del named_shape_fields[field_name]
+            del handle_shape_fields[field_name]
+            matched_handle_keys.append(pos_key)
+    
+    # Remove matched handles from unmatched_value_fields
+    unmatched_value_fields = [(k, v) for k, v in unmatched_value_fields 
+                              if k not in matched_handle_keys]
+
     # PHASE 2: Tag field matching
     # Match unnamed tag values to shape fields with tag type constraints
     
@@ -591,6 +721,7 @@ def _morph_struct(value, shape, was_wrapped=False):
 
     # PHASE 3b: Pair remaining unnamed value fields with unfilled named shape fields
     # This handles cases like {a=1 2 c=3} ~{a~num b~num c~num} where 2 should fill b
+    # Also handles blocks: {_: :{...}} ~{blok~:{}} where the unnamed block fills 'blok'
     paired_positional_keys = []
     if remaining_unnamed_values and named_shape_fields:
         # Get list of unfilled named fields in definition order
@@ -785,6 +916,9 @@ def _get_value_type(value: comp.Value) -> str:
     elif value.is_tag:
         tag_ref = value.data
         return f"#{tag_ref.full_name}"
+    elif value.is_handle:
+        handle_ref = value.data
+        return f"@{handle_ref.full_name}"
     elif value.is_struct:
         return "structure"
     elif value.is_block:

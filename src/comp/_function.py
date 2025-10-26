@@ -113,8 +113,8 @@ class PythonFunction(Function):
             return result
         yield  # Make this a generator (though this line is never reached)
 
-    def invoke(self, input_value, args_value=None, ctx_scope=None, frame=None):
-        """Invoke this Python function with automatic morphing.
+    def invoke(self, input_value, args_value=None, frame=None, ctx_scope=None):
+        """Invoke the Python function with morphing.
 
         If input_shape or arg_shape are defined, morphs the values before
         invoking the Python function. This allows PythonFunctions to:
@@ -226,7 +226,8 @@ class FunctionDefinition(_entity.Entity):
     """
     def __init__(self, path, module, body, input_shape=None,
                  arg_shape=None, is_pure=False,
-                 doc=None, impl_doc=None, _placeholder=False):
+                 doc=None, impl_doc=None, _placeholder=False,
+                 is_private: bool = False):
         """Initialize function definition.
         
         Args:
@@ -249,6 +250,7 @@ class FunctionDefinition(_entity.Entity):
         self.doc = doc
         self.impl_doc = impl_doc
         self._placeholder = _placeholder  # True if created by prepare(), not real definition
+        self.is_private = is_private
 
     @property
     def name(self):
@@ -310,10 +312,11 @@ class FunctionDefinition(_entity.Entity):
             Compute: Ready-to-execute compute object, or fail Value if error
         """
         import comp
+        import sys
 
         # Get function name for error messages
         func_name = self.full_name
-
+        
         # Step 1: Morph arguments to arg shape with strong morph (~*)
         # This enables unnamed→named field pairing, tag matching, and strict validation
         arg_scope = args_value if args_value is not None else comp.Value({})
@@ -408,7 +411,7 @@ class RawBlock:
         Returns:
             str: Summary showing operation count and frame depth
         """
-        return f"RawBlock({len(self.block_ast.ops)} ops, frame={self.frame})"
+        return f"RawBlock(frame={self.frame})"
 
 
 class Block:
@@ -483,7 +486,7 @@ class Block:
             str: Summary with operation count and shape
         """
         shape_str = f" ~:{self.input_shape}" if self.input_shape else ""
-        return f"Block({len(self.raw_block.block_ast.ops)} ops{shape_str}, {self.raw_block.frame})"
+        return f"Block({shape_str}, {self.raw_block.frame})"
 
 
 class BlockShapeDefinition(_entity.Entity):

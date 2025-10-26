@@ -1,6 +1,6 @@
 """Module system for the engine - tracks definitions and provides namespaces."""
 
-__all__ = ["Module", "TagDefinition", "ShapeField", "ShapeDefinition"]
+__all__ = ["Module", "TagDefinition", "HandleDefinition", "ShapeField", "ShapeDefinition"]
 
 
 import comp
@@ -79,10 +79,11 @@ class TagDefinition(_entity.Entity):
         module (Module): The Module this tag is defined in
         value: Optional value for this tag (can be any Value)
     """
-    def __init__(self, path, module, value=None):
+    def __init__(self, path, module, value=None, is_private: bool = False):
         self.path = path
         self.module = module
         self.value = value  # Will be engine.Value when evaluated
+        self.is_private = is_private
 
     @property
     def name(self):
@@ -109,107 +110,9 @@ class TagDefinition(_entity.Entity):
         Returns:
             list[str] | None: Parent path or None
         """
-        return self.path[:-1] if len(self.path) > 1 else None
-
-    @property
-    def parent(self):
-        """Get the parent TagDefinition, or None for root tags.
-        
-        Returns:
-            TagDefinition | None: Parent tag definition or None
-        """
-        parent_path = self.parent_path
-        if parent_path is None:
+        if len(self.path) <= 1:
             return None
-        return self.module.get_tag_by_full_path(parent_path)
-
-    @property
-    def children(self):
-        """Get all direct children of this tag.
-        
-        Returns:
-            list[TagDefinition]: List of child tag definitions
-        """
-        children = []
-        prefix = self.full_name + "."
-        for tag_name, tag_def in self.module.tags.items():
-            # Check if this is a direct child (one level deeper)
-            if tag_name.startswith(prefix):
-                # Count dots to ensure it's a direct child, not a grandchild
-                remainder = tag_name[len(prefix):]
-                if "." not in remainder:
-                    children.append(tag_def)
-        return children
-
-    @property
-    def descendants(self):
-        """Get all descendants (children, grandchildren, etc.) of this tag.
-        
-        Returns:
-            list[TagDefinition]: List of all descendant tag definitions
-        """
-        descendants = []
-        prefix = self.full_name + "."
-        for tag_name, tag_def in self.module.tags.items():
-            if tag_name.startswith(prefix):
-                descendants.append(tag_def)
-        return descendants
-
-    @property
-    def ancestors(self):
-        """Get all ancestors (parent, grandparent, etc.) of this tag.
-        
-        Returns:
-            list[TagDefinition]: List of ancestor tag definitions, from parent to root
-        """
-        ancestors = []
-        current = self.parent
-        while current is not None:
-            ancestors.append(current)
-            current = current.parent
-        return ancestors
-
-    @property
-    def is_root(self):
-        """Check if this is a root tag (no parent).
-        
-        Returns:
-            bool: True if this tag has no parent
-        """
-        return len(self.path) == 1
-
-    @property
-    def depth(self):
-        """Get the depth of this tag in the hierarchy (root = 1).
-        
-        Returns:
-            int: Depth level, starting at 1 for root tags
-        """
-        return len(self.path)
-
-    def is_ancestor_of(self, other):
-        """Check if this tag is an ancestor of another tag.
-        
-        Args:
-            other (TagDefinition): Another tag definition
-            
-        Returns:
-            bool: True if this tag is an ancestor of other
-        """
-        if len(self.path) >= len(other.path):
-            return False
-        return other.path[:len(self.path)] == self.path
-
-    def is_descendant_of(self, other):
-        """Check if this tag is a descendant of another tag.
-        
-        Args:
-            other (TagDefinition): Another tag definition
-            
-        Returns:
-            bool: True if this tag is a descendant of other
-        """
-        return other.is_ancestor_of(self)
+        return self.path[:-1]
 
     def matches_partial(self, partial):
         """Check if this tag matches a partial path (prefix match).
@@ -224,8 +127,170 @@ class TagDefinition(_entity.Entity):
         if len(partial) > len(self.path):
             return False
         # For prefix matching: partial matches if it equals the last N elements of our path
-        # E.g., path=["stove", "hot"], partial=["hot"] matches
-        # E.g., path=["stove", "hot"], partial=["stove", "hot"] matches
+        # E.g., path=["status", "error"], partial=["error"] matches
+        # E.g., path=["status", "error"], partial=["status", "error"] matches
+        return self.path[-len(partial):] == partial
+
+
+class HandleDefinition(_entity.Entity):
+    """A single handle definition in the module.
+
+    Inherits from Entity so it can be returned from evaluate() and passed
+    through scopes, similar to ShapeDefinition and TagDefinition.
+
+    Attributes:
+        path (list[str]): Full path as list, e.g., ["file", "readonly", "text"]
+        module (Module): The Module this handle is defined in
+        drop_block: Optional AST node for the drop block (e.g., RawBlock)
+    """
+    def __init__(self, path, module, drop_block=None, is_private: bool = False):
+        self.path = path
+        self.module = module
+        self.drop_block = drop_block
+        self.is_private = is_private
+
+    @property
+    def name(self):
+        """Get the handle's leaf name (last element of path).
+        
+        Returns:
+            str: The handle's leaf name
+        """
+        return self.path[-1] if self.path else ""
+
+    @property
+    def full_name(self):
+        """Get dot-separated full path.
+        
+        Returns:
+            str: Full handle path joined with dots
+        """
+        return ".".join(self.path)
+
+    @property
+    def parent_path(self):
+        """Get the parent's path, or None for root handles.
+        
+        Returns:
+            list[str] | None: Parent path or None
+        """
+        return self.path[:-1] if len(self.path) > 1 else None
+
+    @property
+    def parent(self):
+        """Get the parent HandleDefinition, or None for root handles.
+        
+        Returns:
+            HandleDefinition | None: Parent handle definition or None
+        """
+        parent_path = self.parent_path
+        if parent_path is None:
+            return None
+        return self.module.get_handle_by_full_path(parent_path)
+
+    @property
+    def children(self):
+        """Get all direct children of this handle.
+        
+        Returns:
+            list[HandleDefinition]: List of child handle definitions
+        """
+        children = []
+        prefix = self.full_name + "."
+        for handle_name, handle_def in self.module.handles.items():
+            # Check if this is a direct child (one level deeper)
+            if handle_name.startswith(prefix):
+                # Count dots to ensure it's a direct child, not a grandchild
+                remainder = handle_name[len(prefix):]
+                if "." not in remainder:
+                    children.append(handle_def)
+        return children
+
+    @property
+    def descendants(self):
+        """Get all descendants (children, grandchildren, etc.) of this handle.
+        
+        Returns:
+            list[HandleDefinition]: List of all descendant handle definitions
+        """
+        descendants = []
+        prefix = self.full_name + "."
+        for handle_name, handle_def in self.module.handles.items():
+            if handle_name.startswith(prefix):
+                descendants.append(handle_def)
+        return descendants
+
+    @property
+    def ancestors(self):
+        """Get all ancestors (parent, grandparent, etc.) of this handle.
+        
+        Returns:
+            list[HandleDefinition]: List of ancestor handle definitions, from parent to root
+        """
+        ancestors = []
+        current = self.parent
+        while current is not None:
+            ancestors.append(current)
+            current = current.parent
+        return ancestors
+
+    @property
+    def is_root(self):
+        """Check if this is a root handle (no parent).
+        
+        Returns:
+            bool: True if this handle has no parent
+        """
+        return len(self.path) == 1
+
+    @property
+    def depth(self):
+        """Get the depth of this handle in the hierarchy (root = 1).
+        
+        Returns:
+            int: Depth level, starting at 1 for root handles
+        """
+        return len(self.path)
+
+    def is_ancestor_of(self, other):
+        """Check if this handle is an ancestor of another handle.
+        
+        Args:
+            other (HandleDefinition): Another handle definition
+            
+        Returns:
+            bool: True if this handle is an ancestor of other
+        """
+        if len(self.path) >= len(other.path):
+            return False
+        return other.path[:len(self.path)] == self.path
+
+    def is_descendant_of(self, other):
+        """Check if this handle is a descendant of another handle.
+        
+        Args:
+            other (HandleDefinition): Another handle definition
+            
+        Returns:
+            bool: True if this handle is a descendant of other
+        """
+        return other.is_ancestor_of(self)
+
+    def matches_partial(self, partial):
+        """Check if this handle matches a partial path (prefix match).
+
+        Args:
+            partial (list[str]): Partial path in natural order, e.g., ["file", "readonly"]
+                    for @file.readonly or just ["readonly"] for leaf-only reference
+
+        Returns:
+            bool: True if handle's path ends with the partial path (prefix match on reversed path)
+        """
+        if len(partial) > len(self.path):
+            return False
+        # For prefix matching: partial matches if it equals the last N elements of our path
+        # E.g., path=["file", "readonly"], partial=["readonly"] matches
+        # E.g., path=["file", "readonly"], partial=["file", "readonly"] matches
         return self.path[-len(partial):] == partial
 
 
@@ -246,13 +311,14 @@ class ShapeDefinition(_entity.Entity):
         union_members (list): List of shape references for union shapes
     """
     def __init__(self, path, module, fields,
-                 is_union=False, union_members=None):
+                 is_union=False, union_members=None, is_private: bool = False):
         self.path = path
         self.module = module
         self.fields = fields
         self.is_union = is_union
         self.union_members = union_members or []
         self.doc = None  # Documentation from !doc statement
+        self.is_private = is_private
 
     @property
     def name(self):
@@ -440,6 +506,7 @@ class Module(_entity.Entity):
                 for private data lookups (& syntax).
         """
         self.tags = {}  # full_path_str -> TagDefinition
+        self.handles = {}  # full_path_str -> HandleDefinition
         self.shapes = {}  # full_path_str -> ShapeDefinition
         self.functions = {}  # full_path_str -> list of overloads
         self.namespaces = {}  # namespace -> imported Module
@@ -494,7 +561,7 @@ class Module(_entity.Entity):
         """
         return self._module_id
 
-    def define_tag(self, path, value=None):
+    def define_tag(self, path, value=None, is_private: bool = False):
         """Register a tag definition.
 
         Args:
@@ -517,10 +584,38 @@ class Module(_entity.Entity):
                 tag_def.value = value
         else:
             # Create new tag definition
-            tag_def = TagDefinition(path=path, module=self, value=value)
+            tag_def = TagDefinition(path=path, module=self, value=value, is_private=is_private)
             self.tags[full_name] = tag_def
 
         return tag_def
+
+    def define_handle(self, path, drop_block=None, is_private: bool = False):
+        """Register a handle definition.
+
+        Args:
+            path (list[str]): Full path in definition order, e.g., ["file", "readonly", "text"]
+            drop_block: Optional AST node for the drop block (e.g., RawBlock)
+
+        Returns:
+            HandleDefinition: The HandleDefinition object
+
+        Notes:
+            - Multiple definitions of the same handle merge
+            - If drop_block is provided, it replaces any existing drop_block
+        """
+        full_name = ".".join(path)
+
+        if full_name in self.handles:
+            # Handle already exists - update drop_block if provided
+            handle_def = self.handles[full_name]
+            if drop_block is not None:
+                handle_def.drop_block = drop_block
+        else:
+            # Create new handle definition
+            handle_def = HandleDefinition(path=path, module=self, drop_block=drop_block, is_private=is_private)
+            self.handles[full_name] = handle_def
+
+        return handle_def
 
     def lookup_tag(self, partial_path, namespace=None, local_only=False):
         """Find tag by partial path, optionally in a specific namespace.
@@ -573,12 +668,17 @@ class Module(_entity.Entity):
             raise ValueError(f"Tag not found: #{partial_str}")
 
         # Not found locally - check all namespaces (with local_only=True for each)
+        # IMPORTANT: Private definitions in namespaces will be excluded by the namespace's
+        # lookup_tag with local_only=True
         found_results = []
         found_namespaces = []
 
         for ns_name, ns_module in self.namespaces.items():
             try:
                 result = ns_module.lookup_tag(partial_path, local_only=True)
+                # Additional check: exclude private definitions from other modules
+                if result.is_private and result.module != self:
+                    continue
                 found_results.append(result)
                 found_namespaces.append(ns_name)
             except ValueError:
@@ -598,6 +698,87 @@ class Module(_entity.Entity):
                 f"Ambiguous tag reference #{partial_str} found in multiple namespaces: {ns_list}"
             )
 
+    def lookup_handle(self, partial_path, namespace=None, local_only=False):
+        """Find handle by partial path, optionally in a specific namespace.
+
+        Args:
+            partial_path (list[str]): Partial path in natural order,
+                         e.g., ["file", "readonly"] for @file.readonly
+            namespace (str | None): Optional namespace to search in (e.g., "std" for /std)
+            local_only (bool): If True, only search locally defined handles, not imported namespaces
+
+        Returns:
+            HandleDefinition: HandleDefinition if unique match found
+
+        Raises:
+            ValueError: If not found, ambiguous, or namespace not found
+
+        Notes:
+            - If namespace is provided, searches only that namespace
+            - If namespace is None, searches local module first, then all namespaces
+            - local_only is used when searching imported namespaces to avoid pollution
+        """
+        if namespace is not None:
+            # Explicit namespace - look only there (with local_only=True to avoid recursion)
+            ns_module = self.namespaces.get(namespace)
+            if ns_module is None:
+                partial_str = ".".join(partial_path)
+                raise ValueError(f"Namespace not found: /{namespace} for handle @{partial_str}")
+            return ns_module.lookup_handle(partial_path, local_only=True)
+
+        # No namespace - check local first (only handles defined in THIS module)
+        matches = [
+            handle_def for handle_def in self.handles.values()
+            if handle_def.module == self and handle_def.matches_partial(partial_path)
+        ]
+
+        if len(matches) == 1:
+            return matches[0]
+        elif len(matches) > 1:
+            # Ambiguous in local module
+            match_names = [h.full_name for h in matches]
+            partial_str = ".".join(partial_path)
+            raise ValueError(
+                f"Ambiguous handle reference @{partial_str} matches: "
+                f"{', '.join('@' + n for n in match_names)}"
+            )
+
+        # If local_only, don't search namespaces
+        if local_only:
+            partial_str = ".".join(partial_path)
+            raise ValueError(f"Handle not found: @{partial_str}")
+
+        # Not found locally - check all namespaces (with local_only=True for each)
+        # IMPORTANT: Private definitions in namespaces will be excluded by the namespace's
+        # lookup_handle with local_only=True
+        found_results = []
+        found_namespaces = []
+
+        for ns_name, ns_module in self.namespaces.items():
+            try:
+                result = ns_module.lookup_handle(partial_path, local_only=True)
+                # Additional check: exclude private definitions from other modules
+                if result.is_private and result.module != self:
+                    continue
+                found_results.append(result)
+                found_namespaces.append(ns_name)
+            except ValueError:
+                # Not found or ambiguous in that namespace - skip it
+                continue
+
+        if len(found_results) == 0:
+            partial_str = ".".join(partial_path)
+            raise ValueError(f"Handle not found: @{partial_str}")
+        elif len(found_results) == 1:
+            return found_results[0]
+        else:
+            # Found in multiple namespaces - ambiguous
+            partial_str = ".".join(partial_path)
+            ns_list = ", ".join(f"/{ns}" for ns in found_namespaces)
+            raise ValueError(
+                f"Ambiguous handle reference @{partial_str} found in multiple namespaces: {ns_list}"
+            )
+
     def get_tag_by_full_path(self, path):
         """Get tag by exact full path.
 
@@ -609,6 +790,18 @@ class Module(_entity.Entity):
         """
         full_name = ".".join(path)
         return self.tags.get(full_name)
+
+    def get_handle_by_full_path(self, path):
+        """Get handle by exact full path.
+
+        Args:
+            path (list[str]): Full path in definition order, e.g., ["file", "readonly", "text"]
+
+        Returns:
+            HandleDefinition | None: HandleDefinition if found, None otherwise
+        """
+        full_name = ".".join(path)
+        return self.handles.get(full_name)
 
     def list_tags(self):
         """Get all tag definitions in the module.
@@ -670,7 +863,7 @@ class Module(_entity.Entity):
         return matches
 
     def define_shape(self, path, fields,
-                     is_union=False, union_members=None):
+                     is_union=False, union_members=None, is_private: bool = False):
         """Register a shape definition.
 
         Args:
@@ -703,7 +896,8 @@ class Module(_entity.Entity):
                 module=self,
                 fields=fields,
                 is_union=is_union,
-                union_members=union_members or []
+                union_members=union_members or [],
+                is_private=is_private
             )
             self.shapes[full_name] = shape_def
             return shape_def
@@ -718,7 +912,7 @@ class Module(_entity.Entity):
 
     def define_function(self, path, body, input_shape=None,
                        arg_shape=None, is_pure=False,
-                       doc=None, impl_doc=None):
+                       doc=None, impl_doc=None, is_private: bool = False):
         """Register a function definition.
 
         Supports overloading - multiple definitions with the same path.
@@ -751,7 +945,8 @@ class Module(_entity.Entity):
             arg_shape=arg_shape,
             is_pure=is_pure,
             doc=doc,
-            impl_doc=impl_doc
+            impl_doc=impl_doc,
+            is_private=is_private
         )
 
         # Add to overload list
@@ -846,12 +1041,17 @@ class Module(_entity.Entity):
             raise ValueError(f"Shape not found: ~{partial_str}")
 
         # Not found locally - check all namespaces (with local_only=True for each)
+        # IMPORTANT: Private definitions in namespaces will be excluded by the namespace's
+        # lookup_shape with local_only=True
         found_results = []
         found_namespaces = []
 
         for ns_name, ns_module in self.namespaces.items():
             try:
                 result = ns_module.lookup_shape(partial_path, local_only=True)
+                # Additional check: exclude private definitions from other modules
+                if result.is_private and result.module != self:
+                    continue
                 found_results.append(result)
                 found_namespaces.append(ns_name)
             except ValueError:
@@ -924,12 +1124,18 @@ class Module(_entity.Entity):
             raise ValueError(f"Function not found: |{partial_str}")
 
         # Not found locally - check all namespaces (with local_only=True for each)
+        # IMPORTANT: Private definitions in namespaces will be excluded by the namespace's
+        # lookup_function with local_only=True
         found_results = []
         found_namespaces = []
 
         for ns_name, ns_module in self.namespaces.items():
             try:
                 result = ns_module.lookup_function(partial_path, local_only=True)
+                # Additional check: exclude private definitions from other modules
+                # For functions, result is a list of overloads; check the first one
+                if result and result[0].is_private and result[0].module != self:
+                    continue
                 found_results.append(result)
                 found_namespaces.append(ns_name)
             except ValueError:
@@ -1018,6 +1224,13 @@ class Module(_entity.Entity):
                 if full_name not in self.tags:
                     self.define_tag(op.path, value=None)
 
+            elif isinstance(op, ast.HandleDef):
+                # Create handle definition
+                # Skip if already exists (module was already evaluated)
+                full_name = ".".join(op.path)
+                if full_name not in self.handles:
+                    self.define_handle(op.path)
+
             elif isinstance(op, ast.ShapeDef):
                 # Create shape definition with empty fields initially
                 # Fields will be resolved in phase 4
@@ -1041,7 +1254,8 @@ class Module(_entity.Entity):
                         is_pure=op.is_pure,
                         doc=op.doc,
                         impl_doc=op.impl_doc,
-                        _placeholder=True  # Mark as placeholder
+                        _placeholder=True,  # Mark as placeholder
+                        is_private=getattr(op, 'is_private', False)
                     )
                     self.functions[full_name] = [placeholder]
 
@@ -1167,6 +1381,10 @@ class Module(_entity.Entity):
         """
         # Add tags - generate all possible partial prefixes
         for tag_def in self.tags.values():
+            # Note: Private definitions ARE included in the local resolution namespace
+            # They can be accessed within the module itself, but will be filtered out
+            # when imported by other modules (in _add_namespace_definitions_to_ns)
+                
             # Generate all partial paths (prefix matching from end)
             # E.g., ["status", "error", "timeout"] generates reference paths:
             #   ("timeout",)  - matches #timeout
@@ -1188,6 +1406,8 @@ class Module(_entity.Entity):
 
         # Add shapes - generate all possible partial prefixes
         for shape_def in self.shapes.values():
+            # Private definitions included in local namespace
+                
             for i in range(len(shape_def.path)):
                 partial = tuple(shape_def.path[i:])
                 key = ('shape', partial, None)
@@ -1202,6 +1422,8 @@ class Module(_entity.Entity):
         for _func_name, func_overloads in self.functions.items():
             if func_overloads:
                 func_def = func_overloads[0]  # Use first overload for path
+                # Private definitions included in local namespace
+                    
                 for i in range(len(func_def.path)):
                     partial = tuple(func_def.path[i:])
                     key = ('function', partial, None)
@@ -1232,6 +1454,10 @@ class Module(_entity.Entity):
         for tag_def in ns_module.tags.values():
             # Skip definitions inherited from dependencies
             if tag_def.module != ns_module:
+                continue
+            
+            # Skip private definitions - they're not exported
+            if tag_def.is_private:
                 continue
             
             # Add with explicit namespace qualifier
@@ -1266,6 +1492,10 @@ class Module(_entity.Entity):
             if shape_def.module != ns_module:
                 continue
             
+            # Skip private definitions
+            if shape_def.is_private:
+                continue
+            
             for i in range(len(shape_def.path)):
                 partial = tuple(shape_def.path[i:])
 
@@ -1289,6 +1519,10 @@ class Module(_entity.Entity):
                 func_def = func_overloads[0]
                 # Skip definitions inherited from dependencies
                 if func_def.module != ns_module:
+                    continue
+                
+                # Skip private definitions
+                if func_def.is_private:
                     continue
                 
                 for i in range(len(func_def.path)):

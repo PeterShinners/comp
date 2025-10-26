@@ -2,6 +2,7 @@
 
 from ._base import *
 from ._function import *
+from ._handle import *
 from ._ident import *
 from ._import import *
 from ._literal import *

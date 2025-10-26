@@ -35,7 +35,8 @@ class FuncDef(ModuleOp):
                  arg_shape: _base.ShapeNode | None = None,
                  is_pure: bool = False,
                  doc: str | None = None,
-                 impl_doc: str | None = None):
+                 impl_doc: str | None = None,
+                 is_private: bool = False):
         if not isinstance(path, list):
             raise TypeError("Function path must be a list")
         if not path:
@@ -56,6 +57,7 @@ class FuncDef(ModuleOp):
         self.is_pure = is_pure
         self.doc = doc
         self.impl_doc = impl_doc
+        self.is_private = is_private
 
     def evaluate(self, frame):
         """Register this function in the module.
@@ -103,7 +105,8 @@ class FuncDef(ModuleOp):
             arg_shape=arg_shape,
             is_pure=self.is_pure,
             doc=doc,
-            impl_doc=impl_doc
+            impl_doc=impl_doc,
+            is_private=self.is_private
         )
 
         return comp.Value(True)

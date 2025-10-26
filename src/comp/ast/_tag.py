@@ -133,7 +133,8 @@ class TagDef(ModuleOp):
 
     def __init__(self, path: list[str], value: _base.ValueNode | None = None,
                  children: list['TagChild'] | None = None,
-                 generator: _base.ValueNode | None = None):
+                 generator: _base.ValueNode | None = None,
+                 is_private: bool = False):
         if not path:
             raise ValueError("Tag path cannot be empty")
         if not all(isinstance(name, str) for name in path):
@@ -152,6 +153,7 @@ class TagDef(ModuleOp):
         self.value = value
         self.children = children or []
         self.generator = generator
+        self.is_private = is_private
 
     def evaluate(self, frame):
         """Register this tag and its children in the module.
@@ -174,7 +176,7 @@ class TagDef(ModuleOp):
                 return tag_value
 
         # Register this tag
-        module.define_tag(self.path, tag_value)
+        module.define_tag(self.path, tag_value, is_private=self.is_private)
 
         # Process children - they extend the path
         if self.children:
@@ -231,7 +233,8 @@ class TagChild(ModuleOp):
     """
 
     def __init__(self, path: list[str], value: _base.ValueNode | None = None,
-                 children: list['TagChild'] | None = None):
+                 children: list['TagChild'] | None = None,
+                 is_private: bool = False):
         if not path:
             raise ValueError("TagChild path cannot be empty")
         if not all(isinstance(name, str) for name in path):
@@ -247,6 +250,7 @@ class TagChild(ModuleOp):
         self.path = path
         self.value = value
         self.children = children or []
+        self.is_private = is_private
 
     def evaluate(self, frame):
         """Register this child tag in the module.
@@ -273,7 +277,7 @@ class TagChild(ModuleOp):
                 return tag_value
 
         # Register tag
-        module.define_tag(full_path, tag_value)
+        module.define_tag(full_path, tag_value, is_private=self.is_private)
 
         # Process children
         if self.children:

@@ -1,0 +1,35 @@
+; Manage a simple fake handle
+
+
+!handle @mojo = {
+    drop = :{
+        $var.drop-called = #true
+    }
+}
+
+!shape ~mojo-arg = {m @mojo}
+
+
+!func |drop-mojo ~mojo-arg = {
+    !drop $in.m
+    $var.dropped = #true
+}
+
+
+!func |make-mojo ~{} = {
+    $var.mojo = !grab @mojo
+    $var.mojo
+}
+
+
+!func |use-mojo ~mojo-arg = {
+    ; Just return the handle  
+    $in.m
+}
+
+!func |assert-mojo ~any = {
+    $var.m = [|make-mojo]
+    $var.result1 = [{m=$var.m} |use-mojo]
+    #true
+}
+

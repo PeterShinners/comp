@@ -7,13 +7,13 @@
     $var.data == {5 7 9}
 }
 
-!func |xxassert-range ~any = {
+!func |assert-range ~any = {
     $var.numbers = [|range start=2 end=10 step=3]
     $var.x = [$var.numbers |print]
     $var.numbers == {2 5 8}
 }
 
-!func |xxassert-iter ~any = {
+!func |assert-iter ~any = {
     $var.data = {a=10 b=20 c=30}
     $var.block = :{
         [$in |print]
@@ -21,7 +21,6 @@
         $in.value
     }
     $var.result = [|iter $var.data $var.block]
-    [$var.result |print]
     $var.result == {10 20 30}
 }
 

@@ -1,0 +1,80 @@
+; Function dispatch and overload tests migrated from Python to Comp DSL
+
+; Test shapes for dispatch tests
+!shape ~point = {x ~num y ~num}
+!shape ~rect = {width ~num height ~num}
+!shape ~special = {value ~num}
+!shape ~animal = {name ~str}
+!shape ~dog = {..~animal breed ~str}
+!shape ~basic = {value ~num}
+!shape ~extended = {value ~num extra ~num}
+
+; Test functions for dispatch
+!func |area ~point = {
+    "point"
+}
+
+!func |area ~rect = {
+    $in.width * $in.height
+}
+
+!func |process ~special = {
+    $in.value + 100
+}
+
+!func |process ~{} = {
+    999
+}
+
+!func |describe ~animal = {
+    "animal"
+}
+
+!func |describe ~dog = {
+    "dog"
+}
+
+!func |check ~basic = {
+    "basic"
+}
+
+!func |check ~extended = {
+    "extended"
+}
+
+!func |process-point ~point = {
+    $in.x + $in.y
+}
+
+; Tests
+
+!doc "expects num"
+!func |fail-wrong-input-type ~{} = {
+    result = ["not a number" |double]
+}
+
+!doc "Missing required field 'n'"
+!func |fail-missing-required-arg ~{} = {
+    result = [5 |add]
+}
+
+!func |assert-dispatch-by-shape ~{} = {
+    [{x=5 y=10} |area].#0 == "point" && [{width=5 height=10} |area].#0 == 50
+}
+
+!func |assert-dispatch-with-wildcard ~{} = {
+    [{value=5} |process].#0 == 105 && [42 |process].#0 == 142 && [{other=42} |process].#0 == 999
+}
+
+!func |assert-dispatch-most-specific ~{} = {
+    [{name="Generic"} |describe].#0 == "animal" && [{name="Buddy" breed="Golden"} |describe].#0 == "dog"
+}
+
+!doc "no overload matches"
+!func |fail-dispatch-no-match ~{} = {
+    result = ["hello" |process-point]
+}
+
+!func |assert-dispatch-score-ordering ~{} = {
+    [{value=42} |check].#0 == "basic" && [{value=42 extra=10} |check].#0 == "extended"
+}

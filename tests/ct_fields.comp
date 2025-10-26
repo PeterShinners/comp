@@ -1,0 +1,26 @@
+; Field index access tests migrated from Python to Comp DSL
+
+!func |assert-literal-index ~{} = {
+    $var.data = {10 20 30}
+    $var.data.#1 == 20
+}
+
+!func |assert-computed-index ~{} = {
+    $var.index = 1
+    $var.data = {10 20 30 40 50}
+    $var.data.#($var.index + 1) == 30
+}
+
+!doc "out of bounds"
+!func |fail-index-out-of-bounds ~{} = {
+    $var.index = 1
+    $var.data = {10 20 30}
+    result = $var.data.#($var.index + 10)
+}
+
+!doc "Index expression must evaluate to a number"
+!func |fail-index-non-numeric ~{} = {
+    $var.index = "not-a-number"
+    $var.data = {10 20 30}
+    result = $var.data.#($var.index)
+}

@@ -1,0 +1,10 @@
+!import /py = stdlib "python"
+
+
+!func |assert-roundtrip ~any = {
+    $var.orig = {name="Joe" score=25}
+    $var.pyobj = [$var.orig |py-from-comp-impl]
+    $var.back = [$var.pyobj |py-to-comp-impl]
+    $var.back == $var.orig
+}
+

@@ -8,5 +8,10 @@
 }
 
 !func |get-answer ~nil = {
-    #answer ~num
+    [#answer ~num |half]
+}
+
+
+!func |half& ~num = {
+    $in / 2
 }

@@ -25,18 +25,6 @@
     }]
 }
 
-; !func |range-b ~num arg ~{end ~num start ~num =0 step ~num = 1} = {
-;     [|if ($arg.step == 0) :{#fail "range step cannot be zero"}]
-;     $var.current = $arg.start
-;     ..[|loop :{
-;         (($arg.step > 0 && $var.current >= $arg.end) ||
-;          ($arg.step < 0 && $var.current <= $arg.end)) |if :{#break}
-;         $var.value = $var.current
-;         $var.current = $var.current + $arg.step
-;         $var.value
-;     }]
-; }
-
 
 ; !doc "Generate indices for input collection (0 to length-1)"
 !func |indices ~struct = {
@@ -45,7 +33,7 @@
 
 
 
-!func |iter ~struct arg ~{~any} = {
+!func |iter ~struct arg ~{~any ~any-block} = {
     $var.collection-item = [$arg |subscript index=0]
     $var.collection = $var.collection-item.value
     $var.op-item = [$arg |subscript index=1]
@@ -62,7 +50,9 @@
                 field = $var.item.field
                 index = ($var.index - 1)
             }
-            [$var.data |:$var.op]
+            $var.tmp = [$var.data |:$var.op]
+            $var.last = [$var.tmp |subscript index=-1]
+            $var.last.value
         }]
     }]
 }

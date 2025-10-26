@@ -109,25 +109,3 @@ def test_template_from_source():
     result = engine.run_function(func, in_=input_value)
     
     comptest.assert_value(result, "Hello, World!")
-
-
-if __name__ == "__main__":
-    test_template_basic()
-    print("✓ Basic template")
-    
-    test_template_positional()
-    print("✓ Positional template")
-    
-    test_template_empty_placeholder()
-    print("✓ Empty placeholder")
-    
-    test_template_multiple_placeholders()
-    print("✓ Multiple placeholders")
-    
-    test_template_nested_field()
-    print("✓ Nested field access")
-    
-    test_template_from_source()
-    print("✓ Template from source code")
-    
-    print("\nAll template tests passed!")

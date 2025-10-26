@@ -32,6 +32,7 @@ class Value(_entity.Entity):
                 - Decimal (stored directly)
                 - str (stored directly)
                 - comp.TagRef (stored directly)
+                - comp.HandleInstance (stored directly)
                 - Block/RawBlock (stored directly)
                 - dict (recursively converted)
                 - list/tuple (converted to unnamed struct fields)
@@ -46,43 +47,60 @@ class Value(_entity.Entity):
             self.data = data.data
             # Share private data reference - values are immutable, no need to copy
             self.private = data.private
+            # Copy the handles set (also immutable)
+            self.handles = data.handles
             return
 
         # Handle None -> empty struct
         if data is None:
             self.data = {}
+            self.handles = frozenset()
             return
 
         # Handle bool -> Tag conversion
         if isinstance(data, bool):
             self.data = comp.builtin.TRUE if data else comp.builtin.FALSE
+            self.handles = frozenset()
             return
 
         # Handle numeric types -> Decimal
         if isinstance(data, int):
             self.data = decimal.Decimal(data)
+            self.handles = frozenset()
             return
         if isinstance(data, float):
             self.data = decimal.Decimal(str(data))  # Convert via string to avoid precision issues
+            self.handles = frozenset()
             return
         if isinstance(data, decimal.Decimal):
             self.data = data
+            self.handles = frozenset()
             return
 
         # Handle string
         if isinstance(data, str):
             self.data = data
+            self.handles = frozenset()
             return
 
         # Handle comp.TagRef
         if isinstance(data, comp.TagRef):
             self.data = data
+            self.handles = frozenset()
+            return
+
+        # Handle comp.HandleInstance (actual grabbed handles)
+        if isinstance(data, comp.HandleInstance):
+            self.data = data
+            # This value contains exactly one handle
+            self.handles = frozenset([data])
             return
 
         # Handle Block and RawBlock (can be wrapped in Value)
         from . import _function
         if isinstance(data, (_function.Block, _function.RawBlock)):
             self.data = data
+            self.handles = frozenset()
             return
 
         # Handle dict -> struct (recursively convert keys and values)
@@ -91,14 +109,33 @@ class Value(_entity.Entity):
                 k if isinstance(k, Unnamed) else Value(k): Value(v)
                 for k, v in data.items()
             }
+            # Compute handles from all field values (recursively)
+            self.handles = self._compute_struct_handles()
             return
 
         # Handle list/tuple -> unnamed struct fields
         if isinstance(data, (list, tuple)):
             self.data = {Unnamed(): Value(v) for v in data}
+            # Compute handles from all field values (recursively)
+            self.handles = self._compute_struct_handles()
             return
 
         raise ValueError(f"Cannot convert Python {type(data)} to Comp Value")
+
+    def _compute_struct_handles(self) -> frozenset:
+        """Recursively collect all handles from struct fields.
+        
+        Since Values are immutable and handles are computed at construction,
+        we can just collect the handles sets from all field values.
+        
+        Returns:
+            frozenset of HandleInstance objects, or empty frozenset
+        """
+        all_handles = set()
+        for field_value in self.data.values():
+            if field_value.handles:
+                all_handles.update(field_value.handles)
+        return frozenset(all_handles) if all_handles else frozenset()
 
     @property
     def is_number(self) -> bool:
@@ -115,6 +152,11 @@ class Value(_entity.Entity):
     @property
     def is_tag(self) -> bool:
         return isinstance(self.data, comp.TagRef)
+
+    @property
+    def is_handle(self) -> bool:
+        """Check if this Value wraps a HandleInstance (grabbed handle)."""
+        return isinstance(self.data, comp.HandleInstance)
 
     @property
     def is_block(self) -> bool:
@@ -159,7 +201,7 @@ class Value(_entity.Entity):
         # Check if struct can be unwrapped
         if isinstance(self.data, dict) and len(self.data) == 1:
             value = list(self.data.values())[0]
-            if value.is_number or value.is_string or value.is_tag or value.is_block or value.is_raw_block:
+            if value.is_number or value.is_string or value.is_tag or value.is_handle or value.is_block or value.is_raw_block:
                 # Check if we need to preserve private data
                 if self.private:
                     # If the inner value already has the same private reference, return it directly
@@ -192,6 +234,8 @@ class Value(_entity.Entity):
         wrapped = Value.__new__(Value)
         wrapped.data = {Unnamed(): self}
         wrapped.private = self.private
+        # Compute handles from the wrapped value
+        wrapped.handles = self.handles if hasattr(self, 'handles') else frozenset()
         return wrapped
 
     def get_private(self, module_id):
@@ -238,6 +282,8 @@ class Value(_entity.Entity):
             return repr(self.data).replace('"', '\\"').replace("'", '"')
         if self.is_tag:
             return f"#{self.data.full_name}"
+        if self.is_handle:
+            return f"@{self.data.full_name}"
         if self.is_struct:
             fields = []
             for k, v in self.data.items():
@@ -335,6 +381,9 @@ def fail(message):
         Value('type'): Value('fail'),
         Value('message'): Value(message)
     }
+    result.private = {}
+    # Compute handles from field values
+    result.handles = frozenset()  # fail values don't contain handles
     return result
 
 

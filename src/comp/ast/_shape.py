@@ -25,7 +25,7 @@ class ShapeDef(ModuleOp):
         fields: List of field definitions
     """
 
-    def __init__(self, path: list[str], fields: list['ShapeFieldDef']):
+    def __init__(self, path: list[str], fields: list['ShapeFieldDef'], is_private: bool = False):
         if not isinstance(path, list):
             raise TypeError("Shape path must be a list")
         if not path:
@@ -39,6 +39,7 @@ class ShapeDef(ModuleOp):
 
         self.path = path
         self.fields = fields
+        self.is_private = is_private
 
     def evaluate(self, frame):
         """Register this shape in the module.
@@ -87,7 +88,7 @@ class ShapeDef(ModuleOp):
                 shape_fields.append(field)
 
         # Register shape (define_shape returns the ShapeDefinition)
-        shape_def = module.define_shape(self.path, shape_fields)
+        shape_def = module.define_shape(self.path, shape_fields, is_private=self.is_private)
 
         # Store documentation on the shape definition if we got any
         if doc is not None:
@@ -382,6 +383,82 @@ class TagShape(_base.ShapeNode):
         if self.namespace:
             return f"TagShape(#{path_str}/{self.namespace})"
         return f"TagShape(#{path_str})"
+
+
+class HandleShape(_base.ShapeNode):
+    """Handle reference used as a shape: @handlename
+
+    Represents a handle reference when used in a shape context.
+    The handle definition itself serves as the shape constraint.
+
+    Examples:
+        @file.readonly         # Read-only file handle
+        @network.socket        # Network socket handle
+        @db.connection         # Database connection handle
+
+    Args:
+        path: Partial path in natural order, e.g., ["file", "readonly"]
+        namespace: Optional namespace for cross-module references
+
+    Attributes:
+        _resolved: Pre-resolved HandleDefinition (set by Module.prepare())
+    """
+
+    def __init__(self, path: list[str], namespace: str | None = None):
+        if not isinstance(path, list):
+            raise TypeError("Handle path must be a list")
+        if not path:
+            raise ValueError("Handle path cannot be empty")
+        if not all(isinstance(p, str) for p in path):
+            raise TypeError("Handle path must be list of strings")
+        if namespace is not None and not isinstance(namespace, str):
+            raise TypeError("Handle namespace must be string or None")
+
+        self.path = path
+        self.namespace = namespace
+        self._resolved = None  # Pre-resolved definition (set by Module.prepare())
+
+    def evaluate(self, frame):
+        """Look up handle in module and return HandleDefinition.
+
+        Returns the HandleDefinition directly, which the morphing system
+        can use as a shape constraint for matching handle values.
+        """
+        # Fast path: use pre-resolved definition if available
+        if self._resolved is not None:
+            return self._resolved
+            yield  # Unreachable but makes this a generator
+
+        # Slow path: runtime lookup (for modules not prepared)
+        # Get module from scope
+        module = frame.scope('module')
+        if module is None:
+            return comp.fail("Handle shapes require module scope")
+
+        # Look up handle with namespace support
+        try:
+            handle_def = module.lookup_handle(self.path, self.namespace)
+        except ValueError as e:
+            # Not found or ambiguous reference
+            return comp.fail(str(e))
+
+        # Return HandleDefinition directly (like ShapeRef returns ShapeDefinition)
+        return handle_def
+        yield  # Unreachable but makes this a generator
+
+    def unparse(self) -> str:
+        """Convert back to source code."""
+        path_str = ".".join(self.path)
+        ref = f"@{path_str}"
+        if self.namespace:
+            ref += "/" + self.namespace
+        return ref
+
+    def __repr__(self):
+        path_str = ".".join(self.path)
+        if self.namespace:
+            return f"HandleShape(@{path_str}/{self.namespace})"
+        return f"HandleShape(@{path_str})"
 
 
 class ShapeUnion(_base.ShapeNode):

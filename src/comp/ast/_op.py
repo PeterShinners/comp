@@ -25,18 +25,39 @@ def _values_equal(left, right):
     """
     # If both are dicts (structs), handle Unnamed keys specially
     if isinstance(left, dict) and isinstance(right, dict):
+        # Fast path: if both structs contain only unnamed fields, compare by order
+        left_keys = list(left.keys())
+        right_keys = list(right.keys())
+        if all(isinstance(k, comp.Unnamed) for k in left_keys) and all(isinstance(k, comp.Unnamed) for k in right_keys):
+            if len(left_keys) != len(right_keys):
+                return False
+            # Compare values in insertion order
+            for lv, rv in zip(left.values(), right.values()):
+                # Unwrap Value containers for nested comparison
+                lv_data = lv.data if hasattr(lv, 'data') else lv
+                rv_data = rv.data if hasattr(rv, 'data') else rv
+                if not _values_equal(lv_data, rv_data):
+                    return False
+            return True
         # Convert to sorted list of (key, value) tuples
         # Replace Unnamed instances with None for comparison
         def to_comparable(d):
             items = []
             for k, v in d.items():
                 # Convert Unnamed to None for comparison
-                key = None if isinstance(k, comp.Unnamed) else k
+                # Convert Value keys to their underlying data for comparison
+                if isinstance(k, comp.Unnamed):
+                    key = None
+                elif hasattr(k, 'data'):
+                    # Value object - convert to Python for comparison
+                    key = k.to_python()
+                else:
+                    key = k
                 # Recursively handle nested structs
                 value = v.data if hasattr(v, 'data') else v
                 items.append((key, value))
-            # Sort by key (None will sort first)
-            return sorted(items, key=lambda x: (x[0] is None, x[0]))
+            # Sort by key (None will sort first, then sort by the converted key value)
+            return sorted(items, key=lambda x: (x[0] is None, str(x[0]) if x[0] is not None else ""))
         
         left_items = to_comparable(left)
         right_items = to_comparable(right)

@@ -272,6 +272,12 @@ def _convert_tree(tree):
             node = comp.ast.TagValueRef(path, namespace)
             return _apply_position(node, tree)
 
+        case 'handle_reference':
+            # "@" _reference_path
+            path, namespace = _extract_reference_path(kids)
+            node = comp.ast.HandleValueRef(path, namespace)
+            return _apply_position(node, tree)
+
         case 'shape_reference':
             # "~" _reference_path
             # Shape references are used in: function shapes, arg shapes, field types, morph/mask operations
@@ -318,6 +324,19 @@ def _convert_tree(tree):
             expr = _convert_tree(kids[0])
             shape = _convert_tree(kids[2])
             return comp.ast.MorphOp(expr, shape, mode="weak")
+
+        # === HANDLE OPERATIONS ===
+        case 'grab_atom':
+            # "!grab" handle_reference
+            handle_ref = _convert_tree(kids[1])
+            node = comp.ast.GrabOp(handle_ref)
+            return _apply_position(node, tree)
+
+        case 'drop_op':
+            # "!drop" _qualified
+            target = _convert_tree(kids[1])
+            node = comp.ast.DropOp(target)
+            return _apply_position(node, tree)
 
         case 'reference_identifiers':
             # Simple dotted identifier path (e.g., "num" or "http.request")
@@ -416,7 +435,7 @@ def _convert_tree(tree):
         # === SHAPE DEFINITIONS ===
         case 'shape_definition':
             # BANG_SHAPE shape_path ASSIGN shape_body
-            path = _extract_path_from_tree(kids[1])
+            path, is_private = _extract_path_and_privacy_from_tree(kids[1])
             fields_or_type = _convert_shape_body(kids[3])
             
             # If fields_or_type is a single shape type (not a list), wrap it as a positional field
@@ -427,7 +446,7 @@ def _convert_tree(tree):
             else:
                 fields = fields_or_type
             
-            return comp.ast.ShapeDef(path, fields)
+            return comp.ast.ShapeDef(path, fields, is_private=is_private)
 
         case 'shape_field_def':
             # TOKEN QUESTION? shape_type? (ASSIGN expression)?
@@ -548,6 +567,12 @@ def _convert_tree(tree):
                 path, namespace = _extract_reference_path(kids[0].children)
                 node = comp.ast.TagShape(path, namespace)
                 return _apply_position(node, kids[0])
+            # Special handling: if child is a handle_reference, convert to HandleShape
+            if len(kids) == 1 and isinstance(kids[0], lark.Tree) and kids[0].data == 'handle_reference':
+                # Extract path and namespace from handle_reference
+                path, namespace = _extract_reference_path(kids[0].children)
+                node = comp.ast.HandleShape(path, namespace)
+                return _apply_position(node, kids[0])
             # Otherwise pass through
             if len(kids) == 1:
                 return _convert_tree(kids[0])
@@ -565,6 +590,10 @@ def _convert_tree(tree):
 
         case 'tag_child' | 'tagchild_simple' | 'tagchild_val_body' | 'tagchild_val' | 'tagchild_body':
             return _convert_tag_child(kids)
+
+        # === HANDLE DEFINITIONS ===
+        case 'handle_definition' | 'handle_simple' | 'handle_body_only':
+            return _convert_handle_definition(kids)
 
         # === FUNCTION DEFINITIONS ===
         case 'function_definition' | 'func_with_args' | 'func_no_args':
@@ -876,6 +905,24 @@ def _extract_path_from_tree(tree):
     return path
 
 
+def _extract_path_and_privacy_from_tree(tree):
+    """Extract dotted path and trailing private marker from a path tree.
+    Returns (path, is_private)."""
+    path = []
+    is_private = False
+    for kid in tree.children:
+        if isinstance(kid, lark.Tree) and kid.data == 'reference_identifiers':
+            for child in kid.children:
+                if isinstance(child, lark.Token) and child.type == 'TOKEN':
+                    path.append(child.value)
+        elif isinstance(kid, lark.Token):
+            if kid.type == 'TOKEN':
+                path.append(kid.value)
+            elif kid.type == 'AMPERSAND':
+                is_private = True
+    return path, is_private
+
+
 def _extract_operator(token):
     """Extract operator string from token."""
     return token.value
@@ -940,11 +987,12 @@ def _convert_tag_definition(kids):
     value = None
     generator = None
     children = []
+    is_private = False
 
     for kid in kids:
         if isinstance(kid, lark.Tree):
             if kid.data == 'tag_path':
-                path = _extract_path_from_tree(kid)
+                path, is_private = _extract_path_and_privacy_from_tree(kid)
             elif kid.data == 'tag_value' or kid.data in ('tag_arithmetic', 'tag_atom'):
                 value = _convert_tree(kid)
             elif kid.data == 'tag_generator':
@@ -954,7 +1002,7 @@ def _convert_tag_definition(kids):
                 # Extract tag children
                 children = _convert_children(kid.children[1:-1])  # Skip LBRACE, RBRACE
 
-    return comp.ast.TagDef(path, value, children, generator)
+    return comp.ast.TagDef(path, value, children, generator, is_private=is_private)
 
 
 def _convert_tag_child(kids):
@@ -962,17 +1010,75 @@ def _convert_tag_child(kids):
     path = []
     value = None
     children = []
+    is_private = False
 
     for kid in kids:
         if isinstance(kid, lark.Tree):
             if kid.data == 'tag_path':
-                path = _extract_path_from_tree(kid)
+                path, is_private = _extract_path_and_privacy_from_tree(kid)
             elif kid.data == 'tag_value' or kid.data in ('tag_arithmetic', 'tag_atom'):
                 value = _convert_tree(kid)
             elif kid.data == 'tag_body':
                 children = _convert_children(kid.children[1:-1])
 
-    return comp.ast.TagChild(path, value, children)
+    return comp.ast.TagChild(path, value, children, is_private=is_private)
+
+
+def _convert_handle_definition(kids):
+    """Convert handle definition to HandleDef node.
+    
+    New syntax:
+        !handle @path = {drop = :[...]}
+    Or empty:
+        !handle @path = {}
+    Or no body:
+        !handle @path
+    """
+    # Extract components based on what's present
+    path = []
+    drop_block = None
+    is_private = False
+
+    for kid in kids:
+        if isinstance(kid, lark.Tree):
+            if kid.data == 'handle_path':
+                path, is_private = _extract_path_and_privacy_from_tree(kid)
+            elif kid.data == 'structure':
+                # Parse structure to extract drop block
+                drop_block = _extract_drop_from_structure(kid)
+
+    return comp.ast.HandleDef(path, drop_block, is_private=is_private)
+
+
+def _extract_drop_from_structure(struct_tree):
+    """Extract drop block from handle body structure.
+    
+    Looks for a field named 'drop' with a block value.
+    Returns the block AST node or None.
+    """
+    # Convert the structure tree to get field operations
+    structure_ops = _convert_children(struct_tree.children[1:-1])  # Skip LBRACE, RBRACE
+    
+    # Look for a FieldOp with key "drop"
+    for op in structure_ops:
+        if isinstance(op, comp.ast.FieldOp):
+            # Check if this is a named field with key "drop"
+            if op.key is not None:
+                # Key could be TokenField, Identifier, String, or other node
+                if isinstance(op.key, comp.ast.TokenField):
+                    if op.key.name == "drop":
+                        return op.value
+                elif isinstance(op.key, comp.ast.String):
+                    if op.key.value == "drop":
+                        return op.value
+                elif isinstance(op.key, comp.ast.Identifier):
+                    # Check if it's a single-field identifier with name "drop"
+                    if len(op.key.fields) == 1:
+                        first_field = op.key.fields[0]
+                        if isinstance(first_field, comp.ast.TokenField) and first_field.name == "drop":
+                            return op.value
+    
+    return None
 
 
 def _convert_function_definition(tree):
@@ -987,6 +1093,7 @@ def _convert_function_definition(tree):
     body = None
     input_shape = None
     arg_shape = None
+    is_private = False
     
     # Track if we've seen ARG_KEYWORD to know if next shape_type is for args
     seen_arg_keyword = False
@@ -998,7 +1105,7 @@ def _convert_function_definition(tree):
                 seen_arg_keyword = True
         elif isinstance(kid, lark.Tree):
             if kid.data == 'function_path':
-                path = _extract_path_from_tree(kid)
+                path, is_private = _extract_path_and_privacy_from_tree(kid)
             elif kid.data == 'function_shape':
                 # This is the input shape
                 input_shape = _convert_tree(kid.children[0]) if kid.children else None
@@ -1008,7 +1115,7 @@ def _convert_function_definition(tree):
             elif kid.data == 'structure':
                 body = _convert_tree(kid)
 
-    return comp.ast.FuncDef(path, body, input_shape, arg_shape)
+    return comp.ast.FuncDef(path, body, input_shape, arg_shape, is_private=is_private)
 
 
 def _convert_import_statement(kids):

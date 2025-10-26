@@ -239,6 +239,121 @@ state = #initialized        ; If tag is unique
 {[4 |sqrt] [9 |cbrt/math]}  ; Mix aliased and qualified
 ```
 
+## Module Privacy and Visibility
+
+Note: The canonical privacy syntax (trailing `&` on definitions and `&{}` private data attachments) is specified in the [Syntax and Style Guide](syntax.md#privacy-system). This section focuses on module-level implications and usage patterns.
+
+Modules control their public API through two complementary privacy mechanisms: module-private definitions and private data attachments. These features enable clean separation between public interfaces and internal implementation details without requiring complex access control systems.
+
+### Module-Private Definitions
+
+Definitions can be marked as module-private by adding a trailing `&` to their names. Module-private functions, shapes, tags, and handles are only accessible within their defining module—imports cannot see or reference them. This creates a clear boundary between what a module exposes and what it keeps internal.
+
+```comp
+; In utils module
+!func |public-api ~{data} = {
+    ; Can call private helper within same module
+    processed = [data |internal-worker&]
+    {result=processed}
+}
+
+!func |internal-worker& ~{data} = {
+    ; Implementation details kept private
+    [$in.data |step1 |step2 |step3]
+}
+
+!shape ~config& = {
+    internal-cache ~str
+    validation-state ~any
+}
+
+; In other modules after importing utils
+!import /utils = comp /./utils/
+
+[data |public-api/utils]       ; Works - public function
+[data |internal-worker/utils]  ; ERROR - private function not accessible
+value ~config/utils             ; ERROR - private shape not accessible
+```
+
+Module-private definitions enable safe refactoring of internal implementation without breaking external code. Change private function signatures, reorganize internal shapes, restructure private tags—as long as the public API remains stable, dependent modules continue working.
+
+### Private Data Attachments
+
+Each module can attach its own private namespace to any structure, creating module-specific metadata that travels with the structure but remains invisible to other modules. This enables patterns like transparent caching, session tracking, and internal state management without coordination between modules.
+
+```comp
+; In cache module
+!func |with-cache ~{key ~str} = {
+    $var.result = {key=$in.key value=[key |fetch]}
+    
+    ; Attach private cache metadata
+    $var.result&.cached-at = [|time.now]
+    $var.result&.cache-key = $in.key
+    $var.result
+}
+
+; In session module
+!func |with-session ~{user-data} = {
+    $var.result = {...$in.user-data}
+    
+    ; Attach private session data
+    $var.result&.session-id = [|new-session]
+    $var.result&.session-start = [|time.now]
+    $var.result
+}
+
+; In application code - both modules attach private data to same structure
+$user = {name=alice email=alice@example.com}
+$user = [$user |with-cache/cache]
+$user = [$user |with-session/session]
+
+; Public fields visible to all
+$user.name                    ; "alice"
+$user.email                   ; "alice@example.com"
+
+; Each module accesses only its own private data
+; cache module sees: $user&.cached-at, $user&.cache-key
+; session module sees: $user&.session-id, $user&.session-start
+; application module sees: empty (no private data attached)
+```
+
+Private data attachments enable modules to maintain their own invariants and state without coordinating field names or worrying about conflicts. Each module has its own isolated private namespace on every structure, creating natural encapsulation boundaries.
+
+### Privacy and Module Boundaries
+
+The combination of module-private definitions and private data attachments creates a clean separation model. Public functions define the module's contract, while private definitions and private data handle implementation details. This enables:
+
+* **Safe internal refactoring** - Private definitions can change without affecting dependent modules
+* **Hidden state management** - Private data travels with structures without polluting public fields
+* **Clear API boundaries** - External code sees only what the module explicitly exposes
+* **Per-module encapsulation** - Each module maintains its own private namespace on shared structures
+
+```comp
+; Database module with private caching
+!func |query ~{sql ~str} = {
+    ; Check private cache first
+    [^in&.cached-result |if :{
+        ^in&.cached-result
+    } :{
+        $var.result = [^in.sql |execute-query&]
+        $var.result&.cached-result = $var.result
+        $var.result&.cache-time = [|time.now]
+        $var.result
+    }]
+}
+
+!func |execute-query& ~{sql ~str} = {
+    ; Private implementation - can change freely
+    [^in.sql |parse& |optimize& |run&]
+}
+
+!func |parse& ~{sql ~str} = {...}
+!func |optimize& ~{query} = {...}
+!func |run& ~{query} = {...}
+```
+
+For detailed information about privacy structures in function bodies (the `&{}` syntax) and privacy patterns, see [Functions and Blocks](function.md). For private field access and structure-level privacy patterns, see [Structures, Spreads, and Lazy Evaluation](structure.md).
+
 ## Module Caching and Optimization
 
 The import system coordinates with source providers for intelligent caching. Compiled bytecode, downloaded packages, and git repositories are cached to minimize redundancy.
