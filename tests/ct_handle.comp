@@ -1,13 +1,16 @@
 ; Manage a simple fake handle
 
 
-!handle @mojo = {
-    drop = :{
-        $var.drop-called = #true
-    }
-}
+!handle @mojo
 
 !shape ~mojo-arg = {m @mojo}
+
+
+!func |drop-handle ~{} = {
+    ; Drop handler for all handles
+    ; In a real implementation, you'd check $in to determine handle type
+    $var.drop-called = #true
+}
 
 
 !func |drop-mojo ~mojo-arg = {

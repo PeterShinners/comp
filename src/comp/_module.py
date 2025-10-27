@@ -1645,82 +1645,108 @@ class Module(_entity.Entity):
 
         # Base case: handle reference nodes
         if isinstance(node, ast.TagValueRef):
-            key = ('tag', tuple(node.path), node.namespace)
-            if key not in resolution_ns:
-                path_str = ".".join(reversed(node.path))
-                ns_str = f"/{node.namespace}" if node.namespace else ""
-                position = getattr(node, 'position', None)
-                pos_str = f" {position}" if position else ""
-                raise ValueError(f"Undefined tag reference: #{path_str}{ns_str}{pos_str}")
+            # Skip if namespace is dynamic (ValueNode) - will be resolved at runtime
+            from . import ast as comp_ast
+            if isinstance(node.namespace, comp_ast._base.ValueNode):
+                # Dynamic namespace - skip pre-resolution, recurse into namespace expression
+                self._preresolve_node(node.namespace, resolution_ns)
+            else:
+                # Static namespace - pre-resolve now
+                key = ('tag', tuple(node.path), node.namespace)
+                if key not in resolution_ns:
+                    path_str = ".".join(reversed(node.path))
+                    ns_str = f"/{node.namespace}" if node.namespace else ""
+                    position = getattr(node, 'position', None)
+                    pos_str = f" {position}" if position else ""
+                    raise ValueError(f"Undefined tag reference: #{path_str}{ns_str}{pos_str}")
 
-            resolved = resolution_ns[key]
-            if resolved == 'AMBIGUOUS':
-                path_str = ".".join(reversed(node.path))
-                position = getattr(node, 'position', None)
-                pos_str = f" {position}" if position else ""
-                raise ValueError(f"Ambiguous tag reference: #{path_str}{pos_str}")
+                resolved = resolution_ns[key]
+                if resolved == 'AMBIGUOUS':
+                    path_str = ".".join(reversed(node.path))
+                    position = getattr(node, 'position', None)
+                    pos_str = f" {position}" if position else ""
+                    raise ValueError(f"Ambiguous tag reference: #{path_str}{pos_str}")
 
-            # Store resolved definition on the node
-            node._resolved = resolved
+                # Store resolved definition on the node
+                node._resolved = resolved
 
         elif isinstance(node, ast.ShapeRef):
-            key = ('shape', tuple(node.path), node.namespace)
-            if key not in resolution_ns:
-                path_str = ".".join(reversed(node.path))
-                ns_str = f"/{node.namespace}" if node.namespace else ""
-                position = getattr(node, 'position', None)
-                pos_str = f" {position}" if position else ""
-                raise ValueError(f"Undefined shape reference: ~{path_str}{ns_str}{pos_str}")
+            # Skip if namespace is dynamic (ValueNode) - will be resolved at runtime
+            from . import ast as comp_ast
+            if isinstance(node.namespace, comp_ast._base.ValueNode):
+                # Dynamic namespace - skip pre-resolution, recurse into namespace expression
+                self._preresolve_node(node.namespace, resolution_ns)
+            else:
+                # Static namespace - pre-resolve now
+                key = ('shape', tuple(node.path), node.namespace)
+                if key not in resolution_ns:
+                    path_str = ".".join(reversed(node.path))
+                    ns_str = f"/{node.namespace}" if node.namespace else ""
+                    position = getattr(node, 'position', None)
+                    pos_str = f" {position}" if position else ""
+                    raise ValueError(f"Undefined shape reference: ~{path_str}{ns_str}{pos_str}")
 
-            resolved = resolution_ns[key]
-            if resolved == 'AMBIGUOUS':
-                path_str = ".".join(reversed(node.path))
-                ns_str = f"/{node.namespace}" if node.namespace else ""
-                position = getattr(node, 'position', None)
-                pos_str = f" {position}" if position else ""
-                raise ValueError(f"Ambiguous shape reference: ~{path_str}{ns_str}{pos_str}")
+                resolved = resolution_ns[key]
+                if resolved == 'AMBIGUOUS':
+                    path_str = ".".join(reversed(node.path))
+                    ns_str = f"/{node.namespace}" if node.namespace else ""
+                    position = getattr(node, 'position', None)
+                    pos_str = f" {position}" if position else ""
+                    raise ValueError(f"Ambiguous shape reference: ~{path_str}{ns_str}{pos_str}")
 
-            node._resolved = resolved
+                node._resolved = resolved
 
         elif isinstance(node, ast.FuncRef):
-            key = ('function', tuple(node.path), node.namespace)
-            if key not in resolution_ns:
-                path_str = ".".join(reversed(node.path))
-                ns_str = f"/{node.namespace}" if node.namespace else ""
-                position = getattr(node, 'position', None)
-                pos_str = f" {position}" if position else ""
-                raise ValueError(f"Undefined function reference: |{path_str}{ns_str}{pos_str}")
+            # Skip if namespace is dynamic (ValueNode) - will be resolved at runtime
+            from . import ast as comp_ast
+            if isinstance(node.namespace, comp_ast._base.ValueNode):
+                # Dynamic namespace - skip pre-resolution, recurse into namespace expression
+                self._preresolve_node(node.namespace, resolution_ns)
+            else:
+                # Static namespace - pre-resolve now
+                key = ('function', tuple(node.path), node.namespace)
+                if key not in resolution_ns:
+                    path_str = ".".join(reversed(node.path))
+                    ns_str = f"/{node.namespace}" if node.namespace else ""
+                    position = getattr(node, 'position', None)
+                    pos_str = f" {position}" if position else ""
+                    raise ValueError(f"Undefined function reference: |{path_str}{ns_str}{pos_str}")
 
-            resolved = resolution_ns[key]
-            if resolved == 'AMBIGUOUS':
-                path_str = ".".join(reversed(node.path))
-                position = getattr(node, 'position', None)
-                pos_str = f" {position}" if position else ""
-                raise ValueError(f"Ambiguous function reference: |{path_str}{pos_str}")
+                resolved = resolution_ns[key]
+                if resolved == 'AMBIGUOUS':
+                    path_str = ".".join(reversed(node.path))
+                    position = getattr(node, 'position', None)
+                    pos_str = f" {position}" if position else ""
+                    raise ValueError(f"Ambiguous function reference: |{path_str}{pos_str}")
 
-            node._resolved = resolved
+                node._resolved = resolved
 
         elif isinstance(node, ast.PipeFunc):
             # Pre-resolve pipeline function calls
-            func_path = node.func_name.split('.')
-            func_path_reversed = list(reversed(func_path))
-            key = ('function', tuple(func_path_reversed), node.namespace)
-            
-            if key not in resolution_ns:
-                ns_str = f"/{node.namespace}." if node.namespace else ""
-                position = getattr(node, 'position', None)
-                pos_str = f" {position}" if position else ""
-                raise ValueError(f"Undefined function in pipeline: |{ns_str}{node.func_name}{pos_str}")
+            # Skip if namespace is dynamic (ValueNode) - will be resolved at runtime
+            from . import ast as comp_ast
+            if isinstance(node.namespace, comp_ast._base.ValueNode):
+                # Dynamic namespace - skip pre-resolution, recurse into namespace expression
+                self._preresolve_node(node.namespace, resolution_ns)
+            else:
+                # Static namespace - pre-resolve now
+                func_path = node.func_name.split('.')
+                func_path_reversed = list(reversed(func_path))
+                key = ('function', tuple(func_path_reversed), node.namespace)
+                
+                if key not in resolution_ns:
+                    ns_str = f"/{node.namespace}." if node.namespace else ""
+                    position = getattr(node, 'position', None)
+                    pos_str = f" {position}" if position else ""
+                    raise ValueError(f"Undefined function in pipeline: |{ns_str}{node.func_name}{pos_str}")
 
-            resolved = resolution_ns[key]
-            if resolved == 'AMBIGUOUS':
-                position = getattr(node, 'position', None)
-                pos_str = f" {position}" if position else ""
-                raise ValueError(f"Ambiguous function reference in pipeline: |{node.func_name}{pos_str}")
-
-            node._resolved = resolved
-
-        # Recursive case: walk child nodes
+                resolved = resolution_ns[key]
+                if resolved == 'AMBIGUOUS':
+                    position = getattr(node, 'position', None)
+                    pos_str = f" {position}" if position else ""
+                    raise ValueError(f"Ambiguous function reference in pipeline: |{node.func_name}{pos_str}")
+                
+                node._resolved = resolved        # Recursive case: walk child nodes
         # This is a simple visitor pattern - for more complex ASTs,
         # consider implementing a proper visitor
         for attr_name in dir(node):

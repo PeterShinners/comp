@@ -110,7 +110,8 @@ _qualified: identifier
 // === REFERENCE LITERALS ===
 // References to tags, shapes, and functions. Possibly from other namespaces.
 reference_identifiers: TOKEN ("." TOKEN)*
-reference_namespace: "/" TOKEN?
+reference_namespace: "/" TOKEN?                     // Static namespace: /module
+                   | "/" "(" identifier ")"         // Dynamic namespace dispatch: /($var.handle) or /(#tag)
 _reference_path:  reference_identifiers reference_namespace?
 tag_reference: "#" _reference_path
 shape_reference: "~" _reference_path
@@ -186,7 +187,7 @@ tag_value: tag_arithmetic
 // === HANDLE DEFINITIONS ===
 
 // Handle definitions (!handle)
-// Handles are similar to tags but represent external resources/capabilities
+// Handles represent external resources/capabilities that require cleanup
 // They do not have values - they're pure type markers
 // Supports similar hierarchy to tags:
 //   Simple:        !handle @fs
@@ -194,10 +195,10 @@ tag_value: tag_arithmetic
 //   Flat:          !handle @fs.file.readonly
 //   Hierarchical:  !handle @fs = {@file = {@readonly @writeonly}}
 // Note: Handle definitions cannot include module namespace (no /module suffix)
+// Note: Drop behavior is defined via |drop-handle function, not in handle body
 BANG_HANDLE: "!handle"
 
 handle_definition: BANG_HANDLE handle_path                          -> handle_simple
-                 | BANG_HANDLE handle_path ASSIGN structure         -> handle_body_only
 
 handle_path: "@" reference_identifiers AMPERSAND?        // Handle path without namespace (optional private)
 

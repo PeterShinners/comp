@@ -161,15 +161,15 @@ class FuncRef(_base.ValueNode):
         _resolved: Pre-resolved list of FunctionDefinitions (set by Module.prepare())
     """
 
-    def __init__(self, path: list[str], namespace: str | None = None):
+    def __init__(self, path: list[str], namespace: str | _base.ValueNode | None = None):
         if not isinstance(path, list):
             raise TypeError("Function path must be a list")
         if not path:
             raise ValueError("Function path cannot be empty")
         if not all(isinstance(p, str) for p in path):
             raise TypeError("Function path must be list of strings")
-        if namespace is not None and not isinstance(namespace, str):
-            raise TypeError("Function namespace must be string or None")
+        if namespace is not None and not isinstance(namespace, (str, _base.ValueNode)):
+            raise TypeError("Function namespace must be string, ValueNode, or None")
 
         self.path = path
         self.namespace = namespace
@@ -215,6 +215,33 @@ class FuncRef(_base.ValueNode):
             yield  # Make this a generator
 
         # Slow path: runtime lookup (for modules not prepared)
+        # Resolve namespace if it's a ValueNode (dynamic dispatch)
+        resolved_namespace = None
+        if self.namespace is not None:
+            if isinstance(self.namespace, str):
+                # Static namespace reference
+                resolved_namespace = self.namespace
+            else:
+                # Dynamic namespace dispatch - evaluate the node to get a tag or handle
+                namespace_value = yield comp.Compute(self.namespace)
+                if frame.bypass_value(namespace_value):
+                    return namespace_value
+                
+                # Extract the defining module from the tag or handle
+                namespace_value = namespace_value.as_scalar()
+                if namespace_value.is_tag:
+                    # Get the tag's defining module
+                    tag_ref = namespace_value.data
+                    defining_module = tag_ref.tag_def.module
+                    resolved_namespace = defining_module
+                elif namespace_value.is_handle:
+                    # Get the handle's defining module
+                    handle_inst = namespace_value.data
+                    defining_module = handle_inst.handle_def.module
+                    resolved_namespace = defining_module
+                else:
+                    return comp.fail(f"Namespace dispatch requires tag or handle, got {type(namespace_value.data).__name__}")
+        
         # Get module from scope
         module = frame.scope('module')
         if module is None:
@@ -222,11 +249,21 @@ class FuncRef(_base.ValueNode):
 
         # Look up function with namespace support (returns list of overloads)
         # Uses partial path matching (suffix matching on reversed path)
-        try:
-            func_defs = module.lookup_function(self.path, self.namespace)
-        except ValueError as e:
-            # Not found or ambiguous reference
-            return comp.fail(str(e))
+        # If resolved_namespace is a Module, need to look up directly in that module
+        if isinstance(resolved_namespace, comp.Module):
+            # Direct dispatch to a specific module
+            try:
+                func_defs = resolved_namespace.lookup_function(self.path, namespace=None, local_only=False)
+            except ValueError as e:
+                # Not found or ambiguous reference
+                return comp.fail(str(e))
+        else:
+            # String namespace or None - use normal lookup
+            try:
+                func_defs = module.lookup_function(self.path, resolved_namespace)
+            except ValueError as e:
+                # Not found or ambiguous reference
+                return comp.fail(str(e))
 
         # For now, return a structure with metadata about the function(s)
         # TODO: Return actual callable function object
@@ -257,13 +294,19 @@ class FuncRef(_base.ValueNode):
         path_str = ".".join(reversed(self.path))
         ref = f"|{path_str}"
         if self.namespace:
-            ref += "/" + self.namespace
+            if isinstance(self.namespace, str):
+                ref += "/" + self.namespace
+            else:
+                ref += "/" + self.namespace.unparse()
         return ref
 
     def __repr__(self):
         path_str = ".".join(reversed(self.path))
         if self.namespace:
-            return f"FuncRef(|{path_str}/{self.namespace})"
+            if isinstance(self.namespace, str):
+                return f"FuncRef(|{path_str}/{self.namespace})"
+            else:
+                return f"FuncRef(|{path_str}/{self.namespace!r})"
         return f"FuncRef(|{path_str})"
 
 

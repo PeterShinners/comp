@@ -246,15 +246,15 @@ class ShapeRef(_base.ShapeNode):
         _resolved: Pre-resolved ShapeDefinition (set by Module.prepare())
     """
 
-    def __init__(self, path: list[str], namespace: str | None = None):
+    def __init__(self, path: list[str], namespace: str | _base.ValueNode | None = None):
         if not isinstance(path, list):
             raise TypeError("Shape path must be a list")
         if not path:
             raise ValueError("Shape path cannot be empty")
         if not all(isinstance(p, str) for p in path):
             raise TypeError("Shape path must be list of strings")
-        if namespace is not None and not isinstance(namespace, str):
-            raise TypeError("Shape namespace must be string or None")
+        if namespace is not None and not isinstance(namespace, (str, _base.ValueNode)):
+            raise TypeError("Shape namespace must be string, ValueNode, or None")
 
         self.path = path
         self.namespace = namespace

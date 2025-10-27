@@ -592,7 +592,7 @@ def _convert_tree(tree):
             return _convert_tag_child(kids)
 
         # === HANDLE DEFINITIONS ===
-        case 'handle_definition' | 'handle_simple' | 'handle_body_only':
+        case 'handle_definition' | 'handle_simple':
             return _convert_handle_definition(kids)
 
         # === FUNCTION DEFINITIONS ===
@@ -869,7 +869,7 @@ def _extract_reference_path(kids):
     """Extract path and namespace from reference children.
 
     Returns:
-        (path, namespace) where path is list of strings, namespace is optional
+        (path, namespace) where path is list of strings, namespace is optional str or ValueNode
     """
     path = []
     namespace = None
@@ -885,9 +885,26 @@ def _extract_reference_path(kids):
                     if isinstance(child, lark.Token) and child.type == 'TOKEN':
                         path.append(child.value)
             elif kid.data == 'reference_namespace':
-                # "/" TOKEN?
+                # "/" TOKEN? or "/" "(" identifier ")"
                 if len(kid.children) > 1:
-                    namespace = kid.children[1].value
+                    # Check if it's dynamic (with parens) or static namespace
+                    # Dynamic: "/" "(" identifier ")" - children[1] is "("
+                    # Static: "/" TOKEN - children[1] is TOKEN
+                    if len(kid.children) >= 4:
+                        # Dynamic namespace dispatch: "/" "(" identifier ")"
+                        # kid.children[0] = "/" token
+                        # kid.children[1] = "(" token
+                        # kid.children[2] = identifier tree
+                        # kid.children[3] = ")" token
+                        identifier_tree = kid.children[2]
+                        namespace = _convert_tree(identifier_tree)
+                    else:
+                        # Static namespace: "/" TOKEN
+                        # kid.children[0] = "/" token
+                        # kid.children[1] = TOKEN
+                        child = kid.children[1]
+                        if isinstance(child, lark.Token):
+                            namespace = child.value
 
     return path, namespace
 
@@ -1027,58 +1044,23 @@ def _convert_tag_child(kids):
 def _convert_handle_definition(kids):
     """Convert handle definition to HandleDef node.
     
-    New syntax:
-        !handle @path = {drop = :[...]}
-    Or empty:
-        !handle @path = {}
-    Or no body:
+    Simplified syntax (no body):
         !handle @path
+        
+    Drop behavior is now defined via |drop-handle function dispatch.
     """
-    # Extract components based on what's present
+    # Extract path and privacy
     path = []
-    drop_block = None
     is_private = False
 
     for kid in kids:
         if isinstance(kid, lark.Tree):
             if kid.data == 'handle_path':
                 path, is_private = _extract_path_and_privacy_from_tree(kid)
-            elif kid.data == 'structure':
-                # Parse structure to extract drop block
-                drop_block = _extract_drop_from_structure(kid)
 
-    return comp.ast.HandleDef(path, drop_block, is_private=is_private)
+    return comp.ast.HandleDef(path, is_private=is_private)
 
 
-def _extract_drop_from_structure(struct_tree):
-    """Extract drop block from handle body structure.
-    
-    Looks for a field named 'drop' with a block value.
-    Returns the block AST node or None.
-    """
-    # Convert the structure tree to get field operations
-    structure_ops = _convert_children(struct_tree.children[1:-1])  # Skip LBRACE, RBRACE
-    
-    # Look for a FieldOp with key "drop"
-    for op in structure_ops:
-        if isinstance(op, comp.ast.FieldOp):
-            # Check if this is a named field with key "drop"
-            if op.key is not None:
-                # Key could be TokenField, Identifier, String, or other node
-                if isinstance(op.key, comp.ast.TokenField):
-                    if op.key.name == "drop":
-                        return op.value
-                elif isinstance(op.key, comp.ast.String):
-                    if op.key.value == "drop":
-                        return op.value
-                elif isinstance(op.key, comp.ast.Identifier):
-                    # Check if it's a single-field identifier with name "drop"
-                    if len(op.key.fields) == 1:
-                        first_field = op.key.fields[0]
-                        if isinstance(first_field, comp.ast.TokenField) and first_field.name == "drop":
-                            return op.value
-    
-    return None
 
 
 def _convert_function_definition(tree):

@@ -88,16 +88,17 @@ class PipeFunc(PipelineOp):
     Args:
         func_name: Function name (without | prefix)
         namespace: Optional namespace for the function reference
+                  Can be a string (static namespace) or ValueNode (dynamic dispatch via $var.ref)
         args: Optional argument struct value
     """
 
-    def __init__(self, func_name: str, args: _base.ValueNode | None = None, namespace: str | None = None):
+    def __init__(self, func_name: str, args: _base.ValueNode | None = None, namespace: str | _base.ValueNode | None = None):
         if not isinstance(func_name, str):
             raise TypeError("PipeFunc func_name must be string")
         if args is not None and not isinstance(args, _base.ValueNode):
             raise TypeError("PipeFunc args must be _base.ValueNode or None")
-        if namespace is not None and not isinstance(namespace, str):
-            raise TypeError("PipeFunc namespace must be string or None")
+        if namespace is not None and not isinstance(namespace, (str, _base.ValueNode)):
+            raise TypeError("PipeFunc namespace must be string, ValueNode, or None")
 
         self.func_name = func_name
         self.namespace = namespace
@@ -117,6 +118,33 @@ class PipeFunc(PipelineOp):
             if frame.bypass_value(args_value):
                 return args_value
 
+        # Resolve namespace if it's a ValueNode (dynamic dispatch)
+        resolved_namespace = None
+        if self.namespace is not None:
+            if isinstance(self.namespace, str):
+                # Static namespace reference
+                resolved_namespace = self.namespace
+            else:
+                # Dynamic namespace dispatch - evaluate the node to get a tag or handle
+                namespace_value = yield comp.Compute(self.namespace)
+                if frame.bypass_value(namespace_value):
+                    return namespace_value
+                
+                # Extract the defining module from the tag or handle
+                namespace_value = namespace_value.as_scalar()
+                if namespace_value.is_tag:
+                    # Get the tag's defining module
+                    tag_ref = namespace_value.data
+                    defining_module = tag_ref.tag_def.module
+                    resolved_namespace = defining_module
+                elif namespace_value.is_handle:
+                    # Get the handle's defining module
+                    handle_inst = namespace_value.data
+                    defining_module = handle_inst.handle_def.module
+                    resolved_namespace = defining_module
+                else:
+                    return comp.fail(f"Namespace dispatch requires tag or handle, got {type(namespace_value.data).__name__}")
+
         # Get function definitions (pre-resolved or lookup at runtime)
         if self._resolved is not None:
             func_defs = self._resolved
@@ -130,11 +158,21 @@ class PipeFunc(PipelineOp):
             func_path = self.func_name.split('.')
 
             # Look up function in module (with optional namespace)
-            try:
-                func_defs = module.lookup_function(func_path, self.namespace)
-            except ValueError as e:
-                # Not found or ambiguous
-                return comp.fail(str(e))
+            # If resolved_namespace is a Module, need to look up directly in that module
+            if isinstance(resolved_namespace, comp.Module):
+                # Direct dispatch to a specific module
+                try:
+                    func_defs = resolved_namespace.lookup_function(func_path, namespace=None, local_only=False)
+                except ValueError as e:
+                    # Not found or ambiguous
+                    return comp.fail(str(e))
+            else:
+                # String namespace or None - use normal lookup
+                try:
+                    func_defs = module.lookup_function(func_path, resolved_namespace)
+                except ValueError as e:
+                    # Not found or ambiguous
+                    return comp.fail(str(e))
 
         # Check if this is a PythonFunction (needs special handling)
         # PythonFunctions return generators that must be driven to completion

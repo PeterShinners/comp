@@ -10,7 +10,7 @@ from ._tag import ModuleOp
 
 
 class HandleDef(ModuleOp):
-    """Handle definition: !handle @path.to.handle {...}
+    """Handle definition: !handle @path.to.handle
 
     Defines a handle in the module hierarchy. Handles represent external
     resources or capabilities that require cleanup.
@@ -18,40 +18,36 @@ class HandleDef(ModuleOp):
     The path is stored in definition order (root to leaf), e.g.,
     ["fs", "file", "readonly"] for !handle @fs.file.readonly
 
-    The body can contain explicit keyword assignments for handle behavior:
-    - drop: Block to call when handle is dropped (e.g., drop = :[|close-file])
+    Drop behavior is now defined via the |drop-handle function dispatch
+    mechanism, not in the handle body.
 
     Example:
-        !handle @filehandle = {
-            drop = :[|close-file]
-        }
+        !handle @filehandle
         
-        !handle @pyobject = {
-            drop = :[|py-decref]
+        !func |drop-handle ~{} = {
+            ; Check $in to determine which handle type
+            ; Dispatch to appropriate cleanup function
         }
 
     Args:
         path: Full path in definition order, e.g., ["fs", "file", "readonly"]
-        drop_block: Optional AST node for drop block (RawBlock or Block)
+        is_private: Whether the handle is private (& suffix)
     """
 
-    def __init__(self, path: list[str], drop_block: _base.ValueNode | None = None, is_private: bool = False):
+    def __init__(self, path: list[str], is_private: bool = False):
         if not path:
             raise ValueError("Handle path cannot be empty")
         if not all(isinstance(name, str) for name in path):
             raise TypeError("Handle path must be list of strings")
-        if drop_block is not None and not isinstance(drop_block, _base.AstNode):
-            raise TypeError("Drop block must be AstNode or None")
 
         self.path = path
-        self.drop_block = drop_block
         self.is_private = is_private
 
     def evaluate(self, frame):
         """Register this handle in the module.
 
         1. Get module from module scope
-        2. Register handle with optional drop block
+        2. Register handle (no drop block - behavior via |drop-handle function)
         
         This must be a generator even though it doesn't yield, because
         the Frame constructor expects all evaluate() methods to be generators.
@@ -61,8 +57,8 @@ class HandleDef(ModuleOp):
         if module is None:
             return comp.fail("HandleDef requires module scope")
 
-        # Register this handle with optional drop block
-        module.define_handle(self.path, drop_block=self.drop_block, is_private=self.is_private)
+        # Register this handle without drop block (use function dispatch instead)
+        module.define_handle(self.path, drop_block=None, is_private=self.is_private)
 
         # Return empty value (definitions don't produce values)
         return comp.Value({})
@@ -72,13 +68,10 @@ class HandleDef(ModuleOp):
 
     def unparse(self) -> str:
         """Convert back to source code."""
-        parts = ["!handle", "@" + ".".join(reversed(self.path))]  # Reverse for reference notation
-
-        if self.drop_block:
-            parts.append("=")
-            parts.append(f"{{drop = {self.drop_block.unparse()}}}")
-
-        return " ".join(parts)
+        path_str = "@" + ".".join(reversed(self.path))  # Reverse for reference notation
+        if self.is_private:
+            path_str += "&"
+        return f"!handle {path_str}"
 
     def __repr__(self):
         path_str = ".".join(self.path)
@@ -210,7 +203,11 @@ class DropOp(_base.ValueNode):
         self.target = target
 
     def evaluate(self, frame):
-        """Drop a handle instance and execute its drop block if defined.
+        """Drop a handle instance by dispatching to |drop-handle function.
+
+        The !drop operator now exclusively uses function dispatch to the |drop-handle
+        function defined in the handle's defining module. This allows protocol-style
+        implementations where different handle types can have custom cleanup logic.
 
         Returns:
             comp.Value - the dropped handle (now invalid)
@@ -232,34 +229,40 @@ class DropOp(_base.ValueNode):
                 f"Cannot !drop handle: invalid handle type"
             )
 
-        # Only execute drop block if handle is not already dropped (idempotent)
+        # Only execute drop if handle is not already dropped (idempotent)
         if not handle_data.is_dropped:
-            # Execute drop block if one is defined on the handle definition
-            drop_block = handle_data.handle_def.drop_block
-            if drop_block is not None:
-                # Evaluate the drop block AST to get a RawBlock
-                drop_block_value = yield comp.Compute(drop_block)
-                if frame.bypass_value(drop_block_value):
-                    return drop_block_value
-                
-                # Morph RawBlock to Block with empty input shape (accepts any input)
-                block_shape = comp.BlockShapeDefinition([])
-                morph_result = comp.morph(drop_block_value, block_shape)
-                
-                if morph_result.value is None:
-                    return comp.fail("Drop block must be a block")
-                
-                typed_block = morph_result.value
-                
-                # Invoke the drop block with empty input
-                if typed_block.is_block:
-                    block_entity = typed_block.data
-                    invoke_compute = block_entity.invoke(comp.Value({}))
-                    drop_result = yield invoke_compute
-                    
-                    # If drop block fails, return the failure
-                    if frame.bypass_value(drop_result):
-                        return drop_result
+            # Dispatch to |drop-handle function in the defining module
+            defining_module = handle_data.handle_def.module
+            drop_executed = False
+            
+            if defining_module is not None:
+                # Look for |drop-handle function in the defining module
+                func_list = defining_module.functions.get('drop-handle', [])
+                if func_list:
+                    # Try to find a matching function (could have multiple overloads)
+                    # For now, try the first one that accepts this handle
+                    for func_def in func_list:
+                        try:
+                            # Try to call the function with the handle
+                            result = yield from func_def.invoke(
+                                in_=handle_value,
+                                args=None,
+                                ctx=frame.scope('ctx')
+                            )
+                            
+                            # If function succeeded, we're done
+                            if not result.is_fail:
+                                drop_executed = True
+                                # If drop function fails, return the failure
+                                if frame.bypass_value(result):
+                                    return result
+                                break
+                        except Exception:
+                            # Function didn't match, try next overload
+                            continue
+            
+            # If no drop function found or executed, that's okay - handle just gets dropped
+            # This allows handles to exist without requiring cleanup logic
 
             # Drop the handle (mark as dropped, unregister from frames)
             handle_data.drop()
