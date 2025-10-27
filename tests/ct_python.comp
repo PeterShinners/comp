@@ -3,8 +3,45 @@
 
 !func |assert-roundtrip ~any = {
     $var.orig = {name="Joe" score=25}
-    $var.pyobj = [$var.orig |py-from-comp-impl]
-    $var.back = [$var.pyobj |py-to-comp-impl]
+    $var.pyobj = [$var.orig |py-from-comp-impl/py]
+    $var.back = [$var.pyobj |py-to-comp-impl/py]
     $var.back == $var.orig
+}
+
+
+; Lookup a qualified attribute and ensure fields are present
+!func |assert-lookup-attr ~any = {
+    $var.info = [{} |py-lookup-attr/py name="sys.float_info.epsilon"]
+    ; Expect a type string and a repr string, and a value field that is a pyobject
+    $var.ok1 = $var.info.type == "builtins.float"
+    $var.ok2 = $var.info.repr != ""
+    $var.ok3 = $var.info.value.ptr != ""
+    $var.ok1 && $var.ok2 && $var.ok3
+}
+
+
+; Call a qualified function and verify result via method and to-comp
+!func |assert-call-function-urlparse ~any = {
+    $var.res = [{} |py-call-function/py name="urllib.parse.urlparse" url="http://example.com/a?x=1"]
+    $var.url = [$var.res |py-call-method/py name="geturl"]
+    $var.urlstr = [$var.url |py-to-comp-impl/py]
+    $var.urlstr == "http://example.com/a?x=1"
+}
+
+
+; Call a method on a Python object produced from a Comp value
+!func |assert-call-method-lower ~any = {
+    $var.pystr = ["Hello" |py-from-comp-impl/py]
+    $var.lower = [$var.pystr |py-call-method/py name="lower"]
+    $var.result = [$var.lower |py-to-comp-impl/py]
+    $var.result == "hello"
+}
+
+
+; Build a structure from a Python object created via SimpleNamespace
+!func |assert-struct-from-object ~any = {
+    $var.ns = [{} |py-call-function/py name="types.SimpleNamespace" foo=1 bar="a"]
+    $var.struct = [$var.ns |py-struct-from-object/py]
+    $var.struct.foo == 1 && $var.struct.bar == "a"
 }
 
