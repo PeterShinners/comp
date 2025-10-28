@@ -26,12 +26,8 @@ def test_pyobject_handle_exists():
     result = comptest.run_func("""
         !import /py = stdlib "python"
         
-        ; Define pyobject handle locally for now
-        !handle @pyobject = {
-            drop = :{
-                [$in |py-decref/py]
-            }
-        }
+        ; Re-export the handle so we can use it locally
+        !handle @pyobject
         
         !func |test ~{} = {
             ; Try to grab a pyobject handle
@@ -48,22 +44,18 @@ def test_pyobject_handle_exists():
 
 
 def test_pyobject_drop_block_executes():
-    """Test that pyobject drop block is called (even if decref does nothing yet)."""
+    """Test that pyobject drop-handle function is called."""
     result = comptest.run_func("""
         !import /py = stdlib "python"
         
-        ; Define pyobject handle locally for now
-        !handle @pyobject = {
-            drop = :{
-                [$in |py-decref/py]
-            }
-        }
+        ; Re-export the handle so we can use it locally
+        !handle @pyobject
         
         !func |test ~{} = {
             ; Create and drop a pyobject
             $var.obj = !grab @pyobject
             !drop $var.obj
-            ; If we get here, drop block didn't fail
+            ; If we get here, drop-handle function didn't fail
             result = #true
         }
     """)
@@ -83,8 +75,8 @@ def test_py_from_comp():
             ; Convert a simple Comp struct to Python
             $var.comp_val = {name="Alice" age=30}
             $var.py_obj = [$var.comp_val |py-from-comp-impl/py]
-            ; py_obj should be a struct with 'ptr' field
-            result = $var.py_obj.ptr
+            ; py_obj now contains the Python dict directly
+            result = $var.py_obj
         }
     """)
     
@@ -95,7 +87,7 @@ def test_py_from_comp():
     print(f"DEBUG: type = {type(result)}")
     if isinstance(result, dict):
         print(f"DEBUG: keys = {list(result.keys())}")
-    # The data field should contain the Python dict
+    # The result should be the Python dict directly
     assert isinstance(result, dict)
     assert result["name"] == "Alice"
     assert result["age"] == 30

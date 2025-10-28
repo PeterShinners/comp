@@ -11,72 +11,35 @@ counts when handles are dropped, preventing memory leaks.
 
 import comp
 import decimal
-import importlib
 import pydoc
 from typing import Any, Dict, List, Tuple
 
-# Simple registry to hold opaque Python objects that cannot be stored directly
-# inside a Comp Value. We key by Python's id(obj) to avoid managing our own
-# counters. Minimal lifecycle management is fine for tests.
-_PY_REGISTRY: Dict[int, Any] = {}
 
-
-# Module constant for pyobject handle
-PYOBJECT_MODULE = """
-!doc module "Python interop - handles and conversion functions for Python objects"
-
-!handle @pyobject = {
-    drop = :{
-        ; Decrement Python reference count when handle is dropped
-        [$in |py-decref]
-    }
-}
-
-!doc "Convert a Comp value to a Python object wrapped in @pyobject handle"
-!func |py-from-comp ~@pyobject = {
-    ; Convert the input value to a Python object
-    ; Returns a handle wrapping the Python object
-    [$in |py-from-comp-impl]
-}
-
-!doc "Convert a Python object handle to a Comp value"
-!func |py-to-comp ~any arg ~{obj @pyobject} = {
-    ; Extract Python object from handle and convert to Comp value
-    [$arg.obj |py-to-comp-impl]
-}
-"""
-
-
-def py_decref(input_value, **scopes):
+def py_decref(frame, input_value, args=None):
     """Decrement Python reference count for the wrapped object.
     
-    This is called automatically by the @pyobject handle's drop block.
-    The input should be a struct with a 'ptr' field containing the Python object.
+    This is called automatically by the @pyobject handle's drop-handle function.
+    The input should be a handle value containing the Python object directly.
     
     Args:
-        input_value: Comp Value containing Python object wrapper
-        **scopes: Execution scopes (not used)
+        frame: Execution frame
+        input_value: Comp Value containing Python object directly in data
+        args: Optional arguments (not used)
         
     Returns:
         Empty Comp Value on success
     """
-    # Best-effort no-op: only act when a wrapper struct with 'ptr' exists
-    if not input_value.is_struct:
-        return comp.Value({})
-
-    ptr_key = comp.Value("ptr")
-    if ptr_key not in input_value.struct:
-        return comp.Value({})
+    if False:  # Make this a generator
+        yield
     
-    # The ptr field should contain a Python object
     # In Python, we don't need to manually manage refcounts for objects
-    # we're holding references to - Python's GC handles it
+    # we're holding references to - Python's GC handles it automatically
     # This function exists as a hook for future manual memory management if needed
     
     return comp.Value({})
 
 
-def py_from_comp_impl(input_value, **scopes):
+def py_from_comp_impl(frame, input_value, args=None):
     """Convert a Comp value to a Python object.
     
     Creates a deep copy of the Comp value as a Python object:
@@ -88,28 +51,28 @@ def py_from_comp_impl(input_value, **scopes):
     - Handles → error (can't convert handles to Python)
     
     Args:
+        frame: Execution frame
         input_value: Comp Value to convert
-        **scopes: Execution scopes (not used)
+        args: Optional arguments (not used)
         
     Returns:
-        Comp Value containing struct with 'ptr' field holding Python object
+        Comp Value containing Python object directly
     """
+    if False:  # Make this a generator
+        yield
+    
     try:
         # Convert Comp value to Python object
         input_scalar = input_value.as_scalar()
         py_obj = _comp_to_python(input_scalar)
         
-        # Wrap in a struct that can be used with @pyobject handle
-        result = comp.Value({
-            comp.Value("ptr"): comp.Value(py_obj)
-        })
-        
-        return result
+        # Return the Python object directly in the Value
+        return comp.Value(py_obj)
     except Exception as e:
         return comp.fail(f"Failed to convert Comp value to Python: {e}")
 
 
-def py_to_comp_impl(input_value, **scopes):
+def py_to_comp_impl(frame, input_value, args=None):
     """Convert a Python object back to a Comp value.
     
     Creates a deep copy of the Python object as a Comp value:
@@ -121,25 +84,19 @@ def py_to_comp_impl(input_value, **scopes):
     - None → empty struct
     
     Args:
-        input_value: Comp Value containing struct with 'ptr' field
-        **scopes: Execution scopes (not used)
+        frame: Execution frame
+        input_value: Comp Value containing Python object directly in data
+        args: Optional arguments (not used)
         
     Returns:
         Comp Value converted from Python object
     """
-    # Extract the Python object from the wrapper
-    if not input_value.is_struct:
-        return comp.fail("py-to-comp requires struct input with Python object")
+    if False:  # Make this a generator
+        yield
     
-    ptr_key = comp.Value("ptr")
-    if ptr_key not in input_value.struct:
-        return comp.fail("py-to-comp requires 'ptr' field with Python object")
-    
-    ptr_value = input_value.struct[ptr_key]
-
     try:
-        # Get the Python object (stored directly in Value.data)
-        py_obj = ptr_value.data
+        # Get the Python object directly from Value.data
+        py_obj = input_value.data
         # Convert Python object to Comp value
         return _python_to_comp(py_obj)
     except Exception as e:
@@ -274,84 +231,6 @@ def _python_to_comp(obj):
         return comp.Value(str(obj))
 
 
-# ---- Minimal Python API helpers ----
-
-def _wrap_pyobject(py_obj: Any) -> comp.Value:
-    """Wrap a Python object in the standard pyobject struct {ptr=<py_obj>}.
-
-    Note: This naive wrapper only works for Python types the Value constructor accepts
-    (numbers, strings, dicts, lists, etc.). For arbitrary objects, use _wrap_pyobject_safe.
-    """
-    return comp.Value({comp.Value("ptr"): comp.Value(py_obj)})
-
-
-def _wrap_pyobject_safe(py_obj: Any) -> comp.Value:
-    """Wrap a Python object, falling back to registry for unsupported types.
-
-    If the Comp Value cannot directly hold the object, store id(obj) in the 'ptr'
-    field and keep the actual object in a module-global registry.
-    """
-    # Prefer direct storage only for primitive-safe types; otherwise use registry
-    if isinstance(py_obj, (str, int, float, bool, dict)):
-        return _wrap_pyobject(py_obj)
-    # For lists/tuples and arbitrary objects, use registry to preserve methods/identity
-    key = id(py_obj)
-    _PY_REGISTRY[key] = py_obj
-    return comp.Value({comp.Value("ptr"): comp.Value(key)})
-
-
-def _resolve_pyobject_from_wrapper(wrapper: comp.Value) -> Tuple[Any, str | None]:
-    """Extract the Python object from a pyobject wrapper struct.
-
-    Supports two encodings in the 'ptr' field:
-    - Directly storable Python types (str, dict, list, etc.) stored as a Value
-      that we convert via _comp_to_python
-    - Opaque objects stored as numeric id() pointing into _PY_REGISTRY
-
-    Returns (py_obj, error_message). On success, error_message is None.
-    """
-    # Accept either the pyobject struct directly, or a single unnamed field
-    # wrapping the pyobject struct (pipeline may wrap values).
-    if not wrapper or not wrapper.is_struct:
-        return None, "pyobject struct with 'ptr' required"
-    ptr_key = comp.Value("ptr")
-    struct = wrapper.struct
-    if struct is None:
-        return None, "pyobject struct with 'ptr' required"
-    if ptr_key in struct:
-        ptr_val = struct[ptr_key]
-    else:
-        # Try unwrap one unnamed layer
-        if len(struct) == 1:
-            (only_key, only_val), = struct.items()
-            # comp.Unnamed keys are used for positional/unnamed fields
-            if isinstance(only_key, comp.Unnamed) and only_val.is_struct and only_val.struct and ptr_key in only_val.struct:
-                ptr_val = only_val.struct[ptr_key]
-            else:
-                return None, "pyobject struct requires 'ptr' field"
-        else:
-            return None, "pyobject struct requires 'ptr' field"
-    # Unwrap scalar for ptr if it's wrapped in a single unnamed field
-    if ptr_val is not None and ptr_val.is_struct and len(ptr_val.data) == 1:
-        (k, v), = ptr_val.data.items()
-        if isinstance(k, comp.Unnamed):
-            ptr_val = v
-    # If numeric, treat as registry id
-    if ptr_val.is_number:
-        try:
-            key_int = int(ptr_val.data)
-            if key_int in _PY_REGISTRY:
-                return _PY_REGISTRY[key_int], None
-            return None, f"unknown pyobject id: {key_int}"
-        except Exception as e:
-            return None, f"invalid pyobject id: {e}"
-    # Otherwise, convert Comp value back to Python (str, dict, list, etc.)
-    try:
-        return _comp_to_python(ptr_val), None
-    except Exception as e:
-        return None, f"cannot convert 'ptr' to python object: {e}"
-
-
 def _qualified_type_name(obj: Any) -> str:
     """Return the qualified type name for a python object."""
     t = type(obj)
@@ -403,17 +282,21 @@ def _extract_call_args(args_value: comp.Value | None) -> Tuple[List[Any], Dict[s
     return pos, kwargs
 
 
-def py_lookup_attr(input_value, args=None):
+def py_lookup_attr(frame, input_value, args=None):
     """Lookup a fully qualified attribute and return {value, type, repr}.
 
     Args:
-        input_value: Unused
+        frame: Execution frame
+        input_value: Unused or argument struct
         args: Comp Value struct with field 'name' (string) specifying qualified name
 
     Returns:
-        comp.Value: Struct with keys 'value' (pyobject struct), 'type' (string), 'repr' (string)
+        comp.Value: Struct with keys 'value' (Python object), 'type' (string), 'repr' (string)
                     or a fail value on error.
     """
+    if False:  # Make this a generator
+        yield
+    
     try:
         # Allow passing the argument struct either as args or as input_value
         empty_args = (args is not None and args.is_struct and len(args.struct) == 0)
@@ -428,31 +311,15 @@ def py_lookup_attr(input_value, args=None):
             return comp.fail("py-lookup-attr requires 'name' string field")
         name = args.struct[name_key].data
 
-        # Try locate via pydoc; fallback to manual import traversal
+        # Use pydoc.locate to resolve the name
         obj = pydoc.locate(name)
         if obj is None:
-            parts = name.split(".")
-            if not parts:
-                return comp.fail(f"Invalid name: {name!r}")
-            # progressively import modules and getattr
-            cur = None
-            for i in range(1, len(parts) + 1):
-                mod_name = ".".join(parts[:i])
-                try:
-                    cur = importlib.import_module(mod_name)
-                except Exception:
-                    # First non-module part: walk attributes from last imported cur
-                    cur = cur if cur is not None else importlib.import_module(parts[0])
-                    for attr in parts[i - 1:]:
-                        cur = getattr(cur, attr)
-                    break
-            obj = cur
+            return comp.fail(f"Could not locate: {name!r}")
 
         # Build result struct
         type_name = _qualified_type_name(obj)
-        value_struct = _wrap_pyobject_safe(obj)
         result = comp.Value({
-            comp.Value("value"): value_struct,
+            comp.Value("value"): comp.Value(obj),
             comp.Value("type"): comp.Value(type_name),
             comp.Value("repr"): comp.Value(repr(obj)),
         })
@@ -461,18 +328,22 @@ def py_lookup_attr(input_value, args=None):
         return comp.fail(f"py-lookup-attr failed: {e}")
 
 
-def py_call_function(input_value, args=None):
+def py_call_function(frame, input_value, args=None):
     """Call a fully-qualified function with Comp-structure arguments.
 
     Args:
-        input_value: Unused
+        frame: Execution frame
+        input_value: Unused or argument struct
         args: Comp Value struct containing:
               - name: string fully-qualified function (e.g., 'urllib.parse.urlparse')
               - optionally positional/keyword args as struct entries
 
     Returns:
-        comp.Value: pyobject struct wrapping the result or fail on error.
+        comp.Value: Python object result or fail on error.
     """
+    if False:  # Make this a generator
+        yield
+    
     try:
         # Allow passing the argument struct either as args or as input_value
         empty_args = (args is not None and args.is_struct and len(args.struct) == 0)
@@ -486,51 +357,41 @@ def py_call_function(input_value, args=None):
         if name_key not in args.struct or not args.struct[name_key].is_string:
             return comp.fail("py-call-function requires 'name' string field")
         name = args.struct[name_key].data
-        # Resolve function
+        
+        # Resolve function using pydoc.locate
         func_obj = pydoc.locate(name)
         if func_obj is None:
-            # Fallback: resolve manually
-            parts = name.split(".")
-            if not parts:
-                return comp.fail(f"Invalid function name: {name!r}")
-            mod = importlib.import_module(parts[0])
-            func_obj = mod
-            for comp_name in parts[1:]:
-                func_obj = getattr(func_obj, comp_name)
+            return comp.fail(f"Could not locate function: {name!r}")
 
         # Prepare args/kwargs (use args struct as source minus the 'name' field)
-        # Remove 'name' and pass the rest
-        # Create a shallow copy of args without 'name'
         call_arg_struct = comp.Value({k: v for k, v in args.struct.items() if k != name_key})
         pos, kwargs = _extract_call_args(call_arg_struct)
         result = func_obj(*pos, **kwargs)
-        return _wrap_pyobject_safe(result)
+        return comp.Value(result)
     except Exception as e:
         return comp.fail(f"py-call-function failed: {e}")
 
 
-def py_call_method(input_value, args=None):
+def py_call_method(frame, input_value, args=None):
     """Call a method on a Python object or call the object if callable.
 
     Args:
-        input_value: Comp Value struct with 'ptr' holding the Python object (self)
+        frame: Execution frame
+        input_value: Comp Value containing Python object directly in data
         args: Comp Value struct with:
               - name: method name string (empty or missing to call the object itself)
               - additional fields used as positional/keyword arguments
 
     Returns:
-        comp.Value: pyobject struct wrapping the result or fail on error.
+        comp.Value: Python object result or fail on error.
     """
-    # Extract Python object from input_value
-    py_obj, err = _resolve_pyobject_from_wrapper(input_value)
-    if err is not None:
-        return comp.fail(f"py-call-method requires input pyobject: {err}")
+    if False:  # Make this a generator
+        yield
+    
     try:
-        target = py_obj
-        # Defensive: if we somehow received a Python dict like {'ptr': obj},
-        # unwrap to the underlying object.
-        if isinstance(target, dict) and len(target) == 1 and "ptr" in target:
-            target = target["ptr"]
+        # Get Python object directly from input_value.data
+        target = input_value.data
+        
         method_name = None
         if args and args.is_struct and comp.Value("name") in args.struct:
             name_val = args.struct[comp.Value("name")]
@@ -549,24 +410,33 @@ def py_call_method(input_value, args=None):
         else:
             func = target
         result = func(*pos, **kwargs)
-        return _wrap_pyobject_safe(result)
+        return comp.Value(result)
     except Exception as e:
         return comp.fail(f"py-call-method failed: {e}")
 
 
-def py_struct_from_object(input_value, args=None):
+def py_struct_from_object(frame, input_value, args=None):
     """Return a shallow structure/dict representation of a Python object.
 
     Prefers vars(obj), falls back to reading __dict__, or non-callable attributes
     from dir(obj). Values are converted to Comp via _python_to_comp.
     Exceptions are caught and returned as fail.
+    
+    Args:
+        frame: Execution frame
+        input_value: Comp Value containing Python object directly in data
+        args: Optional arguments (not used)
+        
+    Returns:
+        Comp Value struct representation or fail on error
     """
-    # Extract the Python object
-    py_obj, err = _resolve_pyobject_from_wrapper(input_value)
-    if err is not None:
-        return comp.fail(f"py-struct-from-object requires input pyobject: {err}")
+    if False:  # Make this a generator
+        yield
+    
     try:
-        obj = py_obj
+        # Get Python object directly from input_value.data
+        obj = input_value.data
+        
         data = None
         try:
             data = vars(obj)
@@ -594,58 +464,6 @@ def py_struct_from_object(input_value, args=None):
         return comp.fail(f"py-struct-from-object failed: {e}")
 
 
-# Wrapper functions to match PythonFunction signature (frame, input_value, args)
-# All PythonFunctions must be generators
-
-def _py_decref_wrapper(frame, input_value, args=None):
-    """Wrapper for py_decref to match PythonFunction signature."""
-    if False:  # Never execute this, but makes it a generator
-        yield
-    return py_decref(input_value)
-
-
-def _py_from_comp_wrapper(frame, input_value, args=None):
-    """Wrapper for py_from_comp_impl to match PythonFunction signature."""
-    if False:  # Never execute this, but makes it a generator
-        yield
-    return py_from_comp_impl(input_value)
-
-
-def _py_to_comp_wrapper(frame, input_value, args=None):
-    """Wrapper for py_to_comp_impl to match PythonFunction signature."""
-    if False:  # Never execute this, but makes it a generator
-        yield
-    return py_to_comp_impl(input_value)
-
-
-def _py_lookup_attr_wrapper(frame, input_value, args=None):
-    """Wrapper for py_lookup_attr to match PythonFunction signature."""
-    if False:
-        yield
-    return py_lookup_attr(input_value, args)
-
-
-def _py_call_function_wrapper(frame, input_value, args=None):
-    """Wrapper for py_call_function to match PythonFunction signature."""
-    if False:
-        yield
-    return py_call_function(input_value, args)
-
-
-def _py_call_method_wrapper(frame, input_value, args=None):
-    """Wrapper for py_call_method to match PythonFunction signature."""
-    if False:
-        yield
-    return py_call_method(input_value, args)
-
-
-def _py_struct_from_object_wrapper(frame, input_value, args=None):
-    """Wrapper for py_struct_from_object to match PythonFunction signature."""
-    if False:
-        yield
-    return py_struct_from_object(input_value, args)
-
-
 def create_module():
     """Create the Python interop module for stdlib imports.
     
@@ -660,21 +478,21 @@ def create_module():
     # Define the internal Python implementation functions
     module.define_function(
         path=["py-decref"],
-        body=comp.PythonFunction("py-decref", _py_decref_wrapper),
+        body=comp.PythonFunction("py-decref", py_decref),
         is_pure=False,
-        doc="Decrement Python reference count (called by @pyobject drop block)",
+        doc="Decrement Python reference count (called by drop-handle function)",
     )
     
     module.define_function(
         path=["py-from-comp-impl"],
-        body=comp.PythonFunction("py-from-comp-impl", _py_from_comp_wrapper),
+        body=comp.PythonFunction("py-from-comp-impl", py_from_comp_impl),
         is_pure=True,
         doc="Convert Comp value to Python object (internal implementation)",
     )
     
     module.define_function(
         path=["py-to-comp-impl"],
-        body=comp.PythonFunction("py-to-comp-impl", _py_to_comp_wrapper),
+        body=comp.PythonFunction("py-to-comp-impl", py_to_comp_impl),
         is_pure=True,
         doc="Convert Python object to Comp value (internal implementation)",
     )
@@ -682,34 +500,40 @@ def create_module():
     # Minimal Python API
     module.define_function(
         path=["py-lookup-attr"],
-        body=comp.PythonFunction("py-lookup-attr", _py_lookup_attr_wrapper),
+        body=comp.PythonFunction("py-lookup-attr", py_lookup_attr),
         is_pure=True,
         doc="Lookup a fully qualified attribute and return {value, type, repr}",
     )
 
     module.define_function(
         path=["py-call-function"],
-        body=comp.PythonFunction("py-call-function", _py_call_function_wrapper),
+        body=comp.PythonFunction("py-call-function", py_call_function),
         is_pure=False,
         doc="Call a fully-qualified function with Comp-structure args and return a pyobject",
     )
 
     module.define_function(
         path=["py-call-method"],
-        body=comp.PythonFunction("py-call-method", _py_call_method_wrapper),
+        body=comp.PythonFunction("py-call-method", py_call_method),
         is_pure=False,
         doc="Call a method on a pyobject (or call it if callable) and return a pyobject",
     )
 
     module.define_function(
         path=["py-struct-from-object"],
-        body=comp.PythonFunction("py-struct-from-object", _py_struct_from_object_wrapper),
+        body=comp.PythonFunction("py-struct-from-object", py_struct_from_object),
         is_pure=True,
         doc="Build a shallow struct from a Python object (vars/attributes)",
     )
     
-    # Create the drop block AST manually: :{[$in |py-decref]}
-    # The structure is: Block(Structure([FieldOp(Pipeline([PipeFunc("py-decref")]))]))
+    # Define the @pyobject handle
+    module.define_handle(
+        path=["pyobject"],
+        drop_block=None,  # Drop behavior defined via |drop-handle function
+    )
+    
+    # Define the |drop-handle function for @pyobject
+    # This is called by the !drop operator
     from comp.ast import Block, Structure, FieldOp, Pipeline, PipeFunc
     
     drop_pipeline = Pipeline(
@@ -721,13 +545,11 @@ def create_module():
     drop_structure = Structure(ops=[FieldOp(key=None, value=drop_pipeline)])
     drop_block = Block(body=drop_structure)
     
-    # Define the @pyobject handle with drop block
-    module.define_handle(
-        path=["pyobject"],
-        drop_block=drop_block,
+    module.define_function(
+        path=["drop-handle"],
+        body=drop_block,
+        is_pure=False,
+        doc="Drop handler for @pyobject - decrements Python reference count",
     )
     
     return module
-
-
-# Note: _py_decref_wrapper already defined above as a generator-compatible wrapper
