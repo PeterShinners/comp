@@ -58,7 +58,7 @@ class HandleDef(ModuleOp):
             return comp.fail("HandleDef requires module scope")
 
         # Register this handle without drop block (use function dispatch instead)
-        module.define_handle(self.path, drop_block=None, is_private=self.is_private)
+        module.define_handle(self.path, is_private=self.is_private)
 
         # Return empty value (definitions don't produce values)
         return comp.Value({})

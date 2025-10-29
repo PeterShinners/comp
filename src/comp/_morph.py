@@ -792,9 +792,13 @@ def _morph_struct(value, shape, was_wrapped=False):
     # Build result value
     result_value = comp.Value(result_struct)
 
+    # Combine handle and tag depth for specificity scoring
+    # Handles and tags both contribute to type specificity
+    combined_depth = handle_depth_sum + tag_depth_sum
+
     return MorphResult(
         named_matches=named_matches,
-        tag_depth=tag_depth_sum,
+        tag_depth=combined_depth,
         positional_matches=positional_matches,
         value=result_value
     )

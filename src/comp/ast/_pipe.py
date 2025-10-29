@@ -174,11 +174,25 @@ class PipeFunc(PipelineOp):
                     # Not found or ambiguous
                     return comp.fail(str(e))
 
-        # Check if this is a PythonFunction (needs special handling)
-        # PythonFunctions return generators that must be driven to completion
-        if len(func_defs) == 1 and isinstance(func_defs[0].body, comp.PythonFunction):
-            python_func = func_defs[0].body
-            gen = python_func.invoke(input_value, args_value, frame)
+        # Check if ALL overloads are PythonFunctions
+        # PythonFunctions need special handling (generators, overload selection)
+        all_python_funcs = all(isinstance(fd.body, comp.PythonFunction) for fd in func_defs)
+        
+        if all_python_funcs:
+            # Handle PythonFunction overloads
+            if len(func_defs) == 1:
+                # Single PythonFunction - invoke directly
+                python_func = func_defs[0].body
+                gen = python_func.invoke(input_value, args_value, frame)
+            else:
+                # Multiple PythonFunction overloads - do overload resolution first
+                result = comp.select_overload(func_defs, input_value)
+                if isinstance(result, comp.Value):  # It's a fail Value
+                    return result
+                
+                best_func, morphed_input = result
+                python_func = best_func.body
+                gen = python_func.invoke(morphed_input, args_value, frame)
 
             # All PythonFunctions are generators - drive to completion
             try:

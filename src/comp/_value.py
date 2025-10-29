@@ -120,7 +120,11 @@ class Value(_entity.Entity):
             self.handles = self._compute_struct_handles()
             return
 
-        raise ValueError(f"Cannot convert Python {type(data)} to Comp Value")
+        # Handle other Python objects directly (for Python bridge)
+        # Store them as-is without conversion
+        self.data = data
+        self.handles = frozenset()
+        return
 
     def _compute_struct_handles(self) -> frozenset:
         """Recursively collect all handles from struct fields.
@@ -289,11 +293,20 @@ class Value(_entity.Entity):
             for k, v in self.data.items():
                 if isinstance(k, Unnamed):
                     fields.append(v.unparse())
-                else:
-                    key = k.unparse()[1:-1]
-                    if not key.isidentifier():
-                        key = "'{key}'"
-                    fields.append(f"{key}={v.unparse()}")
+                elif isinstance(k, Value):
+                    if k.is_string:
+                        key = k.unparse()[1:-1]
+                        # Check if key is a valid Comp identifier (TOKEN pattern: /[^\W\d][\w-]*[?]?/)
+                        # Must start with letter/underscore, contain only alphanumeric/underscore/hyphen, optional trailing ?
+                        import re
+                        if re.match(r'^[^\W\d][\w-]*\??$', key):
+                            fields.append(f"{key}={v.unparse()}")
+                        else:
+                            # Need to quote the key
+                            fields.append(f'"{key}"={v.unparse()}')
+                    else:
+                        fields.append(f"{k.unparse()}={v.unparse()}")
+
             return "{" + " ".join(fields) + "}"
 
         # Return the data, converting tags and decimals to strings

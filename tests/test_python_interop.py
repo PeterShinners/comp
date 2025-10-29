@@ -1,4 +1,4 @@
-"""Test Python interop module with pyobject handle."""
+"""Test Python interop module with @py-handle."""
 
 import comp
 import comptest
@@ -21,17 +21,17 @@ def test_python_module_import():
     assert result_value.to_python() == True
 
 
-def test_pyobject_handle_exists():
-    """Test that @pyobject handle is defined in python module."""
+def test_py_handle_exists():
+    """Test that @py-handle is defined in python module."""
     result = comptest.run_func("""
         !import /py = stdlib "python"
         
         ; Re-export the handle so we can use it locally
-        !handle @pyobject
+        !handle @py-handle
         
         !func |test ~{} = {
-            ; Try to grab a pyobject handle
-            $var.obj = !grab @pyobject
+            ; Try to grab a py-handle
+            $var.obj = !grab @py-handle
             !drop $var.obj
             result = #true
         }
@@ -43,17 +43,17 @@ def test_pyobject_handle_exists():
     assert result_value.to_python() == True
 
 
-def test_pyobject_drop_block_executes():
-    """Test that pyobject drop-handle function is called."""
+def test_py_handle_drop_block_executes():
+    """Test that py-handle drop-handle function is called."""
     result = comptest.run_func("""
         !import /py = stdlib "python"
         
         ; Re-export the handle so we can use it locally
-        !handle @pyobject
+        !handle @py-handle
         
         !func |test ~{} = {
-            ; Create and drop a pyobject
-            $var.obj = !grab @pyobject
+            ; Create and drop a py-handle
+            $var.obj = !grab @py-handle
             !drop $var.obj
             ; If we get here, drop-handle function didn't fail
             result = #true
@@ -66,44 +66,41 @@ def test_pyobject_drop_block_executes():
     assert result_value.to_python() == True
 
 
-def test_py_from_comp():
-    """Test converting Comp value to Python object."""
+def test_push():
+    """Test converting Comp value to Python object (push)."""
     result = comptest.run_func("""
         !import /py = stdlib "python"
         
         !func |test ~{} = {
-            ; Convert a simple Comp struct to Python
+            ; Convert a simple Comp struct to Python (returns @py-handle)
             $var.comp_val = {name="Alice" age=30}
-            $var.py_obj = [$var.comp_val |py-from-comp-impl/py]
-            ; py_obj now contains the Python dict directly
-            result = $var.py_obj
+            $var.py_handle = [$var.comp_val |push/py]
+            ; py_handle now contains a @py-handle wrapping the Python dict
+            ; To verify, pull it back and check the values
+            $var.back = [$var.py_handle |pull/py]
+            result = $var.back
         }
     """)
     
     assert not result.is_fail, f"Function failed: {result.to_python()}"
     result = result.to_python()["result"]
-    # Debug: print what we got
-    print(f"\nDEBUG: result = {result!r}")
-    print(f"DEBUG: type = {type(result)}")
-    if isinstance(result, dict):
-        print(f"DEBUG: keys = {list(result.keys())}")
-    # The result should be the Python dict directly
+    # The result should be the Comp struct converted back from Python
     assert isinstance(result, dict)
     assert result["name"] == "Alice"
     assert result["age"] == 30
 
 
-def test_py_to_comp():
-    """Test converting Python object back to Comp value."""
+def test_pull():
+    """Test converting Python object back to Comp value (pull)."""
     result = comptest.run_func("""
         !import /py = stdlib "python"
         
         !func |test ~{} = {
             ; Create Python object
             $var.comp_val = {name="Bob" score=95}
-            $var.py_obj = [$var.comp_val |py-from-comp-impl/py]
+            $var.py_obj = [$var.comp_val |push/py]
             ; Convert back to Comp
-            $var.comp_val2 = [$var.py_obj |py-to-comp-impl/py]
+            $var.comp_val2 = [$var.py_obj |pull/py]
             result = $var.comp_val2
         }
     """)
@@ -116,7 +113,7 @@ def test_py_to_comp():
     assert result_value.data[comp.Value("score")].data == 95
 
 
-def test_py_roundtrip():
+def test_roundtrip():
     """Test roundtrip conversion Comp -> Python -> Comp."""
     result = comptest.run_func("""
         !import /py = stdlib "python"
@@ -128,8 +125,8 @@ def test_py_roundtrip():
                 active = #true
             }
             ; Convert to Python and back
-            $var.py_obj = [$var.original |py-from-comp-impl/py]
-            $var.comp_copy = [$var.py_obj |py-to-comp-impl/py]
+            $var.py_obj = [$var.original |push/py]
+            $var.comp_copy = [$var.py_obj |pull/py]
             result = $var.comp_copy
         }
     """)
@@ -149,3 +146,4 @@ def test_py_roundtrip():
     active = result_value.data[comp.Value("active")]
     assert active.is_tag
     assert active.to_python() == True
+

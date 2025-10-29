@@ -1,0 +1,68 @@
+!doc module "Simple SQLite interface for Comp"
+
+!import /py = stdlib "python"
+
+!handle @db
+
+!tag #isolation = {#deferred #exclusive #immediate #none}
+
+
+; want to ensure these fail tags extend the builtin #fail (need to check syntax on that again)
+; todo, want to convert whatever fails the python bridge into these types (how do, string match?)
+!tag #fail = {#interface #database #data #operation #integrity #internal #programming #notsupported}
+
+!shape ~connect-args = {
+    timeout ~num = 5
+    isolation-level #isolation = #isolation.deferred
+}
+
+!doc "Result of execute calls"
+!shape ~execute = {
+    rows ~any
+    columns ~any
+    row-id ~any
+    row-count ~num
+}
+
+
+!doc "Open database connection"
+!func |database-file ~str arg ~connect-args = {
+    $var.pydb = [{database=$in} |call-func "sqlite3.connect"]
+    $var.db = !grab @db
+    $var.db&py = $var.pydb
+    $var.db
+}
+
+!func |database-url ~str arg ~connect-args = {
+    $var.pydb = [{database=$in url=#true} |call-func "sqlite3.connect"]
+    $var.db = !grab @db
+    $var.db&py = $var.pydb
+    $var.db
+}
+
+!func |database-memory ~{} arg ~connect-args = {
+    $var.pydb = [{database=":memory:"} |call-func "sqlite3.connect"]
+    $var.db = !grab @db
+    $var.db&py = $var.pydb
+    $var.db
+}
+
+!doc "Execute SQL statement and return ~execute"
+!func |execute ~{db @db} arg ~{sql ~str} = {
+    $var.cursor = [{self=$in.db&py} |call "cursor"]
+    $var.exec = [{self=$var.cursor $arg.sql} |call "execute"]
+    $var.cursor-vars = [{self=$var.cursor} |vars]
+    
+    
+
+    ; TODO: Convert row tuples to structs with column names from description
+    rows = [{self=$var.cursor} |call "fetchall" |pull]
+    columns = $var.cursor-vars.description
+    row-id = $var.cursor-vars.lastrowid
+    row-count = $var.cursor-vars.rowcount
+}
+
+; called automatically as handle is dropped
+!func |drop-handle& ~{db@db} = {
+    [$in.db&py |call "close"]
+}

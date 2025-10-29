@@ -11,9 +11,9 @@ recognize the emphasis on data transformation and uniform syntax.
 
 ## Development Status
 
-The language design is fairly established documented in the `design/` directory.
-Implementation is currently underway using an agent-assisted development in a
-roadmap with multiple chapters and phases. 
+The language design is fairly well established and documented in the `design/` directory.
+Implementation is currently underway using an agent-assisted development approach
+with a roadmap organized into multiple chapters and phases. 
 
 ## Quick Start
 
@@ -35,11 +35,11 @@ uv run comp examples/working/hello.comp
     
     $var.name = [{..$var.lookups World} |first]
     
-    [%"Hello, ${$var.name}!" |print]
+    [%"Hello, %{$var.name}!" |print]
 }
 ```
 
-This Hello World attempt to be extra personal by looking for a login name
+This Hello World attempts to be extra personal by looking for a login name
 from a series of environment variables.
 
 **Testimonials**

@@ -225,12 +225,14 @@ This makes unions **order-independent** for practical use - you can reorder unio
 
 The specificity system uses a **lexicographic scoring tuple** to rank shape matches. When multiple shapes could match the same data (in unions or function overloads), the system compares each component in order until a winner is found.
 
-**Score Tuple: `{named_matches, tag_depth, assignment_weight, positional_matches}`**
+**Score Tuple: `(named_matches, combined_depth, positional_matches)`**
 
 1. **Named field matches** - Count of exact field name matches (higher is more specific)
-2. **Tag hierarchy depth** - Sum of tag depths for matched tag fields (deeper tags win)
-3. **Assignment strength** - Strong assignment (`=*`) scores 1, normal (`=`) scores 0, weak (`=?`) scores -1
-4. **Positional matches** - Count of positional field matches (higher is more specific)
+2. **Combined depth** - Sum of tag depth + handle depth for all matched fields
+   - **Tag depth**: Depth in tag hierarchy for matched tag fields (deeper tags win)
+   - **Handle depth**: Depth in handle hierarchy for matched handle fields (deeper handles win)
+   - Combined to ensure both tags and handles contribute to specificity
+3. **Positional matches** - Count of positional field matches (higher is more specific)
 
 The tuple is compared lexicographically: earlier components are more important than later ones. This ensures that a shape matching more named fields always beats one matching fewer, regardless of other factors.
 
@@ -240,18 +242,18 @@ The tuple is compared lexicographically: earlier components are more important t
 !shape ~labeled-point = {x ~num y ~num label ~str}
 
 ; Scoring examples for input: {x=5 y=10}
-; ~point-2d:       {named=2, tag=0, weight=0, pos=0}
-; ~point-3d:       {named=2, tag=0, weight=0, pos=0}  ; Same score - TIE
-; ~labeled-point:  {named=2, tag=0, weight=0, pos=0}  ; Same score - TIE
+; ~point-2d:       (named=2, depth=0, pos=0)
+; ~point-3d:       (named=2, depth=0, pos=0)  ; Same score - TIE
+; ~labeled-point:  (named=2, depth=0, pos=0)  ; Same score - TIE
 
 ; For input: {x=5 y=10 z=15}
-; ~point-2d:       {named=2, tag=0, weight=0, pos=0}
-; ~point-3d:       {named=3, tag=0, weight=0, pos=0}  ; WINS - more named matches
-; ~labeled-point:  {named=2, tag=0, weight=0, pos=0}
+; ~point-2d:       (named=2, depth=0, pos=0)
+; ~point-3d:       (named=3, depth=0, pos=0)  ; WINS - more named matches
+; ~labeled-point:  (named=2, depth=0, pos=0)
 
 ; For input: {5 10}
-; ~point-2d:       {named=0, tag=0, weight=0, pos=2}
-; ~point-3d:       {named=0, tag=0, weight=0, pos=2}  ; Same score - TIE
+; ~point-2d:       (named=0, depth=0, pos=2)
+; ~point-3d:       (named=0, depth=0, pos=2)  ; Same score - TIE
 ```
 
 **Tag depth scoring** gives preference to more specific tags in hierarchies:
@@ -265,20 +267,45 @@ The tuple is compared lexicographically: earlier components are more important t
 !shape ~network = {state #network.error}    ; Tag depth = 2
 
 ; For input: {state=#network.error}
-; ~generic:    {named=1, tag=0, weight=0, pos=0}
-; ~error-case: {named=1, tag=1, weight=0, pos=0}  
-; ~network:    {named=1, tag=2, weight=0, pos=0}  ; WINS - deepest tag
+; ~generic:    (named=1, depth=0, pos=0)
+; ~error-case: (named=1, depth=1, pos=0)  
+; ~network:    (named=1, depth=2, pos=0)  ; WINS - deepest tag
 ```
 
-**Assignment strength** breaks ties between otherwise identical shapes:
+**Handle depth scoring** ensures handle specificity works like tags:
 
 ```comp
-!shape ~config-default = {port ~num = 8080}
-!shape ~config-locked = {port ~num =* 8080}
+!handle @py-handle
+!handle @py-method-handle = {@py-handle}  ; Extends @py-handle
 
-; For input: {port=3000}
-; ~config-default: {named=1, tag=0, weight=0, pos=0}
-; ~config-locked:  {named=1, tag=0, weight=1, pos=0}  ; WINS - strong assignment
+!shape ~generic-call = {self ~any}
+!shape ~py-call = {self @py-handle}
+!shape ~py-method-call = {self @py-method-handle}
+
+; For input: {self=<@py-method-handle instance>}
+; ~generic-call:    (named=1, depth=0, pos=0)
+; ~py-call:         (named=1, depth=1, pos=0)
+; ~py-method-call:  (named=1, depth=2, pos=0)  ; WINS - deepest handle
+
+; This enables proper overload resolution for Python bridge:
+!func |call ~any = {...}                    ; Generic fallback
+!func |call ~{self @py-handle} = {...}     ; Beats generic due to handle depth=1
+```
+
+**Combined depth calculation** adds tag and handle depths together:
+
+```python
+# In _morph.py morph scoring:
+handle_depth_sum = sum(depth for depth, _ in handle_matches)
+tag_depth_sum = sum(depth for depth, _ in tag_matches)
+combined_depth = handle_depth_sum + tag_depth_sum
+
+return MorphResult(
+    named_matches=named_matches,
+    tag_depth=combined_depth,  # Used for lexicographic comparison
+    positional_matches=positional_matches,
+    value=result_value
+)
 ```
 
 **Percentage-based scoring for union morphing:**

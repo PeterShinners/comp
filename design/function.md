@@ -683,6 +683,65 @@ hierarchies and polymorphic dispatch mechanisms, see [Tag System](tag.md).
 [{status=#network.error} |process]  ; "network specialist"
 ```
 
+### Pipeline Dispatch for Multiple Overloads
+
+When a function has multiple overloads, pipeline execution uses the morph scoring system to select the best match. The PipeFunc implementation handles this selection:
+
+**For Block functions** (regular Comp functions):
+- Multiple overloads are standard - each Block has its own input shape
+- Selection uses morph scoring (named matches, tag/handle depth, positional matches)
+- The Block with the most specific matching shape is invoked
+
+**For PythonFunction overloads** (functions implemented in Python):
+- Each PythonFunction can have multiple overloads with different arg_shape
+- When ALL overloads are PythonFunctions, special handling applies:
+  - Single overload: invoke directly (fast path)
+  - Multiple overloads: call select_overload() first, then invoke selected function
+- The generator protocol is driven to completion to get the final Value
+
+```python
+# In ast/_pipe.py PipeFunc implementation:
+if all(isinstance(fn, PythonFunction) for fn in candidate_funcs):
+    if len(candidate_funcs) == 1:
+        # Fast path for single PythonFunction
+        py_func = candidate_funcs[0]
+        generator = py_func.invoke(...)
+        # Drive generator to completion
+        
+    else:
+        # Multiple PythonFunction overloads - need selection
+        selected = comp.select_overload(
+            candidate_funcs,
+            self.pipe_input or comp.Value(comp.Structure({})),
+            self.arg_struct
+        )
+        generator = selected.invoke(...)
+        # Drive generator to completion
+```
+
+This ensures that Python-implemented functions with multiple overloads (like the Python bridge's `|call` function with `~any` and `~{self @py-handle}` overloads) correctly dispatch based on input shape. The morph scoring includes handle depth, so `~{self @py-handle}` ranks higher than `~any`.
+
+**Example from Python bridge:**
+
+```comp
+; Two overloads for |call - one generic, one for Python handles
+!func |call ~any = {
+    ; Falls back to generic Python function call
+}
+
+!func |call ~{self @py-handle} = {
+    ; More specific - handles Python method calls on objects
+    ; Ranks higher due to handle_depth_sum in morph scoring
+}
+
+; Dispatch resolution:
+[{name=`print`} |lookup/py {args=[`hello`]} |call/py]  
+; Uses ~any overload - no handle in input
+
+[{name=`sqlite3`} |lookup/py {method_name=`connect`} |call/py]
+; Uses ~{self @py-handle} overload - @py-handle present, scores higher
+```
+
 ### Overload References
 
 Functions references are defined by the function name. This reference uses all

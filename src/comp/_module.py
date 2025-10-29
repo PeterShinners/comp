@@ -141,12 +141,10 @@ class HandleDefinition(_entity.Entity):
     Attributes:
         path (list[str]): Full path as list, e.g., ["file", "readonly", "text"]
         module (Module): The Module this handle is defined in
-        drop_block: Optional AST node for the drop block (e.g., RawBlock)
     """
-    def __init__(self, path, module, drop_block=None, is_private: bool = False):
+    def __init__(self, path, module, is_private: bool = False):
         self.path = path
         self.module = module
-        self.drop_block = drop_block
         self.is_private = is_private
 
     @property
@@ -589,30 +587,25 @@ class Module(_entity.Entity):
 
         return tag_def
 
-    def define_handle(self, path, drop_block=None, is_private: bool = False):
+    def define_handle(self, path, is_private: bool = False):
         """Register a handle definition.
 
         Args:
             path (list[str]): Full path in definition order, e.g., ["file", "readonly", "text"]
-            drop_block: Optional AST node for the drop block (e.g., RawBlock)
 
         Returns:
             HandleDefinition: The HandleDefinition object
 
         Notes:
             - Multiple definitions of the same handle merge
-            - If drop_block is provided, it replaces any existing drop_block
         """
         full_name = ".".join(path)
 
         if full_name in self.handles:
-            # Handle already exists - update drop_block if provided
             handle_def = self.handles[full_name]
-            if drop_block is not None:
-                handle_def.drop_block = drop_block
         else:
             # Create new handle definition
-            handle_def = HandleDefinition(path=path, module=self, drop_block=drop_block, is_private=is_private)
+            handle_def = HandleDefinition(path=path, module=self, is_private=is_private)
             self.handles[full_name] = handle_def
 
         return handle_def
@@ -965,6 +958,60 @@ class Module(_entity.Entity):
 
         return func_def
 
+    def define_py_function(self, path, python_func, input_shape=None,
+                          arg_shape=None, is_pure=False, doc=None):
+        """Register a Python function with automatic shape parsing.
+        
+        This is a convenience wrapper around define_function for PythonFunction bodies.
+        Shape arguments can be either strings (parsed) or AST shape nodes.
+        
+        Args:
+            path (list[str]): Full path in definition order, e.g., ["call", "method"]
+            python_func (callable): Python function to wrap
+            input_shape (str | ShapeDef | None): Input shape - string to parse or AST node
+            arg_shape (str | ShapeDef | None): Argument shape - string to parse or AST node
+            is_pure (bool): True if function has no side effects
+            doc (str | None): Documentation string
+            
+        Returns:
+            _function.FunctionDefinition: The FunctionDefinition object
+            
+        Example:
+            module.define_py_function(
+                path=["call"],
+                python_func=call_method,
+                input_shape="~{self @py-handle}",
+                arg_shape="~{name ~str}",
+                doc="Call a method on a Python object"
+            )
+        """
+        import comp
+        
+        # Parse shape strings if needed
+        if isinstance(input_shape, str):
+            input_shape = comp.parse_shape(input_shape, module=self)
+        if isinstance(arg_shape, str):
+            arg_shape = comp.parse_shape(arg_shape, module=self)
+        
+        if not doc:
+            doc = getattr(python_func, "__doc__", None),
+
+        # Create PythonFunction body
+        func_name = ".".join(path)
+        body = comp.PythonFunction(func_name, python_func, 
+                                   input_shape=input_shape, 
+                                   arg_shape=arg_shape)
+
+        # Register using standard define_function
+        return self.define_function(
+            path=path,
+            body=body,
+            input_shape=input_shape,
+            arg_shape=arg_shape,
+            is_pure=is_pure,
+            doc=doc
+        )
+
     def list_functions(self):
         """Get all function definitions (all overloads flattened).
         
@@ -1222,7 +1269,21 @@ class Module(_entity.Entity):
                 # Skip if already exists (module was already evaluated)
                 full_name = ".".join(op.path)
                 if full_name not in self.tags:
-                    self.define_tag(op.path, value=None)
+                    self.define_tag(op.path, value=None, is_private=op.is_private)
+                
+                # Recursively create child tag definitions
+                def create_child_tags(children, parent_path):
+                    for child in children:
+                        child_full_path = parent_path + child.path
+                        child_full_name = ".".join(child_full_path)
+                        if child_full_name not in self.tags:
+                            self.define_tag(child_full_path, value=None, is_private=child.is_private)
+                        # Recursively process grandchildren
+                        if child.children:
+                            create_child_tags(child.children, child_full_path)
+                
+                if op.children:
+                    create_child_tags(op.children, op.path)
 
             elif isinstance(op, ast.HandleDef):
                 # Create handle definition

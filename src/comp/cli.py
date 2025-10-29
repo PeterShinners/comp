@@ -30,9 +30,20 @@ def show_dependencies(filepath_str):
         code = filepath.read_text(encoding="utf-8")
         ast_module = comp.parse_module(code, filename=str(filepath))
 
-        # Create engine and evaluate module
+        # Create engine
         engine = comp.Engine()
-        module_result = engine.run(ast_module)
+        
+        # Create and prepare module BEFORE running
+        module = comp.Module()
+        try:
+            module.prepare(ast_module, engine)
+        except ValueError as e:
+            print(f"Module preparation error in {filepath}:", file=sys.stderr)
+            print(f"  {e}", file=sys.stderr)
+            sys.exit(1)
+        
+        # Now evaluate the module
+        module_result = engine.run(ast_module, module=module)
 
         # Check for errors
         if isinstance(module_result, comp.Value) and module_result.is_fail:
@@ -45,14 +56,6 @@ def show_dependencies(filepath_str):
             sys.exit(1)
 
         module = module_result
-
-        # Prepare the module
-        try:
-            module.prepare(ast_module, engine)
-        except ValueError as e:
-            print(f"Module preparation error in {filepath}:", file=sys.stderr)
-            print(f"  {e}", file=sys.stderr)
-            sys.exit(1)
 
         # Display dependency tree
         # Show root module with its doc
@@ -219,7 +222,12 @@ def main():
             sys.exit(1)
 
         # Execute the main function body
-        result = engine.run(module.main_func, module=module)
+        in_ = comp.Value({})
+        ctx = comp.Value({})
+        mod = comp.Value({})
+        arg = comp.Value({})
+        var = comp.Value({})
+        result = engine.run(module.main_func, module=module, in_=in_, ctx=ctx, mod=mod, arg=arg, var=var)
 
         # Check for failure
         if result.is_fail:
@@ -264,9 +272,20 @@ def _show_documentation(filepath_str, rich):
         code = filepath.read_text(encoding="utf-8")
         ast_module = comp.parse_module(code, filename=str(filepath))
 
-        # Create engine and evaluate module
+        # Create engine
         engine = comp.Engine()
-        module_result = engine.run(ast_module)
+        
+        # Create and prepare module BEFORE running
+        module = comp.Module()
+        try:
+            module.prepare(ast_module, engine)
+        except ValueError as e:
+            print(f"Module preparation error in {filepath}:", file=sys.stderr)
+            print(f"  {e}", file=sys.stderr)
+            sys.exit(1)
+        
+        # Now evaluate the module
+        module_result = engine.run(ast_module, module=module)
 
         # Check for errors
         if isinstance(module_result, comp.Value) and module_result.is_fail:
@@ -279,14 +298,6 @@ def _show_documentation(filepath_str, rich):
             sys.exit(1)
 
         module = module_result
-
-        # Prepare the module
-        try:
-            module.prepare(ast_module, engine)
-        except ValueError as e:
-            print(f"Module preparation error in {filepath}:", file=sys.stderr)
-            print(f"  {e}", file=sys.stderr)
-            sys.exit(1)
 
         buffer = io.StringIO()
         output = lambda v="": (buffer.write(v), buffer.write("\n"))

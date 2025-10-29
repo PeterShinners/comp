@@ -140,10 +140,10 @@ def parse_shape(text, module=None, filename=None):
     except Exception as e:
         raise ValueError(f"Failed to evaluate shape {text!r}: {e}") from e
 
-    # The result should be a ShapeDefinition
-    if not isinstance(result, comp.ShapeDefinition):
+    # The result should be a ShapeDefinition or HandleDefinition
+    if not isinstance(result, (comp.ShapeDefinition, comp.HandleDefinition)):
         raise ValueError(
-            f"Shape expression {text!r} did not evaluate to ShapeDefinition, "
+            f"Shape expression {text!r} did not evaluate to ShapeDefinition or HandleDefinition, "
             f"got {type(result).__name__}"
         )
 
@@ -819,7 +819,7 @@ def _convert_field_assignment_key(tree):
 
         if isinstance(kid, lark.Token):
             if kid.type == 'TOKEN':
-                field_keys.append(comp.ast.String(kid.value))
+                field_keys.append(comp.ast.TokenField(kid.value))
             elif kid.type == 'INDEXFIELD':
                 index = int(kid.value[1:])  # Remove '#'
                 field_keys.append(comp.ast.IndexField(index))
@@ -830,10 +830,10 @@ def _convert_field_assignment_key(tree):
         elif isinstance(kid, lark.Tree):
             # Process tree nodes
             if kid.data == 'tokenfield':
-                # tokenfield contains a TOKEN - extract it as a String
+                # tokenfield contains a TOKEN - extract it as a TokenField
                 token = kid.children[0]
                 if isinstance(token, lark.Token) and token.type == 'TOKEN':
-                    field_keys.append(comp.ast.String(token.value))
+                    field_keys.append(comp.ast.TokenField(token.value))
             elif kid.data == 'indexfield':
                 # indexfield contains an integer - convert to IndexField
                 index_node = _convert_tree(kid.children[0])
@@ -858,11 +858,9 @@ def _convert_field_assignment_key(tree):
     if scope_marker:
         field_keys.insert(0, comp.ast.ScopeField(scope_marker))
 
-    # Return single element for simple case, list for complex paths
-    if len(field_keys) == 1:
-        return field_keys[0]
-    else:
-        return field_keys
+    # Always return a list for field assignment keys
+    # This ensures TokenFields go through _evaluate_path_field which has special handling
+    return field_keys
 
 
 def _extract_reference_path(kids):

@@ -8,6 +8,8 @@ Handles are opaque runtime values that represent external objects requiring clea
 
 Handles use the `@` symbol to distinguish them from tags (`#`) and shapes (`~`). They are tracked automatically through frame-based reference counting and integrate seamlessly with the shape morphing system for type-safe dispatch.
 
+**Key insight from Python bridge implementation**: Handles can store module-specific data in their private data dictionary using string keys. This enables clean wrapping of external objects (like Python objects) without exposing internal implementation details. The private data is opaque to the language runtime but accessible to the module that created the handle.
+
 ## Key Principles
 
 1. **Capability-Based**: Creating a handle requires a resource token that grants permission
@@ -186,25 +188,25 @@ The `|release` builtin:
 
 ## Morphing Behavior
 
-Resources integrate with the shape morphing system for type-safe dispatch:
+Handles integrate with the shape morphing system for type-safe dispatch:
 
-### Active Resource Morphing
+### Active Handle Morphing
 
 ```comp
-; Active resource matches its type
-active_resource ~@filehandle     ; Success
+; Active handle matches its type
+active_handle ~@filehandle     ; Success
 
-; Structure containing resource
+; Structure containing handle
 {handle=@filehandle path="file.txt"} ~{@filehandle path~str}
 ; Success - eager field matching finds @filehandle
 ```
 
-### Released Resource Morphing
+### Released Handle Morphing
 
 ```comp
-; Released resources fail to morph
-[resource |close-file]
-resource ~@filehandle    ; FAIL - resource has been released
+; Released handles fail to morph
+[handle |close-file]
+handle ~@filehandle    ; FAIL - handle has been released
 ```
 
 This provides automatic safety:
@@ -212,25 +214,26 @@ This provides automatic safety:
 ```comp
 !func |read-file ~{@filehandle} = { ... }
 
-[handle |close-file]      ; Release resource
+[handle |close-file]      ; Release handle
 [handle |read-file]       ; Morph fails - function not called!
 ```
 
 **No explicit checks needed** - the type system handles it automatically.
 
-### Resource Type Checking
+### Handle Type Checking
 
 ```comp
-; Different resource types don't match
+; Different handle types don't match
 @filehandle ~@connection     ; FAIL - type mismatch
 ```
 
 ### Morph Rules Summary
 
-1. **Type Matching**: Resource matches if types match exactly
-2. **Released Check**: Released resources match nothing (like #fail)
-3. **Eager Matching**: Resources eagerly match fields (like tags)
-4. **Opaque Values**: Resources have no accessible internal structure
+1. **Type Matching**: Handle matches if types match exactly
+2. **Released Check**: Released handles match nothing (like #fail)
+3. **Eager Matching**: Handles eagerly match fields (like tags)
+4. **Opaque Values**: Handles have no accessible internal structure (except private data for creating module)
+5. **Specificity**: Handles contribute to morph scoring through handle depth in shape hierarchies
 
 ## Grammar Syntax
 
@@ -287,33 +290,33 @@ Examples:
 
 ## Implementation Classes
 
-### Resource Runtime Value
+### Handle Runtime Value
 
 ```python
-class Resource:
-    """Runtime resource value."""
+class HandleInstance:
+    """Runtime handle value."""
     
-    resource_def: ResourceDefinition  # The @filehandle definition
-    handle: object                     # Python object being wrapped
-    cleanup: callable                  # Cleanup function to call
-    frames: set[Frame]                # Which frames reference this
-    released: bool                     # Has been released?
+    handle_def: HandleDefinition  # The @filehandle definition
+    handle_id: int                 # Unique identifier
+    private_data: dict[str, Any]   # Module-specific private data storage
+    frames: set[Frame]             # Which frames reference this
+    released: bool                 # Has been released?
     
     def morph_to(self, shape):
-        """Check if this resource matches a shape."""
+        """Check if this handle matches a shape."""
         if self.released:
-            return fail("Resource has been released")
+            return fail("Handle has been released")
         
-        if isinstance(shape, ResourceRef):
-            # Check if resource type matches
-            if self.resource_def == shape.definition:
+        if isinstance(shape, HandleRef):
+            # Check if handle type matches
+            if self.handle_def == shape.definition:
                 return self  # Success
-            return fail(f"Resource type mismatch")
+            return fail(f"Handle type mismatch")
         
-        return fail("Resource cannot morph to non-resource shape")
+        return fail("Handle cannot morph to non-handle shape")
     
     def release(self):
-        """Explicitly release this resource."""
+        """Explicitly release this handle."""
         if self.released:
             return
         
@@ -321,13 +324,41 @@ class Resource:
         
         # Unregister from all frames
         for frame in list(self.frames):
-            frame.resources.discard(self)
+            frame.handles.discard(self)
         self.frames.clear()
         
-        # Call cleanup callback
-        if self.cleanup:
-            self.cleanup(self.handle)
+        # Cleanup callback is called by handle definition
 ```
+
+### Private Data Storage
+
+Handles provide a private data dictionary that modules can use to store implementation-specific information. This is essential for wrapping external objects (like Python objects, database connections, file handles) without exposing internal details:
+
+```python
+# Example: Python bridge stores wrapped Python objects
+handle = HandleInstance(handle_def=py_handle_def, ...)
+handle.private_data['__python_object__'] = wrapped_python_obj
+
+# Later retrieval
+python_obj = handle.private_data['__python_object__']
+
+# Example: Database module stores connection details
+db_handle = HandleInstance(handle_def=db_connection_def, ...)
+db_handle.private_data['connection'] = sqlite3_connection
+db_handle.private_data['transaction_active'] = False
+
+# Example: File handle stores file descriptor
+file_handle = HandleInstance(handle_def=filehandle_def, ...)
+file_handle.private_data['fd'] = os.open(path, flags)
+file_handle.private_data['mode'] = 'rb'
+```
+
+**Private data design principles:**
+- Only accessible to module that created the handle
+- Uses string keys for extensibility
+- Can store any Python object (handles, connections, metadata)
+- Survives handle passing through pipelines
+- Cleared on handle release
 
 ### ResourceDefinition Entity
 

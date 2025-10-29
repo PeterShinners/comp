@@ -329,21 +329,12 @@ def get_builtin_module():
         ("loop", builtin_loop, "~any", "~{op~any-block}"),
     ]
 
-    for name, func, input_shape_text, arg_shape_text in funcs_with_shapes:
-        # Parse shape if provided
-        input_shape = None
-        if input_shape_text is not None:
-            input_shape = comp.parse_shape(input_shape_text, module=module)
-        arg_shape = None
-        if arg_shape_text is not None:
-            arg_shape = comp.parse_shape(arg_shape_text, module=module)
-
-        # Create a FunctionDefinition with the Python function as body
-        module.define_function(
+    for name, func, input_shape, arg_shape in funcs_with_shapes:
+        module.define_py_function(
             path=[name],
-            body=comp.PythonFunction(name, func, input_shape=input_shape, arg_shape=arg_shape),
-            is_pure=False,  # I/O functions aren't pure
-            doc=getattr(func, "__doc__", None),
+            python_func=func,
+            input_shape=input_shape,
+            arg_shape=arg_shape,
         )
 
     _builtin_module = module
