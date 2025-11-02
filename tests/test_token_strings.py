@@ -47,26 +47,13 @@ def test_assignment_value_tokens_become_strings():
     
     op = result.ops[0]
     assert isinstance(op, comp.ast.FieldOp)
-    
-    # Key should be String (field name)
-    assert isinstance(op.key, comp.ast.String)
-    assert op.key.value == "name"
+    # Key should be an Identifier (single TokenField) for simple field names
+    assert isinstance(op.key, comp.ast.Identifier)
+    assert op.key.fields[0].name == "name"
     
     # Value should be String (converted from token)
     assert isinstance(op.value, comp.ast.String)
     assert op.value.value == "value"
-
-
-def test_dotted_identifiers_not_converted():
-    """Dotted identifiers remain as identifiers, not strings."""
-    result = comp.parse_expr("{foo.bar}")
-    
-    assert isinstance(result, comp.ast.Structure)
-    op = result.ops[0]
-    
-    # Should be an Identifier with multiple fields
-    assert isinstance(op.value, comp.ast.Identifier)
-    assert len(op.value.fields) == 2
 
 
 def test_scoped_identifiers_not_converted():

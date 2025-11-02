@@ -231,7 +231,8 @@ def _convert_tree(tree):
             return identifier
 
         case 'tokenfield':
-            return comp.ast.TokenField(_convert_tree(kids[0]))
+            node = comp.ast.TokenField(_convert_tree(kids[0]))
+            return _apply_position(node, tree)
 
         case 'indexfield':
             # Can be either: INDEXFIELD token (#0, #1, etc) or "#" "(" expression ")"
@@ -396,12 +397,14 @@ def _convert_tree(tree):
             # LBRACKET _prepipeline_expression pipeline RBRACKET
             seed = _convert_tree(kids[1])
             ops = _convert_children(kids[2].children)
-            return comp.ast.Pipeline(seed, ops)
+            node = comp.ast.Pipeline(seed, ops)
+            return _apply_position(node, tree)
 
         case 'pipeline_unseeded':
             # LBRACKET pipeline RBRACKET
             ops = _convert_children(kids[1].children)
-            return comp.ast.Pipeline(None, ops)
+            node = comp.ast.Pipeline(None, ops)
+            return _apply_position(node, tree)
 
         case 'pipe_func':
             # function_reference function_arguments
@@ -414,7 +417,8 @@ def _convert_tree(tree):
                 args = comp.ast.Structure(ops)
             else:
                 args = None
-            return comp.ast.PipeFunc(func_name, args, func_namespace)
+            node = comp.ast.PipeFunc(func_name, args, func_namespace)
+            return _apply_position(node, tree)
 
         case 'pipe_struct':
             # PIPE_STRUCT structure_op* RBRACE
@@ -585,7 +589,7 @@ def _convert_tree(tree):
             return _convert_children(kids)
 
         # === TAG DEFINITIONS ===
-        case 'tag_definition' | 'tag_simple' | 'tag_gen_val_body' | 'tag_gen_val' | 'tag_gen_body' | 'tag_val_body' | 'tag_val' | 'tag_body_only':
+        case 'tag_definition' | 'tag_simple' | 'tag_extends_body' | 'tag_extends_simple' | 'tag_gen_val_body' | 'tag_gen_val' | 'tag_gen_body' | 'tag_val_body' | 'tag_val' | 'tag_body_only':
             return _convert_tag_definition(kids)
 
         case 'tag_child' | 'tagchild_simple' | 'tagchild_val_body' | 'tagchild_val' | 'tagchild_body':
@@ -854,12 +858,19 @@ def _convert_field_assignment_key(tree):
                 field_keys.append(comp.ast.PrivateField())
             # Skip other nodes
 
-    # If we have a scope marker, prepend it as a ScopeField
+    # If we have a scope marker, prepend it as a ScopeField and return a list
+    # (scope assignments are handled specially by FieldOp and expect a list)
     if scope_marker:
         field_keys.insert(0, comp.ast.ScopeField(scope_marker))
+        return field_keys
 
-    # Always return a list for field assignment keys
-    # This ensures TokenFields go through _evaluate_path_field which has special handling
+    # For simple single-token identifiers (e.g., name = value) return an
+    # Identifier node rather than a plain list or String. The evaluator will
+    # treat Identifier keys specially when performing assignments.
+    if len(field_keys) == 1 and isinstance(field_keys[0], comp.ast.TokenField):
+        return comp.ast.Identifier([field_keys[0]])
+
+    # Fallback: return the list of field nodes for deep paths or complex keys
     return field_keys
 
 
@@ -1002,6 +1013,7 @@ def _convert_tag_definition(kids):
     value = None
     generator = None
     children = []
+    extends_ref = None
     is_private = False
 
     for kid in kids:
@@ -1013,11 +1025,14 @@ def _convert_tag_definition(kids):
             elif kid.data == 'tag_generator':
                 # Generator is either a function reference or block
                 generator = _convert_tree(kid.children[0])
+            elif kid.data == 'tag_reference':
+                # This is the extends reference
+                extends_ref = _convert_tree(kid)
             elif kid.data == 'tag_body':
                 # Extract tag children
                 children = _convert_children(kid.children[1:-1])  # Skip LBRACE, RBRACE
 
-    return comp.ast.TagDef(path, value, children, generator, is_private=is_private)
+    return comp.ast.TagDef(path, value, children, generator, extends_ref, is_private=is_private)
 
 
 def _convert_tag_child(kids):

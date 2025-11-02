@@ -132,6 +132,8 @@ _function_piped: "|" _reference_path  // ignored for pipeline parsing
 BANG_TAG: "!tag"
 
 tag_definition: BANG_TAG tag_path                                           -> tag_simple
+              | BANG_TAG tag_path "extends" tag_reference ASSIGN tag_body   -> tag_extends_body
+              | BANG_TAG tag_path "extends" tag_reference                   -> tag_extends_simple
               | BANG_TAG tag_path tag_generator ASSIGN tag_value tag_body   -> tag_gen_val_body
               | BANG_TAG tag_path tag_generator ASSIGN tag_value            -> tag_gen_val
               | BANG_TAG tag_path tag_generator ASSIGN tag_body             -> tag_gen_body

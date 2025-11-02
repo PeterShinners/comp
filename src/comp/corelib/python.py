@@ -439,7 +439,12 @@ def call_function(frame, input_value, args=None):
         
         return handle_value
     except Exception as e:
-        return comp.fail(f"call-func failed: {e}")
+        # Include exception type information for mapping to specific fail tags
+        return comp.fail(
+            str(e),
+            exception_type=type(e).__name__,
+            exception_module=type(e).__module__,
+        )
 
 
 def call_method(frame, input_value, args=None):
@@ -524,7 +529,12 @@ def call_method(frame, input_value, args=None):
         
         return handle_value
     except Exception as e:
-        return comp.fail(f"call (method) failed: {e}")
+        # Include exception type information for mapping to specific fail tags
+        return comp.fail(
+            str(e),
+            exception_type=type(e).__name__,
+            exception_module=type(e).__module__,
+        )
 
 
 def py_vars(frame, input_value, args=None):
@@ -550,17 +560,17 @@ def py_vars(frame, input_value, args=None):
         # Extract handle
         handle = input_value.as_scalar()
         if not handle.is_handle:
-            return comp.fail("struct-from-object requires @py-handle input")
+            return comp.fail("vars requires @py-handle input")
         
         # Extract Python object from handle's private data
         py_obj_value = handle.get_private('__python_object__')
         if py_obj_value is None:
-            return comp.fail("struct-from-object: handle does not contain Python object")
+            return comp.fail("vars: handle does not contain Python object")
         
         # Extract the actual Python object from the wrapper
         wrapper = py_obj_value.data
         if not isinstance(wrapper, _PythonObjectWrapper):
-            return comp.fail(f"struct-from-object: expected wrapper, got {type(wrapper).__name__}")
+            return comp.fail(f"vars: expected wrapper, got {type(wrapper).__name__}")
         obj = wrapper.obj
         
         data = None
@@ -587,7 +597,7 @@ def py_vars(frame, input_value, args=None):
                     data[name] = val
         return _python_to_comp(data)
     except Exception as e:
-        return comp.fail(f"struct-from-object failed: {e}")
+        return comp.fail(f"vars failed: {e}")
 
 
 def create_module():

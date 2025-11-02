@@ -145,12 +145,12 @@ class TokenField(_base.FieldNode):
 
         # Runtime check: must be struct
         if not current.is_struct:
-            return comp.fail(f"Cannot access field '{self.name}' on non-struct value")
+            return comp.fail(f"Cannot access field '{self.name}' on non-struct value", ast=self)
 
         field_key = comp.Value(self.name)
         # Runtime check: field must exist
         if field_key not in current.struct:
-            return comp.fail(f"Field '{self.name}' not found in struct")
+            return comp.fail(f"Field '{self.name}' not found in struct", ast=self)
 
         return current.struct[field_key]
         yield  # Make it a generator

@@ -18,9 +18,15 @@ class Value(_entity.Entity):
 
     Inherits from Entity, making it passable through scopes and returnable
     from evaluate() methods.
+    
+    Attributes:
+        data: The underlying data (primitives, tags, structs, etc.)
+        ast: Optional AST node that created this value (for error messages)
+        private: Module-private data storage dict
+        handles: Frozenset of HandleInstance objects contained in this value
     """
 
-    def __init__(self, data):
+    def __init__(self, data, ast=None):
         """Create a value from Python types or Comp values.
 
         Args:
@@ -36,11 +42,15 @@ class Value(_entity.Entity):
                 - Block/RawBlock (stored directly)
                 - dict (recursively converted)
                 - list/tuple (converted to unnamed struct fields)
+            ast: Optional AST node that created this value (for error messages and source tracking)
         """
         # Module-private data storage
         # Maps module_id -> Value (structure containing private data)
         # Used by the & syntax for module-scoped private data
         self.private = {}
+        
+        # AST node tracking (for error messages)
+        self.ast = ast
         
         # Handle Value copying
         if isinstance(data, Value):
@@ -49,6 +59,8 @@ class Value(_entity.Entity):
             self.private = data.private
             # Copy the handles set (also immutable)
             self.handles = data.handles
+            # Copy AST node reference
+            self.ast = data.ast
             return
 
         # Handle None -> empty struct
@@ -174,15 +186,38 @@ class Value(_entity.Entity):
 
     @property
     def is_fail(self):
-        """Check if a value is a fail value."""
+        """Check if a value is a fail value.
+        
+        Returns True if the struct contains a #fail tag or any child of #fail
+        in its unnamed fields. Uses proper tag hierarchy checking.
+        """
         if not self.is_struct:
             return False
 
+        # Import here to avoid circular dependency
+        from .builtin import get_builtin_module
+        from ._tag import is_tag_compatible
+
+        # Get the builtin #fail tag definition
+        try:
+            builtin = get_builtin_module()
+            fail_tag_def = builtin.lookup_tag(["fail"])
+        except (ValueError, AttributeError):
+            # Fallback during early initialization when builtin module may not be ready
+            # Use string matching as fallback
+            for val in self.data.values():
+                if val.is_tag:
+                    name = val.data.full_name
+                    if name == "fail" or name.startswith("fail."):
+                        return True
+            return False
+
         # Look for #fail tag or any child of #fail in unnamed fields
-        for val in self.data.values():
-            if val.is_tag:
-                name = val.data.full_name
-                if name == "fail" or name.startswith("fail."):
+        for key, val in self.data.items():
+            # Only check unnamed fields - named fields can contain fail tags without being failures
+            if isinstance(key, Unnamed) and val.is_tag:
+                # Check if this tag is #fail or a descendant of #fail
+                if is_tag_compatible(val.data.tag_def, fail_tag_def):
                     return True
         return False
 
@@ -215,6 +250,8 @@ class Value(_entity.Entity):
                     # Otherwise, create new value with combined private data
                     unwrapped = Value(value.data)
                     unwrapped.private = self.private
+                    # Preserve the ast attribute from the inner value
+                    unwrapped.ast = value.ast if hasattr(value, 'ast') else None
                     return unwrapped
                 # No private data - return the inner value directly
                 return value
@@ -238,8 +275,9 @@ class Value(_entity.Entity):
         wrapped = Value.__new__(Value)
         wrapped.data = {Unnamed(): self}
         wrapped.private = self.private
+        wrapped.ast = self.ast
         # Compute handles from the wrapped value
-        wrapped.handles = self.handles if hasattr(self, 'handles') else frozenset()
+        wrapped.handles = self.handles
         return wrapped
 
     def get_private(self, module_id):
@@ -370,11 +408,17 @@ class Value(_entity.Entity):
         return hash(self.data)
 
 
-def fail(message):
+def fail(message, ast=None, **extra_fields):
     """Create a failure structure with the given message.
 
     The structure has the #fail tag as an unnamed field, plus named fields
-    for type and message. This allows morphing against #fail to detect failures.
+    for type and message. Additional fields can be added via kwargs.
+    This allows morphing against #fail to detect failures.
+    
+    Args:
+        message: The failure message
+        ast: Optional AST node that generated this failure (for error messages and source tracking)
+        **extra_fields: Additional named fields to include in the failure struct
     """
     # Import here to avoid circular dependency
     from .builtin import get_builtin_module
@@ -394,7 +438,13 @@ def fail(message):
         Value('type'): Value('fail'),
         Value('message'): Value(message)
     }
+    
+    # Add any extra fields
+    for key, value in extra_fields.items():
+        result.data[Value(key)] = Value(value)
+    
     result.private = {}
+    result.ast = ast
     # Compute handles from field values
     result.handles = frozenset()  # fail values don't contain handles
     return result

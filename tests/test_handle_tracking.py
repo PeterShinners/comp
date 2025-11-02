@@ -21,7 +21,7 @@ def test_value_handles_on_primitives():
 def test_value_handles_on_handle():
     """Test that handle values track themselves."""
     result = comptest.run_func("""
-        !handle @file = {}
+        !handle @file
         
         !func |test ~{} = {
             result = !grab @file
@@ -35,8 +35,8 @@ def test_value_handles_on_handle():
 def test_value_handles_on_struct_with_handle():
     """Test that structs recursively track handles."""
     result = comptest.run_func("""
-        !handle @file = {}
-        
+        !handle @file
+
         !func |test ~{} = {
             result = !grab @file
         }
@@ -59,8 +59,8 @@ def test_value_handles_on_struct_with_handle():
 def test_handle_instance_frames():
     """Test that !grab registers the handle with frames."""
     result = comptest.run_func("""
-        !handle @file = {}
-        
+        !handle @file
+
         !func |test ~{} = {
             result = !grab @file
         }
@@ -76,8 +76,8 @@ def test_handle_instance_frames():
 def test_grab_registers_handle():
     """Test that !grab registers the handle with the current frame."""
     result = comptest.run_func("""
-        !handle @file = {}
-        
+        !handle @file
+
         !func |test ~{} = {
             $var.h = !grab @file
             result = $var.h
@@ -94,8 +94,8 @@ def test_grab_registers_handle():
 def test_scope_assignment_registers_handle():
     """Test that scope assignments register handles."""
     result = comptest.run_func("""
-        !handle @file = {}
-        
+        !handle @file
+
         !func |test ~{} = {
             $var.local = !grab @file
             result = $var.local
@@ -110,8 +110,8 @@ def test_scope_assignment_registers_handle():
 def test_spread_registers_handles():
     """Test that spread operations register handles."""
     result = comptest.run_func("""
-        !handle @file = {}
-        
+        !handle @file
+
         !func |test ~{} = {
             $var.data = {handle = !grab @file}
             result = {..$var.data other = 42}

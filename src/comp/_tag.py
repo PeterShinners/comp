@@ -50,7 +50,9 @@ def is_tag_compatible(input_tag_def, field_tag_def):
 
     Compatible means the input tag is either:
     - The same tag as the field's tag type
-    - A child (descendant) of the field's tag type
+    - A child (descendant) of the field's tag type (within same module)
+    - Extends the field's tag type (across modules via extends_def)
+    - A child of a tag that extends the field's tag type
 
     Args:
         input_tag_def: TagDefinition of the input tag value
@@ -60,19 +62,48 @@ def is_tag_compatible(input_tag_def, field_tag_def):
         True if input tag is compatible with field tag type
 
     Examples:
-        #timeout.error compatible with #error (child)
+        #timeout.error compatible with #error (child in same module)
         #error compatible with #error (same)
-        #network.error compatible with #error (child)
+        #database.fail/sqlite compatible with #fail/builtin (extends + child)
         #success NOT compatible with #error (different hierarchy)
     """
-    # Same tag - always compatible
-    if input_tag_def.path == field_tag_def.path:
+    # Same tag definition - always compatible
+    if input_tag_def is field_tag_def:
         return True
-
-    # Check if input is a child of field's tag (field's path is a prefix)
-    if len(field_tag_def.path) >= len(input_tag_def.path):
-        return False
-
-    # Compare prefixes - field's path should be a prefix of input's path
-    return input_tag_def.path[:len(field_tag_def.path)] == field_tag_def.path
+    
+    # Check if input tag extends the field tag (directly or transitively)
+    # Walk up the extends chain
+    current = input_tag_def
+    visited = set()  # Prevent infinite loops
+    while current is not None:
+        if id(current) in visited:
+            break
+        visited.add(id(current))
+        
+        # Check if current extends field_tag_def
+        if current.extends_def is not None:
+            if current.extends_def is field_tag_def:
+                return True
+            # Continue up the extends chain
+            current = current.extends_def
+        else:
+            # No more extends relationships
+            break
+    
+    # Check within-module hierarchy (path-based)
+    # Only applies if tags are in the same module
+    if input_tag_def.module is field_tag_def.module:
+        # Check if input is a child of field's tag (field's path is a prefix)
+        if len(field_tag_def.path) >= len(input_tag_def.path):
+            return False
+        
+        # Compare prefixes - field's path should be a prefix of input's path
+        return input_tag_def.path[:len(field_tag_def.path)] == field_tag_def.path
+    
+    # Check if input's parent (in same module) is compatible
+    # This handles cases like #database.fail/sqlite where #fail/sqlite extends #fail/builtin
+    if input_tag_def.parent_def is not None:
+        return is_tag_compatible(input_tag_def.parent_def, field_tag_def)
+    
+    return False
 

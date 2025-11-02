@@ -78,12 +78,17 @@ class TagDefinition(_entity.Entity):
         path (list[str]): Full path as list, e.g., ["status", "error", "timeout"]
         module (Module): The Module this tag is defined in
         value: Optional value for this tag (can be any Value)
+        parent_def (TagDefinition | None): Parent tag within the same module (for hierarchies)
+        extends_def (TagDefinition | None): Tag from another module that this extends
     """
-    def __init__(self, path, module, value=None, is_private: bool = False):
+    def __init__(self, path, module, value=None, is_private: bool = False, 
+                 parent_def=None, extends_def=None):
         self.path = path
         self.module = module
         self.value = value  # Will be engine.Value when evaluated
         self.is_private = is_private
+        self.parent_def = parent_def  # Parent tag in same module hierarchy
+        self.extends_def = extends_def  # Tag from another module that this extends
 
     @property
     def name(self):
@@ -572,6 +577,7 @@ class Module(_entity.Entity):
         Notes:
             - Multiple definitions of the same tag merge (last value wins)
             - Children can be added to existing tags
+            - Automatically sets parent_def for child tags
         """
         full_name = ".".join(path)
 
@@ -581,8 +587,20 @@ class Module(_entity.Entity):
             if value is not None:
                 tag_def.value = value
         else:
-            # Create new tag definition
-            tag_def = TagDefinition(path=path, module=self, value=value, is_private=is_private)
+            # Look up parent tag if this is a child (path length > 1)
+            parent_def = None
+            if len(path) > 1:
+                parent_full_name = ".".join(path[:-1])
+                parent_def = self.tags.get(parent_full_name)
+            
+            # Create new tag definition with parent reference
+            tag_def = TagDefinition(
+                path=path, 
+                module=self, 
+                value=value, 
+                is_private=is_private,
+                parent_def=parent_def
+            )
             self.tags[full_name] = tag_def
 
         return tag_def
@@ -1427,6 +1445,9 @@ class Module(_entity.Entity):
 
         # Add definitions from all namespaces
         for ns_name, ns_module in self.namespaces.items():
+            if ns_module is None:
+                # Skip namespaces that failed to load
+                continue
             self._add_namespace_definitions_to_ns(resolution_ns, ns_name, ns_module)
 
         return resolution_ns

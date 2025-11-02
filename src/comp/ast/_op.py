@@ -430,9 +430,7 @@ class TemplateOp(_base.ValueNode):
                 
                 # Get the value (might be a Value object or raw data)
                 value = current_data[field_key]
-                
-                # Unwrap if it's a Value
-                if hasattr(value, 'data'):
+                if isinstance(value, comp.Value):
                     current_data = value.data
                 else:
                     current_data = value

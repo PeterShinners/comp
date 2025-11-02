@@ -205,6 +205,13 @@
     ???
 }
 
+!doc "Assign field names from one structure values to another structure values"
+!func |apply-names ~struct arg ~{names~any} = {
+    ..[{$arg.names $in} |zip |iter :{
+        '$in.#0' = $in.#1
+    }]
+}
+
 
 ; === Content Manipulation ===
 

@@ -8,7 +8,7 @@ import comptest
 def test_grab_handle_basic():
     """Test basic handle grabbing from owning module."""
     result = comptest.run_func("""
-        !handle @file = {}
+        !handle @file
         
         !func |test ~{} = {
             $var.f = !grab @file
@@ -50,7 +50,7 @@ def test_grab_handle_hierarchical():
 def test_drop_handle_basic():
     """Test basic handle dropping."""
     result = comptest.run_func("""
-        !handle @file = {}
+        !handle @file
         
         !func |test ~{} = {
             $var.f = !grab @file
@@ -70,9 +70,9 @@ def test_drop_handle_basic():
 
 
 def test_drop_handle_idempotent():
-    """Test that dropping a handle multiple times is safe."""
+    """Test that dropping a handle multiple times is idempotent."""
     result = comptest.run_func("""
-        !handle @file = {}
+        !handle @file
         
         !func |test ~{} = {
             $var.f = !grab @file
@@ -93,7 +93,7 @@ def test_drop_handle_idempotent():
 def test_dropped_handle_fails_morph():
     """Test that dropped handles cannot be morphed."""
     result = comptest.run_func("""
-        !handle @file = {}
+        !handle @file
         
         !shape ~output = {
             f @file
@@ -115,7 +115,7 @@ def test_dropped_handle_fails_morph():
 def test_handle_instance_vs_ref():
     """Test that handle instances can be dropped after grabbing."""
     result = comptest.run_func("""
-        !handle @file = {}
+        !handle @file
         
         !func |test ~{} = {
             $var.grabbed = !grab @file

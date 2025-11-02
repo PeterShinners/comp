@@ -13,6 +13,109 @@ from pathlib import Path
 import comp
 
 
+def format_failure(fail_value: comp.Value, indent: int = 0) -> str:
+    """Format a failure value for display with source location and cause chain.
+    
+    Args:
+        fail_value: The failure Value to format
+        indent: Current indentation level
+        
+    Returns:
+        Formatted error message string
+    """
+    if not fail_value.is_fail or not fail_value.is_struct:
+        return str(fail_value)
+    
+    lines = []
+    prefix = "  " * indent
+    
+    # Extract common fields
+    message = None
+    tag_names = []  # Changed to collect all unnamed tags
+    cause = None
+    exception_type = None
+    fail_field = None  # Track the 'fail' field specifically
+    
+    # We know data is a dict because is_struct is True
+    assert isinstance(fail_value.data, dict)
+    
+    for key, val in fail_value.data.items():
+        if isinstance(key, comp.Value) and key.is_string:
+            field_name = key.data
+            if field_name == "message" and val.is_string:
+                message = val.data
+            elif field_name == "exception_type" and val.is_string:
+                exception_type = val.data
+            elif field_name == "cause" and val.is_fail:
+                cause = val
+            elif field_name == "fail" and val.is_tag:
+                # This is the mapped tag from |map-sqlite-error
+                assert isinstance(val.data, comp.TagRef)
+                fail_field = val.data.full_name
+        elif isinstance(key, comp.Unnamed) and val.is_tag:
+            # We know val.data is a TagRef because is_tag is True
+            assert isinstance(val.data, comp.TagRef)
+            tag_names.append(val.data.full_name)
+    
+    # Prefer the 'fail' field if it exists (from mapping), otherwise use unnamed tags
+    tag_name = fail_field if fail_field else (tag_names[0] if tag_names else None)
+    
+    # Format the main error line with source location
+    error_line = f"{prefix}"
+    if tag_name:
+        if exception_type:
+            error_line += f"[{exception_type}] {tag_name}"
+        else:
+            error_line += f"{tag_name}"
+    else:
+        error_line += "Failure"
+    
+    # Get source position from AST node
+    pos = None
+    if fail_value.ast is not None and hasattr(fail_value.ast, 'position'):
+        pos = fail_value.ast.position
+    
+    # Add source location if available
+    if pos:
+        if pos.filename and pos.start_line:
+            error_line += f" at {pos.filename}:{pos.start_line}"
+        elif pos.start_line:
+            error_line += f" on line {pos.start_line}"
+    
+    lines.append(error_line)
+    
+    # Add message
+    if message:
+        lines.append(f"{prefix}  {message}")
+    
+    # Add source line if available
+    if pos and pos.filename and pos.start_line:
+        try:
+            with open(pos.filename, 'r', encoding='utf-8') as f:
+                source_lines = f.readlines()
+                line_idx = pos.start_line - 1
+                if 0 <= line_idx < len(source_lines):
+                    source_line = source_lines[line_idx].rstrip()
+                    lines.append(f"{prefix}  | {source_line}")
+                    
+                    # Add caret line pointing to the error column
+                    if pos.start_column:
+                        # Calculate spaces needed (accounting for the "  | " prefix)
+                        # Column is 1-indexed
+                        spaces = " " * (pos.start_column - 1)
+                        lines.append(f"{prefix}  | {spaces}^")
+        except (OSError, IOError):
+            # Couldn't read source file, skip it
+            pass
+    
+    # Add cause chain
+    if cause:
+        lines.append(f"{prefix}  Caused by:")
+        lines.append(format_failure(cause, indent + 2))
+    
+    return "\n".join(lines)
+
+
 def show_dependencies(filepath_str):
     """Display dependency tree for a Comp module.
 
@@ -194,7 +297,7 @@ def main():
         # Check if module evaluation returned a fail value
         if isinstance(module_result, comp.Value) and module_result.is_fail:
             print(f"Error loading module {filepath}:", file=sys.stderr)
-            print(f"  {module_result}", file=sys.stderr)
+            print(format_failure(module_result), file=sys.stderr)
             sys.exit(1)
 
         # The result should be a Module entity
@@ -232,7 +335,7 @@ def main():
         # Check for failure
         if result.is_fail:
             print("Error executing main:", file=sys.stderr)
-            print(f"  {result}", file=sys.stderr)
+            print(format_failure(result), file=sys.stderr)
             sys.exit(1)
 
         print(result.unparse())

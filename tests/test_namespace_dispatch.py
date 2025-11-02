@@ -74,12 +74,12 @@ def test_handle_namespace_dispatch():
     module_source = """
 !handle @db
 
-!func |exec ~@db = {
+!func |exec ~{@db} = {
     {result="executed successfully"}
 }
 
 !func |testdispatch ~{} = {
-    $var.handle = [|grab @db]
+    $var.handle = !grab @db
     [$var.handle |exec/($var.handle)]
 }
 """
@@ -98,9 +98,8 @@ def test_handle_namespace_dispatch():
     )
     
     assert result.is_struct
-    result_key = comp.Value("result")
-    assert result_key in result.struct
-    assert result.struct[result_key].data == "executed successfully"
+    data = result.as_scalar()
+    assert data.data == "executed successfully"
 
 
 def test_namespace_dispatch_with_private_function():
@@ -208,13 +207,13 @@ def test_namespace_dispatch_wrong_type():
     assert result.is_fail
 
 
-def test_static_namespace_still_works():
-    """Test that static namespace references still work after our changes."""
+def test_static_namespace():
+    """Test static namespace references in function calls."""
     
     # Create module A with a function
     module_a_source = """
 !func |greet ~{name ~str} = {
-    "Hello " + $var.name
+    $in % "Hello, %{name}!"
 }
 """
     module_a_ast = comp.parse_module(module_a_source)
@@ -248,4 +247,4 @@ def test_static_namespace_still_works():
     unnamed_key = list(result.struct.keys())[0]
     inner_result = result.struct[unnamed_key]
     assert inner_result.is_string
-    assert inner_result.data == "Hello World"
+    assert inner_result.data == "Hello, World!"

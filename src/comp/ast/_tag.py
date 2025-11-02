@@ -118,6 +118,7 @@ class TagDef(ModuleOp):
     - A value (any expression that evaluates to a Value)
     - Children (nested tag definitions)
     - A generator function (for auto-generating values) - not implemented yet
+    - An extends reference (tag from another module to extend)
 
     The path is stored in definition order (root to leaf), e.g.,
     ["status", "error", "timeout"] for !tag #timeout.error.status
@@ -129,11 +130,13 @@ class TagDef(ModuleOp):
         value: Optional expression that evaluates to tag's value
         children: List of nested TagChild definitions
         generator: Optional generator function (not implemented)
+        extends_ref: Optional tag reference to extend (e.g., #fail/builtin)
     """
 
     def __init__(self, path: list[str], value: _base.ValueNode | None = None,
                  children: list['TagChild'] | None = None,
                  generator: _base.ValueNode | None = None,
+                 extends_ref: 'TagRef | None' = None,
                  is_private: bool = False):
         if not path:
             raise ValueError("Tag path cannot be empty")
@@ -148,35 +151,66 @@ class TagDef(ModuleOp):
                 raise TypeError("All children must be TagChild instances")
         if generator is not None and not isinstance(generator, _base.ValueNode):
             raise TypeError("Tag generator must be ValueNode or None")
+        # extends_ref validation skipped - it should be a TagRef but we can't import it here
 
         self.path = path
         self.value = value
         self.children = children or []
         self.generator = generator
+        self.extends_ref = extends_ref
         self.is_private = is_private
 
     def evaluate(self, frame):
         """Register this tag and its children in the module.
 
         1. Get module from module scope
-        2. Evaluate value expression if present
-        3. Register tag in module
-        4. Recursively process children
+        2. Evaluate value expression if present (unless extends_ref is set)
+        3. Resolve extends_ref if present
+        4. Register tag in module with extends_def
+        5. Recursively process children
         """
         # Get module from scope
         module = frame.scope('module')
         if module is None:
             return comp.fail("TagDef requires module scope")
 
-        # Evaluate value if present
+        # Resolve extends_ref if present
+        extends_def = None
+        if self.extends_ref is not None:
+            # Evaluate the tag reference to get a Value containing a TagRef
+            extends_value = yield comp.Compute(self.extends_ref)
+            if frame.bypass_value(extends_value):
+                return extends_value
+            
+            # Extract the scalar value (should be a TagRef)
+            extends_value = extends_value.as_scalar()
+            
+            # Check if it's a tag
+            if not extends_value.is_tag:
+                return comp.fail(f"Tag extends must reference a tag, got {type(extends_value.data)}")
+            
+            # The data is a TagRef, which has a tag_def attribute
+            tag_ref = extends_value.data
+            if not hasattr(tag_ref, 'tag_def'):
+                return comp.fail(f"Tag extends must reference a valid tag, got {type(tag_ref)}")
+            
+            extends_def = tag_ref.tag_def
+
+        # Evaluate value if present (extends tags cannot have explicit values)
         tag_value = None
         if self.value is not None:
+            if extends_def is not None:
+                return comp.fail("Tag with 'extends' cannot have an explicit value")
             tag_value = yield comp.Compute(self.value)
             if frame.bypass_value(tag_value):
                 return tag_value
 
-        # Register this tag
-        module.define_tag(self.path, tag_value, is_private=self.is_private)
+        # Register this tag with extends_def
+        tag_def = module.define_tag(self.path, tag_value, is_private=self.is_private)
+        
+        # Set extends_def if we have one
+        if extends_def is not None:
+            tag_def.extends_def = extends_def
 
         # Process children - they extend the path
         if self.children:

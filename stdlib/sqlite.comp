@@ -6,14 +6,44 @@
 
 !tag #isolation = {#deferred #exclusive #immediate #none}
 
-
-; want to ensure these fail tags extend the builtin #fail (need to check syntax on that again)
-; todo, want to convert whatever fails the python bridge into these types (how do, string match?)
-!tag #fail = {#interface #database #data #operation #integrity #internal #programming #notsupported}
+; Extend builtin #fail with SQLite-specific error categories
+!tag #fail extends #fail/builtin = {
+    #interface      ; Connection/cursor management errors
+    #database       ; Database file/format errors
+    #data           ; Data type conversion errors
+    #operation      ; SQL operation errors
+    #integrity      ; Constraint violations
+    #internal       ; Internal SQLite errors
+    #programming    ; API misuse errors
+    #notsupported   ; Feature not supported
+}
 
 !shape ~connect-args = {
     timeout ~num = 5
     isolation-level #isolation = #isolation.deferred
+}
+
+; Map Python sqlite3 exception types to Comp fail tags
+$mod.fail-map = {
+    InterfaceError = #fail.interface
+    DatabaseError = #fail.database
+    DataError = #fail.data
+    OperationalError = #fail.operation
+    IntegrityError = #fail.integrity
+    InternalError = #fail.internal
+    ProgrammingError = #fail.programming
+    NotSupportedError = #fail.notsupported
+}
+
+!doc "Test function to verify #fail.database is treated as a real failure"
+!func |test-fail ~{} = {
+    {#fail.database message="The database has failed"}
+}
+
+!doc "Test function that raises a Python sqlite exception"
+!func |test-sqlite-error ~{} = {
+    ; Try to connect to a database with an invalid path
+    [{database="/invalid/path/that/does/not/exist/test.db"} |call-func/py "sqlite3.connect" |map-sqlite-error]
 }
 
 !doc "Result of execute calls"
@@ -24,10 +54,15 @@
     row-count ~num
 }
 
+!doc "Map Python sqlite3 exceptions to Comp fail tags"
+!func |map-sqlite-error ~any = {
+    ; Look up exception type in fail-map and create new fail struct with mapped tag
+    {..$in fail=$mod.fail-map.'$in.exception_type'} ?? $in
+}
 
 !doc "Open database connection"
 !func |database-file ~str arg ~connect-args = {
-    $var.pydb = [{database=$in} |call-func "sqlite3.connect"]
+    $var.pydb = [{database=$in} |call-func/py "sqlite3.connect" |? :{[$in |map-sqlite-error]}]
     $var.db = !grab @db
     $var.db&py = $var.pydb
     $var.db

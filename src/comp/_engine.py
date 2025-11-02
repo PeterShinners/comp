@@ -107,7 +107,19 @@ class Engine:
                 result = e.value
                 if result is None:
                     print("NONERESULT:", current, current.node)
-                result.ast = current.node  # Minimal temporary tracking of source
+                # Set ast node for source tracking (only for Value objects)
+                # Don't overwrite if already set to something more specific than a Pipeline/Block
+                if isinstance(result, comp.Value):
+                    if result.ast is None:
+                        result.ast = current.node
+                    elif result.is_fail:
+                        # For failures, prefer more specific nodes (PipeFunc) over containers (Pipeline)
+                        # Only overwrite if current node is more specific
+                        existing_ast = result.ast
+                        # Pipeline and Block are "container" nodes - prefer child nodes over these
+                        from . import ast as comp_ast
+                        if isinstance(existing_ast, (comp_ast.Pipeline, comp_ast.Block)):
+                            result.ast = current.node
                 result_bypass = self.bypass_value(result)
                 current = current.previous
 

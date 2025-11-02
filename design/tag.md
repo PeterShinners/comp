@@ -54,12 +54,13 @@ Tag definitions support multiple definition styles that can be mixed within the 
 !tag #priority.critical = 99       ; Add to existing hierarchy
 !tag #priority.debug = 0           ; Another addition
 
-; Multiple definitions with same root - merged together
+docs\early\07-language-spec.md; Multiple definitions with same root - last definition wins
 !tag #color = {#red = 1 #green = 2}
-!tag #color = {#blue = 3}          ; Extends color with blue
+!tag #color = {#blue = 3}          ; Replaces color with just blue
+!tag #color.yellow = 4             ; Adds yellow to color
 ```
 
-All definition styles are equivalent and produce the same hierarchy. Choose the style that best fits the context - nested for compact definitions, flat for long paths, and mixed for flexibility.
+All definition styles are equivalent and produce the same hierarchy. Choose the style that best fits the context - nested for compact definitions, flat for long paths, and mixed for flexibility. Note that when the same tag path is assigned multiple times, the last assignment wins - this is different from extension which merges hierarchies.
 
 ## Tag Reference and Notation
 
@@ -210,9 +211,9 @@ During dispatch, more specific tags (deeper in the hierarchy) score higher than 
 
 ## Cross-Module Tag Extension
 
-Tags can be extended across module boundaries, allowing domain-specific categorizations while maintaining interoperability. Extensions add new leaves to existing hierarchies, and the extended tags are fully compatible with the original hierarchy for matching and dispatch.
+Tags can be extended across module boundaries using the `extends` keyword, allowing domain-specific categorizations while maintaining interoperability. Extensions add new leaves to existing hierarchies, and the extended tags are fully compatible with the original hierarchy for matching and dispatch.
 
-When extending tags from another module, the new tags become part of your module's tag namespace while maintaining their relationship to the imported hierarchy. Values in extensions can use the same auto-generation functions as the parent hierarchy.
+When extending tags from another module, you define a local tag name that extends the imported tag hierarchy. The extended tags become part of your module's tag namespace while maintaining their relationship to the imported hierarchy. The syntax uses `!tag #local-name extends #parent-tag/module = {children}` where the local name becomes the root of your extended hierarchy.
 
 ```comp
 ; base.comp - defines core tags
@@ -222,20 +223,41 @@ When extending tags from another module, the new tags become part of your module
     #audio {#mp3 #ogg}
 }
 
-; extended.comp - adds domain-specific tags
+; extended.comp - adds domain-specific tags using extends
 !import /base = comp "./base.comp"
 
-!tag #media += {
-    #image {#svg #webp}        ; Add to existing branch
-    #document {#pdf #epub}     ; Add new branch
+; Extend media with additional formats
+!tag #media extends #media/base = {
+    #image {#svg #webp}        ; Add to existing image branch
+    #document {#pdf #epub}     ; Add new top-level branch
 }
 
 ; Usage - extended tags work everywhere
 $var.icon = #svg.image.media
 ($var.icon |process-media/base)      ; Base functions handle extended tags
+
+; Real-world example: Extending builtin fail tags
+!tag #fail extends #fail/builtin = {
+    #interface      ; Connection errors
+    #database       ; Database file errors
+    #data           ; Data type conversion errors
+    #operation      ; SQL operation errors
+}
 ```
 
-Extended tags maintain full compatibility with parent modules. Functions expecting parent tags can receive extended ones, enabling specialization without breaking compatibility. For detailed information about module organization and cross-module coordination, see [Modules, Imports, and Namespaces](module.md).
+The `extends` syntax creates a local hierarchy that inherits from the parent. Extended tags maintain full compatibility with parent modules - functions expecting parent tags can receive extended ones, enabling specialization without breaking compatibility. The extended hierarchy can add both new branches at any level and new leaves to existing branches.
+
+Extensions can also omit the value assignment to simply extend without adding immediate children:
+
+```comp
+; Simple extension without immediate children
+!tag #status extends #status/other
+
+; Later in the same module, add children
+!tag #status.custom-state = 42
+```
+
+For detailed information about module organization and cross-module coordination, see [Modules, Imports, and Namespaces](module.md).
 
 ## Standard Library Tag Functions
 

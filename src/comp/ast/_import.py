@@ -46,7 +46,7 @@ class ImportDef(ModuleOp):
         # Get the module we're importing into
         module = frame.scope('module')
         if module is None:
-            return comp.fail("ImportDef requires module scope")
+            return comp.fail("ImportDef requires module scope", ast=self)
 
         # Handle different import sources
         if self.source == "stdlib":
@@ -55,7 +55,7 @@ class ImportDef(ModuleOp):
             try:
                 imported_module = get_stdlib_module(self.path)
                 if imported_module is None:
-                    return comp.fail(f"Standard library module '{self.path}' not found")
+                    return comp.fail(f"Standard library module '{self.path}' not found", ast=self)
 
                 # Register the module in our namespace
                 module.add_namespace(self.namespace, imported_module)
@@ -63,7 +63,7 @@ class ImportDef(ModuleOp):
                 return comp.Value(True)
 
             except Exception as e:
-                return comp.fail(f"Error loading stdlib module: {e}")
+                return comp.fail(f"Error loading stdlib module: {e}", ast=self)
 
         elif self.source == "comp":
             # Load the module from filesystem
@@ -71,7 +71,7 @@ class ImportDef(ModuleOp):
             try:
                 imported_module = load_comp_module(self.path, frame.engine)
                 if imported_module is None:
-                    return comp.fail(f"Failed to load module from '{self.path}'")
+                    return comp.fail(f"Failed to load module from '{self.path}'", ast=self)
 
                 # Register the module in our namespace
                 module.add_namespace(self.namespace, imported_module)

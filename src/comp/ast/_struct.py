@@ -199,14 +199,21 @@ class FieldOp(StructOp):
         # 3. Simple named: key is single _base.ValueNode, evaluate and use
         # 4. Deep path: key is list, walk path creating nested structs
 
+        # Normalize Identifier keys into list-of-fields for processing. This allows
+        # the parser to produce Identifier nodes for left-hand-side keys while
+        # letting the FieldOp evaluator treat them as deep paths.
+        key_obj = self.key
+        if isinstance(key_obj, _ident.Identifier):
+            key_obj = key_obj.fields
+
         # Check for private field assignment first (key is list containing PrivateField)
         # This includes both @var.&.field and value.&.field patterns
-        if isinstance(self.key, list) and any(isinstance(f, _ident.PrivateField) for f in self.key):
+        if isinstance(key_obj, list) and any(isinstance(f, _ident.PrivateField) for f in key_obj):
             # This is a private assignment like value.&.data = 42 or @var.value.& = data
             return (yield from self._evaluate_private_assignment(frame))
 
         # Check for scope assignment (key is list starting with ScopeField, no PrivateField)
-        if isinstance(self.key, list) and len(self.key) >= 2 and isinstance(self.key[0], _ident.ScopeField):
+        if isinstance(key_obj, list) and len(key_obj) >= 2 and isinstance(key_obj[0], _ident.ScopeField):
             # This is a scope assignment like @name = value
             return (yield from self._evaluate_scope_assignment(frame))
 
@@ -232,8 +239,8 @@ class FieldOp(StructOp):
             accumulator.struct[comp.Unnamed()] = value_value
             return comp.Value(True)
 
-        # Case 2: Simple named field
-        if not isinstance(self.key, list):
+        # Case 2: Simple named field (non-list key)
+        if not isinstance(key_obj, list):
             key_value = yield comp.Compute(self.key)
             if frame.bypass_value(key_value):
                 return key_value
@@ -245,7 +252,7 @@ class FieldOp(StructOp):
         current_dict = accumulator.struct
 
         # Walk all but the last field, creating nested structs as needed
-        for field_node in self.key[:-1]:
+        for field_node in key_obj[:-1]:
             # Get the key for this path segment
             key_value = yield from self._evaluate_path_field(frame, field_node, current_dict)
             if frame.bypass_value(key_value):
@@ -266,7 +273,7 @@ class FieldOp(StructOp):
                 current_dict = new_struct.struct
 
         # Handle the final field
-        final_field = self.key[-1]
+        final_field = key_obj[-1]
         final_key = yield from self._evaluate_path_field(frame, final_field, current_dict)
         if frame.bypass_value(final_key):
             return final_key

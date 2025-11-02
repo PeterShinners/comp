@@ -38,10 +38,10 @@
 }
 
 
-; Build a structure from a Python object created via SimpleNamespace
-!func |assert-struct-from-object ~any = {
+; Build a structure from a Python object using vars
+!func |assert-vars ~any = {
     $var.ns = [{foo=1 bar="a"} |call-func/py "types.SimpleNamespace"]
-    $var.struct = [$var.ns |struct-from-object/py]
+    $var.struct = [$var.ns |vars/py]
     $var.struct.foo == 1 && $var.struct.bar == "a"
 }
 

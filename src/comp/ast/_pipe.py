@@ -109,7 +109,7 @@ class PipeFunc(PipelineOp):
         # Get current pipeline value from $in scope
         input_value = frame.scope('in')
         if input_value is None:
-            return comp.fail(f"PipeFunc |{self.func_name} requires $in scope")
+            return comp.fail(f"PipeFunc |{self.func_name} requires $in scope", ast=self)
 
         # Evaluate args if present
         args_value = None
@@ -143,7 +143,7 @@ class PipeFunc(PipelineOp):
                     defining_module = handle_inst.handle_def.module
                     resolved_namespace = defining_module
                 else:
-                    return comp.fail(f"Namespace dispatch requires tag or handle, got {type(namespace_value.data).__name__}")
+                    return comp.fail(f"Namespace dispatch requires tag or handle, got {type(namespace_value.data).__name__}", ast=self)
 
         # Get function definitions (pre-resolved or lookup at runtime)
         if self._resolved is not None:
@@ -152,7 +152,7 @@ class PipeFunc(PipelineOp):
             # Runtime lookup for modules not prepared
             module = frame.scope('module')
             if module is None:
-                return comp.fail(f"Function |{self.func_name} not found (no module scope)")
+                return comp.fail(f"Function |{self.func_name} not found (no module scope)", ast=self)
 
             # Parse the function path (support dotted names)
             func_path = self.func_name.split('.')
@@ -165,14 +165,14 @@ class PipeFunc(PipelineOp):
                     func_defs = resolved_namespace.lookup_function(func_path, namespace=None, local_only=False)
                 except ValueError as e:
                     # Not found or ambiguous
-                    return comp.fail(str(e))
+                    return comp.fail(str(e), ast=self)
             else:
                 # String namespace or None - use normal lookup
                 try:
                     func_defs = module.lookup_function(func_path, resolved_namespace)
                 except ValueError as e:
                     # Not found or ambiguous
-                    return comp.fail(str(e))
+                    return comp.fail(str(e), ast=self)
 
         # Check if ALL overloads are PythonFunctions
         # PythonFunctions need special handling (generators, overload selection)
@@ -201,7 +201,13 @@ class PipeFunc(PipelineOp):
                     value = yield compute
                     compute = gen.send(value)  # type: ignore
             except StopIteration as e:
-                return e.value if e.value is not None else comp.Value(None)
+                result = e.value if e.value is not None else comp.Value(None)
+                
+                # If the result is a failure without ast node, add our node
+                if result.is_fail and result.ast is None:
+                    result.ast = self
+                
+                return result
 
         # Regular Comp function - use prepare_function_call
         # Get ctx scope for function call
@@ -213,10 +219,18 @@ class PipeFunc(PipelineOp):
         compute = comp.prepare_function_call(
             func_defs, input_value, args_value, ctx_scope)
         if isinstance(compute, comp.Value) and compute.is_fail:
+            # Add our node if the failure doesn't have one
+            if compute.ast is None:
+                compute.ast = self
             return compute  # Preparation failed
 
         # Execute the prepared function call
         result = yield compute
+        
+        # If the result is a failure without ast node, add our node
+        if result.is_fail and result.ast is None:
+            result.ast = self
+        
         return result
 
     def unparse(self) -> str:
