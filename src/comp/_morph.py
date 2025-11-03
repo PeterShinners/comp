@@ -4,7 +4,7 @@ __all__ = ["MorphResult", "morph", "strong_morph", "weak_morph"]
 
 import comp
 
-from . import _tag
+from . import _tag, _handle
 
 
 class MorphResult:
@@ -185,7 +185,6 @@ def _morph_any(value, shape, was_wrapped=False):
                 return MorphResult(failure_reason=f"Cannot use dropped handle @{handle_data.full_name}")
             # Check handle compatibility
             input_handle_def = handle_data.handle_def
-            from . import _handle
             if _handle.is_handle_compatible(input_handle_def, shape):
                 return MorphResult(named_matches=1, value=unwrapped)
             else:
@@ -603,7 +602,6 @@ def _morph_struct(value, shape, was_wrapped=False):
         for field_name, (shape_field, field_handle_def) in handle_shape_fields.items():
             # Check if input handle is compatible with field's handle type
             # Compatible means: same handle or input is a child of field's handle
-            from . import _handle
             if _handle.is_handle_compatible(input_handle_def, field_handle_def):
                 matched_field = (field_name, shape_field, field_handle_def)
                 break

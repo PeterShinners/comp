@@ -5,7 +5,7 @@ __all__ = ["Module", "TagDefinition", "HandleDefinition", "ShapeField", "ShapeDe
 
 import comp
 
-from . import _entity, _function
+from . import _entity
 
 
 class ShapeField(_entity.Entity):
@@ -16,13 +16,21 @@ class ShapeField(_entity.Entity):
     NOTE: Runtime ShapeField objects should NOT have spreads - those are expanded during
     shape definition. Only the AST nodes (ShapeFieldDef) should handle spreads.
 
-    Attributes:
-        name (str | None): Optional field name (None for positional fields)
+    Args:
+        name (str or None): Optional field name (None for positional fields)
         shape: Type constraint for this field (can be ShapeDefinition, tag, primitive type reference)
         default: Optional default value (None means field is required)
         is_array (bool): True if field accepts multiple values ([])
-        array_min (int | None): Minimum array length (None for no minimum)
-        array_max (int | None): Maximum array length (None for no maximum)
+        array_min (int or None): Minimum array length (None for no minimum)
+        array_max (int or None): Maximum array length (None for no maximum)
+
+    Attributes:
+        name (str or None): Optional field name (None for positional fields)
+        shape: Type constraint for this field (can be ShapeDefinition, tag, primitive type reference)
+        default: Optional default value (None means field is required)
+        is_array (bool): True if field accepts multiple values ([])
+        array_min (int or None): Minimum array length (None for no minimum)
+        array_max (int or None): Maximum array length (None for no maximum)
     """
     def __init__(self, name=None, shape=None, default=None,
                  is_array=False, array_min=None,
@@ -74,14 +82,23 @@ class TagDefinition(_entity.Entity):
     Inherits from Entity so it can be returned from evaluate() and passed
     through scopes, similar to ShapeDefinition.
 
-    Attributes:
-        path (list[str]): Full path as list, e.g., ["status", "error", "timeout"]
+    Args:
+        path (list of str): Full path as list, e.g., ["status", "error", "timeout"]
         module (Module): The Module this tag is defined in
         value: Optional value for this tag (can be any Value)
-        parent_def (TagDefinition | None): Parent tag within the same module (for hierarchies)
-        extends_def (TagDefinition | None): Tag from another module that this extends
+        is_private (bool): Whether this tag is private to the module
+        parent_def (TagDefinition or None): Parent tag within the same module (for hierarchies)
+        extends_def (TagDefinition or None): Tag from another module that this extends
+
+    Attributes:
+        path (list of str): Full path as list, e.g., ["status", "error", "timeout"]
+        module (Module): The Module this tag is defined in
+        value: Optional value for this tag (can be any Value)
+        is_private (bool): Whether this tag is private to the module
+        parent_def (TagDefinition or None): Parent tag within the same module (for hierarchies)
+        extends_def (TagDefinition or None): Tag from another module that this extends
     """
-    def __init__(self, path, module, value=None, is_private: bool = False, 
+    def __init__(self, path, module, value=None, is_private=False, 
                  parent_def=None, extends_def=None):
         self.path = path
         self.module = module
@@ -143,11 +160,17 @@ class HandleDefinition(_entity.Entity):
     Inherits from Entity so it can be returned from evaluate() and passed
     through scopes, similar to ShapeDefinition and TagDefinition.
 
-    Attributes:
-        path (list[str]): Full path as list, e.g., ["file", "readonly", "text"]
+    Args:
+        path (list of str): Full path as list, e.g., ["file", "readonly", "text"]
         module (Module): The Module this handle is defined in
+        is_private (bool): Whether this handle is private to the module
+
+    Attributes:
+        path (list of str): Full path as list, e.g., ["file", "readonly", "text"]
+        module (Module): The Module this handle is defined in
+        is_private (bool): Whether this handle is private to the module
     """
-    def __init__(self, path, module, is_private: bool = False):
+    def __init__(self, path, module, is_private=False):
         self.path = path
         self.module = module
         self.is_private = is_private
@@ -306,15 +329,24 @@ class ShapeDefinition(_entity.Entity):
     Inherits from Entity so it can be returned from evaluate() and passed
     through scopes.
 
-    Attributes:
-        path (list[str]): Full path as list, e.g., ["geometry", "point", "2d"]
+    Args:
+        path (list of str): Full path as list, e.g., ["geometry", "point", "2d"]
         module (Module): The Module this shape is defined in
-        fields (list[ShapeField]): List of field definitions
+        fields (list of ShapeField): List of field definitions
         is_union (bool): True if this is a union shape (combines multiple shapes)
         union_members (list): List of shape references for union shapes
+        is_private (bool): Whether this shape is private to the module
+
+    Attributes:
+        path (list of str): Full path as list, e.g., ["geometry", "point", "2d"]
+        module (Module): The Module this shape is defined in
+        fields (list of ShapeField): List of field definitions
+        is_union (bool): True if this is a union shape (combines multiple shapes)
+        union_members (list): List of shape references for union shapes
+        is_private (bool): Whether this shape is private to the module
     """
     def __init__(self, path, module, fields,
-                 is_union=False, union_members=None, is_private: bool = False):
+                 is_union=False, union_members=None, is_private=False):
         self.path = path
         self.module = module
         self.fields = fields
@@ -504,7 +536,7 @@ class Module(_entity.Entity):
 
         Args:
             is_builtin (bool): True if this is the builtin module
-            module_id (str | None): Optional human-readable module identifier.
+            module_id (str or None): Optional human-readable module identifier.
                 If None, uses id(self) for uniqueness. This identifier is used
                 for private data lookups (& syntax).
         """
@@ -526,8 +558,7 @@ class Module(_entity.Entity):
 
         # Module scope storage for $mod namespace
         # This is a Value with a struct containing module-level state
-        from ._value import Value
-        self.scope = Value({})  # Start with empty struct
+        self.scope = comp.Value({})  # Start with empty struct
 
         # Alias for mod_scope to match ModuleAssign usage
         self.mod_scope = self.scope
@@ -546,9 +577,7 @@ class Module(_entity.Entity):
 
         # Add builtin namespace to all non-builtin modules
         if not is_builtin:
-            # Import happens lazily to avoid circular dependency
-            from .builtin import get_builtin_module
-            self.namespaces['builtin'] = get_builtin_module()
+            self.namespaces['builtin'] = comp.builtin.get_builtin_module()
 
     @property
     def module_id(self):
@@ -564,12 +593,13 @@ class Module(_entity.Entity):
         """
         return self._module_id
 
-    def define_tag(self, path, value=None, is_private: bool = False):
+    def define_tag(self, path, value=None, is_private=False):
         """Register a tag definition.
 
         Args:
-            path (list[str]): Full path in definition order, e.g., ["status", "error", "timeout"]
+            path (list of str): Full path in definition order, e.g., ["status", "error", "timeout"]
             value: Optional value for this tag
+            is_private (bool): Whether this tag is private to the module
 
         Returns:
             TagDefinition: The TagDefinition object
@@ -605,11 +635,12 @@ class Module(_entity.Entity):
 
         return tag_def
 
-    def define_handle(self, path, is_private: bool = False):
+    def define_handle(self, path, is_private=False):
         """Register a handle definition.
 
         Args:
-            path (list[str]): Full path in definition order, e.g., ["file", "readonly", "text"]
+            path (list of str): Full path in definition order, e.g., ["file", "readonly", "text"]
+            is_private (bool): Whether this handle is private to the module
 
         Returns:
             HandleDefinition: The HandleDefinition object
@@ -874,14 +905,15 @@ class Module(_entity.Entity):
         return matches
 
     def define_shape(self, path, fields,
-                     is_union=False, union_members=None, is_private: bool = False):
+                     is_union=False, union_members=None, is_private=False):
         """Register a shape definition.
 
         Args:
-            path (list[str]): Full path in definition order, e.g., ["geometry", "point", "2d"]
-            fields (list[ShapeField]): List of field definitions
+            path (list of str): Full path in definition order, e.g., ["geometry", "point", "2d"]
+            fields (list of ShapeField): List of field definitions
             is_union (bool): True if this is a union shape
-            union_members (list | None): Shape references for union types
+            union_members (list or None): Shape references for union types
+            is_private (bool): Whether this shape is private to the module
 
         Returns:
             ShapeDefinition: The created shape definition
@@ -923,20 +955,21 @@ class Module(_entity.Entity):
 
     def define_function(self, path, body, input_shape=None,
                        arg_shape=None, is_pure=False,
-                       doc=None, impl_doc=None, is_private: bool = False):
+                       doc=None, impl_doc=None, is_private=False):
         """Register a function definition.
 
         Supports overloading - multiple definitions with the same path.
         Functions are matched by input shape specificity at call time.
 
         Args:
-            path (list[str]): Full path in definition order, e.g., ["math", "geometry", "area"]
+            path (list of str): Full path in definition order, e.g., ["math", "geometry", "area"]
             body: Structure definition AST for function body
             input_shape: Shape for input structure (None for any)
             arg_shape: Shape for arguments (None for no args)
             is_pure (bool): True if function has no side effects
-            doc (str | None): Documentation string (shared across overloads)
-            impl_doc (str | None): Documentation for this specific implementation
+            doc (str or None): Documentation string (shared across overloads)
+            impl_doc (str or None): Documentation for this specific implementation
+            is_private (bool): Whether this function is private to the module
 
         Returns:
             _function.FunctionDefinition: The FunctionDefinition object
@@ -1003,8 +1036,6 @@ class Module(_entity.Entity):
                 doc="Call a method on a Python object"
             )
         """
-        import comp
-        
         # Parse shape strings if needed
         if isinstance(input_shape, str):
             input_shape = comp.parse_shape(input_shape, module=self)
@@ -1243,8 +1274,7 @@ class Module(_entity.Entity):
             ValueError: If there are unresolved references or ambiguous definitions
         """
         if engine is None:
-            from ._engine import Engine
-            engine = Engine()
+            engine = comp.Engine()
 
         # Phase 1: Create initial definitions from AST
         # This registers all tags, shapes, and functions in the module
@@ -1353,11 +1383,8 @@ class Module(_entity.Entity):
         Raises:
             ValueError: If any import fails to load
         """
-        from . import ast
-        import comp
-
         for op in ast_module.operations:
-            if isinstance(op, ast.ImportDef):
+            if isinstance(op, comp.ast.ImportDef):
                 # Load the imported module
                 imported_module = self._load_import(op, engine)
 
@@ -1406,19 +1433,15 @@ class Module(_entity.Entity):
             try:
                 return get_stdlib_module(import_def.path)
             except Exception as e:
-                import comp
                 return comp.fail(f"Failed to load stdlib module '{import_def.path}': {e}")
 
         elif import_def.source == "comp":
-            from .ast import _loader
             try:
-                return _loader.load_comp_module(import_def.path, engine)
+                return comp.ast.load_comp_module(import_def.path, engine)
             except Exception as e:
-                import comp
                 return comp.fail(f"Failed to load comp module '{import_def.path}': {e}")
 
         # Other sources not yet implemented
-        import comp
         return comp.fail(f"Import source '{import_def.source}' not yet implemented")
 
     def _phase3_build_resolution_namespace(self):
@@ -1639,17 +1662,15 @@ class Module(_entity.Entity):
         Raises:
             ValueError: If any reference cannot be resolved or is ambiguous
         """
-        from . import ast
-
         # Walk all operations and resolve references in them
         for op in ast_module.operations:
-            if isinstance(op, ast.TagDef):
+            if isinstance(op, comp.ast.TagDef):
                 self._preresolve_tag_def(op, resolution_ns)
 
-            elif isinstance(op, ast.ShapeDef):
+            elif isinstance(op, comp.ast.ShapeDef):
                 self._preresolve_shape_def(op, resolution_ns)
 
-            elif isinstance(op, ast.FuncDef):
+            elif isinstance(op, comp.ast.FuncDef):
                 self._preresolve_func_def(op, resolution_ns)
 
     def _preresolve_tag_def(self, tag_def, resolution_ns):
@@ -1723,13 +1744,10 @@ class Module(_entity.Entity):
         Raises:
             ValueError: If any reference cannot be resolved or is ambiguous
         """
-        from . import ast
-
         # Base case: handle reference nodes
-        if isinstance(node, ast.TagValueRef):
+        if isinstance(node, comp.ast.TagValueRef):
             # Skip if namespace is dynamic (ValueNode) - will be resolved at runtime
-            from . import ast as comp_ast
-            if isinstance(node.namespace, comp_ast._base.ValueNode):
+            if isinstance(node.namespace, comp.ast._base.ValueNode):
                 # Dynamic namespace - skip pre-resolution, recurse into namespace expression
                 self._preresolve_node(node.namespace, resolution_ns)
             else:
@@ -1752,10 +1770,9 @@ class Module(_entity.Entity):
                 # Store resolved definition on the node
                 node._resolved = resolved
 
-        elif isinstance(node, ast.ShapeRef):
+        elif isinstance(node, comp.ast.ShapeRef):
             # Skip if namespace is dynamic (ValueNode) - will be resolved at runtime
-            from . import ast as comp_ast
-            if isinstance(node.namespace, comp_ast._base.ValueNode):
+            if isinstance(node.namespace, comp.ast._base.ValueNode):
                 # Dynamic namespace - skip pre-resolution, recurse into namespace expression
                 self._preresolve_node(node.namespace, resolution_ns)
             else:
@@ -1778,10 +1795,9 @@ class Module(_entity.Entity):
 
                 node._resolved = resolved
 
-        elif isinstance(node, ast.FuncRef):
+        elif isinstance(node, comp.ast.FuncRef):
             # Skip if namespace is dynamic (ValueNode) - will be resolved at runtime
-            from . import ast as comp_ast
-            if isinstance(node.namespace, comp_ast._base.ValueNode):
+            if isinstance(node.namespace, comp.ast._base.ValueNode):
                 # Dynamic namespace - skip pre-resolution, recurse into namespace expression
                 self._preresolve_node(node.namespace, resolution_ns)
             else:
@@ -1803,11 +1819,10 @@ class Module(_entity.Entity):
 
                 node._resolved = resolved
 
-        elif isinstance(node, ast.PipeFunc):
+        elif isinstance(node, comp.ast.PipeFunc):
             # Pre-resolve pipeline function calls
             # Skip if namespace is dynamic (ValueNode) - will be resolved at runtime
-            from . import ast as comp_ast
-            if isinstance(node.namespace, comp_ast._base.ValueNode):
+            if isinstance(node.namespace, comp.ast._base.ValueNode):
                 # Dynamic namespace - skip pre-resolution, recurse into namespace expression
                 self._preresolve_node(node.namespace, resolution_ns)
             else:

@@ -1,7 +1,6 @@
 """Tests for tag field matching in morphing."""
 
-from decimal import Decimal
-
+import decimal
 import comp
 import comptest
 
@@ -89,7 +88,7 @@ def test_morph_tag_field_with_positional_fields():
     test_shape = module.lookup_shape(["move"])
     forward_tag = _make_tag_value(module, ["direction", "forward"])
     data = comp.Value({
-        comp.Unnamed(): comp.Value(Decimal("10")),
+        comp.Unnamed(): comp.Value(decimal.Decimal("10")),
         comp.Unnamed(): forward_tag
     })
     

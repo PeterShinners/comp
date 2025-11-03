@@ -59,6 +59,7 @@ class Engine:
         """
         result = comp.Value({})  # Set by first StopIteration before use
         result_bypass = False  # Track if result contains a failure
+        frame_depth = 0  # Track recursion depth to prevent infinite loops
 
         # Handle Python keyword workarounds: in_ -> in
         if 'in_' in scopes:
@@ -79,6 +80,7 @@ class Engine:
                 # Failures bypass frames that don't allow them
                 elif result_bypass:
                     current.gen.close()
+                    frame_depth -= 1  # Decrement when bypassing frames
                     current = current.previous
                     continue
 
@@ -91,6 +93,14 @@ class Engine:
                 # Mark the parent (current) as allowed to receive failures from the child (request)
                 if request.allow_failures:
                     current.allowed = True
+
+                # Check frame depth to prevent infinite loops (circular references)
+                frame_depth += 1
+                if frame_depth > 50:
+                    raise RuntimeError(
+                        f"Frame depth exceeded 50 - possible infinite loop or circular reference. "
+                        f"Current node: {request.node.__class__.__name__}"
+                    )
 
                 # Create child frame - generator created automatically in __init__
                 newest = _Frame(
@@ -117,10 +127,10 @@ class Engine:
                         # Only overwrite if current node is more specific
                         existing_ast = result.ast
                         # Pipeline and Block are "container" nodes - prefer child nodes over these
-                        from . import ast as comp_ast
-                        if isinstance(existing_ast, (comp_ast.Pipeline, comp_ast.Block)):
+                        if isinstance(existing_ast, (comp.ast.Pipeline, comp.ast.Block)):
                             result.ast = current.node
                 result_bypass = self.bypass_value(result)
+                frame_depth -= 1  # Decrement when stepping back to parent
                 current = current.previous
 
         return result

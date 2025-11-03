@@ -56,10 +56,11 @@ def _lib():
     """registry of standard libraries."""
     global _registry
     if not _registry:
-        from . import num, str, python
+        from . import num, str, python, tag
         _registry.update(
             str=str.create_module,
             num=num.create_module,
             python=python.create_module,
+            tag=tag.create_module,
         )
     return _registry

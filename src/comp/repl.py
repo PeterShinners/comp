@@ -4,6 +4,7 @@ Provides a read-eval-print loop for interactive development and experimentation.
 """
 
 import sys
+import traceback
 
 import comp
 
@@ -24,7 +25,7 @@ class ReplContext:
         self.local_scope = comp.Value({})
         self.last_result = comp.Value(None)
         
-    def eval_line(self, line: str) -> comp.Value:
+    def eval_line(self, line):
         """Evaluate a single line of input.
         
         Supports:
@@ -32,7 +33,11 @@ class ReplContext:
         - Definitions: !tag #status, !func |foo, !shape ~point
         - References to _ (last result) and @local variables
         
-        Returns the result Value.
+        Args:
+            line (str): Line of code to evaluate
+        
+        Returns:
+            comp.Value: The result Value
         """
         line = line.strip()
         if not line:
@@ -199,7 +204,6 @@ def repl():
             continue
         except Exception as e:
             print(f"Internal error: {e}")
-            import traceback
             traceback.print_exc()
 
 

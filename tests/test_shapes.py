@@ -57,7 +57,6 @@ def test_array_field():
     """Test shape field with array notation (when implemented)."""
     # Array syntax not yet implemented in parser
     # This test documents the intended syntax
-    import pytest
     with pytest.raises(comp.ParseError):
         comptest.parse_module("""
             !shape ~list = {items ~str[1-5]}

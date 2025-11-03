@@ -685,18 +685,16 @@ def create_module():
     
     # Define the |drop-handle function for @py-handle
     # This is called by the !drop operator
-    from comp.ast import Block, Structure, FieldOp, Pipeline, PipeFunc
-    
-    drop_pipeline = Pipeline(
+    drop_pipeline = comp.ast.Pipeline(
         seed=None,  # Unseeded pipeline uses $in
         operations=[
-            PipeFunc(func_name="py-decref", args=None, namespace=None)
+            comp.ast.PipeFunc(func_name="py-decref", args=None, namespace=None)
         ]
     )
-    drop_structure = Structure(ops=[FieldOp(key=None, value=drop_pipeline)])
+    drop_structure = comp.ast.Structure(ops=[comp.ast.FieldOp(key=None, value=drop_pipeline)])
     module.define_function(
         path=["drop-handle"],
-        body=Block(body=drop_structure),
+        body=comp.ast.Block(body=drop_structure),
         doc="Drop handler for @py-handle - decrements Python reference count",
     )
     

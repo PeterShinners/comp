@@ -5,7 +5,7 @@ __all__ = ["Module", "ModuleOp", "TagDef", "TagChild", "TagValueRef", "ModuleAss
 
 import comp
 
-from . import _base
+from . import _base, _ident, _literal
 
 
 class Module(_base.AstNode):
@@ -506,7 +506,6 @@ class ModuleAssign(ModuleOp):
         4. Assign the value at the final path location
         """
         # Validate that first element is a ScopeField for 'mod'
-        from . import _ident
         if not isinstance(self.path[0], _ident.ScopeField):
             return comp.fail("Module assignment must start with a scope (e.g., $mod)")
 
@@ -572,8 +571,6 @@ class ModuleAssign(ModuleOp):
 
         Handles TokenField, IndexField, ComputeField, and String nodes.
         """
-        from . import _ident, _literal
-
         if isinstance(field_node, _ident.TokenField):
             # TokenField: use the field name directly as a string key
             return comp.Value(field_node.name)
@@ -620,7 +617,6 @@ class ModuleAssign(ModuleOp):
     def unparse(self) -> str:
         """Convert back to source code."""
         # Reconstruct the path
-        from . import _ident
         path_parts = []
         for field in self.path:
             if isinstance(field, _ident.ScopeField):

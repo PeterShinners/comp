@@ -1,6 +1,13 @@
 """Tag related features"""
 
-__all__ = ["TagRef"]
+__all__ = [
+    "TagRef",
+    "get_tag_children",
+    "get_tag_immediate_children",
+    "get_tag_parents",
+    "get_tag_natural_parents",
+    "get_tag_root",
+]
 
 
 class TagRef:
@@ -106,4 +113,150 @@ def is_tag_compatible(input_tag_def, field_tag_def):
         return is_tag_compatible(input_tag_def.parent_def, field_tag_def)
     
     return False
+
+
+def get_tag_immediate_children(tag_def):
+    """Get immediate children of a tag within its module.
+
+    Returns tags that have this tag as their parent_def (direct children only).
+
+    Args:
+        tag_def: TagDefinition to get children of
+
+    Returns:
+        list: List of TagDefinition objects that are immediate children
+    """
+    children = []
+    for other_tag in tag_def.module.tags.values():
+        if other_tag.parent_def is tag_def:
+            children.append(other_tag)
+    return children
+
+
+def get_tag_children(tag_def):
+    """Get all descendants of a tag within its module (recursive).
+
+    Returns all tags in the same module that have this tag as an ancestor
+    in their parent_def chain.
+
+    Args:
+        tag_def: TagDefinition to get descendants of
+
+    Returns:
+        list: List of TagDefinition objects that are descendants
+    """
+    descendants = []
+    
+    def collect_descendants(parent):
+        for child in get_tag_immediate_children(parent):
+            descendants.append(child)
+            collect_descendants(child)  # Recurse
+    
+    collect_descendants(tag_def)
+    return descendants
+
+
+def get_tag_natural_parents(tag_def):
+    """Get the chain of natural parents within the same module.
+
+    Follows parent_def upward to the root, returning the chain from
+    immediate parent to root.
+
+    Args:
+        tag_def: TagDefinition to get natural parents of
+
+    Returns:
+        list: List of TagDefinition objects from immediate parent to root
+    """
+    parents = []
+    current = tag_def.parent_def
+    visited = set()  # Prevent infinite loops
+    
+    while current is not None:
+        if id(current) in visited:
+            break
+        visited.add(id(current))
+        parents.append(current)
+        current = current.parent_def
+    
+    return parents
+
+
+def get_tag_parents(tag_def):
+    """Get all parents including both natural hierarchy and extends chain.
+
+    Returns tags in the order:
+    1. Natural parents (parent_def chain within module)
+    2. Extended tag (extends_def) of the tag and all its natural parents
+    3. Extended tag's natural parents
+    4. Extended tag's extended parents (recursive)
+
+    Args:
+        tag_def: TagDefinition to get all parents of
+
+    Returns:
+        list: List of TagDefinition objects representing the full parent chain
+    """
+    parents = []
+    visited = set()  # Prevent infinite loops
+    
+    # Helper to collect all parents including extends for a given tag
+    def collect_all_parents(tag):
+        # Add natural parents
+        natural = get_tag_natural_parents(tag)
+        for parent in natural:
+            if id(parent) not in visited:
+                visited.add(id(parent))
+                parents.append(parent)
+        
+        # Follow extends chain from this tag
+        current = tag.extends_def
+        while current is not None:
+            if id(current) in visited:
+                break
+            visited.add(id(current))
+            
+            # Add the extended tag
+            parents.append(current)
+            
+            # Add its natural parents
+            for nat_parent in get_tag_natural_parents(current):
+                if id(nat_parent) not in visited:
+                    visited.add(id(nat_parent))
+                    parents.append(nat_parent)
+            
+            # Continue up extends chain
+            current = current.extends_def
+        
+        # Also follow extends chain from natural parents
+        for parent in natural:
+            if parent.extends_def is not None and id(parent.extends_def) not in visited:
+                collect_all_parents(parent)
+    
+    collect_all_parents(tag_def)
+    return parents
+
+
+def get_tag_root(tag_def):
+    """Get the root tag in the natural hierarchy within the same module.
+
+    Follows parent_def chain upward until reaching a tag with no parent.
+    Does not follow extends_def (cross-module relationships).
+
+    Args:
+        tag_def: TagDefinition to get root of
+
+    Returns:
+        TagDefinition: The root tag in the natural hierarchy (may be tag_def itself if it's already a root)
+    """
+    current = tag_def
+    visited = set()  # Prevent infinite loops
+    
+    while current.parent_def is not None:
+        if id(current) in visited:
+            break
+        visited.add(id(current))
+        current = current.parent_def
+    
+    return current
 

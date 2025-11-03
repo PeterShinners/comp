@@ -62,6 +62,13 @@ def load_comp_module(path: str, engine: 'comp.Engine') -> 'comp.Module':
     # Module.evaluate() returns the Module entity (not wrapped in Value)
     result = engine.run(module_ast, module=module)
 
+    # Check if module evaluation resulted in a failure
+    if isinstance(result, comp.Value) and result.is_fail:
+        # Format the failure and raise as a module loading error
+        from comp.builtin import format_failure
+        failure_msg = format_failure(result)
+        raise ValueError(f"Module evaluation failed for {full_path}:\n{failure_msg}")
+
     # The result should be the same Module entity
     if not isinstance(result, comp.Module):
         raise TypeError(f"Expected Module from evaluation, got {type(result)}")

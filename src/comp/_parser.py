@@ -5,8 +5,6 @@ This parser is designed for the engine's AST nodes which require:
 - More runtime-focused node structure vs grammar structure
 """
 
-from __future__ import annotations
-
 __all__ = ["parse_module", "parse_expr", "parse_shape"]
 
 import decimal
@@ -1268,14 +1266,14 @@ def _convert_doc_statement(tree):
     return comp.ast.DocStatement(doc_text, is_impl=is_impl, is_module=is_module)
 
 
-def _get_parser(start: str) -> lark.Lark:
+def _get_parser(start):
     """Get a cached Lark parser instance for the given start rule.
 
     Args:
-        start: Grammar start rule (e.g., "module", "expression_start", "shape_type")
+        start (str): Grammar start rule (e.g., "module", "expression_start", "shape_type")
 
     Returns:
-        Cached Lark parser instance
+        lark.Lark: Cached Lark parser instance
     """
     if start not in _parsers:
         grammar_path = pathlib.Path(__file__).parent / "comp.lark"

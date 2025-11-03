@@ -262,8 +262,7 @@ def length(frame, input_value, args=None):
     if not isinstance(input_value.data, str):
         return comp.fail(f"|length expects string, got {type(input_value.data).__name__}")
 
-    from decimal import Decimal
-    return comp.Value(Decimal(len(input_value.data)))
+    return comp.Value(len(input_value.data))
 
 
 def slice(frame, input_value, args=None):

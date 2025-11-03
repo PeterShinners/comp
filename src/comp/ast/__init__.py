@@ -12,3 +12,4 @@ from ._pipe import *
 from ._shape import *
 from ._struct import *
 from ._tag import *
+from ._loader import *

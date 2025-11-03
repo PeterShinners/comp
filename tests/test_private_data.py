@@ -3,14 +3,12 @@
 import pytest
 
 import comp
-from comp._module import Module
-from comp._value import Value
 
 
 def test_module_identifier_default():
     """Test that modules get unique identifiers by default."""
-    mod1 = Module()
-    mod2 = Module()
+    mod1 = comp.Module()
+    mod2 = comp.Module()
     
     # Each module should have a unique ID (using counter)
     assert isinstance(mod1.module_id, int)
@@ -20,8 +18,8 @@ def test_module_identifier_default():
 
 def test_module_identifier_custom():
     """Test that modules can be created with custom identifiers."""
-    mod1 = Module(module_id="my_module")
-    mod2 = Module(module_id="stdlib.fs")
+    mod1 = comp.Module(module_id="my_module")
+    mod2 = comp.Module(module_id="stdlib.fs")
     
     # Custom IDs have counter appended
     assert mod1.module_id.startswith("my_module:")
@@ -32,7 +30,7 @@ def test_module_identifier_custom():
 
 def test_module_identifier_human_readable():
     """Test that custom identifiers can include human-readable names."""
-    mod = Module(module_id="stdlib.fs")
+    mod = comp.Module(module_id="stdlib.fs")
     
     # Format is "name:counter"
     assert "stdlib.fs:" in mod.module_id
@@ -44,47 +42,47 @@ def test_module_identifier_human_readable():
 
 def test_value_private_data_storage():
     """Test that Values can store module-private data."""
-    value = Value(42)
+    value = comp.Value(42)
     
     # Initially no private data
     assert value.private == {}
     assert value.get_private("module1") is None
     
     # Set private data for a module (mutates in place)
-    private_data = Value({"fd": 3, "path": "/data.txt"})
+    private_data = comp.Value({"fd": 3, "path": "/data.txt"})
     value.set_private("module1", private_data)
     
     # Value now has private data
     retrieved = value.get_private("module1")
     assert retrieved is not None
     assert retrieved.is_struct
-    assert retrieved.data[Value("fd")].data == 3
-    assert retrieved.data[Value("path")].data == "/data.txt"
+    assert retrieved.data[comp.Value("fd")].data == 3
+    assert retrieved.data[comp.Value("path")].data == "/data.txt"
 
 
 def test_value_private_data_multiple_modules():
     """Test that Values can store private data for multiple modules."""
-    value = Value("shared_value")
+    value = comp.Value("shared_value")
     
     # Module 1 attaches its private data
-    mod1_data = Value({"fd": 3})
+    mod1_data = comp.Value({"fd": 3})
     value.set_private("module1", mod1_data)
     
     # Module 2 attaches different private data
-    mod2_data = Value({"handle": "abc123"})
+    mod2_data = comp.Value({"handle": "abc123"})
     value.set_private("module2", mod2_data)
     
     # Both modules' data is preserved
-    assert value.get_private("module1").data[Value("fd")].data == 3
-    assert value.get_private("module2").data[Value("handle")].data == "abc123"
+    assert value.get_private("module1").data[comp.Value("fd")].data == 3
+    assert value.get_private("module2").data[comp.Value("handle")].data == "abc123"
 
 
 def test_value_private_data_replacement():
     """Test replacing private data entirely (immutable like all values)."""
-    value = Value("base")
+    value = comp.Value("base")
     
     # Set initial private data
-    private_data = Value({
+    private_data = comp.Value({
         "fd": 3,
         "path": "/data.txt",
         "bytes_read": 0
@@ -92,7 +90,7 @@ def test_value_private_data_replacement():
     value.set_private("fs_module", private_data)
     
     # Replace with updated private data (the way assignment works in Comp)
-    updated_private = Value({
+    updated_private = comp.Value({
         "fd": 3,
         "path": "/data.txt",
         "bytes_read": 4096
@@ -101,18 +99,18 @@ def test_value_private_data_replacement():
     
     # Check replaced value
     private = value.get_private("fs_module")
-    assert private.data[Value("bytes_read")].data == 4096
-    assert private.data[Value("fd")].data == 3
-    assert private.data[Value("path")].data == "/data.txt"
+    assert private.data[comp.Value("bytes_read")].data == 4096
+    assert private.data[comp.Value("fd")].data == 3
+    assert private.data[comp.Value("path")].data == "/data.txt"
 
 
 def test_value_private_data_copied_on_value_copy():
     """Test that private data is shared when Value is copied."""
-    value1 = Value(42)
-    value1.set_private("mod1", Value({"data": "secret"}))
+    value1 = comp.Value(42)
+    value1.set_private("mod1", comp.Value({"data": "secret"}))
     
     # Create new Value from existing (copy constructor)
-    value2 = Value(value1)
+    value2 = comp.Value(value1)
     
     # Both should have private data
     assert value1.get_private("mod1") is not None
@@ -120,26 +118,26 @@ def test_value_private_data_copied_on_value_copy():
     
     # They should point to the same private data dict
     # (shared reference for immutability)
-    assert value1.get_private("mod1").data[Value("data")].data == "secret"
-    assert value2.get_private("mod1").data[Value("data")].data == "secret"
+    assert value1.get_private("mod1").data[comp.Value("data")].data == "secret"
+    assert value2.get_private("mod1").data[comp.Value("data")].data == "secret"
 
 
 def test_private_data_isolation():
     """Test that private data is isolated between modules."""
-    value = Value("handle")
+    value = comp.Value("handle")
     
     # Module 1 sets private data
-    value.set_private("module1", Value({"secret": "mod1_data"}))
+    value.set_private("module1", comp.Value({"secret": "mod1_data"}))
     
     # Module 2 cannot see module 1's private data
     assert value.get_private("module2") is None
     
     # Module 2 sets its own private data
-    value.set_private("module2", Value({"secret": "mod2_data"}))
+    value.set_private("module2", comp.Value({"secret": "mod2_data"}))
     
     # Each module only sees its own data
-    assert value.get_private("module1").data[Value("secret")].data == "mod1_data"
-    assert value.get_private("module2").data[Value("secret")].data == "mod2_data"
+    assert value.get_private("module1").data[comp.Value("secret")].data == "mod1_data"
+    assert value.get_private("module2").data[comp.Value("secret")].data == "mod2_data"
 
 
 def test_handle_pattern_simulation():
@@ -147,13 +145,13 @@ def test_handle_pattern_simulation():
     # In the future, this will be a Handle instance
     # For now, simulate with a tagged value
     
-    mod_fs = Module(module_id="stdlib.fs")
+    mod_fs = comp.Module(module_id="stdlib.fs")
     
     # Create "handle" (for now just a value with a tag)
-    handle = Value(comp.TagRef(["filehandle"]))
+    handle = comp.Value(comp.TagRef(["filehandle"]))
     
     # Attach private data using module ID
-    handle.set_private(mod_fs.module_id, Value({
+    handle.set_private(mod_fs.module_id, comp.Value({
         "fd": 3,
         "path": "/data.txt",
         "mode": "r",
@@ -162,10 +160,10 @@ def test_handle_pattern_simulation():
     
     # Simulate |read operation - get private data
     private = handle.get_private(mod_fs.module_id)
-    assert private.data[Value("fd")].data == 3
+    assert private.data[comp.Value("fd")].data == 3
     
     # Update bytes_read by replacing entire private data (immutable)
-    updated_private = Value({
+    updated_private = comp.Value({
         "fd": 3,
         "path": "/data.txt",
         "mode": "r",
@@ -175,7 +173,7 @@ def test_handle_pattern_simulation():
     
     # Verify update
     final_private = handle.get_private(mod_fs.module_id)
-    assert final_private.data[Value("bytes_read")].data == 4096
+    assert final_private.data[comp.Value("bytes_read")].data == 4096
     
     # Other module cannot access fs module's private data
     assert handle.get_private("other_module") is None
@@ -184,49 +182,49 @@ def test_handle_pattern_simulation():
 def test_as_scalar_as_struct_preserves_identity():
     """Test that as_scalar and as_struct preserve object identity when no transformation needed."""
     # Scalar stays scalar
-    v1 = Value(5)
+    v1 = comp.Value(5)
     v2 = v1.as_scalar()
     assert v1 is v2  # Same object
     
     # Struct stays struct
-    v3 = Value({"name": "test"})
+    v3 = comp.Value({"name": "test"})
     v4 = v3.as_struct()
     assert v3 is v4  # Same object
 
 
 def test_as_scalar_as_struct_round_trip_identity():
     """Test that as_struct().as_scalar() round trip preserves identity for scalars."""
-    v1 = Value(5)
+    v1 = comp.Value(5)
     v2 = v1.as_struct().as_scalar()
     assert v1 is v2  # Round trip returns same object!
 
 
 def test_as_scalar_as_struct_preserves_private_data():
     """Test that as_scalar and as_struct preserve private data through transformations."""
-    mod = Module(module_id="test_mod")
+    mod = comp.Module(module_id="test_mod")
     
     # Create scalar with private data
-    value = Value(42)
-    value.set_private(mod.module_id, Value({"secret": "data"}))
+    value = comp.Value(42)
+    value.set_private(mod.module_id, comp.Value({"secret": "data"}))
     
     # Wrap to struct - should preserve private data
     wrapped = value.as_struct()
     assert wrapped.get_private(mod.module_id) is not None
-    assert wrapped.get_private(mod.module_id).data[Value("secret")].data == "data"
+    assert wrapped.get_private(mod.module_id).data[comp.Value("secret")].data == "data"
     
     # Unwrap back to scalar - should preserve private data
     unwrapped = wrapped.as_scalar()
     assert unwrapped.get_private(mod.module_id) is not None
-    assert unwrapped.get_private(mod.module_id).data[Value("secret")].data == "data"
+    assert unwrapped.get_private(mod.module_id).data[comp.Value("secret")].data == "data"
 
 
 def test_as_struct_as_scalar_round_trip_preserves_private():
     """Test full round trip preserves private data."""
-    mod = Module(module_id="test_mod")
+    mod = comp.Module(module_id="test_mod")
     
     # Scalar with private data
-    v1 = Value(99)
-    v1.set_private(mod.module_id, Value({"handle": "abc"}))
+    v1 = comp.Value(99)
+    v1.set_private(mod.module_id, comp.Value({"handle": "abc"}))
     
     # Round trip
     v2 = v1.as_struct().as_scalar()
@@ -235,22 +233,22 @@ def test_as_struct_as_scalar_round_trip_preserves_private():
     assert v1 is v2
     
     # Private data should be intact
-    assert v2.get_private(mod.module_id).data[Value("handle")].data == "abc"
+    assert v2.get_private(mod.module_id).data[comp.Value("handle")].data == "abc"
 
 
 def test_value_copy_shares_private_data():
     """Test that Value copy constructor shares (not copies) private data."""
-    mod = Module(module_id="test")
+    mod = comp.Module(module_id="test")
     
-    v1 = Value(10)
-    v1.set_private(mod.module_id, Value({"data": "shared"}))
+    v1 = comp.Value(10)
+    v1.set_private(mod.module_id, comp.Value({"data": "shared"}))
     
     # Copy via constructor
-    v2 = Value(v1)
+    v2 = comp.Value(v1)
     
     # Should share the same private dict reference (immutability!)
     assert v1.private is v2.private
     
     # Both see the same data
-    assert v1.get_private(mod.module_id).data[Value("data")].data == "shared"
-    assert v2.get_private(mod.module_id).data[Value("data")].data == "shared"
+    assert v1.get_private(mod.module_id).data[comp.Value("data")].data == "shared"
+    assert v2.get_private(mod.module_id).data[comp.Value("data")].data == "shared"

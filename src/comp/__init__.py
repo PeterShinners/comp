@@ -17,4 +17,5 @@ from ._tag import *
 from ._handle import *
 from ._morph import *
 from ._parser import *
+from ._pybridge import *
 from . import builtin, ast, corelib

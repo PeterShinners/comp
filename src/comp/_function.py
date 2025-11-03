@@ -131,8 +131,6 @@ class PythonFunction(Function):
         Returns:
             generator: Always returns a generator (even for failures)
         """
-        import comp
-
         # Morph input if input_shape is defined
         if self.input_shape is not None:
             morph_result = comp.morph(input_value, self.input_shape)
@@ -214,33 +212,33 @@ class FunctionDefinition(_entity.Entity):
 
     Inherits from Entity so it can be returned from evaluate() and passed through scopes.
 
+    Args:
+        path (list of str): Full path as list, e.g., ["math", "geometry", "area"]
+        module (Module): Module containing this function
+        body (AstNode): Function body AST
+        input_shape (ShapeDefinition or None): Expected input shape (or None for any)
+        arg_shape (ShapeDefinition or None): Argument shape (or None for no args)
+        is_pure (bool): Whether function is pure (no side effects)
+        doc (str or None): Documentation string
+        impl_doc (str or None): Implementation-specific documentation for this overload
+        _placeholder (bool): True if created during prepare(), not a real definition
+        is_private (bool): Whether this function is private to the module
+
     Attributes:
-        path (list[str]): Full path as list, e.g., ["math", "geometry", "area"]
+        path (list of str): Full path as list, e.g., ["math", "geometry", "area"]
         module (Module): The Module this function is defined in
-        input_shape (ShapeDefinition | None): Shape defining expected input structure (or None for any)
-        arg_shape (ShapeDefinition | None): Shape defining function arguments (or None for no args)
+        input_shape (ShapeDefinition or None): Shape defining expected input structure (or None for any)
+        arg_shape (ShapeDefinition or None): Shape defining function arguments (or None for no args)
         body (AstNode): Structure definition AST node for the function body
         is_pure (bool): True if function has no side effects
-        doc (str | None): Optional documentation string
-        impl_doc (str | None): Optional documentation for this specific implementation (overloads)
+        doc (str or None): Optional documentation string
+        impl_doc (str or None): Optional documentation for this specific implementation (overloads)
+        is_private (bool): Whether this function is private to the module
     """
     def __init__(self, path, module, body, input_shape=None,
                  arg_shape=None, is_pure=False,
                  doc=None, impl_doc=None, _placeholder=False,
-                 is_private: bool = False):
-        """Initialize function definition.
-        
-        Args:
-            path (list[str]): Full path as list
-            module (Module): Module containing this function
-            body (AstNode): Function body AST
-            input_shape (ShapeDefinition | None): Expected input shape
-            arg_shape (ShapeDefinition | None): Argument shape
-            is_pure (bool): Whether function is pure (no side effects)
-            doc (str | None): Documentation string
-            impl_doc (str | None): Implementation-specific documentation
-            _placeholder (bool): True if created during prepare(), not a real definition
-        """
+                 is_private=False):
         self.path = path
         self.module = module
         self.input_shape = input_shape
@@ -311,9 +309,6 @@ class FunctionDefinition(_entity.Entity):
         Returns:
             Compute: Ready-to-execute compute object, or fail Value if error
         """
-        import comp
-        import sys
-
         # Get function name for error messages
         func_name = self.full_name
         
@@ -456,8 +451,6 @@ class Block:
         Returns:
             Compute: Ready-to-execute compute object
         """
-        import comp
-
         # Ensure input is a struct
         input_value = input_value.as_struct()
 
@@ -513,8 +506,6 @@ class BlockShapeDefinition(_entity.Entity):
         """
         if not isinstance(fields, list):
             raise TypeError("Fields must be a list")
-        # Note: We can't import ShapeField here due to circular dependency
-        # The type check is relaxed to accept Any
         self.fields = fields
 
     def __repr__(self):
@@ -545,8 +536,6 @@ def select_overload(func_defs, input_value):
             - morphed_input: The input value morphed to the function's shape
         Or returns a fail Value if no overload matches
     """
-    import comp
-
     # Get function name for error messages (from first definition)
     func_name = '.'.join(reversed(func_defs[0].path)) if func_defs else "unknown"
 
