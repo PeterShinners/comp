@@ -387,20 +387,24 @@ def call_function(frame, input_value, args=None):
         input_value: Comp Value struct containing Python function arguments
                     (positional as numeric keys, keyword as string keys)
         args: String with fully-qualified function name, or struct with 'name' field
+              and optional 'exception-tags' mapping
 
     Returns:
         comp.Value: @py-handle wrapping the Python object result, or fail on error.
         
     Example:
         [{url="http://example.com" scheme="https"} |call-func "urllib.parse.urlparse"]
+        [{database=$path} |call-func {name="sqlite3.connect" exception-tags=$mod.exception-tags}]
     """
     if False:  # Make this a generator
         yield
     
     try:
-        # Extract function name from args
+        # Extract function name and exception-tags from args
         if args is None:
             return comp.fail("call-func requires function name as argument")
+        
+        exception_tags_map = None
         
         # Accept either a string directly or a struct with 'name' field
         if args.is_string:
@@ -410,8 +414,24 @@ def call_function(frame, input_value, args=None):
             if name_key not in args.struct or not args.struct[name_key].is_string:
                 return comp.fail("call-func requires 'name' string field in arg struct")
             name = args.struct[name_key].data
+            
+            # Check for exception-tags field
+            exception_tags_key = comp.Value("exception-tags")
+            if exception_tags_key in args.struct:
+                exception_tags_map = args.struct[exception_tags_key]
+                # If it's an empty struct (default value), treat as not provided
+                if exception_tags_map.is_struct and len(exception_tags_map.struct) == 0:
+                    exception_tags_map = None
         else:
             return comp.fail("call-func requires string name or struct with 'name' field")
+        
+        # Fallback to $mod.exception-tags if not provided in args
+        if exception_tags_map is None:
+            mod = frame.scope('mod')
+            if mod is not None and mod.is_struct:
+                mod_exception_tags_key = comp.Value("exception-tags")
+                if mod_exception_tags_key in mod.struct:
+                    exception_tags_map = mod.struct[mod_exception_tags_key]
         
         # Resolve function using pydoc.locate
         func_obj = pydoc.locate(name)
@@ -439,12 +459,30 @@ def call_function(frame, input_value, args=None):
         
         return handle_value
     except Exception as e:
-        # Include exception type information for mapping to specific fail tags
-        return comp.fail(
-            str(e),
-            exception_type=type(e).__name__,
-            exception_module=type(e).__module__,
-        )
+        # Map exception to specific fail tag if exception-tags mapping is provided
+        fail_tag = None
+        if exception_tags_map is not None and exception_tags_map.is_struct:
+            # Look up the exception type in the mapping
+            exception_type_key = comp.Value(type(e).__name__)
+            if exception_type_key in exception_tags_map.struct:
+                mapped_value = exception_tags_map.struct[exception_type_key]
+                if mapped_value.is_tag:
+                    fail_tag = mapped_value
+        
+        # Return failure with mapped tag if found, otherwise generic fail
+        if fail_tag is not None:
+            return comp.Value({
+                comp.Unnamed(): fail_tag,
+                comp.Value("message"): comp.Value(str(e)),
+                comp.Value("exception_type"): comp.Value(type(e).__name__),
+                comp.Value("exception_module"): comp.Value(type(e).__module__),
+            })
+        else:
+            return comp.fail(
+                str(e),
+                exception_type=type(e).__name__,
+                exception_module=type(e).__module__,
+            )
 
 
 def call_method(frame, input_value, args=None):
@@ -458,7 +496,7 @@ def call_method(frame, input_value, args=None):
         input_value: Comp Value - either:
                     - Scalar @py-handle (for simple method calls with no args)
                     - Struct with 'self' @py-handle field (for methods with args)
-        args: Comp Value struct with 'name' field for method name
+        args: Comp Value struct with 'name' field for method name and optional 'exception-tags' mapping
 
     Returns:
         comp.Value: @py-handle wrapping the Python object result, or fail on error.
@@ -471,7 +509,7 @@ def call_method(frame, input_value, args=None):
         yield
     
     try:
-        # Extract method name from args
+        # Extract method name and exception-tags from args
         if args is None or not args.is_struct:
             return comp.fail("call requires method name")
         
@@ -479,6 +517,23 @@ def call_method(frame, input_value, args=None):
         if name_key not in args.struct or not args.struct[name_key].is_string:
             return comp.fail("call requires 'name' string field")
         method_name = args.struct[name_key].data
+        
+        # Check for exception-tags field
+        exception_tags_map = None
+        exception_tags_key = comp.Value("exception-tags")
+        if exception_tags_key in args.struct:
+            exception_tags_map = args.struct[exception_tags_key]
+            # If it's an empty struct (default value), treat as not provided
+            if exception_tags_map.is_struct and len(exception_tags_map.struct) == 0:
+                exception_tags_map = None
+        
+        # Fallback to $mod.exception-tags if not provided in args
+        if exception_tags_map is None:
+            mod = frame.scope('mod')
+            if mod is not None and mod.is_struct:
+                mod_exception_tags_key = comp.Value("exception-tags")
+                if mod_exception_tags_key in mod.struct:
+                    exception_tags_map = mod.struct[mod_exception_tags_key]
         
         # Input should be a struct with 'self' field (morph handles unnamed→named pairing)
         # Scalar handles get auto-wrapped to unnamed field, then morphed to 'self'
@@ -529,12 +584,30 @@ def call_method(frame, input_value, args=None):
         
         return handle_value
     except Exception as e:
-        # Include exception type information for mapping to specific fail tags
-        return comp.fail(
-            str(e),
-            exception_type=type(e).__name__,
-            exception_module=type(e).__module__,
-        )
+        # Map exception to specific fail tag if exception-tags mapping is provided
+        fail_tag = None
+        if exception_tags_map is not None and exception_tags_map.is_struct:
+            # Look up the exception type in the mapping
+            exception_type_key = comp.Value(type(e).__name__)
+            if exception_type_key in exception_tags_map.struct:
+                mapped_value = exception_tags_map.struct[exception_type_key]
+                if mapped_value.is_tag:
+                    fail_tag = mapped_value
+        
+        # Return failure with mapped tag if found, otherwise generic fail
+        if fail_tag is not None:
+            return comp.Value({
+                comp.Unnamed(): fail_tag,
+                comp.Value("message"): comp.Value(str(e)),
+                comp.Value("exception_type"): comp.Value(type(e).__name__),
+                comp.Value("exception_module"): comp.Value(type(e).__module__),
+            })
+        else:
+            return comp.fail(
+                str(e),
+                exception_type=type(e).__name__,
+                exception_module=type(e).__module__,
+            )
 
 
 def py_vars(frame, input_value, args=None):
@@ -645,7 +718,7 @@ def create_module():
     module.define_py_function(
         path=["call-func"],
         python_func=call_function,
-        arg_shape="~{name ~str}",
+        arg_shape="~{name ~str exception-tags ~struct={}}",
     )
 
     # Register two overloads of |call:
@@ -665,7 +738,7 @@ def create_module():
         path=["call"],
         python_func=call_method,
         input_shape="~{self @py-handle}",
-        arg_shape="~{name ~str}",
+        arg_shape="~{name ~str exception-tags ~struct={}}",
     )
     
     # Function call overload: Input = ~any, Args = {name~str}
@@ -674,7 +747,7 @@ def create_module():
         path=["call"],
         python_func=call_function,
         input_shape="~any",
-        arg_shape="~{name ~str}",
+        arg_shape="~{name ~str exception-tags ~struct={}}",
     )
 
     module.define_py_function(

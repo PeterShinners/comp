@@ -131,104 +131,29 @@ error.
 }
 ```
 
-## Failure Management System
+## Failure Handling
 
-Failures in Comp are structures containing a `#fail` tag, providing a unified
-error model that integrates naturally with the pipeline system. Rather than
-exceptions that break control flow or error codes that require manual checking,
-failures flow through pipelines with predictable propagation rules.
+Failures in Comp are values containing a `#fail` tag that propagate through pipelines automatically. When a pipeline operation fails, subsequent operations are skipped and the failure propagates to the result. The `|?` operator (pipe-fallback) allows you to catch and transform failures.
 
-The language defines a hierarchical `#fail` tag system that categorizes errors
-by type and origin. This hierarchy enables both specific and general error
-handling - you can handle `#timeout.io.fail` specifically or work with all
-`#io.fail` errors together. Functions generate failures for runtime errors like
-missing fields, failed type conversions, or permission violations. User code
-creates failures by simply including the appropriate `#fail` tag in a structure.
+For comprehensive details on failure tags, the `!disarm` operator, propagation rules, and error handling patterns, see [Failure Handling](fail.md).
 
-Modules can extend the failure hierarchy to define domain-specific error
-categories. These extensions work like any tag extension - they create new leaf
-nodes in the hierarchy while maintaining compatibility with parent handlers. For
-detailed information about tag hierarchies and extension mechanisms, see [Tag
-System](tag.md).
+### Pipe-Fallback Operator
+
+The `|?` operator (pipe-fallback) catches failures in a pipeline and allows you to handle them with custom logic. Inside the fallback handler, `$in` contains the failure value, which you can inspect and transform:
 
 ```comp
-; Core hierarchy
-#fail
-  #io
-    #missing
-    #permission  
-    #timeout
-  #value
-    #shape
-    #constraint
-
-; Module extension
-!tag fail += {
-    #database = Database operation failed {
-        #connection = Unable to connect
-        #constraint = Constraint violation  
-        #deadlock = Transaction deadlock detected
-    }
-    #auth = Authentication failed {
-        #expired = Credentials expired
-        #invalid = Invalid credentials
-    }
+!func |safe-operation ~{data} = {
+    [data |risky-operation 
+          |? {error=#fail.database, message=$in.message, data=data}]
 }
-
-; Usage
-{#connection.database.fail message="Connection pool exhausted" pool-id=5}
 ```
 
-## Failure Recovery Patterns
+The fallback handler can:
+- Return a success value to continue the pipeline
+- Transform the error while maintaining failure propagation (unnamed field with #fail)
+- Access failure details via `$in.message`, `$in.type`, etc.
 
-Comp provides multiple mechanisms for handling failures, from simple fallbacks
-to complex recovery procedures. The choice of mechanism depends on the
-complexity of the recovery needed and whether you want to replace the failure or
-perform cleanup.
-
-The `??` fallback operator provides immediate recovery for single operations. It
-receives the original input (not the failure) and provides an alternative value.
-Multiple fallbacks can be chained, creating a cascade of alternatives tried in
-order. This operator shines for providing defaults when optional fields are
-missing or operations might fail.
-
-```comp
-; Cascading fallbacks for configuration
-port = config.port ?? env.PORT ?? 8080
-display-name = user.nickname ?? user.username ?? user.email ?? Anonymous
-
-; Fallback with computation
-timeout = settings.timeout ?? (settings.retry-count * 1000) ?? 5000
-```
-
-The `|?` operator handles failures with more complex recovery logic. It can be
-configured with tag filters to handle specific failure types, with multiple `|?`
-operators creating a chain of handlers tested in order.
-
-```comp
-!func |process-transaction ~{data} = {
-    [data |validate
-          |execute-steps
-          |? :{#io.fail} :{[data |retry-with-backoff]}
-          |? :{#deadlock.database.fail} :{[data |wait-and-retry]}
-          |? :{
-              ; General failure - multiple operations for recovery
-              $var.error = $in
-              [%"Operation failed: %{$var.error.message}" |log]
-              [$var.error |cleanup-resources |{status=#failed original=$var.error}]
-          }]
-}
-
-; Complex recovery in a single block
-[data |risky-operation |? :{
-    $var.error = $in
-    [%"Operation failed: %{$var.error.message}" |log]
-    [$var.error.code |match
-        :{$in >= 500} :{[$var.error |wait-and-retry]}
-        :{$in == 429} :{[$var.error |backoff-exponentially]}
-        :{#true} :{[$var.error |use-fallback-service]}]
-}]
-```
+For complete details on failure handling patterns, error structures, and the interaction between `!disarm` and `|?`, see [Failure Handling](fail.md).
 
 ## Pipeline Composition
 
@@ -342,7 +267,7 @@ The `???` operator serves as a placeholder for not-yet-implemented code. It can
 appear anywhere an expression is expected and always evaluates to
 `{#not-implemented.fail}` when reached at runtime. This enables sketching code
 structure with compilable placeholders. For more information about failure types
-and error handling patterns, see [Tag System](tag.md).
+and error handling patterns, see [Failure Handling](fail.md).
 
 ```comp
 !func |incomplete ~{data} = {

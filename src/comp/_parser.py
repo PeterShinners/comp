@@ -337,6 +337,12 @@ def _convert_tree(tree):
             node = comp.ast.DropOp(target)
             return _apply_position(node, tree)
 
+        case 'disarm_op':
+            # "!disarm" resource_expr
+            expr = _convert_tree(kids[1])
+            node = comp.ast.DisarmOp(expr)
+            return _apply_position(node, tree)
+
         case 'reference_identifiers':
             # Simple dotted identifier path (e.g., "num" or "http.request")
             # Used in morph operations for shape references
@@ -1283,5 +1289,6 @@ def _get_parser(start):
             start=start,
             propagate_positions=True,
             keep_all_tokens=True,
+            cache=False,  # Disable cache to pick up grammar changes
         )
     return _parsers[start]

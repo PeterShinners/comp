@@ -32,9 +32,10 @@ class HandleDef(ModuleOp):
     Args:
         path: Full path in definition order, e.g., ["fs", "file", "readonly"]
         is_private: Whether the handle is private (& suffix)
+        doc: Optional documentation string
     """
 
-    def __init__(self, path: list[str], is_private: bool = False):
+    def __init__(self, path: list[str], is_private: bool = False, doc: str | None = None):
         if not path:
             raise ValueError("Handle path cannot be empty")
         if not all(isinstance(name, str) for name in path):
@@ -42,12 +43,14 @@ class HandleDef(ModuleOp):
 
         self.path = path
         self.is_private = is_private
+        self.doc = doc
 
     def evaluate(self, frame):
         """Register this handle in the module.
 
         1. Get module from module scope
-        2. Register handle (no drop block - behavior via |drop-handle function)
+        2. Consume any pending documentation from !doc statements
+        3. Register handle (no drop block - behavior via |drop-handle function)
         
         This must be a generator even though it doesn't yield, because
         the Frame constructor expects all evaluate() methods to be generators.
@@ -57,8 +60,15 @@ class HandleDef(ModuleOp):
         if module is None:
             return comp.fail("HandleDef requires module scope")
 
+        # Consume pending documentation from !doc statements
+        # This overrides any documentation passed to __init__
+        doc = self.doc
+        if module.pending_doc is not None:
+            doc = module.pending_doc
+            module.pending_doc = None  # Clear after consuming
+
         # Register this handle without drop block (use function dispatch instead)
-        module.define_handle(self.path, is_private=self.is_private)
+        module.define_handle(self.path, is_private=self.is_private, doc=doc)
 
         # Return empty value (definitions don't produce values)
         return comp.Value({})

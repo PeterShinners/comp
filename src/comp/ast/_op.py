@@ -1,6 +1,6 @@
 """Nodes for arithmetic, comparison, and boolean ops."""
 
-__all__ = ["UnaryOp", "ArithmeticOp", "ComparisonOp", "BooleanOp", "FallbackOp", "TemplateOp"]
+__all__ = ["UnaryOp", "ArithmeticOp", "ComparisonOp", "BooleanOp", "FallbackOp", "TemplateOp", "DisarmOp"]
 
 import re
 import comp
@@ -448,3 +448,45 @@ class TemplateOp(_base.ValueNode):
 
     def __repr__(self):
         return f"TemplateOp({self.left}, {self.right})"
+
+
+class DisarmOp(_base.ValueNode):
+    """Disarm operation: !disarm <expression>
+
+    Treats bypass values (failures) as normal data within the expression.
+    This allows fail tags to be stored in structures without triggering propagation.
+
+    Example:
+        $mod.fail-map = {InterfaceError = !disarm #fail.interface}
+    
+    The disarm context is inherited by nested evaluations but does not cross
+    re-arming boundaries (function returns, structure completion).
+
+    Args:
+        expr: Expression to evaluate with bypass values treated as data
+    """
+
+    def __init__(self, expr: _base.ValueNode):
+        if not isinstance(expr, _base.ValueNode):
+            raise TypeError("DisarmOp expr must be a ValueNode")
+        self.expr = expr
+
+    def evaluate(self, frame):
+        """Evaluate expression with disarm_bypass enabled.
+
+        Sets disarm_bypass=True on the child evaluation frame, which causes
+        the engine's bypass_value() to return False for failure values,
+        treating them as normal data.
+
+        Returns:
+            comp.Value: Result of expression (may contain fail tags as data)
+        """
+        # Evaluate with disarm_bypass flag enabled
+        result = yield comp.Compute(self.expr, disarm_bypass=True)
+        return result
+
+    def unparse(self) -> str:
+        return f"!disarm {self.expr.unparse()}"
+
+    def __repr__(self):
+        return f"DisarmOp({self.expr})"

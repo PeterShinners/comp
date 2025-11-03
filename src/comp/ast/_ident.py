@@ -49,12 +49,13 @@ class Identifier(_base.ValueNode):
     def evaluate(self, frame):
         # First field evaluates without identifier scope
         # (it will look up in scopes if needed)
-        current_value = yield comp.Compute(self.fields[0])
+        # Propagate disarm_bypass to allow fallback handlers to inspect failures
+        current_value = yield comp.Compute(self.fields[0], disarm_bypass=frame.disarm_bypass)
 
         # Walk remaining fields, each uses current value directly as identifier scope
         for field in self.fields[1:]:
             # Pass current value directly as the identifier scope
-            current_value = yield comp.Compute(field, identifier=current_value)
+            current_value = yield comp.Compute(field, disarm_bypass=frame.disarm_bypass, identifier=current_value)
 
         return current_value
 

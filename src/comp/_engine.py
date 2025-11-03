@@ -66,7 +66,7 @@ class Engine:
             scopes['in'] = scopes.pop('in_')
 
         # Create initial frame
-        newest = _Frame(node, None, scopes, False, self)
+        newest = _Frame(node, None, scopes, False, False, self)
         current = newest
 
         while current:
@@ -108,6 +108,7 @@ class Engine:
                     current,
                     request.scopes,
                     request.allow_failures,
+                    request.disarm_bypass,
                     self
                 )
                 current = newest
@@ -129,7 +130,7 @@ class Engine:
                         # Pipeline and Block are "container" nodes - prefer child nodes over these
                         if isinstance(existing_ast, (comp.ast.Pipeline, comp.ast.Block)):
                             result.ast = current.node
-                result_bypass = self.bypass_value(result)
+                result_bypass = self.bypass_value(result, current)
                 frame_depth -= 1  # Decrement when stepping back to parent
                 current = current.previous
 
@@ -177,18 +178,26 @@ class Engine:
         # result is a Compute object - execute it using the engine
         return self.run(result.node, **result.scopes)
 
-    def bypass_value(self, value):
+    def bypass_value(self, value, frame=None):
         """Check if a value is a type that should be bypassed.
 
         Usually this means any fail value, but in the future this could be
         expanded so the engine can bypass and handle custom types.
         
+        The disarm_bypass flag on the frame causes bypass values to be treated
+        as normal data (!disarm operator).
+        
         Args:
             value (Value): Value to check for failure
+            frame (_Frame): Optional frame to check for disarm_bypass flag
             
         Returns:
-            bool: True if value contains a #fail tag
+            bool: True if value contains a #fail tag and should bypass
         """
+        # Check if disarm_bypass is enabled on the frame
+        if frame and frame.disarm_bypass:
+            return False  # Treat bypass values as normal data
+        
         return isinstance(value, comp.Value) and value.is_fail
 
 
@@ -201,27 +210,31 @@ class Compute:
     Args:
         node (AstNode): AST node to evaluate (required)
         allow_failures (bool): Whether this evaluation can receive fail values (default: False)
+        disarm_bypass (bool): Whether to treat bypass values as normal data (default: False)
         **scopes: Scope bindings for this evaluation (keyword arguments)
     """
 
-    __slots__ = ('node', 'allow_failures', 'scopes')
+    __slots__ = ('node', 'allow_failures', 'disarm_bypass', 'scopes')
 
-    def __init__(self, node, allow_failures=False, **scopes):
+    def __init__(self, node, allow_failures=False, disarm_bypass=False, **scopes):
         self.node = node
         self.scopes = {k.rstrip('_'): v for k, v in scopes.items()}
         self.allow_failures = allow_failures
+        self.disarm_bypass = disarm_bypass
 
     def __repr__(self):
         """Return string representation of Compute request.
         
         Returns:
-            str: Formatted string showing node, scopes, and allow_failures
+            str: Formatted string showing node, scopes, and flags
         """
         parts = [f"node={self.node!r}"]
         if self.scopes:
             parts.append(f"scopes={list(self.scopes.keys())}")
         if self.allow_failures:
             parts.append("allow_failures=True")
+        if self.disarm_bypass:
+            parts.append("disarm_bypass=True")
         return f"Compute({', '.join(parts)})"
 
 
@@ -244,14 +257,16 @@ class _Frame:
         previous (_Frame | None): Parent frame (None for root)
         scopes (dict): Scope bindings for this frame (merged with parent)
         allow_failures (bool): Whether this frame can receive failures
+        disarm_bypass (bool): Whether bypass values should be treated as normal data
         engine (Engine): Engine reference for function registry and fail_tag
     """
-    __slots__ = ('node', 'gen', 'previous', 'scopes', 'allowed', 'engine', 'handles')
+    __slots__ = ('node', 'gen', 'previous', 'scopes', 'allowed', 'disarm_bypass', 'engine', 'handles')
 
-    def __init__(self, node, previous, scopes, allow_failures, engine):
+    def __init__(self, node, previous, scopes, allow_failures, disarm_bypass, engine):
         self.node = node
         self.previous = previous
         self.allowed = allow_failures  # Can frame receive failure values? (modified as engine loops)
+        self.disarm_bypass = disarm_bypass  # Treat bypass values as data (for !disarm operator)
         self.engine = engine  # Temporary for function registry
         self.handles = set()  # HandleInstances reachable from this frame
 
@@ -307,7 +322,7 @@ class _Frame:
         Returns:
             bool: True if value is a fail value
         """
-        return self.engine.bypass_value(value)
+        return self.engine.bypass_value(value, frame=self)
 
     def __repr__(self):
         """Return string representation showing frame depth.

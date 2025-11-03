@@ -277,16 +277,13 @@ SLASH: "/"
 
 // === MODULE ASSIGNMENT ===
 // Module-level assignment to $mod: $mod.field.path = value
-// Allows literals, expressions, and structure literals (unlike tag values)
+// Allows any expression including literals, structures, and operators
 // Examples:
 //   $mod.server.port = 8000
 //   $mod.version = "1.0.0"
 //   $mod.config = {debug=1 timeout=30}
-module_assign: identifier _assignment_op module_value
-
-// Module values extend tag values to include structure literals
-// This allows: $mod.server = {port=8000 host="localhost"}
-module_value: structure | tag_value
+//   $mod.fail-map = {InterfaceError = !disarm #fail.interface}
+module_assign: identifier _assignment_op expression
 
 
 // === FUNCTION DEFINITION ===
@@ -447,12 +444,14 @@ LOGICAL_AND: "&&"
 LOGICAL_OR: "||"
 LOGICAL_NOT: "!!"
 BANG_DROP: "!drop"
+BANG_DISARM: "!disarm"
 
 ?or_expr: and_expr | or_expr LOGICAL_OR and_expr -> binary_op
 ?and_expr: not_expr | and_expr LOGICAL_AND not_expr -> binary_op
 ?not_expr: resource_expr | LOGICAL_NOT not_expr -> unary_op
 ?resource_expr: comparison 
               | BANG_DROP _qualified -> drop_op
+              | BANG_DISARM resource_expr -> disarm_op
 
 // Comparison operators
 EQUAL_EQUAL: "=="

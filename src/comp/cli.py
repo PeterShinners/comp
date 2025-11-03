@@ -154,7 +154,9 @@ def main():
             print("Usage: comp doc <file.comp>", file=sys.stderr)
             print("--rich   Use rich markdown formatting", file=sys.stderr)
             sys.exit(1)
-        has_rich = (args.remove("--rich") and True) if "--rich" in args else False
+        has_rich = "--rich" in args
+        if has_rich:
+            args.remove("--rich")
         _show_documentation(args[1], rich=has_rich)
         return
 
@@ -223,7 +225,7 @@ def main():
         # Execute the main function body
         in_ = comp.Value({})
         ctx = comp.Value({})
-        mod = comp.Value({})
+        mod = module.mod_scope if hasattr(module, 'mod_scope') else comp.Value({})
         arg = comp.Value({})
         var = comp.Value({})
         result = engine.run(module.main_func, module=module, in_=in_, ctx=ctx, mod=mod, arg=arg, var=var)
@@ -319,7 +321,9 @@ def _show_documentation(filepath_str, rich):
                     #     continue
                     key = key.unparse().strip('"')
                     value = value.unparse()
-                    output(f"- `{key}` = `{value}`")
+                    if len(value) > 50:
+                        value = value[:47] + "..."
+                    output(f"- `{key}`  (private) = `{value}`")
                 output()
 
         # Show shapes
@@ -327,10 +331,12 @@ def _show_documentation(filepath_str, rich):
             output("## Shapes")
             output()
             for shape_name, shape_def in module.shapes.items():
-                #shape_display = shape_name if shape_name.startswith('~') else f"~{shape_name}"
-                output(f"- `{shape_name}` {_summarize(shape_def.doc)}")
+                shape_display = f"~{shape_name}"
+                if shape_def.is_private:
+                    shape_display += " (private)"
+                output(f"- `{shape_display}` {_summarize(shape_def.doc)}")
                 impl = shape_def.unparse().split("=", 1)[-1].strip()
-                output(f"  - `{impl}`")
+                output(f"  - `{impl}` {shape_def.doc}")
             output()
 
         # Show functions
@@ -338,9 +344,11 @@ def _show_documentation(filepath_str, rich):
             output("## Functions")
             output()
             for func_name, func_defs in module.functions.items():
-                #func_display = func_name if func_name.startswith('|') else f"|{func_name}"
+                func_display = f"|{func_name}"
+                if all(f.is_private for f in func_defs):
+                    func_display += " (private)"
                 doc = " ".join(_summarize(f.doc) for f in func_defs if f.doc)
-                output(f"- `{func_name}` {doc}")
+                output(f"- `{func_display}` {doc}")
 
                 # Functions can have multiple definitions (polymorphism)
                 for func_def in func_defs:
@@ -358,19 +366,39 @@ def _show_documentation(filepath_str, rich):
             output("## Tags")
             output()
             for tag_name, tag_def in module.tags.items():
-                tag_display = tag_name if tag_name.startswith('#') else f"#{tag_name}"
+                tag_display = f"#{tag_name}"
                 value_str = tag_def.value.unparse() if hasattr(tag_def, 'value') and tag_def.value else ""
+                depth = tag_name.count(".")
+                indent = "  " * depth
                 if value_str:
-                    output(f"- `{tag_display}` = `{value_str}`")
+                    output(f"{indent}- `{tag_display}` = `{value_str}`")
                 else:
-                    output(f"- `{tag_display}`")
+                    output(f"{indent}- `{tag_display}`")
+            output()
+
+        # Show handles
+        if module.handles:
+            output("## Handles")
+            output()
+            for handle_name, handle_def in module.handles.items():
+                if handle_def.is_private:
+                    handle_name += " (private)"
+                handle_display = handle_name if handle_name.startswith('@') else f"@{handle_name}"
+                doc = handle_def.doc
+                doc_str = f" {doc}" if doc else ""
+                output(f"- `{handle_display}`{doc_str}")
             output()
 
         if rich:
-            import rich.markdown, rich.console
-            console = rich.console.Console()
-            markdown = rich.markdown.Markdown(buffer.getvalue())
-            console.print(markdown)
+            try:
+                import rich.markdown, rich.console
+                # Use default rich console with legacy_windows=False for modern terminal support
+                console = rich.console.Console(legacy_windows=False)
+                markdown = rich.markdown.Markdown(buffer.getvalue())
+                console.print(markdown)
+            except ImportError:
+                print("Warning: 'rich' module not installed. Install with: pip install comp[rich]", file=sys.stderr)
+                print(buffer.getvalue().replace("`", ""))
         else:
             print(buffer.getvalue().replace("`", ""))
 

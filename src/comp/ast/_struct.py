@@ -43,7 +43,7 @@ class Structure(_base.ValueNode):
         """
         out_struct = comp.Value({})
         for op in self.ops:
-            yield comp.Compute(op, struct_accumulator=out_struct)
+            yield comp.Compute(op, disarm_bypass=frame.disarm_bypass, struct_accumulator=out_struct)
         return out_struct
 
     def unparse(self) -> str:
@@ -222,8 +222,8 @@ class FieldOp(StructOp):
         if accumulator is None or not accumulator.is_struct:
             return comp.fail("FieldOp requires struct_accumulator scope")
 
-        # Evaluate the value first
-        value_value = yield comp.Compute(self.value)
+        # Evaluate the value first (propagate disarm_bypass for fallback handlers)
+        value_value = yield comp.Compute(self.value, disarm_bypass=frame.disarm_bypass)
         if frame.bypass_value(value_value):
             return value_value
 

@@ -526,10 +526,9 @@ class ModuleAssign(ModuleOp):
         if not hasattr(module, 'mod_scope'):
             module.mod_scope = comp.Value({})
 
-        # Evaluate the value
-        value_result = yield comp.Compute(self.value)
-        if frame.bypass_value(value_result):
-            return value_result
+        # Evaluate the value with disarm_bypass=True to allow fail tags in module constants
+        # Don't check bypass_value since we explicitly disarmed the evaluation
+        value_result = yield comp.Compute(self.value, disarm_bypass=True)
 
         # Navigate the path (skipping the $mod ScopeField)
         current_dict = module.mod_scope.struct

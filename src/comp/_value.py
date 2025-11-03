@@ -227,15 +227,18 @@ class Value(_entity.Entity):
         if not self.is_struct:
             return False
 
+        # Import Unnamed for key type checking
+        from comp._value import Unnamed
+
         # Get the builtin #fail tag definition
         try:
             builtin = comp.get_builtin_module()
             fail_tag_def = builtin.lookup_tag(["fail"])
         except (ValueError, AttributeError):
             # Fallback during early initialization when builtin module may not be ready
-            # Use string matching as fallback
-            for val in self.data.values():
-                if val.is_tag:
+            # Use string matching as fallback - MUST ONLY CHECK UNNAMED FIELDS!
+            for key, val in self.data.items():
+                if isinstance(key, Unnamed) and val.is_tag:
                     name = val.data.full_name
                     if name == "fail" or name.startswith("fail."):
                         return True

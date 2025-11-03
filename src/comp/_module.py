@@ -164,16 +164,19 @@ class HandleDefinition(_entity.Entity):
         path (list of str): Full path as list, e.g., ["file", "readonly", "text"]
         module (Module): The Module this handle is defined in
         is_private (bool): Whether this handle is private to the module
+        doc (str | None): Optional documentation string
 
     Attributes:
         path (list of str): Full path as list, e.g., ["file", "readonly", "text"]
         module (Module): The Module this handle is defined in
         is_private (bool): Whether this handle is private to the module
+        doc (str | None): Optional documentation string
     """
-    def __init__(self, path, module, is_private=False):
+    def __init__(self, path, module, is_private=False, doc=None):
         self.path = path
         self.module = module
         self.is_private = is_private
+        self.doc = doc
 
     @property
     def name(self):
@@ -635,26 +638,31 @@ class Module(_entity.Entity):
 
         return tag_def
 
-    def define_handle(self, path, is_private=False):
+    def define_handle(self, path, is_private=False, doc=None):
         """Register a handle definition.
 
         Args:
             path (list of str): Full path in definition order, e.g., ["file", "readonly", "text"]
             is_private (bool): Whether this handle is private to the module
+            doc (str | None): Optional documentation string
 
         Returns:
             HandleDefinition: The HandleDefinition object
 
         Notes:
             - Multiple definitions of the same handle merge
+            - Documentation from later definitions overwrites earlier ones
         """
         full_name = ".".join(path)
 
         if full_name in self.handles:
             handle_def = self.handles[full_name]
+            # Update doc if provided (allows re-documenting)
+            if doc is not None:
+                handle_def.doc = doc
         else:
             # Create new handle definition
-            handle_def = HandleDefinition(path=path, module=self, is_private=is_private)
+            handle_def = HandleDefinition(path=path, module=self, is_private=is_private, doc=doc)
             self.handles[full_name] = handle_def
 
         return handle_def

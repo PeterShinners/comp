@@ -335,6 +335,10 @@ class PipeFallback(PipelineOp):
     Only called when $in is a failure. Return new structure to take
     its place. Results should be structure, or will be promoted into
     a structure.
+    
+    The handler evaluates with disarm_bypass=True, allowing it to inspect
+    the failure value in $in without causing propagation. This enables
+    handlers to examine failure tags and convert them to success values.
 
     Args:
         fallback: Expression to evaluate when handling a fail
@@ -346,8 +350,17 @@ class PipeFallback(PipelineOp):
         self.fallback = fallback
 
     def evaluate(self, frame):
-        value = (yield comp.Compute(self.fallback))
-        value = value.as_struct()
+        # Get the current pipeline value from $in scope (which contains the failure)
+        input_value = frame.scope('in')
+        if input_value is None:
+            return comp.fail("PipeFallback requires $in scope")
+        
+        # Evaluate with disarm_bypass=True so handler can inspect $in failure
+        value = (yield comp.Compute(self.fallback, disarm_bypass=True, in_=input_value))
+        
+        if not value.is_struct:
+            value = value.as_struct()
+        
         return value
 
     def unparse(self) -> str:
