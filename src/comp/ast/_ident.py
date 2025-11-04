@@ -308,6 +308,10 @@ class PrivateField(_base.FieldNode):
         if current is None:
             return comp.fail("Cannot access private data without a value")
         
+        # Pure functions cannot access private data on handles (side effects)
+        if frame.pure_context and current.is_handle:
+            return comp.fail("Cannot access handle private data in pure function (pure functions cannot have side effects)")
+        
         # Get current module from scope
         module = frame.scope('module')
         if module is None:

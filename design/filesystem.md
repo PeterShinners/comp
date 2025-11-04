@@ -69,9 +69,9 @@ $var.entries = [$var.dir |list]
 $var.files = [$var.entries |filter :{type == #file}]
 ```
 
-## Permission Model
+## Pure integration
 
-Integrates with Comp's capability system:
+The filesystem is a resource that pure code cannot access:
 - Directory handles require 'resource' permission to create
 - Operations inherit handle's permissions
 - No ambient filesystem access in pure functions

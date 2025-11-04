@@ -342,8 +342,10 @@ class FunctionDefinition(_entity.Entity):
         var_scope = comp.Value({})  # Empty local scope
 
         # Build and return Compute object
+        # If this is a pure function, set pure_context=True to enforce purity
         return comp.Compute(
             self.body,
+            pure_context=self.is_pure,
             in_=input_value,
             arg=arg_scope,
             ctx=ctx_scope_morphed,
@@ -462,9 +464,14 @@ class Block:
         var_scope = block_frame.scope('var') or comp.Value({})
         arg_scope = block_frame.scope('arg')
 
+        # Check if block was defined in pure context - if so, it must execute in pure context
+        # This ensures blocks from pure functions maintain purity when invoked
+        pure_context = block_frame.pure_context
+
         # Build Compute object with captured context + new $in
         return comp.Compute(
             block_ast.body,
+            pure_context=pure_context,
             in_=input_value,
             ctx=ctx_scope,
             var=var_scope,

@@ -160,6 +160,10 @@ class GrabOp(_base.ValueNode):
         Returns:
             comp.Value wrapping comp.HandleInstance
         """
+        # Pure functions cannot grab handles (side effects)
+        if frame.pure_context:
+            return comp.fail("Cannot !grab in pure function (pure functions cannot have side effects)")
+        
         # Get module from scope
         module = frame.scope('module')
         if module is None:

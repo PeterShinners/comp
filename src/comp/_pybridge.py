@@ -9,19 +9,19 @@ This module provides Pythonic interfaces for:
 Example:
     import comp
     
-    # Load a comp module
-    sqlite = comp.load_module("comp", "stdlib/sqlite.comp")
+    # Load a .comp module from stdlib (same as: !import /sqlite = comp "sqlite")
+    sqlite = comp.module("comp", "sqlite")
     
     # Call functions with automatic conversion
-    db = sqlite.func.connect(input="demo.db")
+    db = sqlite.func.database_file(input="demo.db")
     
     # Access tags
-    success_tag = sqlite.tag.success
+    fail_db = sqlite.tag.fail_database
 """
 
 __all__ = [
     "CompError",
-    "load_module",
+    "module",
     "from_python",
     "to_python",
     "parse_value",
@@ -29,7 +29,6 @@ __all__ = [
 ]
 
 import decimal
-import pathlib
 
 import comp
 
@@ -51,7 +50,7 @@ class CompError(Exception):
             failure: Comp Value that is a failure
         """
         self.failure = failure
-        self.message = comp.format_failure(failure)
+        self.message = comp.builtin.format_failure(failure)
         super().__init__(self.message)
     
     def __str__(self):
@@ -514,67 +513,70 @@ class ModuleProxy:
         return f"<CompModule: {self._module.module_id}>"
 
 
-def load_module(source, path):
+def module(source, path):
     """Load a Comp module and return a Python proxy.
     
+    Uses the same loading logic as Comp's !import statement, properly handling
+    module preparation and namespace resolution.
+    
     Args:
-        source: Import source type ("comp", "stdlib", etc.)
-        path: Module path (filepath for "comp", module name for "stdlib")
+        source: Import source type ("comp" or "stdlib")
+        path: Module path
+              - "comp": relative path like "sqlite" or "./lib/utils" (loads .comp files)
+              - "stdlib": Python-implemented module name like "python", "str", "num", "tag"
         
     Returns:
         ModuleProxy: Pythonic interface to the module
         
     Raises:
-        FileNotFoundError: If module file not found
+        FileNotFoundError: If module file not found (comp source)
+        ValueError: If module not found (stdlib source) or preparation fails
         comp.ParseError: If module has syntax errors
         CompError: If module evaluation fails
         
     Examples:
-        # Load from filesystem
-        >>> utils = comp.load_module("comp", "lib/utils.comp")
+        # Load .comp file from stdlib directory (same as: !import /sqlite = comp "sqlite")
+        >>> sqlite = comp.module("comp", "sqlite")
+        >>> db = sqlite.func.database_file(input="demo.db")
+        
+        # Load Python-implemented stdlib module (same as: !import /py = stdlib "python")
+        >>> py = comp.module("stdlib", "python")
+        >>> obj = py.func.lookup(input="sys.platform")
+        
+        # Load from filesystem (same as: !import /utils = comp "utils")
+        >>> utils = comp.module("comp", "utils")
         >>> result = utils.func.process(input=data)
         
-        # Load from stdlib
-        >>> sqlite = comp.load_module("stdlib", "sqlite")
-        >>> db = sqlite.func.connect(input="demo.db")
+        # Load with relative path (same as: !import /lib = comp "./lib/utils")
+        >>> lib = comp.module("comp", "./lib/utils")
     """
-    # Handle different source types
-    if source == "comp":
-        # Load from filesystem
-        filepath = pathlib.Path(path)
-        if not filepath.exists():
-            raise FileNotFoundError(f"Module file not found: {filepath}")
+    # Create engine for module execution
+    engine = comp.Engine()
+    
+    # Handle different source types using the same logic as ImportDef
+    if source == "stdlib":
+        # Load from stdlib using corelib (same as ImportDef.evaluate)
+        imported_module = comp.corelib.get_stdlib_module(path)
+        if imported_module is None:
+            raise ValueError(f"Standard library module '{path}' not found")
         
-        code = filepath.read_text(encoding="utf-8")
-        ast_module = comp.parse_module(code, filename=str(filepath))
+        return ModuleProxy(imported_module, engine)
         
-    elif source == "stdlib":
-        # Load from stdlib using corelib
-        module = comp.corelib.get_stdlib_module(path)
-        if module is None:
-            raise ValueError(f"Stdlib module '{path}' not found")
-        return ModuleProxy(module)
+    elif source == "comp":
+        # Load from filesystem using the same loader as ImportDef (in _loader.py)
+        from comp.ast._loader import load_comp_module
+        
+        try:
+            imported_module = load_comp_module(path, engine)
+            if imported_module is None:
+                raise ValueError(f"Failed to load module from '{path}'")
+            
+            return ModuleProxy(imported_module, engine)
+            
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f"Module not found: {e}") from e
+        except Exception as e:
+            raise ValueError(f"Error loading module: {e}") from e
         
     else:
-        raise ValueError(f"Unknown import source: {source}")
-    
-    # Create engine and evaluate module
-    engine = comp.Engine()
-    module_result = engine.run(ast_module)
-    
-    # Check for failure
-    if isinstance(module_result, comp.Value) and module_result.is_fail:
-        raise CompError(module_result)
-    
-    if not isinstance(module_result, comp.Module):
-        raise ValueError(f"Expected Module, got {type(module_result).__name__}")
-    
-    module = module_result
-    
-    # Prepare the module
-    try:
-        module.prepare(ast_module, engine)
-    except ValueError as e:
-        raise ValueError(f"Module preparation error: {e}")
-    
-    return ModuleProxy(module, engine)
+        raise ValueError(f"Unknown import source '{source}' (use 'comp' or 'stdlib')")

@@ -442,22 +442,26 @@ def call_function(frame, input_value, args=None):
         pos, kwargs = _extract_call_args(input_value)
         python_result = func_obj(*pos, **kwargs)
         
-        # Wrap result as a @py-handle
-        # Get the module to access @py-handle definition
-        module = frame.scope('module')
-        if module is None:
-            return comp.fail("call-func requires module scope")
-        
-        py_handle_def = module.lookup_handle(["py-handle"], None)
-        handle_instance = comp.HandleInstance(py_handle_def)
-        
-        # Create a Value wrapping the handle, and store the Python object in private data
-        handle_value = comp.Value(handle_instance)
-        # Wrap the Python object to prevent Value constructor conversion (e.g., tuples -> structs)
-        wrapper = _PythonObjectWrapper(python_result)
-        handle_value.set_private('__python_object__', comp.Value(wrapper))
-        
-        return handle_value
+        # Smart conversion: auto-convert simple types, wrap complex types as handles
+        if python_result is None or isinstance(python_result, (bool, int, float, str, list, dict)):
+            # Simple types: convert directly to Comp values
+            return _python_to_comp(python_result)
+        else:
+            # Complex types (objects, modules, functions): wrap as @py-handle
+            module = frame.scope('module')
+            if module is None:
+                return comp.fail("call-func requires module scope")
+            
+            py_handle_def = module.lookup_handle(["py-handle"], None)
+            handle_instance = comp.HandleInstance(py_handle_def)
+            
+            # Create a Value wrapping the handle, and store the Python object in private data
+            handle_value = comp.Value(handle_instance)
+            # Wrap the Python object to prevent Value constructor conversion (e.g., tuples -> structs)
+            wrapper = _PythonObjectWrapper(python_result)
+            handle_value.set_private('__python_object__', comp.Value(wrapper))
+            
+            return handle_value
     except Exception as e:
         # Map exception to specific fail tag if exception-tags mapping is provided
         fail_tag = None
@@ -483,6 +487,115 @@ def call_function(frame, input_value, args=None):
                 exception_type=type(e).__name__,
                 exception_module=type(e).__module__,
             )
+
+
+def call_str(frame, input_value, args=None):
+    """Pure string method call - only allows str type and safe string methods.
+    
+    This is a pure function that can be called from pure Comp functions.
+    It validates that the input is a string and only allows calling methods
+    from a safe allowlist of pure string methods.
+    
+    Input can be:
+    - A string (scalar): for simple method calls with no arguments
+    - A struct with 'self' field: 'self' is the string, other fields become method arguments
+      - Named fields become keyword arguments
+      - Unnamed fields become positional arguments
+    
+    Args:
+        frame: Execution frame
+        input_value: Comp Value - string or struct with 'self' string field
+        args: Comp Value - string with method name
+        
+    Returns:
+        comp.Value: Result of the string method call (auto-converted to Comp value)
+        
+    Example:
+        ["hello" |call-str "upper"]  → "HELLO"
+        [{self="hello" "l" "r"} |call-str "replace"]  → "herro"  (positional args)
+        [{self="hello" fillchar="=" width=10} |call-str "center"]  → "===hello=="  (keyword args)
+    """
+    if False:  # Make this a generator
+        yield
+    
+    # Extract method name from args
+    if args is None:
+        return comp.fail("call-str requires method name argument")
+    
+    # Args might be a struct with unnamed field wrapping the string
+    if args.is_struct:
+        # Check for unnamed field
+        for key, val in args.struct.items():
+            if isinstance(key, comp.Unnamed) and val.is_string:
+                method_name = val.data
+                break
+        else:
+            return comp.fail(f"call-str requires string method name, got struct without unnamed string: {args}")
+    elif args.is_string:
+        method_name = args.data
+    else:
+        return comp.fail(f"call-str requires string method name, got {type(args.data).__name__}")
+    
+    # Extract string value and method arguments from input
+    input_scalar = input_value.as_scalar()
+    
+    if input_scalar.is_string:
+        # Simple string input: no method arguments
+        target_string = input_scalar.data
+        method_args = comp.Value({})
+    elif input_scalar.is_struct:
+        # Struct input: extract 'self' field as the string, rest are method arguments
+        self_key = comp.Value("self")
+        if self_key not in input_scalar.struct:
+            return comp.fail("call-str struct input requires 'self' field with string value")
+        
+        target_value = input_scalar.struct[self_key].as_scalar()
+        if not isinstance(target_value.data, str):
+            return comp.fail(f"call-str 'self' field must be string, got {type(target_value.data).__name__}")
+        
+        target_string = target_value.data
+        # Extract method arguments (everything except 'self')
+        method_args = comp.Value({k: v for k, v in input_scalar.struct.items() if k != self_key})
+    else:
+        return comp.fail(f"call-str requires string or struct input, got {type(input_scalar.data).__name__}")
+    
+    # Allowlist of safe pure string methods
+    SAFE_STRING_METHODS = {
+        'upper', 'lower', 'capitalize', 'title', 'swapcase', 'casefold',
+        'strip', 'lstrip', 'rstrip', 'removeprefix', 'removesuffix',
+        'split', 'rsplit', 'splitlines', 'partition', 'rpartition',
+        'join', 'replace', 'translate', 'maketrans',
+        'center', 'ljust', 'rjust', 'zfill', 'expandtabs',
+        'startswith', 'endswith', 'find', 'rfind', 'index', 'rindex',
+        'count', 'format', 'format_map',
+        'isalnum', 'isalpha', 'isascii', 'isdecimal', 'isdigit',
+        'isidentifier', 'islower', 'isnumeric', 'isprintable',
+        'isspace', 'istitle', 'isupper',
+        '__len__', '__contains__', '__getitem__',
+    }
+    
+    if method_name not in SAFE_STRING_METHODS:
+        return comp.fail(f"call-str: method '{method_name}' not in safe list")
+    
+    # Get the method
+    try:
+        method = getattr(target_string, method_name)
+    except AttributeError:
+        return comp.fail(f"call-str: string has no method '{method_name}'")
+    
+    # Convert arguments to Python
+    pos, kwargs = _extract_call_args(method_args)
+    
+    # Call the method
+    try:
+        result = method(*pos, **kwargs)
+    except Exception as e:
+        return comp.fail(f"call-str '{method_name}' failed: {e}")
+    
+    # Auto-convert result to Comp value
+    compresult = _python_to_comp(result)
+    compresult = compresult.as_struct()
+    return compresult
 
 
 def call_method(frame, input_value, args=None):
@@ -570,19 +683,24 @@ def call_method(frame, input_value, args=None):
         func = getattr(target, method_name)
         python_result = func(*pos, **kwargs)
         
-        # Wrap result as a @py-handle (same pattern as call_function)
-        module = frame.scope('module')
-        if module is None:
-            return comp.fail("call requires module scope")
-        
-        py_handle_def = module.lookup_handle(["py-handle"], None)
-        handle_instance = comp.HandleInstance(py_handle_def)
-        
-        handle_value = comp.Value(handle_instance)
-        wrapper = _PythonObjectWrapper(python_result)
-        handle_value.set_private('__python_object__', comp.Value(wrapper))
-        
-        return handle_value
+        # Smart conversion: auto-convert simple types, wrap complex types as handles
+        if python_result is None or isinstance(python_result, (bool, int, float, str, list, dict)):
+            # Simple types: convert directly to Comp values
+            return _python_to_comp(python_result)
+        else:
+            # Complex types (objects, modules, functions): wrap as @py-handle
+            module = frame.scope('module')
+            if module is None:
+                return comp.fail("call requires module scope")
+            
+            py_handle_def = module.lookup_handle(["py-handle"], None)
+            handle_instance = comp.HandleInstance(py_handle_def)
+            
+            handle_value = comp.Value(handle_instance)
+            wrapper = _PythonObjectWrapper(python_result)
+            handle_value.set_private('__python_object__', comp.Value(wrapper))
+            
+            return handle_value
     except Exception as e:
         # Map exception to specific fail tag if exception-tags mapping is provided
         fail_tag = None
@@ -719,6 +837,17 @@ def create_module():
         path=["call-func"],
         python_func=call_function,
         arg_shape="~{name ~str exception-tags ~struct={}}",
+    )
+
+    # Pure string method call - for use in pure Comp functions
+    # Input can be string (scalar) or struct with 'self' field
+    # Arg is just the method name as a string
+    module.define_py_function(
+        path=["call-str"],
+        python_func=call_str,
+        input_shape="~any",  # Accept string or struct with 'self'
+        arg_shape="~str",  # Method name as string
+        is_pure=True,
     )
 
     # Register two overloads of |call:

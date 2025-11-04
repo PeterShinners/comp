@@ -1,19 +1,19 @@
 !import /loop = comp "loop"
 
 
-!func |assert-infinite ~any = {
+!func |equal-infinite ~any = {
     $var.stream = [|infinite start=5 step=2]
     $var.data = {[|:$var.stream] [|:$var.stream] [|:$var.stream]}
-    $var.data == {5 7 9}
+    $var.data {5 7 9}
 }
 
-!func |assert-range ~any = {
+!func |equal-range ~any = {
     $var.numbers = [|range start=2 end=10 step=3]
     $var.x = [$var.numbers |print]
-    $var.numbers == {2 5 8}
+    $var.numbers {2 5 8}
 }
 
-!func |assert-iter ~any = {
+!func |equal-iter ~any = {
     $var.data = {a=10 b=20 c=30}
     $var.block = :{
         [$in |print]
@@ -21,11 +21,11 @@
         $in.value
     }
     $var.result = [|iter $var.data $var.block]
-    $var.result == {10 20 30}
+    $var.result {10 20 30}
 }
 
-!func |assert-subscript ~any = {
+!func |equal-subscript ~any = {
     $var.data = {x=5 y=10 z=15}
     $var.item = [$var.data |subscript index=1]
-    $var.item.value == 10
+    $var.item.value 10
 }

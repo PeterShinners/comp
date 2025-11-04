@@ -636,9 +636,16 @@ def _morph_struct(value, shape, was_wrapped=False):
     tag_shape_fields = {}  # field_name -> (shape_field, tag_def)
     for field in shape_fields:
         if field.is_named and field.name in named_shape_fields and field.shape is not None:
-            # Check if the shape constraint is a TagRef (tag type)
-            if isinstance(field.shape, comp.Value) and field.shape.is_tag:
+            # Check if the shape constraint is a TagDefinition (direct) or Value wrapping a tag
+            tag_def = None
+            if isinstance(field.shape, comp.TagDefinition):
+                # Direct TagDefinition in shape field
+                tag_def = field.shape
+            elif isinstance(field.shape, comp.Value) and field.shape.is_tag:
+                # Value wrapping a TagRef
                 tag_def = field.shape.data.tag_def
+            
+            if tag_def is not None:
                 tag_shape_fields[field.name] = (field, tag_def)
     
     # Find unnamed tag values in input
@@ -777,12 +784,22 @@ def _morph_struct(value, shape, was_wrapped=False):
     # Build result structure (matched fields + extra fields)
     result_struct = {}
 
-    # Add all matched fields
+    # Add matched fields in shape definition order
+    # First add named fields in the order they appear in shape
+    for field in shape_fields:
+        if field.is_named:
+            field_key = comp.Value(field.name)
+            if field_key in matched_fields:
+                _shape_field, morphed_value = matched_fields[field_key]
+                result_struct[field_key] = morphed_value
+    
+    # Then add positional fields (they maintain their order via Unnamed keys)
     for field_key, (_shape_field, morphed_value) in matched_fields.items():
-        result_struct[field_key] = morphed_value
+        if isinstance(field_key, comp.Unnamed):
+            result_struct[field_key] = morphed_value
 
     # Add extra fields (not in shape) - pass through unchanged
-    # Exclude positional fields that were paired with named fields in Phase 2.5
+    # Exclude positional fields that were paired with named fields in Phase 3b
     for field_key, field_value in unmatched_value_fields:
         if field_key not in matched_fields and field_key not in paired_positional_keys:
             result_struct[field_key] = field_value

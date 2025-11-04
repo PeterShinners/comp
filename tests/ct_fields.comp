@@ -1,14 +1,14 @@
 ; Field index access tests migrated from Python to Comp DSL
 
-!func |assert-literal-index ~{} = {
+!func |equal-literal-index ~{} = {
     $var.data = {10 20 30}
-    $var.data.#1 == 20
+    $var.data.#1 20
 }
 
-!func |assert-computed-index ~{} = {
+!func |equal-computed-index ~{} = {
     $var.index = 1
     $var.data = {10 20 30 40 50}
-    $var.data.#($var.index + 1) == 30
+    $var.data.#($var.index + 1) 30
 }
 
 !doc "out of bounds"

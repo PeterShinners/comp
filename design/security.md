@@ -33,12 +33,55 @@ The runtime provides a single `resource` token that controls access to all exter
 }
 ```
 
-## Pure Function Guarantees
+## Pure Functions
 
-Pure functions execute in a completely empty context with no access to resources. The `!pure` decorator isn't just a hint—it creates hard enforcement at runtime. These functions literally cannot access the outside world because the resource token doesn't exist in their context.
+Pure functions execute in a completely resource-free context with strict enforcement. The `pure` keyword is placed before the function name: `!func pure |name ...`. This creates hard runtime enforcement—these functions literally cannot access the outside world.
+
+### Syntax
+
+```comp
+; Pure function - keyword before function name
+!func pure |fibonacci ~{n ~num} = {
+    [n |if :{$in <= 1} :{$in} :{
+        $var.a = [n - 1 |fibonacci]
+        $var.b = [n - 2 |fibonacci]
+        $var.a + $var.b
+    }]
+}
+
+!func pure |validate-email ~{email ~str} = {
+    [$in.email |match/str "^[^@]+@[^@]+$"]
+}
+
+!func pure |transform ~{data} = {
+    [$in.data |normalize |validate]
+}
+```
+
+### Enforcement Mechanisms
+
+Pure functions are enforced through multiple runtime checks:
+
+1. **Pure context flag** - When a pure function is invoked, the execution frame is marked with `pure_context=True`. This flag propagates to all child frames and cannot be revoked.
+
+2. **Function call restrictions** - Pure functions can only call other pure functions. Attempting to call a non-pure function from pure context fails immediately with: `"Cannot call non-pure function |name from pure context (pure functions can only call other pure functions)"`
+
+3. **Handle operations blocked** - The `!grab` operator checks the frame's pure context and fails if active: `"Cannot !grab in pure function (pure functions cannot have side effects)"`
+
+4. **Private data restrictions** - Accessing private data on handles fails in pure context: `"Cannot access handle private data in pure function (pure functions cannot have side effects)"`
+   - Note: Private data on non-handle values is allowed (no side effects)
+
+5. **Block purity propagation** - Blocks created in pure functions maintain pure context when invoked later, even if invoked from non-pure code.
+
+6. **Module assignments** - All `$mod.field = value` assignments evaluate in pure context to prevent side effects in module constants.
+
+7. **Tag value expressions** - Tag value expressions (`!tag #name = expr`) evaluate in pure context to prevent side effects in tag definitions.
 
 ### What Pure Functions Cannot Do
 
+- **No handle operations** - Cannot `!grab` handles (side effects)
+- **No handle private data** - Cannot access `&` private data on handles (side effects)
+- **No non-pure function calls** - Cannot call functions that aren't marked `pure`
 - **No filesystem access** - Cannot read/write files or directories
 - **No network operations** - Cannot make HTTP requests or open sockets
 - **No system information** - Cannot access time, random numbers, or environment
@@ -49,14 +92,14 @@ Pure functions execute in a completely empty context with no access to resources
 ### What Pure Functions Can Do
 
 - **Computation** - Any deterministic calculation on input data
-- **Pass resources through** - Resources can flow through without being accessed
+- **Call pure functions** - Build complex pure computations by calling other pure functions
 - **Create blocks** - Blocks inherit purity from their creation context
 - **Handle errors** - Full error handling with `|?` and `??` operators
-- **Call other pure functions** - Build complex pure computations
+- **Access private data** - Can access private data on non-handle values (no side effects)
+- **Pass resources through** - Resources can flow through without being accessed
 
 ```comp
-!pure
-!func |calculate ~{input} = {
+!func pure |calculate ~{input} = {
     ; Can do complex computation
     result = $in |validate |process |optimize
     
@@ -65,6 +108,9 @@ Pure functions execute in a completely empty context with no access to resources
         ; Error handlers run in pure context too
         {#calculation-failed value=$in}
     }
+    
+    ; Can call other pure functions
+    final = [safe-result |other-pure-func]
     
     ; Can pass resources through without accessing
     {result resource=input.resource}  ; Resource passes through untouched
@@ -181,14 +227,53 @@ The single resource token model provides real, enforceable benefits:
 
 This binary distinction—pure or not—is honest about what can actually be enforced while providing genuine value for optimization and reasoning about code.
 
+## Implementation Details
+
+### Pure Context Propagation
+
+The `pure_context` flag on execution frames ensures purity is maintained:
+
+1. When a pure function is invoked, `FunctionDefinition.invoke()` sets `pure_context=True` in the Compute object
+2. The engine creates a frame with `pure_context=True`
+3. Child frames inherit `pure_context` from parent frames
+4. Once `pure_context=True`, it cannot be revoked within that execution chain
+5. Blocks capture the frame's `pure_context` when created, maintaining it when invoked later
+
+### Module Constants and Tag Values
+
+Module assignments and tag values are evaluated in pure context:
+
+- `$mod.field = expression` evaluates `expression` with `pure_context=True`
+- `!tag #name = expression` evaluates `expression` with `pure_context=True`
+- This prevents side effects in module constants and tag definitions
+- Values are evaluated with `disarm_bypass=True`, so failures are stored as values
+
+### Blocks from Pure Functions
+
+Blocks created in pure functions maintain pure context:
+
+```comp
+!func pure |make-processor ~{} = {
+    ; Block created in pure context
+    processor = :{result = [|some-func]}
+}
+
+!func |invoke-block ~{b ~block} = {
+    ; Block maintains pure context when invoked
+    ; Can only call pure functions, cannot !grab, etc.
+    [{}|:b]
+}
+```
+
+This ensures that deferred computations from pure functions remain pure, even when invoked from non-pure code.
+
 ## Security Patterns
 
 The simplified model enables clear security patterns:
 
 ```comp
 ; Validate untrusted data with pure functions
-!pure
-!func |validate-input ~{data} = {
+!func pure |validate-input ~{data} = {
     ; Cannot access filesystem, network, or state
     ; Perfect for untrusted data validation
     data |check-format |verify-constraints

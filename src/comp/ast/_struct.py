@@ -321,6 +321,7 @@ class FieldOp(StructOp):
         else:
             # Normal field: evaluate to get key
             # This handles String, Number, or any other _base.ValueNode
+            raise RuntimeError(f"FieldOp should not be literal {type(field_node)} {field_node}")
             key_value = yield comp.Compute(field_node)
             return key_value
 

@@ -65,8 +65,8 @@ class Engine:
         if 'in_' in scopes:
             scopes['in'] = scopes.pop('in_')
 
-        # Create initial frame
-        newest = _Frame(node, None, scopes, False, False, self)
+        # Create initial frame (not in pure context)
+        newest = _Frame(node, None, scopes, False, False, False, self)
         current = newest
 
         while current:
@@ -109,6 +109,7 @@ class Engine:
                     request.scopes,
                     request.allow_failures,
                     request.disarm_bypass,
+                    request.pure_context,
                     self
                 )
                 current = newest
@@ -211,16 +212,18 @@ class Compute:
         node (AstNode): AST node to evaluate (required)
         allow_failures (bool): Whether this evaluation can receive fail values (default: False)
         disarm_bypass (bool): Whether to treat bypass values as normal data (default: False)
+        pure_context (bool): Whether to enter pure context for this evaluation (default: False)
         **scopes: Scope bindings for this evaluation (keyword arguments)
     """
 
-    __slots__ = ('node', 'allow_failures', 'disarm_bypass', 'scopes')
+    __slots__ = ('node', 'allow_failures', 'disarm_bypass', 'pure_context', 'scopes')
 
-    def __init__(self, node, allow_failures=False, disarm_bypass=False, **scopes):
+    def __init__(self, node, allow_failures=False, disarm_bypass=False, pure_context=False, **scopes):
         self.node = node
         self.scopes = {k.rstrip('_'): v for k, v in scopes.items()}
         self.allow_failures = allow_failures
         self.disarm_bypass = disarm_bypass
+        self.pure_context = pure_context
 
     def __repr__(self):
         """Return string representation of Compute request.
@@ -235,6 +238,8 @@ class Compute:
             parts.append("allow_failures=True")
         if self.disarm_bypass:
             parts.append("disarm_bypass=True")
+        if self.pure_context:
+            parts.append("pure_context=True")
         return f"Compute({', '.join(parts)})"
 
 
@@ -249,6 +254,7 @@ class _Frame:
     - Failure checking
     - Function calls
     - Handle tracking (for automatic cleanup)
+    - Pure context tracking (for enforcing function purity)
 
     The generator is created automatically during initialization.
 
@@ -258,17 +264,33 @@ class _Frame:
         scopes (dict): Scope bindings for this frame (merged with parent)
         allow_failures (bool): Whether this frame can receive failures
         disarm_bypass (bool): Whether bypass values should be treated as normal data
+        pure_context (bool): Whether this frame is executing in a pure context
         engine (Engine): Engine reference for function registry and fail_tag
     """
-    __slots__ = ('node', 'gen', 'previous', 'scopes', 'allowed', 'disarm_bypass', 'engine', 'handles')
+    __slots__ = ('node', 'gen', 'previous', 'scopes', 'allowed', 'disarm_bypass', 'pure_context', 'engine', 'handles')
 
-    def __init__(self, node, previous, scopes, allow_failures, disarm_bypass, engine):
+    def __init__(self, node, previous, scopes, allow_failures, disarm_bypass, pure_context, engine):
         self.node = node
         self.previous = previous
         self.allowed = allow_failures  # Can frame receive failure values? (modified as engine loops)
         self.disarm_bypass = disarm_bypass  # Treat bypass values as data (for !disarm operator)
         self.engine = engine  # Temporary for function registry
-        self.handles = set()  # HandleInstances reachable from this frame
+        
+        # Pure context propagates from parent if not explicitly set
+        # Once set to True, it cannot be revoked
+        if pure_context:
+            self.pure_context = True
+        elif previous and previous.pure_context:
+            self.pure_context = True
+        else:
+            self.pure_context = False
+        
+        # Pure frames don't need handle tracking (cannot create handles)
+        # This saves memory and improves performance for pure computations
+        if self.pure_context:
+            self.handles = None  # No handle tracking needed
+        else:
+            self.handles = set()  # HandleInstances reachable from this frame
 
         if not previous:
             self.scopes = scopes
@@ -301,10 +323,16 @@ class _Frame:
         This enables automatic cleanup: when frame exits and unregisters,
         if handle.frames becomes empty, the handle can be automatically dropped.
         
+        Pure frames skip registration (handles=None) since they cannot create handles.
+        
         Args:
             value: comp.Value to register (registers all contained handles)
         """
         if not isinstance(value, comp.Value):
+            return
+        
+        # Pure frames don't track handles (optimization)
+        if self.handles is None:
             return
         
         # Leverage Value.handles (computed at creation, O(1) iteration)

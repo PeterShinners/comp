@@ -30,9 +30,8 @@
     $in.m
 }
 
-!func |assert-mojo ~any = {
+!func |test-mojo ~any = {
     $var.m = [|make-mojo]
     $var.result1 = [{m=$var.m} |use-mojo]
-    #true
 }
 

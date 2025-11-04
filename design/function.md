@@ -91,12 +91,39 @@ provide arguments to the function. Arguments are intended to control the way a
 function behaves, not the data it works on. Arguments can also define special
 block values which are like callbacks. The arguments are available in the `^arg`
 namespace, which is normally accessed through the `^` operator.
-* **Pure** The function can be preceded with a `!pure` statement to guarantee
-it has no side effects and executes deterministically.
+* **Pure** The `pure` keyword can be placed before the function name to mark it
+as a pure function. Pure functions execute in a resource-free context, cannot
+call non-pure functions, and cannot access handle private data. See [Runtime
+Security and Permissions](security.md) for complete details on pure function
+guarantees and restrictions.
 
 There is no definition for the shape of the output structure from the function.
 The function can use whatever flow control, error handling, or fetched data
 results it wants to become its value.
+
+```comp
+; Simple inline definition
+!func |double ~{~num} = { $in * 2 }
+
+; Pure function - deterministic, no side effects
+!func pure |add ~{~num} arg ~{n ~num} = { $in + $arg.n }
+
+; Multi-line for clarity
+!func |filter-items
+    ~{items[]}
+    arg ~{threshold ~num = 0} = {
+    [items |filter :{$in > $arg.threshold}]
+}
+
+!func |process-order ~order-data arg ~process-config = {
+    ; Implementation focuses on logic, not type declarations
+    validated = [$arg.validate? |if :{#true}
+        :{[order |validate]}
+        :{order}]
+
+    processed = [validated |apply-priority $arg.priority]
+}
+```
 
 ```comp
 ; Simple inline definition
@@ -364,15 +391,15 @@ Privacy structures work with all the same mechanisms as regular structures—sha
 
     Structures can carry per-module private data using `&{...}` attachments. Access is restricted to the attaching module via `value&.field`. Private data travels through pipelines and full spreads and merges predictably from multiple sources. See [Syntax and Style Guide](syntax.md#privacy-system) for the canonical specification and examples.
 
-## Pure Functions and Isolation
+## Pure Functions
 
-Pure functions guarantee deterministic computation without side effects. Defined with `!pure`, they execute in a completely resource-free context. This enables build-time evaluation, safe parallelization, and use in shape constraints or unit definitions.
+Pure functions guarantee deterministic computation without side effects. The `pure` keyword is placed before the function name to mark it as pure. Pure functions execute in a resource-free context and have strict restrictions on what they can call and access.
 
-The `!pure` decorator creates hard enforcement—these functions literally cannot access the outside world because no resource token exists in their context. They cannot read files, access the network, get the current time, create stores, or access module runtime state. This creates an unforgeable boundary between computation and effects.
+For complete documentation on pure function guarantees, restrictions, and enforcement mechanisms, see [Runtime Security and Permissions](security.md#pure-functions).
 
 ```comp
-!pure
-!func |fibonacci ~{n ~num} = {
+; Pure function syntax - keyword before function name
+!func pure |fibonacci ~{n ~num} = {
     [n |if :{$in <= 1} :{$in} :{
         $var.a = [n - 1 |fibonacci]
         $var.b = [n - 2 |fibonacci]
@@ -380,16 +407,12 @@ The `!pure` decorator creates hard enforcement—these functions literally canno
     }]
 }
 
-!pure
-!func |validate-email ~{email ~str} = {
+!func pure |validate-email ~{email ~str} = {
     [$in.email |match/str "^[^@]+@[^@]+$"]
 }
 
-!pure
-!func |transform ~{data} = {
-    ; Can compute, validate, transform
-    ; Cannot: access files, network, time, random, stores
-    ; Cannot: access $mod runtime state or |describe
+; Pure functions enable build-time evaluation, caching, and parallelization
+!func pure |transform ~{data} = {
     [$in.data |normalize |validate]
 }
 ```
@@ -822,7 +845,7 @@ creature = {type=#dog.mammal name=Rex}
 
 Functions either have access to external resources or they don't—a simple binary model. Regular functions can access the filesystem, network, and other external systems through the single `resource` capability token. Pure functions execute in a completely resource-free context, guaranteeing deterministic behavior without side effects.
 
-The security model is refreshingly honest: instead of pretending to offer fine-grained permissions that can't be properly enforced, Comp provides a clear boundary between pure computation and effectful operations. Regular functions inherit resource access from their callers, while pure functions operate in guaranteed isolation. For comprehensive details about the security model and resource system, see [Runtime Security and Permissions](security.md).
+For comprehensive details about the security model, pure function enforcement, and resource system, see [Runtime Security and Permissions](security.md).
 
 ```comp
 ; Regular function with resource access
@@ -833,8 +856,7 @@ The security model is refreshingly honest: instead of pretending to offer fine-g
 }
 
 ; Pure function - no resource access
-!pure
-!func |compress ~{data} = {
+!func pure |compress ~{data} = {
     ; Deterministic compression algorithm
     ; Cannot access filesystem, network, time, etc.
     [data |apply-compression-algorithm]

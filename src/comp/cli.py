@@ -345,8 +345,13 @@ def _show_documentation(filepath_str, rich):
             output()
             for func_name, func_defs in module.functions.items():
                 func_display = f"|{func_name}"
+                modifiers = []
                 if all(f.is_private for f in func_defs):
-                    func_display += " (private)"
+                    modifiers.append("private")
+                if all(f.is_pure for f in func_defs):
+                    modifiers.append("pure")
+                if modifiers:
+                    func_display += f" ({', '.join(modifiers)})"
                 doc = " ".join(_summarize(f.doc) for f in func_defs if f.doc)
                 output(f"- `{func_display}` {doc}")
 

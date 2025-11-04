@@ -152,8 +152,11 @@ tag_child: tag_path                                       -> tagchild_simple
          | tag_path ASSIGN tag_value                      -> tagchild_val
          | tag_path ASSIGN tag_body                       -> tagchild_body
 
-// Tag values are build-time constant expressions without structures/blocks
-// Supports: literals (42, "text"), references (#tag, ~shape), arithmetic (1+2, 3*4), comparisons
+// Tag values can be simple expressions or complex expressions in parentheses
+// Simple: literals (42, "text"), references (#tag, ~shape), arithmetic (1+2, 3*4)
+// Complex: Use parentheses for blocks, structures, pipelines, etc: ([|func])
+// All tag values are evaluated in pure context to prevent side effects
+// Note: paren_expr is already included via tag_atom, no need to list separately
 tag_value: tag_arithmetic
 
 ?tag_arithmetic: tag_term
@@ -289,8 +292,11 @@ module_assign: identifier _assignment_op expression
 // === FUNCTION DEFINITION ===
 BANG_FUNC: "!func"
 ARG_KEYWORD: "arg"
+PURE_KEYWORD: "pure"
 
-function_definition: BANG_FUNC function_path function_shape ARG_KEYWORD shape_type _assignment_op structure  -> func_with_args
+function_definition: BANG_FUNC PURE_KEYWORD function_path function_shape ARG_KEYWORD shape_type _assignment_op structure  -> func_with_args_pure
+                   | BANG_FUNC PURE_KEYWORD function_path function_shape _assignment_op structure                         -> func_no_args_pure
+                   | BANG_FUNC function_path function_shape ARG_KEYWORD shape_type _assignment_op structure  -> func_with_args
                    | BANG_FUNC function_path function_shape _assignment_op structure                         -> func_no_args
 
 function_path: PIPE TOKEN ("." TOKEN)* AMPERSAND?         // Optional private on final name

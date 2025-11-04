@@ -41,9 +41,17 @@ def test_comp_files(module_content_and_func):
         if result.is_fail:
             raise AssertionError(f"Function failed with: {result.to_python()}")
         if func_prefix == "assert-":
-            value = result.as_scalar().to_python()
+            scalar = result.as_scalar()
+            value = scalar.to_python()
             if value is not True:
-                raise AssertionError(f"Assertion failed: got {value}, result was {result.to_python()}")
+                raise AssertionError(f"Assertion failed: got {scalar.unparse()}")
+        elif func_prefix == "equal-":
+            data = result.as_struct().to_python()
+            if len(data) != 2:
+                raise AssertionError(f"Expected 2 values for equality check, got {result.unparse()}")
+            values = list(data.values())
+            if values[0] != values[1]:
+                raise AssertionError(f"Equality check failed: {values[0]!r} != {values[1]!r}")
 
 
 def pytest_generate_tests(metafunc):
@@ -56,7 +64,7 @@ def pytest_generate_tests(metafunc):
             short = os.path.splitext(base)[0][3:]
             content = open(os.path.join(test_dir, base)).read()
             # Support function names with optional '|' and prefixes: test-, assert-, fail-
-            funcs = re.findall(r"!func\s+\|?(test-|assert-|fail-)([-\w]+)", content)
+            funcs = re.findall(r"!func\s+\|?(test-|assert-|fail-|equal-)([-\w]+)", content)
             for func in funcs:
                 names.append(f"{short}-{func[1]}")
                 contents_and_func.append((content, func))

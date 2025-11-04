@@ -2,6 +2,7 @@
 
 !import /py = stdlib "python"
 
+!doc "Connection to open database resource"
 !handle @db
 
 !tag #isolation = {#deferred #exclusive #immediate #none}
@@ -20,21 +21,20 @@
 
 !shape ~connect-args = {
     timeout ~num = 5
-    isolation-level #isolation = #isolation.deferred
+    isolation-level #isolation = #deferred
 }
 
 ; Map Python sqlite3 exception types to Comp fail tags
-; TODO: Requires !disarm operator to store fail tags without propagation
-; $mod.fail-map = {
-;     InterfaceError = !disarm #fail.interface
-;     DatabaseError = !disarm #fail.database
-;     DataError = !disarm #fail.data
-;     OperationalError = !disarm #fail.operation
-;     IntegrityError = !disarm #fail.integrity
-;     InternalError = !disarm #fail.internal
-;     ProgrammingError = !disarm #fail.programming
-;     NotSupportedError = !disarm #fail.notsupported
-; }
+$mod.exception-tags = {
+    InterfaceError = #fail.interface
+    DatabaseError = #fail.database
+    DataError = #fail.data
+    OperationalError = #fail.operation
+    IntegrityError = #fail.integrity
+    InternalError = #fail.internal
+    ProgrammingError = #fail.programming
+    NotSupportedError = #fail.notsupported
+}
 
 !doc "Test function to verify #fail.database is treated as a real failure"
 !func |test-fail ~{} = {
@@ -45,7 +45,6 @@
 !func |test-sqlite-error ~{} = {
     ; Try to connect to a database with an invalid path
     [{database="/invalid/path/that/does/not/exist/test.db"} |call-func/py "sqlite3.connect"]
-    ; TODO: Add error mapping with |? handler once !disarm is implemented
 }
 
 !doc "Result of execute calls"
@@ -56,19 +55,9 @@
     row-count ~num
 }
 
-; TODO: Re-enable once !disarm operator is implemented
-; !doc "Map Python sqlite3 exceptions to Comp fail tags"
-; !func |map-sqlite-error ~any = {
-;     $var.exc-type = $in.exception_type
-;     $var.tag-block = $mod.fail-map.'$var.exc-type' ?? :{#fail}
-;     $var.fail-tag = [{} |: $var.tag-block]
-;     {fail=$var.fail-tag message=$in.message cause=$in}
-; }
-
 !doc "Open database connection"
 !func |database-file ~str arg ~connect-args = {
     $var.pydb = [{database=$in} |call-func/py "sqlite3.connect"]
-    ; TODO: Add error mapping with |? handler once !disarm is implemented
     $var.db = !grab @db
     $var.db&py = $var.pydb
     $var.db

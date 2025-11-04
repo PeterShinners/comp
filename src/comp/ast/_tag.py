@@ -47,38 +47,62 @@ class Module(_base.AstNode):
             module = comp.Module()
 
         # IMPORTANT: Evaluate in phases to ensure dependencies are met:
-        # Phase 1: Shape definitions (functions reference shapes in their signatures)
-        # Phase 2: Everything else (functions, tags, module assigns, etc.)
+        # Phase 1: Tags and handles (shapes and functions depend on these)
+        # Phase 2: Shape definitions (functions reference shapes in their signatures)
+        # Phase 3: Everything else (functions, module assigns, etc.)
         #
         # DocStatements are evaluated immediately before their target definition
         # to ensure pending_doc is set right when the definition consumes it.
-        from . import _shape, _function
+        from . import _shape, _function, _handle
 
-        # Phase 1: Evaluate ShapeDef operations and their preceding DocStatements
-        # Process in source order to preserve doc-before-definition pairing
+        # Phase 1: Evaluate TagDef, HandleDef operations and their preceding DocStatements
+        # Tags and handles can't depend on shapes or functions, so evaluate them first
         for i, op in enumerate(self.operations):
-            if isinstance(op, _shape.ShapeDef):
-                # Check if there's a DocStatement right before this shape
+            if isinstance(op, TagDef) or isinstance(op, _handle.HandleDef):
+                # Check if there's a DocStatement right before this tag/handle
                 if i > 0 and isinstance(self.operations[i-1], DocStatement):
                     # Evaluate the doc first
                     doc_result = yield comp.Compute(self.operations[i-1], module=module)
                     if frame.bypass_value(doc_result):
                         return doc_result
+                # Now evaluate the tag/handle
+                result = yield comp.Compute(op, module=module)
+                if frame.bypass_value(result):
+                    return result
+
+        # Phase 2: Evaluate ShapeDef operations and their preceding DocStatements
+        # Shapes can reference tags (from phase 1) but not functions
+        for i, op in enumerate(self.operations):
+            if isinstance(op, _shape.ShapeDef):
+                # Check if there's a DocStatement right before this shape
+                if i > 0 and isinstance(self.operations[i-1], DocStatement):
+                    # Check if doc was already evaluated in phase 1 (if it preceded a tag/handle)
+                    prev_op = self.operations[i-1]
+                    if not (isinstance(prev_op, DocStatement)):
+                        # This shouldn't happen, but skip if somehow already evaluated
+                        pass
+                    else:
+                        # Evaluate the doc first
+                        doc_result = yield comp.Compute(self.operations[i-1], module=module)
+                        if frame.bypass_value(doc_result):
+                            return doc_result
                 # Now evaluate the shape
                 result = yield comp.Compute(op, module=module)
                 if frame.bypass_value(result):
                     return result
 
-        # Phase 2: Evaluate all other operations (TagDef, FuncDef, etc.)
+        # Phase 3: Evaluate all other operations (FuncDef, ImportDef, ModuleAssign, etc.)
         # Process in source order to preserve doc-before-definition pairing
         for i, op in enumerate(self.operations):
-            # Skip shapes (already done) and docs that preceded shapes
-            if isinstance(op, _shape.ShapeDef):
+            # Skip tags/handles (phase 1) and shapes (phase 2)
+            if isinstance(op, TagDef) or isinstance(op, _handle.HandleDef) or isinstance(op, _shape.ShapeDef):
                 continue
             if isinstance(op, DocStatement):
-                # Check if this doc precedes a shape (already evaluated)
-                if i < len(self.operations) - 1 and isinstance(self.operations[i+1], _shape.ShapeDef):
-                    continue
+                # Check if this doc precedes a tag/handle or shape (already evaluated)
+                if i < len(self.operations) - 1:
+                    next_op = self.operations[i+1]
+                    if isinstance(next_op, (TagDef, _handle.HandleDef, _shape.ShapeDef)):
+                        continue
             # Evaluate this operation
             result = yield comp.Compute(op, module=module)
             if frame.bypass_value(result):
@@ -197,11 +221,12 @@ class TagDef(ModuleOp):
             extends_def = tag_ref.tag_def
 
         # Evaluate value if present (extends tags cannot have explicit values)
+        # Tag values are evaluated in pure context to prevent side effects
         tag_value = None
         if self.value is not None:
             if extends_def is not None:
                 return comp.fail("Tag with 'extends' cannot have an explicit value")
-            tag_value = yield comp.Compute(self.value)
+            tag_value = yield comp.Compute(self.value, pure_context=True)
             if frame.bypass_value(tag_value):
                 return tag_value
 
@@ -527,8 +552,9 @@ class ModuleAssign(ModuleOp):
             module.mod_scope = comp.Value({})
 
         # Evaluate the value with disarm_bypass=True to allow fail tags in module constants
+        # Use pure_context=True to prevent side effects in module constants
         # Don't check bypass_value since we explicitly disarmed the evaluation
-        value_result = yield comp.Compute(self.value, disarm_bypass=True)
+        value_result = yield comp.Compute(self.value, disarm_bypass=True, pure_context=True)
 
         # Navigate the path (skipping the $mod ScopeField)
         current_dict = module.mod_scope.struct

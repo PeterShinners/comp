@@ -151,7 +151,7 @@ def test_roundtrip_conversion():
 def test_load_stdlib_module():
     """Test loading a stdlib module."""
     # Load the tag module
-    tag_mod = comp.load_module("stdlib", "tag")
+    tag_mod = comp.module("stdlib", "tag")
     
     assert isinstance(tag_mod, comp.ModuleProxy)
     assert tag_mod.func is not None

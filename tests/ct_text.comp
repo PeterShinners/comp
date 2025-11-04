@@ -1,0 +1,109 @@
+!import /text = comp "text"
+
+
+!func |equal-upper ~any = {
+    ["Hello" |uppercase] "HELLO"
+}
+
+!func |equal-lower ~any = {
+    ["Hello" |lowercase] "hello"
+}
+
+!func |equal-trim-plain ~any = {
+    ["  shave " |trim] "shave"
+}
+
+!func |equal-trim-end ~any = {
+    ["  shave " |trim #end] "  shave"
+}
+
+!func |equal-trim-end ~any = {
+    ["..shave?" |trim ".?" #start] "shave."
+}
+
+!func |equal-trim-full ~any = {
+    ["shave" |trim "shave"] ""
+}
+
+!func |equal-trim-full ~any = {
+    ["shave" |trim "shave"] ""
+}
+
+
+!func |assert-empty ~any = {
+    ["" |empty?]
+}
+
+!func |assert-not-empty ~any = {
+    !! ["hello" |empty?]
+}
+
+!func |assert-blank ~any = {
+    ["   " |blank?]
+}
+
+!func |assert-not-blank ~any = {
+    !! ["  hello\n" |blank?]
+}
+
+!func |assert-numeric ~any = {
+    ["123" |numeric?]
+}
+
+!func |assert-not-numeric ~any = {
+    !! ["12a3" |numeric?]
+}
+
+!func |assert-alpha ~any = {
+    ["hello" |alpha?]
+}
+
+!func |assert-not-alpha ~any = {
+    !! ["hello123" |alpha?]
+}
+
+!func |assert-alphanumeric ~any = {
+    ["hello123" |alphanumeric?]
+}
+
+!func |assert-not-alphanumeric ~any = {
+    !! ["hello 123" |alphanumeric?]
+}
+
+!func |assert-lowercase ~any = {
+    ["hello" |lowercase?]
+}
+
+!func |assert-not-lowercase ~any = {
+    !! ["Hello" |lowercase?]
+}
+
+!func |assert-uppercase ~any = {
+    ["HELLO" |uppercase?]
+}
+
+!func |assert-not-uppercase ~any = {
+    !! ["Hello" |uppercase?]
+}
+
+!func |assert-contains ~any = {
+    ["hello world" |contains? "world"]
+}
+
+!func |assert-not-contains ~any = {
+    !! ["hello world" |contains? "Wor"]
+}
+
+!func |assert-contains-insensitive ~any = {
+    ["hello world" |contains? "Wor" #insensitive]
+}
+
+!func |equal-length ~any = {
+    [" Alpha" |length/text] 6  ; builtin function getting dispatch priority (wrong)
+}
+
+!func |equal-length-empty ~any = {
+    ["" |length/text] 0
+}
+
+

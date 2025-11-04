@@ -604,7 +604,7 @@ def _convert_tree(tree):
             return _convert_handle_definition(kids)
 
         # === FUNCTION DEFINITIONS ===
-        case 'function_definition' | 'func_with_args' | 'func_no_args':
+        case 'function_definition' | 'func_with_args' | 'func_no_args' | 'func_with_args_pure' | 'func_no_args_pure':
             return _convert_function_definition(tree)
 
         # === MAIN AND ENTRY DEFINITIONS ===
@@ -1084,15 +1084,16 @@ def _convert_function_definition(tree):
     """Convert function definition to FuncDef node.
     
     Expected structure (with args):
-        BANG_FUNC function_path function_shape ARG_KEYWORD shape_type _assignment_op structure
+        BANG_FUNC [PURE_KEYWORD] function_path function_shape ARG_KEYWORD shape_type _assignment_op structure
     Or (without args):
-        BANG_FUNC function_path function_shape _assignment_op structure
+        BANG_FUNC [PURE_KEYWORD] function_path function_shape _assignment_op structure
     """
     path = []
     body = None
     input_shape = None
     arg_shape = None
     is_private = False
+    is_pure = False
     
     # Track if we've seen ARG_KEYWORD to know if next shape_type is for args
     seen_arg_keyword = False
@@ -1102,6 +1103,8 @@ def _convert_function_definition(tree):
         if isinstance(kid, lark.Token):
             if kid.type == 'ARG_KEYWORD':
                 seen_arg_keyword = True
+            elif kid.type == 'PURE_KEYWORD':
+                is_pure = True
         elif isinstance(kid, lark.Tree):
             if kid.data == 'function_path':
                 path, is_private = _extract_path_and_privacy_from_tree(kid)
@@ -1114,7 +1117,7 @@ def _convert_function_definition(tree):
             elif kid.data == 'structure':
                 body = _convert_tree(kid)
 
-    return comp.ast.FuncDef(path, body, input_shape, arg_shape, is_private=is_private)
+    return comp.ast.FuncDef(path, body, input_shape, arg_shape, is_pure=is_pure, is_private=is_private)
 
 
 def _convert_import_statement(kids):

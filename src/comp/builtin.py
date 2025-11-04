@@ -296,7 +296,7 @@ def builtin_if(frame, input_value, args):
         result = yield compute
         if frame.bypass_value(result):
             return result
-        return result.as_scalar()
+        return result
 
     # Branch is a plain value - return it
     return branch_arg
@@ -503,6 +503,7 @@ def get_builtin_module():
             python_func=func,
             input_shape=input_shape,
             arg_shape=arg_shape,
+            is_pure=True,
         )
 
     _builtin_module = module

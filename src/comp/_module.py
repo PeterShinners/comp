@@ -136,6 +136,38 @@ class TagDefinition(_entity.Entity):
             return None
         return self.path[:-1]
 
+    @property
+    def children(self):
+        """Get all direct children of this tag.
+        
+        Returns:
+            list[TagDefinition]: List of child tag definitions
+        """
+        children = []
+        prefix = self.full_name + "."
+        for tag_name, tag_def in self.module.tags.items():
+            # Check if this is a direct child (one level deeper)
+            if tag_name.startswith(prefix):
+                # Count dots to ensure it's a direct child, not a grandchild
+                remainder = tag_name[len(prefix):]
+                if "." not in remainder:
+                    children.append(tag_def)
+        return children
+
+    @property
+    def descendants(self):
+        """Get all descendants (children, grandchildren, etc.) of this tag.
+        
+        Returns:
+            list[TagDefinition]: List of all descendant tag definitions
+        """
+        descendants = []
+        prefix = self.full_name + "."
+        for tag_name, tag_def in self.module.tags.items():
+            if tag_name.startswith(prefix):
+                descendants.append(tag_def)
+        return descendants
+
     def matches_partial(self, partial):
         """Check if this tag matches a partial path (prefix match).
 
@@ -929,8 +961,26 @@ class Module(_entity.Entity):
         Notes:
             - If shape already exists (from prepare()), updates it in place
             - Otherwise creates a new ShapeDefinition
+            
+        Raises:
+            ValueError: If any field's default value cannot morph into its declared type
         """
         full_name = ".".join(path)
+        
+        # Validate that all default values can morph into their field types
+        for field in fields:
+            if field.default is not None and field.shape is not None:
+                # Try to morph the default value into the field's shape
+                result = comp.morph(field.default, field.shape)
+                if not result.success:
+                    field_name = field.name if field.name else "<unnamed>"
+                    raise ValueError(
+                        f"Shape ~{full_name}: Default value for field '{field_name}' "
+                        f"cannot morph into declared type. "
+                        f"Default: {field.default.unparse()}, "
+                        f"Type: {comp._morph._get_shape_name(field.shape)}, "
+                        f"Reason: {result.failure_reason or 'incompatible types'}"
+                    )
         
         # Check if shape already exists (from prepare())
         existing = self.shapes.get(full_name)

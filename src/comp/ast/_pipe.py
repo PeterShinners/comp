@@ -174,6 +174,16 @@ class PipeFunc(PipelineOp):
                     # Not found or ambiguous
                     return comp.fail(str(e), ast=self)
 
+        # Check if we're in pure context - if so, all functions must be pure
+        if frame.pure_context:
+            non_pure = [fd for fd in func_defs if not fd.is_pure]
+            if non_pure:
+                return comp.fail(
+                    f"Cannot call non-pure function |{self.func_name} from pure context "
+                    f"(pure functions can only call other pure functions)",
+                    ast=self
+                )
+
         # Check if ALL overloads are PythonFunctions
         # PythonFunctions need special handling (generators, overload selection)
         all_python_funcs = all(isinstance(fd.body, comp.PythonFunction) for fd in func_defs)

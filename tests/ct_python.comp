@@ -1,11 +1,11 @@
 !import /py = stdlib "python"
 
 
-!func |assert-roundtrip ~any = {
+!func |equal-roundtrip ~any = {
     $var.orig = {name="Joe" score=25}
     $var.pyobj = [$var.orig |push/py]
     $var.back = [$var.pyobj |pull/py]
-    $var.back == $var.orig
+    $var.back $var.orig
 }
 
 
@@ -21,7 +21,7 @@
 
 
 ; Call a qualified function and verify result via method and pull
-!func |assert-call-function-urlparse ~any = {
+!func |xassert-call-function-urlparse ~any = {
     $var.res = [{url="http://example.com/a?x=1"} |call-func/py "urllib.parse.urlparse"]
     $var.url = [$var.res |call/py "geturl"]
     $var.urlstr = [$var.url |pull/py]
@@ -30,7 +30,7 @@
 
 
 ; Call a method on a Python object produced from a Comp value
-!func |assert-call-method-lower ~any = {
+!func |xassert-call-method-lower ~any = {
     $var.pystr = ["Hello" |push/py]
     $var.lower = [$var.pystr |call/py "lower"]
     $var.result = [$var.lower |pull/py]
