@@ -7,13 +7,28 @@ import pytest
 import comptest
 
 
+# Cache for parsed and prepared modules: {module_content_hash: (module_ast, module)}
+_module_cache = {}
+
+
 def test_comp_files(module_content_and_func):
     """Test functions in a comp file."""
-    module_ast = comp.parse_module(module_content_and_func[0])
-    engine = comp.Engine()
-    module = comp.Module()
-    module.prepare(module_ast, engine)
-    engine.run(module_ast, module=module)
+    module_content = module_content_and_func[0]
+    
+    # Use content hash as cache key
+    cache_key = hash(module_content)
+    
+    if cache_key not in _module_cache:
+        # Parse and prepare module (first time for this content)
+        module_ast = comp.parse_module(module_content)
+        engine = comp.Engine()
+        module = comp.Module()
+        module.prepare(module_ast, engine)
+        engine.run(module_ast, module=module)
+        _module_cache[cache_key] = (module_ast, module, engine)
+    
+    # Get cached module
+    module_ast, module, engine = _module_cache[cache_key]
     
     # module_content_and_func[1] is a tuple like ("test-", "numba") or ("assert-", "thing")
     func_prefix, func_suffix = module_content_and_func[1]
@@ -45,15 +60,17 @@ def test_comp_files(module_content_and_func):
             value = scalar.to_python()
             if value is not True:
                 raise AssertionError(f"Assertion failed: got {scalar.unparse()}")
-        elif func_prefix == "equal-":
-            data = result.as_struct().to_python()
-            if len(data) != 2:
-                raise AssertionError(f"Expected 2 values for equality check, got {result.unparse()}")
-            values = list(data.values())
-            if values[0] != values[1]:
-                raise AssertionError(f"Equality check failed: {values[0]!r} != {values[1]!r}")
-
-
+            elif func_prefix == "equal-":
+                data = result.as_struct().to_python()
+                # Handle both list (all unnamed fields) and dict (named/mixed fields)
+                if isinstance(data, list):
+                    values = data
+                else:
+                    values = list(data.values())
+                if len(values) != 2:
+                    raise AssertionError(f"Expected 2 values for equality check, got {result.unparse()}")
+                if values[0] != values[1]:
+                    raise AssertionError(f"Equality check failed: {values[0]!r} != {values[1]!r}")
 def pytest_generate_tests(metafunc):
     if "module_content_and_func" in metafunc.fixturenames:
         test_dir = os.path.dirname(os.path.abspath(__file__))

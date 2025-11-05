@@ -162,7 +162,14 @@ def _comp_to_python(value):
         ValueError: If value contains unconvertible types
     """
     if value.is_struct:
-        # Convert struct to dict
+        # Check if all keys are Unnamed AND there's at least one element - if so, convert to list
+        # Empty structs remain as empty dicts
+        all_unnamed = all(isinstance(key, comp.Unnamed) for key in value.struct.keys()) and len(value.struct) > 0
+        if all_unnamed:
+            # Convert to Python list
+            return [_comp_to_python(val) for val in value.struct.values()]
+        
+        # Mixed or all named keys - convert to dict
         result = {}
         unnamed_index = 0  # Track position of unnamed fields
         for key, val in value.struct.items():
@@ -306,9 +313,14 @@ def _extract_call_args(args_value: comp.Value | None) -> Tuple[List[Any], Dict[s
     try:
         if not args_value.is_struct:
             return [_comp_to_python(args_value)], {}
+
         py_map = _comp_to_python(args_value)
-        # Explicit args/kwargs if present
-        if isinstance(py_map, dict):
+        
+        # If it's a list (all unnamed fields), extend pos with list items as separate positional args
+        if isinstance(py_map, list):
+            pos.extend(py_map)
+        # Explicit args/kwargs if present in dict
+        elif isinstance(py_map, dict):
             explicit_args = py_map.get("args")
             explicit_kwargs = py_map.get("kwargs")
             if isinstance(explicit_args, (list, tuple)):
@@ -521,7 +533,9 @@ def call_str(frame, input_value, args=None):
     # Extract method name from args
     if args is None:
         return comp.fail("call-str requires method name argument")
-    
+
+    print("CALLSTR:", input_value, input_value.unparse(), args.unparse())
+
     # Args might be a struct with unnamed field wrapping the string
     if args.is_struct:
         # Check for unnamed field
@@ -571,7 +585,7 @@ def call_str(frame, input_value, args=None):
         'isalnum', 'isalpha', 'isascii', 'isdecimal', 'isdigit',
         'isidentifier', 'islower', 'isnumeric', 'isprintable',
         'isspace', 'istitle', 'isupper',
-        '__len__', '__contains__', '__getitem__',
+        '__len__', '__contains__', '__getitem__', '__mul__',
     }
     
     if method_name not in SAFE_STRING_METHODS:
@@ -582,15 +596,40 @@ def call_str(frame, input_value, args=None):
         method = getattr(target_string, method_name)
     except AttributeError:
         return comp.fail(f"call-str: string has no method '{method_name}'")
-    
+
     # Convert arguments to Python
     pos, kwargs = _extract_call_args(method_args)
-    
+
+    # Convert Decimal arguments to int for methods that need integers
+    # (like __mul__ for string repetition)
+    # Also convert empty dicts to None for methods like split(sep=None)
+    pos_converted = []
+    for arg in pos:
+        if isinstance(arg, decimal.Decimal) and arg == int(arg):
+            pos_converted.append(int(arg))
+        elif isinstance(arg, dict) and len(arg) == 0:
+            pos_converted.append(None)
+        else:
+            pos_converted.append(arg)
+
+    kwargs_converted = {}
+    for key, val in kwargs.items():
+        if isinstance(val, dict) and len(val) == 0:
+            kwargs_converted[key] = None
+        elif isinstance(val, decimal.Decimal):
+            # Convert Decimal to int if it's a whole number
+            kwargs_converted[key] = int(val)
+        else:
+            kwargs_converted[key] = val
+
     # Call the method
     try:
-        result = method(*pos, **kwargs)
+        # Debug: print what we're passing
+        # print(f"DEBUG call-str: method={method_name}, pos={pos_converted}, kwargs={kwargs_converted}")
+        result = method(*pos_converted, **kwargs_converted)
     except Exception as e:
-        return comp.fail(f"call-str '{method_name}' failed: {e}")
+        # Include debug info in error message
+        return comp.fail(f"call-str '{method_name}' failed: {e}\nArgs: pos={pos_converted}, kwargs={kwargs_converted}")
     
     # Auto-convert result to Comp value
     compresult = _python_to_comp(result)
@@ -728,6 +767,73 @@ def call_method(frame, input_value, args=None):
             )
 
 
+def py_slice(frame, input_value, args=None):
+    """Slice a sequence (string, list, etc.) using Python slice syntax.
+
+    This is a pure function that performs slicing on the input object.
+    Accepts start, stop, and step parameters.
+
+    Args:
+        frame: Execution frame
+        input_value: Comp Value - the object to slice (string, list, etc.)
+        args: Comp Value struct with optional 'start', 'stop', 'step' fields (all numbers or nil)
+
+    Returns:
+        Sliced result converted to Comp value
+
+    Example:
+        ["hello" |py/slice {start=0 stop=3}]  → "hel"
+        ["hello" |py/slice {step=-1}]  → "olleh"
+        ["hello" |py/slice {start=1}]  → "ello"
+    """
+    if False:  # Make this a generator
+        yield
+
+    try:
+        # Extract the input object
+        input_scalar = input_value.as_scalar()
+
+        # Convert to Python object
+        py_obj = _comp_to_python(input_scalar)
+
+        # Verify the object supports slicing
+        if not hasattr(py_obj, '__getitem__'):
+            return comp.fail(f"slice: object of type {type(py_obj).__name__} does not support slicing")
+
+        # Extract slice parameters from args
+        start = None
+        stop = None
+        step = None
+
+        if args is not None and args.is_struct:
+            start_key = comp.Value("start")
+            stop_key = comp.Value("stop")
+            step_key = comp.Value("step")
+
+            if start_key in args.struct:
+                start_val = args.struct[start_key]
+                if start_val.is_number:
+                    start = int(start_val.data)
+
+            if stop_key in args.struct:
+                stop_val = args.struct[stop_key]
+                if stop_val.is_number:
+                    stop = int(stop_val.data)
+
+            if step_key in args.struct:
+                step_val = args.struct[step_key]
+                if step_val.is_number:
+                    step = int(step_val.data)
+
+        # Perform the slice operation
+        result = py_obj[start:stop:step]
+
+        # Convert result back to Comp
+        return _python_to_comp(result)
+    except Exception as e:
+        return comp.fail(f"slice failed: {e}")
+
+
 def py_vars(frame, input_value, args=None):
     """Return a shallow structure/dict representation of a Python object.
 
@@ -735,35 +841,35 @@ def py_vars(frame, input_value, args=None):
     Prefers vars(obj), falls back to reading __dict__, or non-callable attributes
     from dir(obj). Values are converted to Comp via _python_to_comp.
     Exceptions are caught and returned as fail.
-    
+
     Args:
         frame: Execution frame
         input_value: @py-handle containing Python object in private data
         args: Optional arguments (not used)
-        
+
     Returns:
         Comp Value struct representation or fail on error
     """
     if False:  # Make this a generator
         yield
-    
+
     try:
         # Extract handle
         handle = input_value.as_scalar()
         if not handle.is_handle:
             return comp.fail("vars requires @py-handle input")
-        
+
         # Extract Python object from handle's private data
         py_obj_value = handle.get_private('__python_object__')
         if py_obj_value is None:
             return comp.fail("vars: handle does not contain Python object")
-        
+
         # Extract the actual Python object from the wrapper
         wrapper = py_obj_value.data
         if not isinstance(wrapper, _PythonObjectWrapper):
             return comp.fail(f"vars: expected wrapper, got {type(wrapper).__name__}")
         obj = wrapper.obj
-        
+
         data = None
         try:
             data = vars(obj)
@@ -847,6 +953,15 @@ def create_module():
         python_func=call_str,
         input_shape="~any",  # Accept string or struct with 'self'
         arg_shape="~str",  # Method name as string
+        is_pure=True,
+    )
+
+    # Pure slice creation - for use in pure Comp functions
+    module.define_py_function(
+        path=["slice"],
+        python_func=py_slice,
+        input_shape="~struct|~str",
+        arg_shape="~{start ~num|~nil={} stop ~num|~nil={} step ~num|~nil={}}",
         is_pure=True,
     )
 

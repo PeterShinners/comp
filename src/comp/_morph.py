@@ -144,11 +144,13 @@ def morph(value, shape):
     # Unwrap if we wrapped AND the target shape is a primitive (not structural)
     # This handles cases like: 5 ~num (stay unwrapped)
     # But NOT: 5 ~{~num} (should stay wrapped in struct)
+    # Note: ~any and ~struct should NOT unwrap - they accept structs as-is
     if was_wrapped and result.success and result.value is not None:
         # Only unwrap for primitive target shapes (~num, ~str, tag constraints)
+        # Exclude ~any and ~struct which should accept anything including wrapped values
         is_primitive_target = (
             isinstance(shape, comp.ShapeDefinition) and
-            shape.full_name in ("num", "str", "bool", "tag", "any")
+            shape.full_name in ("num", "str", "bool", "tag")
         )
 
         if is_primitive_target and result.value.is_struct:
@@ -272,7 +274,7 @@ def _morph_primitive(value, type_name):
     """Morph a value to a primitive type (~num, ~str).
 
     Rules:
-    1. If value is a structure with exactly one unnamed field, unwrap it
+    1. If value is a structure with exactly one field (named or unnamed), unwrap it
     2. If value matches the expected type, return it
     3. Otherwise, fail (no type conversion)
 
@@ -283,9 +285,9 @@ def _morph_primitive(value, type_name):
     Returns:
         MorphResult with the morphed value or failure
     """
-    # Step 1: Unwrap single-item structures (for top-level morph calls)
-    # If called from recursive morph, value may already be a primitive
-    # Accept both unnamed and named single fields: {5} ~num or {a=5} ~num
+    # Step 1: Unwrap single-field structures
+    # Both {5} and {value=5} should unwrap to 5
+    # But multi-field structs like {4 5} should NOT unwrap
     if value.is_struct and len(value.data) == 1:
         single_key = next(iter(value.data.keys()))
         # Unwrap regardless of whether field is named or unnamed

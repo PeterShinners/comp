@@ -62,6 +62,13 @@ docs\early\07-language-spec.md; Multiple definitions with same root - last defin
 
 All definition styles are equivalent and produce the same hierarchy. Choose the style that best fits the context - nested for compact definitions, flat for long paths, and mixed for flexibility. Note that when the same tag path is assigned multiple times, the last assignment wins - this is different from extension which merges hierarchies.
 
+When the tag value is more than a simple expression (a literal with simpler operators) it must be wrapped in parenthesis. This is required by the grammar to disambiguate it from the optional list of child tags.
+
+```comp
+!tag #fancy = (["cat" |repeat3]) {#child}
+!tag #numbers = ({one=1 two=2}) {#three #four}
+```
+
 ## Tag Reference and Notation
 
 Tags are referenced using reversed hierarchy notation with `.` as the separator for hierarchy levels. The most specific part comes first, with parent components added only when disambiguation is needed. Partial names automatically match if unambiguous - for example, `#cat` will match `#animal.pet.cat` if there's only one tag named "cat" in the hierarchy. When tags are imported from other modules, the full reference includes the module namespace using `/` as the separator.
@@ -78,8 +85,8 @@ error = #timeout                   ; Matches #error.timeout if unique
 pet = #cat                         ; Matches #animal.pet.cat if only one 'cat'
 
 ; Disambiguation with parent context when needed
-$var.color = #red.color                ; If #red and #red.color both exist
-$var.fruit = #red.fruit                ; Specify which 'red' is meant
+$var.color = #color.red                ; If #danger.red and #color.red both exist
+$var.fruit = #danger.red                ; Specify which 'red' is meant
 
 ; Cross-module references with namespace
 $var.imported = #active.status/other   ; Tag from "other" module

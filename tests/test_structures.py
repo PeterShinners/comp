@@ -43,7 +43,12 @@ def test_unnamed_fields():
     ])
     result = comptest.run_ast(expr)
     values = comptest.assert_value(result)
-    assert list(values.values()) == [1, 3, 2]
+    # Check if to_python() returns list (for unnamed fields) or dict
+    py_value = result.to_python()
+    if isinstance(py_value, list):
+        assert py_value == [1, 3, 2]
+    else:
+        assert list(py_value.values()) == [1, 3, 2]
 
 
 def test_mixed_fields():

@@ -423,7 +423,14 @@ class Value(_entity.Entity):
         if isinstance(self.data, (decimal.Decimal, str)):
             return self.data
         if isinstance(self.data, dict):
-            # Recursively convert struct fields
+            # Check if all keys are Unnamed AND there's at least one element - if so, convert to list
+            # Empty structs remain as empty dicts
+            all_unnamed = all(isinstance(key, Unnamed) for key in self.data.keys()) and len(self.data) > 0
+            if all_unnamed:
+                # Convert to Python list
+                return [val.to_python() for val in self.data.values()]
+            
+            # Mixed or all named keys - convert to dict
             result = {}
             for key, val in self.data.items():
                 if isinstance(key, Unnamed):

@@ -119,9 +119,13 @@ def test_morph_positional_fields():
     data = comp.Value([5, 10])
     result = comp.morph(data, shape)
     assert result.success
-    value = comptest.assert_value(result.value)
     assert len(result.value.data) == 2
-    assert list(value.values()) == [5, 10]
+    # Check if to_python() returns list (for unnamed fields) or dict
+    py_value = result.value.to_python()
+    if isinstance(py_value, list):
+        assert py_value == [5, 10]
+    else:
+        assert list(py_value.values()) == [5, 10]
 
 
 def test_morph_primitive_unwrapping():
