@@ -1,50 +1,76 @@
-!shape ~tree = {
-	value ~num
-	left ~branch
-	right ~branch
+mod.doc: "Binary search tree implementation with pattern matching
+
+Uses input shape matching to dispatch to the currect implementation
+of search and insert operations.
+
+"
+
+tree: {
+	value: num
+	left: branch
+	right: branch
 }
 
-!shape ~branch = ~tree | ~nil
+branch: tree | nil @default: nil
 
-!main = {
-	; Build tree from values using fold
-	@tree = {5 3 8 1 7 9} |fold-into :{|insert}
+
+!main ~{
+	; Build tree from values
+	.local.tree: (5 3 8 1 7 9)
+		-> fold(~{tree-insert()} initial:nil)
 
 	; Test finding values
-	@seven? = {tree=@tree value=7} |contains  ; true
-	@four? = {tree=@tree value=4} |contains   ; false
+	seven?: .local.tree -> tree-contains(7)    ; true
+	four?: .local.tree -> tree-contains(4)     ; false
+	
+	; Get all values in order
+	all-values: .local.tree -> tree-values()   ; (1 3 5 7 8 9)
 }
 
 
-; inserts
-!func |insert ~{tree ~nil value ~num} = {
-	{value=value}~tree
-}
-
-!func |insert ~{tree ~tree value ~num} = {
-	|if :{value < tree.value}
-		:{..tree left=({tree=tree.left value=value} |insert)}
-		:{..tree right=({tree=tree.right value=value} |insert)}
-}
-
-
-; finds
-!func |contains ~{tree ~nil value ~num} = {
-	#false
-}
-
-!func |contains ~{tree ~tree value ~num} = {
-	tree.value |match
-		'$in < value' :{{tree=tree.left value=value} |contains}
-		'$in > value' :{{tree=tree.right value=value} |contains}
-		else=#true
-}
-
-
-!func |values ~{} = {}
-
-!func |values ~tree = [
-	..(left |values)
-	value
-	..(right |values)
+tree-insert: ~[
+	{value: .arg} ~branch
 ]
+@call: nil
+@arg: num
+
+tree-insert: ~[
+	if(.arg < .in.value ~{
+			*: .in
+			left: .in.left -> tree-insert(.arg)
+		} ~{
+			*: .in
+			right: .in.right -> tree-insert(.arg)
+		}
+	)
+]
+@call: tree
+@arg: num
+@doc: "Insert into tree recursively based on value comparison"
+
+
+tree-contains: (#false)
+@call: nil
+@arg: num
+
+tree-contains: ~[
+	.in.value -> match()
+		'.arg < .in.arg': ~(.in.left -> tree-contains(.arg))
+		'.arg > .in.arg': ~(.in.right -> tree-contains(.arg))
+		else: #true
+]
+@call: tree
+@arg: num
+@doc: "Search for value in tree"
+
+
+tree-values: {}
+@call: nil
+
+tree-values: ~{
+	*: .in.left -> values()
+	.in.value
+	*: .in.right -> values()
+}
+@call: tree
+@doc: "In-order traversal returning sorted values"

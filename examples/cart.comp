@@ -1,37 +1,73 @@
-!shape ~item = {
-	name ~str
-	price ~num
-	quantity ~num
-}
+mod.doc: """Simple shopping cart example
 
-!shape ~cart = {
-	items ~item[] = {}
-	discount ~num = 0
-}
+Gives some ideas of working with an updating state in
+an functional, immutable system.
+"""
 
-!doc "Replace item by name, or append new"
-!func |add-item ~{cart ~cart item ~item} = {
-	@add? = #true
-	@items = (cart.items |substitute :{name == item.name} :{item @add?=#false})
-	(|if :{@add?} :{..@items item} :{@items})
+shopping-cart: {
+    items: cart-item[] @default:()
+    discount: num @default:0
 }
 
 
-!doc "Calculate price of all items with cart discounts"
-!func |cart-total ~cart = {
-	(items |sum :{price * quantity}) * (1 - discount)
+cart-item: {
+    name: str
+    price: num
+    quantity: num
 }
 
-!main = {
-	@values = {
-		{name="Apple" price=1.00 quantity=2}
-		{name="Banana" price=0.50 quantity=3}
-		{name="Apple" price=1.00 quantity=1}
-	}
-	
-	@cart = {..~cart}
-	@cart = (@values |reduce-into @cart :{{accum value} |add-item})
-	
-	@cart.discount = 0.8
-	@cart |cart-total |print/io  ; Displays "2.00"
-}
+
+!main [
+    ; Sample items to add to cart
+    (
+        (name:Apple price:1.00 quantity:2)
+        (Banana 0.50 3)  ; names optional if field ordering matches shape
+        (name:Apple price:1.00 quantity:1)  ; Will replace first apple
+    )
+
+	; Individually add item definitions to cart
+    -> reduce(
+		initial: ~shopping-cart
+        ~(
+            {cart:.in.accum  item:.in.value}
+            -> add-item()
+		)
+    )
+
+    ; Apply 20% discount
+    -> set-discount(0.2)
+
+    ; Calculate and display total (expected 2.00, precise, no math errors)
+    -> cart-total() $ "Total: ${}"
+    -> print()
+]
+
+
+add-item: [
+	*: .in				; Fill with existing values
+	items: .in.items	; Insert or update name match
+		-> upsert(.arg [.in.name == .arg.name])
+]
+@call: shopping-cart
+@arg: cart-item
+@doc: "Add or replace item in cart by name"
+
+
+cart-total: [
+    *:
+	.in.items
+		-> sum([.in.price * .in.quantity])
+		* (1 - .in.discount)
+]
+@call: shopping-cart
+@doc: "Calculate total price with discount applied"
+
+
+set-discount: [
+	*: .in   ; Start with original cart data
+	*: .arg  ; Override with argument fields (discount)
+]
+@call: shopping-cart
+@arg: {discount: num}
+@doc: "Set discount amount (0.2 = 20% off)"
+

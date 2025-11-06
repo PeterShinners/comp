@@ -21,7 +21,7 @@ Install and run Comp programs with `uv` (recommended)
 
 ```bash
 uv pip install -e .
-uv run comp examples/working/hello.comp
+uv run comp examples/hello.comp
 ```
 
 ## Introduction

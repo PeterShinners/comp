@@ -1,56 +1,73 @@
-; Cloudflare Worker for vector embeddings and search
-; Original: https://developers.cloudflare.com/vectorize/get-started/embeddings/
-!import /cloudflare = comp "github://cloudflare/workers-comp@2.7/complib"
+mod.doc: """Cloudflare Worker for vector embeddings and search
 
-!entry = {
-	$mod.vectorize = "VECTORIZE" |binding/cloudflare
-	$mod.ai = "AI" |binding/cloudflare
+Original: https://developers.cloudflare.com/vectorize/get-started/embeddings/
+"""
+
+!import url stdlib "core/urllib"
+!import cf comp "github://cloudflare/workers-comp@2.7/complib"
+
+mod.model: "@cf/baai/bge-base-en-v1.5"
+
+
+!context ~{
+	; These values must be computed, can't be part of static module
+	.ctx.vectorize: "VECTORIZE" -> binding/cf
+	.ctx.ai: "AI" -> binding/cf
 }
 
-!func |fetch ^{request ~request/cloudflare} = {
-	^request.url 
-	|parse/url 
-	|dispatch/url
-		"/favicon*":{#not-found.response}
-		"/insert":{|insert-vectors}
-		else:{|query-vectors}
-	?> {
-		body = %"Request processing failed: ${fail.message}"
-		status = status ?? #server-error.response
+
+fetch: ~[
+	.arg.request.url 
+	-> parse/url()
+	-> dispatch/url(
+		; These assignments have an ambiguity with destructured assignment, error
+		(#get "/favicon*"): #not-found.response
+		(#post "/insert"): insert-vectors
+		else: query-vectors
+	)
+	->? {
+		body: .in $ "Request processing failed: ${.in.message}"
+		status: .in.status ?? #server-error
 	}
-	|response-json/cloudflare
-}
+	-> response-json
+]
+@call: {}
+@arg: {request: request/cf}
+@doc: "Map request urls to handlers and respond to errors"
 
-; Only need to generate vector embeddings once (or as data changes)
-!func |insert-vectors = {
-	; In a real-world application, you could read content from R2 or
-	; a SQL database (like D1) and pass it to Workers AI
-	@stories = [
+
+insert-vectors: ~[
+	(  ; A real application would read initial data from db or r2
 		"This is a story about an orange cloud"
 		"This is a story about a llama" 
 		"This is a story about a hugging emoji"
-	]
+	)
+	-> map({
+		text: .in
+		(model ai): .arg
+	})
+	-> ai-run()
+	-> iter(~{
+		id: .in $ "${index}"
+		values: .in.value.embedding
+	}) 
+	-> vectorize-upsert()
+]
+@call: {}
+@arg: {model: str ai: vector-datasource/cf}
+@doc: "Only need to generate vector embeddings once (or as data changes)"
 
-	@stories |map :{
-		text = $in
-		model=. ai=. |from $mod
-	} 
-	|ai-run
-	|iter :{
-		id = %"${index}"
-		values = value.embedding
-	} |vectorize-upsert
-}
 
-!func |query-vectors = {
-	; Your query: expect this to match vector ID 1 in this example
-	@user-query = "orange cloud"
-	
-	{text = @user-query model=. ai=. |from $mod}
-	|ai-run
-	|vectorize-query topK=1
+query-vectors: ~[
+	.in
+	-> ai-run()
+	-> vectorize-query(topK:1)
 
 	; Expect vector ID 1 to be your top match with a score of ~0.89693683
 	; This tutorial uses a cosine distance metric, where the closer to one,
 	; the more similar.
-}
+]
+@call: {text: str @default: "orange cloud"}
+@arg: {model: str ai: vector-datasource/cf}
+@doc: "Find closest match to query string"
+

@@ -1,5 +1,10 @@
-; Simple hello world example using !main entry point
+doc.mod: "Simple hello world example using !main entry point"
 
-!main = {
-    "Hello from Comp!"
-}
+!import os stdlib "core/os"
+
+!main [
+	a{"USERNAME" "USER" "LOGNAME"}
+	-> map([.in -> getenv() ?? #skip])
+	-> first("World") $ "Hello, ${}!"
+	-> print()
+]
