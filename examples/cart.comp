@@ -1,73 +1,71 @@
-mod.doc: """Simple shopping cart example
+!mod.doc = """Simple shopping cart example
 
 Gives some ideas of working with an updating state in
 an functional, immutable system.
 """
 
-shopping-cart: {
-    items: cart-item[] @default:()
-    discount: num @default:0
+!shape shopping-cart = {
+	items = cart-item[] @default = ()
+	discount = num @default = 0
 }
 
 
-cart-item: {
-    name: str
-    price: num
-    quantity: num
+!shape cart-item = {
+	name = str
+	price = num
+	quantity = num
 }
 
 
-!main [
-    ; Sample items to add to cart
-    (
-        (name:Apple price:1.00 quantity:2)
-        (Banana 0.50 3)  ; names optional if field ordering matches shape
-        (name:Apple price:1.00 quantity:1)  ; Will replace first apple
-    )
+!func main = {
+	; Sample items to add to cart
+	(
+		(name=Apple price=1.00 quantity=2)
+		(Banana 0.50 3)  ; names optional if field ordering matches shape
+		(name=Apple price=1.00 quantity=1)  ; Will replace first apple
+	)
 
 	; Individually add item definitions to cart
-    -> reduce(
-		initial: ~shopping-cart
-        ~(
-            {cart:.in.accum  item:.in.value}
-            -> add-item()
-		)
-    )
+	-> reduce(initial = ~shopping-cart) => {
+		{cart=!in.accum  item=!in.value} -> add-item()
+	}
 
-    ; Apply 20% discount
-    -> set-discount(0.2)
-
-    ; Calculate and display total (expected 2.00, precise, no math errors)
-    -> cart-total() $ "Total: ${}"
-    -> print()
-]
+	; Apply 20% discount and display total (expected 2.00 with precise mathamatics)
+	-> set-discount(0.2)
+	-> cart-total()
+	-> print("Total: ${}")
+}
 
 
-add-item: [
-	*: .in				; Fill with existing values
-	items: .in.items	; Insert or update name match
-		-> upsert(.arg [.in.name == .arg.name])
-]
-@call: shopping-cart
-@arg: cart-item
-@doc: "Add or replace item in cart by name"
+!func add-item = (
+	@call = shopping-cart
+	@arg = cart-item
+	@doc = "Add or replace item in cart by name"
+
+	{
+	* = !in
+	items = !in.items -> upsert(!arg) => (!in.name == !arg.name)
+	}
+)
 
 
-cart-total: [
-    *:
-	.in.items
-		-> sum([.in.price * .in.quantity])
-		* (1 - .in.discount)
-]
-@call: shopping-cart
-@doc: "Calculate total price with discount applied"
+!func cart-total = (
+	@call = shopping-cart
+	@doc = "Calculate total price with discount applied"
+
+	!in.items
+	-> sum() => (!in.price * !in.quantity)
+	* (1 - !in.discount)
+)
 
 
-set-discount: [
-	*: .in   ; Start with original cart data
-	*: .arg  ; Override with argument fields (discount)
-]
-@call: shopping-cart
-@arg: {discount: num}
-@doc: "Set discount amount (0.2 = 20% off)"
+!func set-discount = (
+	@call = shopping-cart
+	@arg = {discount = num}
+	@doc = "Set discount amount (0.2 = 20% off)"
 
+	{
+	* = !in
+	* = !arg
+	}
+)

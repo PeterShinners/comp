@@ -1,10 +1,11 @@
-doc.mod: "Simple hello world example using !main entry point"
+!mod.doc = "Simple hello world example"
 
 !import os stdlib "core/os"
 
-!main [
-	a{"USERNAME" "USER" "LOGNAME"}
-	-> map([.in -> getenv() ?? #skip])
-	-> first("World") $ "Hello, ${}!"
-	-> print()
-]
+
+!func main = (
+	("USERNAME" "USER" "LOGNAME")
+	-> map() => (!in -> getenv() ?? #skip)
+	-> first("World")
+	-> print("Hello, ${}!")
+)

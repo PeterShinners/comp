@@ -1,16 +1,16 @@
-!doc module "TODO UI App, based on hypothetical migration from the Rio UI library for Python."
+!mod.doc = "TODO UI App, based on hypothetical migration from the Rio UI library for Python."
 
 !import /rio = comp "@gh/rio-dev/rio-comp@0.1.5/lib"
 
-!shape ~todo = {
-	title ~string
-	complete ~bool = #false
+!shape todo = {
+	title = string
+	complete = bool @default = #false
 }
 
-!shape ~state = {
-	todos ~todo[] = []
-	input ~string = ""
-	filter #filter = #all.filter
+!shape state = {
+	todos = todo[] @default = []
+	input = string @default = ""
+	filter = #filter @default = #all.filter
 }
 
 !tag #filter = {
@@ -19,67 +19,72 @@
 	#complete = {"Complete" {#true}}
 }
 
-!main = {
-	[{title = "Todo App" state = {..~state}} |app/rio {|todo-app}]
+
+!func main-rio = {
+	{title="Todo App" state={* = ~state}} -> app() => {todo-app}
 }
 
-!func |todo-app = {
-	@s = [|fetch-state/rio]
-	
-	{#column spacing = 1 padding = 2
+
+!func todo-app = (
+	!var.s = fetch-state()
+
+	{#column spacing=1 padding=2
 		; Creation field
 		{#row
-			{#textinput 
-				text = @s.input 
+			{#textinput
+				text = !var.s.input
 				placeholder = "What needs doing?"
-				on-change:{..@s input = value}
-				on-submit:{..@s 
-					input = "" 
-					todos = [..@s.todos {@s.input |{title = $in}}]
-				}
+				on-change => ({* = !var.s input=value})
+				on-submit => ({* = !var.s
+					input = ""
+					todos = [* = !var.s.todos {!var.s.input -> {title=!in}}]
+				})
 			}
 		}
 		; Show filtered todos
-		[@s.todos 
-		|filter {
-			@filter-values = [@s.filter |get-children/tag |:1]  ; Get the boolean array
-			[complete |in @filter-values]
-		}
-		|map |todo-item]
-		
+		!var.s.todos
+			-> filter() => {
+				!var.filter-values = !var.s.filter -> get-children() => 1  ; Get the boolean array
+				complete -> in(!var.filter-values)
+			}
+			-> map() => todo-item()
+
 		; Filter buttons
-		{#row spacing = 0.5
-			[#filter |children/tag |map {
-				@variant = [|if {@s.filter == tag} {"primary"} {"secondary"}]
-				{#button 
-					text = value.0 
-					variant = @variant
-					on-click:{..@s filter = tag}
+		{#row spacing=0.5
+			#filter -> children() -> map() => {
+				!var.variant = if(!var.s.filter == tag) => {"primary"} => else {"secondary"}
+				{#button
+					text = value.0
+					variant = !var.variant
+					on-click => ({* = !var.s filter=tag})
 				}
-			}]
+			}
 		}
 	}
-}
+)
 
-!func |todo-item ^todo = {
-	@s = [|fetch-state/rio]
 
-	{#row spacing = 1
+!func todo-item = (
+	@arg = todo
+
+	!var.s = fetch-state()
+
+	{#row spacing=1
 		; Completed check
-		{#checkbox 
-			checked = ^complete
-			on-change:{
-				@new = {title = ^title complete = !!^complete}
-				..@s todos=[{@s.todos |replace {title = ^title} @new}]
+		{#checkbox
+			checked = !arg.complete
+			on-change => {
+				!var.new = {title=!arg.title complete=!!arg.complete}
+				!var.s -> {* = !in todos=!in.todos -> replace() => {title=!arg.title} => !var.new}
 			}
 		}
 		; Styled title
-		@style = [|if {^complete} {"strikethrough"} {"normal"}]
-		{#text text = ^title style = @style}
+		!var.style = if(!arg.complete) => {"strikethrough"} => else {"normal"}
+		{#text text=!arg.title style=!var.style}
 		; Delete button
-		{#iconbutton 
+		{#iconbutton
 			icon = "material/delete"
-			on-click :{..$in todos=[todos |filter :{title != ^title}]}
+			on-click => ({* = !in todos=todos -> filter() => {title != !arg.title}})
 		}
 	}
-}
+)

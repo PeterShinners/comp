@@ -1,4 +1,4 @@
-mod.doc: """Find adjusted local time for a handful of team users.
+!mod.doc = """Find adjusted local time for a handful of team users.
 
 This concept was originally taken from a nushell example script at,
 https://github.com/nushell/nu_scripts/blob/main/sourced/examples/date_in_local_timezones.nu
@@ -13,48 +13,48 @@ Shows three things:
 
 
 ; Core team members with their timezone information
-mod.core-team: (
-	(name: andres tz: "America/Guayaquil")
-	(name: fdncred tz: "US/Central")
-	(name: gedge tz: "US/Eastern")
-	(name: jt tz: "NZ")
-	(name: wycats tz: "US/Pacific")
-	(name: kubouch tz: "Europe/Helsinki")
-	(name: elferherrera tz: "Europe/London")
+!mod.core-team = (
+	(name=andres tz="America/Guayaquil")
+	(name=fdncred tz="US/Central")
+	(name=gedge tz="US/Eastern")
+	(name=jt tz="NZ")
+	(name=wycats tz="US/Pacific")
+	(name=kubouch tz="Europe/Helsinki")
+	(name=elferherrera tz="Europe/London")
 )
 
 
-!main ~[
-	.local.event: "2021-08-31 15:00:21.290597200 -05:00" -> parse-datetime()
+!func main = (
+	!var.event = "2021-08-31 15:00:21.290597200 -05:00" -> parse-datetime()
 
 	; Prepare and format team records
-	.local.people: 
-		.mod.core-team
-		-> with-local-time(event: .local.event)
+	!var.people =
+		!mod.core-team
+			-> with-local-time(event=!var.event)
 
 	; Display header
-	.local -> format/time("%c") $ "Local team member time for event at {}"
-	-> print()
+	!var.event -> format("%c")
+	-> print("Local team member time for event at ${}")
 
 	; Display local times
-	.local.people
-	-> iter(~[
-		.in $ "{name}: {time} ({tz})" -> print()
-	])
-]
+	!var.people
+	-> map() => {
+		!in -> print("{name}: {time} ({tz})")
+	}
+)
 
 
-with-local-time: ~{
-	.in.people -> map(~[
-		.in
-		name: .in.name -> capitalize()
-		time: .arg.event -> to-timezone(.in.tz) -> format/time("%c")
-	])
-}
-@call: {people: any}
-@args: {event: datetime}
-@doc: "Adds formatted local time and names for list of team member records"
+!func with-local-time = (
+	@call = {people = any}
+	@args = {event = datetime}
+	@doc = "Adds formatted local time and names for list of team member records"
+
+	!in.people -> map() => ({
+		!in
+		name = !in.name -> capitalize()
+		time = !arg.event -> to-timezone(!in.tz) -> format("%c")
+	})
+)
 
 ; Note, this example would likely flow better with a function to modify
 ; just one single record, but showing an example of bulk editing?
-

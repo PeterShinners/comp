@@ -1,67 +1,71 @@
-; io_uring file reader using hypothetical Comp uring library
-; Compare with: https://unixism.net/loti/liburing_examples.html
+!mod.doc = """io_uring file reader using hypothetical Comp uring library
 
-!import /ring = comp "system:/uring@1.2/uring"
-!import /fs = stdlib "fs"
-!import /io = stdlib "io"
-!import /clib = stdlib "clib"
+Compare with: https://unixism.net/loti/liburing_examples.html
+"""
 
-$mod.QUEUE_DEPTH = 1
-$mod.BLOCK_SIZE = 1024
+!import ring comp "system:/uring.local.1.2/uring"
+!import fs stdlib "fs"
+!import io stdlib "io"
+!import glibc stdlib "glibc"
 
-; Library-provided shapes for io_uring operations
-!shape ~file-info = {
-	size ~number@size.bytes
-	blocks ~io-vec[]
+!mod.queue-depth = 1
+!mod.block-size = 1024
+
+
+!shape file-info = {
+	size = ~number.local.size.bytes
+	blocks = ~io-vec[]
 }
 
-!func |read-file-async ^{path ~string} = {
-	@size = ^path |stat/clib |:size
-	@vecs = {@size $mod.BLOCK_SIZE} |alloc-buffers/uring
 
-	@op = {
+!func main = {
+	!var.args = cmdline()
+	if(!var.args -> length() < 2) => {
+		#fail.process.arguments message="Usage: file_reader paths..."
+	}
+
+	; Initialize io_uring with queue depth
+	!ctx.queue-depth -> init()
+
+	; Process each file argument
+	!var.args -> skip(1) -> map() => {
+		read-file-async(!in)
+		->? {"Error reading file ${filepath}: ${message}" -> print-error()}
+	}
+}
+
+
+!func read-file-async = (
+	@call = {}
+	@arg = {path = string}
+
+	!var.size = !arg.path -> stat() -> size
+	!var.vecs = alloc-buffers(!arg.size !mod.block-size)
+
+	!var.op = {
 		op_type = #readv.read.uring_op
 		fd = file_descriptor
-		io-vecs = @vecs
+		io-vecs = !var.vecs
 		offset = 0
 	}
 
 	; Submit async read operation
-	@ring = (|get-ring/uring)
-	@file-info = {size=@. blocks = @vecs}
-	@ring |get-sqe/uring
-	|prep-readv/uring {
-		fd = file_descriptor
-		io-vecs = @vecs
-		offset = 0
-		op_type = #readv.read.uring_op
-	} 
-	|set-data/uring @file-info
-	|submit/uring
+	get-ring()
+	-> get-sqe()
+	-> prep-readv(
+		#readv.read.uring_op
+		fd=file_descriptor
+		io-vecs={size=!var.size blocks=!var.vecs}
+		offset=0
+	)
+	-> set-data(!var.file-info)
+	-> submit()
 
 	; Wait for completion and process result
-	@ring 
-	|wait-completion/uring
-	|get-data/uring
-	|map {
-		@buffer = io-vec.base |to-string/buffer {length = io-vec.length}
-		@buffer |print
+	-> get-data(#wait-completion)
+	-> map() => {
+		!var.buffer = io-vec.base -> to-string() => {length=io-vec.length}
+		!var.buffer -> print()
 	}
-}
+)
 
-!main = {
-	@args = (|cmdline/env)
-	@args |if length < 2
-		:{#fail.process.arguments message="Usage: file_reader paths..."}
-
-	; Initialize io_uring with queue depth
-	$mod.QUEUE_DEPTH |init/uring
-
-	; Process each file argument
-	@args |skip 1 |map {
-		$in |read-file-async
-		?> {%"Error reading file ${filepath}: ${message}" |print-error}
-	}
-	
-	; Ring cleanup handled automatically by Comp's scope management
-}

@@ -1,8 +1,8 @@
 ; Comp version
-!main = {
-  @words = (|stdin |read-lines/io |map |split |flatten)
-  @most = (@words |tally |max-field value |:key)
-  @most |tap {%"The most frequent word is '${$in}'" |print}
+!func main-cli = {
+  !var.words = () -> stdin() -> read-lines() -> map() => split() -> flatten()
+  !var.most = !var.words -> tally() -> max-field(value) => ("key")
+  !var.most -> print("The most frequent word is ${}")
 }
 
 ;; Nim version

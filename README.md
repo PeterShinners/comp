@@ -29,14 +29,12 @@ uv run comp examples/hello.comp
 ```comp
 ; Hello World example in Comp language
 
-!main = {
-    $var.lookups = [{USERNAME USER LOGNAME} 
-        |map :[|getenv ?? #skip]]
-    
-    $var.name = [{..$var.lookups World} |first]
-    
-    [%"Hello, %{$var.name}!" |print]
-}
+!func main = (
+	("USERNAME" "USER" "LOGNAME")
+	-> map() => (!in -> getenv() ?? #skip)
+	-> first("World")
+	-> print("Hello, ${}!")
+)
 ```
 
 This Hello World attempts to be extra personal by looking for a login name

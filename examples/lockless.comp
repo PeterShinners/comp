@@ -1,38 +1,52 @@
-; Lock-free stack using linked nodes and atomic head pointer
+!mod.doc = Lock-free stack using linked nodes and atomic head pointer
 
-!import /atomic = comp "@systems/atomic@1.0.1/lib"
+!import atomic comp "@systems/atomic@1.0.1/lib"
 
-!shape ~node = {
-	data ~str
-	next ~node | ~nil
+!shape node = {
+	data = str
+	next = node | nil
 }
 
-!shape ~stack = {
-	head ~node | ~nil = {}
-	..~version/atomic  ; Include whatever fields needed for atomic operations
+!shape stack = {
+	head = ~node | ~nil = {}
+	* = ~version  ; Include whatever fields needed for atomic operations
 }
 
-!func |push ~{stack ~stack} ^{data ~str} = {
-	^stack |retry-exchange/atomic 
-		{..$in head = {data = ^data next = head}}
-}
 
-!func |pop ^{stack ~stack} = {
-	^stack |retry-exchange/atomic 
-		{..$in head = head.next}  ; fails when head is {}
-}
-
-!func |test-stack = {
+!func main = (
 	; Push some items
-	@stack = {}
-	|push data = "first"
-	|push data = "second" 
-	|push data = "third"
-	
+	!var.stack = {}
+	-> push("first")
+	-> push("second")
+	-> push("third")
+
 	; Pop them back
-	(|forever :{
-		@stack = @stack |pop 
-		|tap {|% "Popped: ${head.data}" |print}
-		?> #field.fail {#break}  ; Stop gracefully when empty
-	})
-}
+	forever() => (
+		!var.stack = !var.stack
+		-> pop()
+		-> print("Popped: ${data}")
+		->? #break  ; Stop gracefully when empty
+	)
+)
+
+
+!func push = (
+	@call = {stack = stack}
+	@args = {data = str}
+
+	!arg.stack -> retry-exchange() => {
+		* = !in  
+		head = {data=!arg.data next=head}
+	}
+)
+
+
+!func pop = (
+	@call = {}
+	@args = {stack = stack}
+
+	!arg.stack -> retry-exchange() => {
+		* = !in
+		head = head.next  ; Fails when head is {}
+	}
+)
