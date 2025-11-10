@@ -17,55 +17,49 @@ an functional, immutable system.
 }
 
 
-!func main = {
+!func main = (
 	; Sample items to add to cart
-	(
-		(name=Apple price=1.00 quantity=2)
-		(Banana 0.50 3)  ; names optional if field ordering matches shape
-		(name=Apple price=1.00 quantity=1)  ; Will replace first apple
-	)
-
-	; Individually add item definitions to cart
-	-> reduce(initial = ~shopping-cart) => {
-		{cart=!in.accum  item=!in.value} -> add-item()
+	[{
+		{name="Apple" price=1.00 quantity=2}
+		{"Banana" 0.50 3}  ; names optional if field ordering matches shape
+		{name="Apple" price=1.00 quantity=1}  ; Will replace first apple
 	}
 
+	; Individually add item definitions to cart
+	-> reduce initial = ~shopping-cart => [
+		{cart=in.accum item=in.value} -> add-item
+	]
+
 	; Apply 20% discount and display total (expected 2.00 with precise mathamatics)
-	-> set-discount(0.2)
-	-> cart-total()
-	-> print("Total: ${}")
-}
+	-> set-discount 0.2
+	-> cart-total
+	-> print "Total: ${}"
+	]
+)
 
 
-!func add-item = (
+!func add-item = {
 	@call = shopping-cart
 	@arg = cart-item
 	@doc = "Add or replace item in cart by name"
-
-	{
-	* = !in
-	items = !in.items -> upsert(!arg) => (!in.name == !arg.name)
-	}
-)
+	(*) = in
+	items = [in.items -> upsert arg :(in.name == arg.name)]
+}
 
 
 !func cart-total = (
 	@call = shopping-cart
 	@doc = "Calculate total price with discount applied"
 
-	!in.items
-	-> sum() => (!in.price * !in.quantity)
-	* (1 - !in.discount)
+	[in.items -> sum() :(in.price * in.quantity)]
+	* (1 - in.discount)
 )
 
 
-!func set-discount = (
+!func set-discount = {
 	@call = shopping-cart
 	@arg = {discount = num}
 	@doc = "Set discount amount (0.2 = 20% off)"
-
-	{
-	* = !in
-	* = !arg
-	}
-)
+	(*) = in
+	(*) = arg
+}

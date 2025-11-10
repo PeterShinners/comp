@@ -3,9 +3,9 @@
 !import os stdlib "core/os"
 
 
-!func main = (
+!func main = [
 	("USERNAME" "USER" "LOGNAME")
-	-> map() => (!in -> getenv() ?? #skip)
-	-> first("World")
-	-> print("Hello, ${}!")
-)
+	-> map :[!in -> getenv() ?? #skip]
+	-> first "World"
+	-> print "Hello, ${}!"
+]

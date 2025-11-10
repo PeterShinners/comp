@@ -21,7 +21,8 @@
 
 
 !func main-rio = {
-	{title="Todo App" state={* = ~state}} -> app() => {todo-app}
+	[{title="Todo App" state=~state} 
+	-> app :(todo-app)]
 }
 
 

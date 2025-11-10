@@ -16,42 +16,37 @@ of search and insert operations.
 
 !func main = {
 	; Build tree from values
-	!var.tree = (5 3 8 1 7 9)
-		-> fold() => tree-insert() => initial=nil
+	!var.tree = [(5 3 8 1 7 9)
+		-> fold initial=nil :tree-insert]
 
 	; Test finding values
-	seven? = !var.tree -> tree-contains(7)    ; true
-	four? = !var.tree -> tree-contains(4)     ; false
+	seven? = [var.tree -> tree-contains 7]    ; true
+	four? = [var.tree -> tree-contains 4]     ; false
 
 	; Get all values in order
-	all-values = !var.tree -> tree-values()   ; (1 3 5 7 8 9)
+	all-values = [var.tree -> tree-values]   ; (1 3 5 7 8 9)
 }
 
 
 !func tree-insert = (
 	@call = nil
 	@arg = num
-
-	{value=!arg} ~> branch
+	{value=!arg} ~ branch
 )
 
-!func tree-insert = (
+!func tree-insert = {
 	@call = tree
 	@arg = num
 	@doc = "Insert into tree recursively based on value comparison"
-
-	{
-		* = !in
-		left = if(!arg < !in.value) => !in.left -> tree-insert(!arg) => else(!in.left)
-		right = if(!arg >= !in.value) => !in.right -> tree-insert(!arg) => else(!in.right)
-	}
-)
+	(*) = in
+	left = [if (arg < in.value) :[in.left -> tree-insert arg] in.left]
+	right = [if (arg >= in.value) :[in.right -> tree-insert arg] => in.right]
+}
 
 
 !func tree-contains = (
 	@call = nil
 	@arg = num
-
 	#false
 )
 
@@ -59,28 +54,23 @@ of search and insert operations.
 	@call = tree
 	@arg = num
 	@doc = "Search for value in tree"
-
-	if(!arg == !in.value) => #true
-	=> else(
-		if(!arg < !in.value) => !in.left -> tree-contains(!arg)
-		=> else(!in.right -> tree-contains(!arg))
-	)
+	[if (arg == in.value) #true :[
+		if(arg < in.value) 
+			:[in.left -> tree-contains arg]
+			:[in.right -> tree-contains arg]
+	]
 )
 
 
 !func tree-values = (
 	@call = nil
-
 	{}
 )
 
-!func tree-values = (
+!func tree-values = {
 	@call = tree
 	@doc = "In-order traversal returning sorted values"
-
-	{
-		* = !in.left -> tree-values()
-		!in.value
-		* = !in.right -> tree-values()
-	}
-)
+	* = in.left -> tree-values()
+	in.value
+	* = in.right -> tree-values()
+}

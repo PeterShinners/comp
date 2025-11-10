@@ -15,18 +15,17 @@
 
 !func main = (
 	; Push some items
-	!var.stack = {}
-	-> push("first")
-	-> push("second")
-	-> push("third")
+	!var.stack = [{} -> push "first" -> push "second" -> push "third"]	
 
 	; Pop them back
-	forever() => (
-		!var.stack = !var.stack
-		-> pop()
-		-> print("Popped: ${data}")
-		->? #break  ; Stop gracefully when empty
-	)
+	[forever :(
+		!var.stack = [
+			var.stack
+			-> pop
+			-> print "Popped: ${data}"
+			->? #break  ; Stop gracefully when empty
+		]
+	)]
 )
 
 
@@ -34,10 +33,10 @@
 	@call = {stack = stack}
 	@args = {data = str}
 
-	!arg.stack -> retry-exchange() => {
-		* = !in  
+	[!arg.stack -> retry-exchange() :{
+		(*) = !in  
 		head = {data=!arg.data next=head}
-	}
+	}]
 )
 
 
@@ -45,8 +44,8 @@
 	@call = {}
 	@args = {stack = stack}
 
-	!arg.stack -> retry-exchange() => {
-		* = !in
+	[!arg.stack -> retry-exchange() :{
+		(*) = !in
 		head = head.next  ; Fails when head is {}
-	}
+	}]
 )

@@ -14,13 +14,13 @@ Shows three things:
 
 ; Core team members with their timezone information
 !mod.core-team = (
-	(name=andres tz="America/Guayaquil")
-	(name=fdncred tz="US/Central")
-	(name=gedge tz="US/Eastern")
-	(name=jt tz="NZ")
-	(name=wycats tz="US/Pacific")
-	(name=kubouch tz="Europe/Helsinki")
-	(name=elferherrera tz="Europe/London")
+	{name=andres tz="America/Guayaquil"}
+	{name=fdncred tz="US/Central"}
+	{name=gedge tz="US/Eastern"}
+	{name=jt tz="NZ"}
+	{name=wycats tz="US/Pacific"}
+	{name=kubouch tz="Europe/Helsinki"}
+	{name=elferherrera tz="Europe/London"}
 )
 
 
@@ -29,18 +29,16 @@ Shows three things:
 
 	; Prepare and format team records
 	!var.people =
-		!mod.core-team
-			-> with-local-time(event=!var.event)
+		[mod.core-team -> with-local-time :(event=!var.event)]
 
 	; Display header
-	!var.event -> format("%c")
-	-> print("Local team member time for event at ${}")
+	[var.event -> format "%c" 
+	-> print("Local team member time for event at ${}")]
 
 	; Display local times
-	!var.people
-	-> map() => {
-		!in -> print("{name}: {time} ({tz})")
-	}
+	[var.people -> map() :(
+		in -> print("{name}: {time} ({tz})")
+	)]
 )
 
 
@@ -49,11 +47,11 @@ Shows three things:
 	@args = {event = datetime}
 	@doc = "Adds formatted local time and names for list of team member records"
 
-	!in.people -> map() => ({
-		!in
-		name = !in.name -> capitalize()
-		time = !arg.event -> to-timezone(!in.tz) -> format("%c")
-	})
+	[in.people -> map() :{
+		(*) = in
+		name = [in.name -> capitalize]
+		time = [arg.event -> to-timezone !in.tz -> format "%c"]
+	}]
 )
 
 ; Note, this example would likely flow better with a function to modify

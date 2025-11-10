@@ -7,17 +7,21 @@ https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
 
 
 !func main = (
-	!var.after = now() - 1#week
+	!var.after = [now] - 1#week
 
-	{repo="nushell/nushell" fields={"title" "url" "created-at" "reactions"}}
-	-> gh.list-issues()
-	-> filter() => {!in.created-at >= !var.after}
-	-> map() => ({
-		{title url} = !in
-		thumbs-up = !in.reactions 
-		-> filter() => (!in.content == #thumbs-up)
-		-> length()
-	})
-	-> sort(#reverse) => (!in.thumbs-up)
-	-> first(5)
+	[
+		{repo="nushell/nushell" fields=(title url created-at reactions)}
+		-> gh.list-issues
+		-> filter :(!in.created-at >= !var.after)
+		-> map :{
+			(title url) = !in
+			thumbs-up = [
+				!in.reactions 
+				-> filter :(!in.content == #thumbs-up)
+				-> length
+			]
+		}
+		-> sort #reverse :(!in.thumbs-up)
+		-> first5
+	]
 )
