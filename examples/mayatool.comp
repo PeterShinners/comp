@@ -49,39 +49,32 @@ https://github.com/TrevisanGMW/gt-tools/blob/release/gt/tools/add_offset_transfo
 ; Create random buble shapes
 ; https://github.com/nestrada2/bubbles/blob/main/scripts/bubbles.py
 
-!shape bubble-args = {
-    count = num @default = 10
-    radius-range = num[2] @default = {0.1 0.5}
-    position-range = num[2] @default = {0.1 5}
+shape bubble_args {
+    count num = 10
+    radius_range num[2] = [0.1 0.5]
+    position_range num[2] = [0.1 5]
 }
 
-
-!func create-bubbles = (
-	@call = {parent = dagpath @default = {}}
-	@args = bubble-args
-
-	!var.transaction = !transact $maya-scene
-	!var.group = parent -> create-node(#group/node name="bubbles")
-
-	; Generate bubble specifications
-	!var.bubbles = {1 !arg.count}
-	-> range()
-	-> map() => {
-		name = "bubble_${!in}"
-		radius = !arg.radius-range -> uniform()
-		position = {
-			x = !arg.position-range -> uniform()
-			y = !arg.position-range -> uniform()
-			z = !arg.position-range -> uniform()
-		}
-	}
-	; Create and position bubbles
-	-> map() => {
-		!var.group 
-		-> polySphere(name=name radius=radius)
-		-> move(position)
-	}
-
-	!var.group -> select-replace()
-	!var.bubbles
+create_bubbles parent=nil args=bubble_args (
+    transaction = transact maya_scene
+    
+    group = parent -> create_node #group name="bubbles"
+    
+    bubbles = 1..args.count -> each i {
+        name = "bubble_{i}"
+        radius = random args.radius_range
+        
+        position {
+            x = random args.position_range
+            y = random args.position_range  
+            z = random args.position_range
+        }
+        
+        sphere = group 
+            -> poly_sphere name radius
+            -> move position
+    }
+    
+    group -> select_replace
+    bubbles
 )

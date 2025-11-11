@@ -1,65 +1,45 @@
-!mod.doc = """Simple shopping cart example
-
-Gives some ideas of working with an updating state in
-an functional, immutable system.
-"""
-
-!shape shopping-cart = {
-	items = cart-item[] @default = ()
-	discount = num @default = 0
+; Production-ready cart with validation
+shape cart {
+    items {} = {}  ; Map of name -> {price qty}
+    discount num = 0
+    tax_rate num = 0.08
 }
 
-
-!shape cart-item = {
-	name = str
-	price = num
-	quantity = num
-}
-
-
-!func main = (
-	; Sample items to add to cart
-	[{
-		{name="Apple" price=1.00 quantity=2}
-		{"Banana" 0.50 3}  ; names optional if field ordering matches shape
-		{name="Apple" price=1.00 quantity=1}  ; Will replace first apple
-	}
-
-	; Individually add item definitions to cart
-	-> reduce initial = ~shopping-cart => [
-		{cart=in.accum item=in.value} -> add-item
-	]
-
-	; Apply 20% discount and display total (expected 2.00 with precise mathamatics)
-	-> set-discount 0.2
-	-> cart-total
-	-> print "Total: ${}"
-	]
+main (
+    new_cart
+    -> add "Apple" 1.00 2
+    -> add "Banana" 0.50 3
+    -> add "Apple" 1.00  ; qty defaults to 1
+    -> remove "Banana"
+    -> add "Orange" 0.75 4
+    -> set_discount 0.2
+    -> checkout
 )
 
+new_cart (cart{})
 
-!func add-item = {
-	@call = shopping-cart
-	@arg = cart-item
-	@doc = "Add or replace item in cart by name"
-	(*) = in
-	items = [in.items -> upsert arg :(in.name == arg.name)]
-}
-
-
-!func cart-total = (
-	@call = shopping-cart
-	@doc = "Calculate total price with discount applied"
-
-	[in.items -> sum() :(in.price * in.quantity)]
-	* (1 - in.discount)
+add cart name price qty=1 (
+    when price <= 0 (error "Invalid price")
+    cart with {items = items with {(name) = {price qty}}}
 )
 
+remove cart name (
+    cart with {items = items -> omit name}
+)
 
-!func set-discount = {
-	@call = shopping-cart
-	@arg = {discount = num}
-	@doc = "Set discount amount (0.2 = 20% off)"
-	(*) = in
-	(*) = arg
-}
+set_discount cart pct (
+    when pct < 0 or pct > 1 (error "Invalid discount")
+    cart with {discount = pct}
+)
+
+checkout cart (
+    subtotal = cart.items -> values -> sum {.price * .qty}
+    after_discount = subtotal * (1 - cart.discount)
+    tax = after_discount * cart.tax_rate
+    total = after_discount + tax
+    
+    print "Subtotal: ${subtotal:.2f}"
+    print "Discount: -${subtotal * cart.discount:.2f}"  
+    print "Tax: ${tax:.2f}"
+    print "Total: ${total:.2f}"
+)

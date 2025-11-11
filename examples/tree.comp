@@ -34,6 +34,7 @@ of search and insert operations.
 	{value=!arg} ~ branch
 )
 
+
 !func tree-insert = {
 	@call = tree
 	@arg = num
@@ -44,23 +45,13 @@ of search and insert operations.
 }
 
 
-!func tree-contains = (
-	@call = nil
-	@arg = num
-	#false
-)
+tree_contains nil value (false)
 
-!func tree-contains = (
-	@call = tree
-	@arg = num
-	@doc = "Search for value in tree"
-	[if (arg == in.value) #true :[
-		if(arg < in.value) 
-			:[in.left -> tree-contains arg]
-			:[in.right -> tree-contains arg]
-	]
+tree_contains tree value (
+    when value == tree.value (true)
+    when value < tree.value (tree.left -> tree_contains value)
+    else (tree.right -> tree_contains value)
 )
-
 
 !func tree-values = (
 	@call = nil

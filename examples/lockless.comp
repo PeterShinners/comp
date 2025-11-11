@@ -1,51 +1,88 @@
-!mod.doc = Lock-free stack using linked nodes and atomic head pointer
+; High-performance queue using memory-mapped ring buffer
+import mmap from "@systems/mmap"
+import atomic from "@systems/atomic"
 
-!import atomic comp "@systems/atomic@1.0.1/lib"
-
-!shape node = {
-	data = str
-	next = node | nil
+shape ring_queue {
+    buffer mmap.region
+    size int
+    head atomic.int
+    tail atomic.int
+    capacity int
 }
 
-!shape stack = {
-	head = ~node | ~nil = {}
-	* = ~version  ; Include whatever fields needed for atomic operations
-}
 
-
-!func main = (
-	; Push some items
-	!var.stack = [{} -> push "first" -> push "second" -> push "third"]	
-
-	; Pop them back
-	[forever :(
-		!var.stack = [
-			var.stack
-			-> pop
-			-> print "Popped: ${data}"
-			->? #break  ; Stop gracefully when empty
-		]
-	)]
+; Example: Multi-producer/consumer
+main #producer count=1000 (
+    queue = create_queue "work_queue" 256
+    
+    1..count -> each i (
+        queue -> push {id=i work="task_{i}"}
+        when i % 100 == 0 (print "Produced {i}")
+    )
 )
 
-
-!func push = (
-	@call = {stack = stack}
-	@args = {data = str}
-
-	[!arg.stack -> retry-exchange() :{
-		(*) = !in  
-		head = {data=!arg.data next=head}
-	}]
+main #consumer (
+    queue = create_queue "work_queue" 256
+    
+    loop (
+        queue -> pop
+        when nil (sleep 0.1)
+        when item (
+            print "Processing {item.work}"
+            ; Do actual work here
+        )
+    )
 )
 
-
-!func pop = (
-	@call = {}
-	@args = {stack = stack}
-
-	[!arg.stack -> retry-exchange() :{
-		(*) = !in
-		head = head.next  ; Fails when head is {}
-	}]
+; Create queue backed by shared memory
+create_queue name capacity (
+    ; Create or attach to shared memory
+    buffer = mmap.shared name size=(capacity * 64)
+    
+    {
+        buffer
+        size = capacity
+        head = atomic.int buffer.base
+        tail = atomic.int (buffer.base + 8)
+        capacity
+    }
 )
+
+; Lock-free push with backpressure
+push queue item (
+    loop (
+        head = queue.head -> load
+        tail = queue.tail -> load
+        
+        next = (tail + 1) % queue.capacity
+        when next == head (
+            yield  ; Queue full, backpressure
+        )
+        
+        ; Try to claim the slot
+        when queue.tail -> cas tail next (
+            offset = tail * 64 + 16
+            queue.buffer -> write offset item
+            break item
+        )
+    )
+)
+
+; Lock-free pop
+pop queue (
+    loop (
+        head = queue.head -> load
+        tail = queue.tail -> load
+        
+        when head == tail (nil)  ; Empty
+        
+        ; Try to claim the slot
+        next = (head + 1) % queue.capacity
+        when queue.head -> cas head next (
+            offset = head * 64 + 16
+            item = queue.buffer -> read offset 64
+            break item
+        )
+    )
+)
+

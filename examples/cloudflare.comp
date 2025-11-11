@@ -1,0 +1,80 @@
+; Vector search API using Cloudflare Workers
+import cf from "@cloudflare/workers-comp"
+
+model = "@cf/baai/bge-base-en-v1.5"
+
+; Route requests to handlers
+fetch request env (
+    route request.method request.url.pathname
+        #get "/health" (ok {status="healthy"})
+        #post "/embed" (embed_text request env)
+        #post "/search" (search_vectors request env)
+        #post "/index" (index_documents request env)
+        else (not_found)
+)
+
+; Embed text and search for similar content
+search_vectors request env (
+    {query limit=5} = request -> json
+    
+    ; Pipeline: text -> embedding -> search -> results
+    query 
+    -> embed env.ai
+    -> search env.vectorize limit
+    -> with_metadata env.kv
+    -> ok
+)
+
+; Index multiple documents
+index_documents request env (
+    docs = request -> json
+    
+    docs -> parallel doc (
+        embedding = doc.text -> embed env.ai
+        
+        env.vectorize -> upsert {
+            id = doc.id || gen_uuid
+            values = embedding
+            metadata = doc with {indexed_at = now}
+        }
+    )
+    -> await_all
+    -> count
+    -> {indexed} (ok {message="Indexed {indexed} documents"})
+)
+
+; Generate embedding using AI model
+embed ai text (
+    ai -> run model {text}
+       -> await
+       -> {.data.0.embedding}
+)
+
+; Search vector store and enhance results
+search vectorize embedding limit (
+    vectorize -> query embedding {top_k=limit}
+              -> await
+              -> {.matches}
+)
+
+with_metadata kv matches (
+    matches -> each m {
+        m with {
+            content = kv -> get "doc:{m.id}"
+                        -> await
+                        -> json
+        }
+    }
+)
+
+; Response helpers
+ok data (cf.response status=200 json=data)
+not_found (cf.response status=404 json={error="Not found"})
+
+; Router with pattern matching
+route method path (
+    patterns -> find p (
+        p.method == method and path -> matches p.path
+    )
+    -> {.handler} || not_found
+)

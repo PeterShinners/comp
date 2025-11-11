@@ -1,58 +1,70 @@
-!mod.doc = """Find adjusted local time for a handful of team users.
+; Show local times for distributed team meetings
+import datetime from "core/datetime"
 
-This concept was originally taken from a nushell example script at,
-https://github.com/nushell/nu_scripts/blob/main/sourced/examples/date_in_local_timezones.nu
+shape team_member {
+    name string
+    tz timezone
+    working_hours [hour hour] = [9 17]
+}
 
-Shows three things:
- 1. Each person's timezone
- 2. A header with the meeting time
- 3. What time the meeting is for each person in their local timezone
-"""
+; Team data
+team = [
+    {name="andres" tz="America/Guayaquil"}
+    {name="fdncred" tz="US/Central"}
+    {name="gedge" tz="US/Eastern"}
+    {name="jt" tz="NZ"}
+    {name="wycats" tz="US/Pacific"}
+    {name="kubouch" tz="Europe/Helsinki"}
+    {name="elferherrera" tz="Europe/London"}
+]
 
-!import datetime stdlib "core/datetime"
-
-
-; Core team members with their timezone information
-!mod.core-team = (
-	{name=andres tz="America/Guayaquil"}
-	{name=fdncred tz="US/Central"}
-	{name=gedge tz="US/Eastern"}
-	{name=jt tz="NZ"}
-	{name=wycats tz="US/Pacific"}
-	{name=kubouch tz="Europe/Helsinki"}
-	{name=elferherrera tz="Europe/London"}
+; Show meeting time in everyone's timezone
+main time="now" (
+    event = when time == "now" (datetime.now)
+            else (time -> parse_datetime)
+    
+    print "Meeting at {event -> format "%Y-%m-%d %H:%M %Z"}"
+    print "─" * 40
+    
+    team -> each member {
+        member with {
+            local = event -> to_timezone member.tz
+            hour = local -> hour
+            status = when hour in 9..17 ("✓") 
+                     when hour in 6..22 ("⚠") 
+                     else ("💤")
+        }
+    }
+    -> sort {.local.hour}
+    -> each m (
+        print "{m.status} {m.name:10} {m.local -> format "%H:%M"} {m.tz}"
+    )
 )
 
-
-!func main = (
-	!var.event = "2021-08-31 15:00:21.290597200 -05:00" -> parse-datetime()
-
-	; Prepare and format team records
-	!var.people =
-		[mod.core-team -> with-local-time :(event=!var.event)]
-
-	; Display header
-	[var.event -> format "%c" 
-	-> print("Local team member time for event at ${}")]
-
-	; Display local times
-	[var.people -> map() :(
-		in -> print("{name}: {time} ({tz})")
-	)]
+; Find best meeting times across timezones
+main #suggest (
+    print "Best times for {team.length} people:"
+    
+    0..23 -> each hour {
+        hour_utc = hour -> as_datetime
+        available = team -> count member (
+            local = hour_utc -> to_timezone member.tz -> hour
+            local in 9..17
+        )
+        {hour available}
+    }
+    -> keep {.available >= team.length * 0.6}
+    -> sort {.available} desc
+    -> first 3
+    -> each slot (print "  {slot.hour}:00 UTC - {slot.available}/{team.length} available")
 )
 
-
-!func with-local-time = (
-	@call = {people = any}
-	@args = {event = datetime}
-	@doc = "Adds formatted local time and names for list of team member records"
-
-	[in.people -> map() :{
-		(*) = in
-		name = [in.name -> capitalize]
-		time = [arg.event -> to-timezone !in.tz -> format "%c"]
-	}]
+; Add a new team member
+main #add name tz working_start=9 working_end=17 (
+    new_member = {name tz working_hours=[working_start working_end]}
+    
+    team -> append new_member 
+         -> save_to "team.comp"
+    
+    print "Added {name} in {tz}"
 )
-
-; Note, this example would likely flow better with a function to modify
-; just one single record, but showing an example of bulk editing?

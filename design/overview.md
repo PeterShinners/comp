@@ -1,345 +1,468 @@
-# Comp Language Overview
+# Comp Language Design
 
-## What Makes Comp Different?
+## Core Philosophy
 
-Comp combines features and styles from several different languages. It also
-provides several new and novel ideas to allow developers to write clean code
-and follow best practices. This is a high level interpreted language designed
-to create composable and understandable programs.
+Comp is a high-level language that treats everything as immutable structures
+flowing through pipelines. 
 
-The greatest measure of any programming language is how well the standard
-libraries and core code align with idiomatic best practices. Comp implements
-flow control, iteration, and resources with straightforward libraries that
-can be reused and extended.
+The focus is to create composable and friendly language for developers that
+allows them to focus on best practices and creating comfortable code. This is a
+high level interpreted language designed to create composable and understandable
+programs. Comp implements flow control, iteration, and resources with
+straightforward libraries that can be reused and extended.
+
+Key principles:
+
+- **Super structures** - Everything is structures, and they are immutable
+- **Schemas for validation** - Shapes are structres that validate and reorganize structures
+- **Pipelines compose** - Operations chain together like building blocks
+- **Data beats inheritance** - Structural compatibility instead of class hierarchies
+
+
+## Basic Syntax
+
+### Values and Structures
 
 ```comp
-!doc module "There are many hello worlds, and this one is mine"
-$mod.package = {name="hello" version="1.0.0"}
-; Line comments use semicolons, there are no separators.
+; Simple values (auto-promote to structures in pipelines)
+42                          ; Number
+"hello"                     ; String  
+#true                       ; Boolean tag
 
-!func |planet = { 
-	World
-}
+; Structures combine named and unnamed fields
+{x=10 y=20}                ; Named fields
+{1 2 3}                    ; Unnamed/positional fields
+{name="Alice" 30 #active}  ; Mixed
 
-!main = {
-	[|planet |capitalize |format "Hello, %{}!" |print]
-}
+; Field access
+user.name                  ; Named field
+coords.#0                  ; First unnamed field (index)
+data."Full Name"           ; String field name
+config.'port_key'          ; Computed field name
 ```
 
-Save as `hello.comp`, run with `comp hello.comp`. That's it. No build files, 
-no configuration complexity, no dependency management, and no creation
-templates to understand. Projects grow from here in flexible ways, only when
-you are ready.
+### Pipelines
 
-**Intro**
-
-- Pipelines allow chaining composable functions together.
-- Custom symbol identifies functions, shapes, tags, and more.
-- All data is immutable structures; from simple numbers, iterators, and more.
-- Module namespace is declarative, typos are build time errors.
-- Functions look the same as literals structures, and they are.
-- All structures are equal citizens, either from code, databases, json, or anything.
-- A comp module represents a fully self-described package, no sidecar yaml or toml.
-- Error handling integrates with pipelines naturally and helpfully.
-
-## Big Ideas That Transform
-
-### Structures all the way down
-
-Comp's data type is more of a super-structure than a regular map of defined
-fields. It combines the use cases of iterators, sequences, and maps into a
-flexible container that does more and does it uniformly.
-
-The construction of a literal structure can include intermediate statements
-and computed values. A function definition becomes a regular structure literal
-that is deferred until needed.
-
-Every operation ends up being something that takes a structure in and generates
-a structure out. The consistency becomes its source of power.
+Pipelines chain operations left-to-right using `->`. Each operation transforms the incoming structure:
 
 ```comp
-42                     ; Auto-promotes to {42}
-{x=10 y=20}            ; Named fields
-{1+1 2+2 3+3}          ; Positional fields  
-{name="Alice" 30 active?=#true}  ; Mixed data
-```
+; Basic pipeline
+data -> validate -> transform -> save
 
-### Pipelines: Data Flows Like Streams
+; Pipeline with blocks (deferred execution)
+items -> filter {.score > 100}
+      -> map {name = .name, value = .score * 2}
+      -> sort {.value} desc
+      -> first 5
 
-Pipelines are designed to work as a flat chain of operations. Define schemas
-that match and morph compatibly data structures into new forms. Functions
-use these schema shapes safely run any type of data.
-
-Flow control like conditionals and loops are just regular functions. Use
-deferred execution blocks defined on the fly to pass behavior into functions.
-
-The wrench operator (`|-|`) enables pipeline meta-operations that enhance
-functionality without changing business logic. Add progress tracking, query
-optimization, or debugging to any pipeline.
-
-```comp
-
-!shape ~user = {
-    name ~str
-    email ~str|~nil = {}
-    age ~num#years
-    member-size ~timestamp
-    recent-purchases ~num = 0
-}
-
-!func |count_adult_purchases ~{users~user[]} = {
-    users 
-    |filter :{age >= 18} 
-    |iter :{value |send-welcome-email} 
-    |-|progressbar          ; Simple progress reporting, even into iterations
-    |sum {recent-purchases}
-    |-| debug                ; Development-time logging
-}
-```
-
-Invoked functions are easily identifiable by their `|` symbolic prefix. When
-chained together this allows the reader to easily follow their progress.
-Pipeline modifiers with `|-|` clearly indicate meta-operations that enhance
-the pipeline structure itself.
-
-The `~` syntax declares structural or type requirements. No inheritance 
-hierarchies, no interface implementations—just structural matching that 
-works intuitively.
-
-The shape schemas provide strongly typed data validation in a way that is
-reusable and expressive.
-
-### Tags: Better Than Enums
-
-Tags solve the problem that enums never quite get right; they need to be 
-extensible, hierarchical, and carry values. Comp takes them even further by
-using them for polymorphic dispatch.
-
-Reference them by their most significant leaf value, then desscribe more
-hierarchy to resolve ambuguities.
-
-```comp
-!tag #status = {
-    #active = 1
-    #inactive = 0  
-    #pending
-    #error {
-        #timeout = -100
-        #network = -200
-        #maintenance = -300
-    }
-}
-
-; Use them as values
-current = #active
-problem = #maintenance.error
-
-; Use them for dispatch
-[$in |handle-request
-    '#timeout.error.status' :{|retry-with-backoff}
-    '#error.status' :{[|log-error] [|use-fallback]}
-]
-```
-
-Tags play a dual role in the language, acting as both values and types, promoting them 
-into new extensible types that can be used for dispatch and validation.
-
-### Modules and imports
-
-Modules define a namespace that is declarative and consistent. Symbol errors and
-mismatches are build-time errors not discovered later in the middle of
-execution. This also means definitions can be used and defined in any order
-desired.
-
-Everyone has been told a key to healthy code it splitting large functions
-into smaller ones, and organizing large source code files into smaller
-ones. In practice, most languages make this difficult. Comp is designed
-to make this as easy as possible.
-
-When outgrowing a single file, a module can be split into multiple files
-belonging to a shared directory. References work across files with no concerns
-for circular dependencies or functions being tied to enormous class definitions
-that cannot be divided.
-
-Rich imports define modules from a variety of sources. Use an OpenAPI spec
-directly from a website as a complete Comp module. Let the runtime deal with
-translating, caching, and packaging the external dependency.
-
-Just like tags, unambiguous references are used directly. The namespaces
-for imports are deterministic. Know what is provided by dependencies at
-build time or while editing code directly.
-
-```comp
-; Use data from everywhere seamlessly
-!import /str = std "core/str"
-!import /pygame = python "pygame"
-!import /api = openapi "http://api.example.org/v1"
-!import /time = std "core/time"
-!import /mars = github+release "offworld/martiancalendar@1.0.4"
-
-; Access through simple namespaces
-$token = "username" |fetch-auth-token |base64/str
-$now = [|now/time ~num#day/mars]
-```
-
-### Scopes
-
-Comp keeps a variety of scopes at hand for any evaluating code. This allows
-placing data in the appropriate place. Short symbols uniquely identify which
-scope a field is coming from.
-
-Use `$var` prefixed variables to work with a function's local scope. Arguments are a
-special, inherited scope prefixed with `$arg`. Or work with `$mod` for shared
-values at the module global level. No mysterious variable capturing, no complex
-closures, no hunting through nested scopes to understand where a value came from.
-
-```comp
-!func |process-request ~{request} arg ~{timeout ~num} = {
-    $var.start-time = [|now/time]          ; Function-local variable
-    $var.user = request.user               ; Another local variable
-
-    response = [request |validate |process]   ; Output field
-    duration = [|now/time] - $var.start-time   ; Uses local variable
-
-    server-timeout = $arg.timeout      ; Argument reference
-    global-config = $mod.settings      ; Module-level data
-}
-```
-
-The combination of scopes makes it clear where each piece of data comes from:
-- `$var` - Function locals that only exist within this function
-- `$arg` - Arguments passed to this function
-- `$ctx` - Execution context shared across function calls
-- `$mod` - Module-level configuration and state
-
-For the complete reference on how these scopes are managed, see [Syntax and Style Guide](syntax.md).
-
-## Working with Data
-
-### Field Access That Just Works
-
-No matter what kind of data you're working with—API responses, database results, or values you've computed—accessing fields follows the same logical patterns.
-
-```comp
-user.name                ; Get the name field
-settings.#0              ; First item in a list
-config.'server-' + env   ; Computed field name
-data."Content-Type"      ; Field names with special characters
-```
-
-Arrays and objects aren't different types requiring different syntax. They're all structures, so the same operations work everywhere.
-
-### Numbers That Don't Betray You
-
-Comp numbers work the way math actually works, not the way computer hardware
-forces them to work. Expect lossless precision and accurate computations. Forget
-about overflows, rounding errors, or clamping.
-
-Avoid special non-number values like "infinity" except for where you opt-in to
-allowing them.
-
-Numbers with units catch unit conversion errors at the type level, not at
-runtime when your Mars lander crashes.
-
-```comp
-huge = 999_999_999_999_999_999_999_999  ; No overflow
-precise = 1/3                           ; Exact rational arithmetic
-scientific = 6.022e23                   ; Standard notation
-binary = 0b1010                         ; Binary literals
-speed = 100#mph                         ; Units prevent errors
-duration = endtime - starttime          ; Becomes a relative time offset
-```
-
-### Strings That Know Their Context
-
-Strings in Comp can carry information about what kind of data they represent. This 
-enables automatic safety features without manual work. The unit system enhances 
-strings by appropriately escaping substitutions by default.
-
-```comp
-name = "Alice"                          ; Regular string
-query = "SELECT * FROM users"#sql       ; SQL-aware string
-html = "<div>Content</div>"#html        ; HTML-aware string
-
-; Templates respect string types
-message = %"Hello, ${name}!"            ; Automatically handles escaping based on context
-```
-
-SQL injection and XSS attacks become type errors instead of security vulnerabilities.
-
-### Booleans Without Surprises
-
-Booleans are strongly typed, just like everything else. There are no
-"truthy" or "falsey" values. Booleans come from literals and operations
-that result in booleans.
-
-The builtin conditionals expect boolean types. No trying to guess if a 
-string like `"0"` represents true or false. (Although when you want this,
-write your own simple conditional operators.)
-
-The language allows question marks in valid tokens. Use consistent naming
-instead of marking up functions and values with "is" or "has" or "was"
-naming conventions.
-
-```comp
-active? = #true                         ; Explicit boolean values
-ready? = count > 0                      ; Clear comparisons
-valid? = name != "" && email != ""      ; Logical combination
-```
-
-Empty strings aren't false. Zero isn't false. Only `#false` is false, and only
-`#true` is true. This eliminates a whole class of subtle bugs that plague other languages.
-
-## See It All Working Together
-
-This example shows how Comp's features combine naturally:
-
-```comp
-!import /gh = comp "github-api"
-!import /time = std "core/time"
-
-!main = {
-    $var.after = [|now/time] - 1#week
-    $var.fields = {"title" "url" "created-at" "reactions"}
+; Multiple inputs/outputs
+main (
+    after = now - 1.week
     
-    [{..$var.fields repo="nushell/nushell"}
-    |list-issues/gh
-    |filter :{created-at >= $var.after}
-    |-| progressbar              ; Add progress tracking
-    |map :{
-        $var.thumbs-up = [reactions |count-if :{content == #thumbs-up}]
-        {thumbs-up=$var.thumbs-up title=. url=.}
-    }
-    |first 5]
+    issues = "nushell/nushell"
+        -> gh.list_issues
+        -> filter {.created_at >= after}
+    
+    pull_requests = "nushell/nushell"
+        -> gh.list_pulls
+        -> filter {.state == "open"}
+    
+    {issues pull_requests}  ; Return both
+)
+```
+
+### Functions
+
+Functions transform structures. Input comes through pipeline, arguments configure behavior:
+
+```comp
+; Simple function - shape declares expected input structure
+double num (num * 2)
+
+; Function with arguments
+add number value (number + value)
+
+; Function with shape constraints
+process_user {name string email string} (
+    validated = name -> validate_username
+    domain = email -> extract_domain
+    {validated domain}
+)
+
+; Overloading by shape
+render {x num y num} ("2D point at {x}, {y}")
+render {x num y num z num} ("3D point at {x}, {y}, {z}")
+
+; Usage
+5 -> double                    ; Returns 10
+10 -> add 5                    ; Returns 15  
+{name="Alice" email="a@b.com"} -> process_user
+```
+
+### Blocks
+
+Blocks are deferred computations, used for control flow and callbacks:
+
+```comp
+; Conditional blocks
+status -> when {. == #error} (
+    log "Error occurred"
+    recover_gracefully
+)
+
+; Iteration blocks
+items -> map item (
+    item with {processed = now}
+)
+
+; Control flow with pattern matching
+input -> match_shape
+    point2d p ("Point at {p.x}, {p.y}")
+    color c ("RGB({c.r}, {c.g}, {c.b})")
+    {radius num} r ("Circle radius {r.radius}")
+    else ("Unknown shape")
+```
+
+## Type System
+
+### Shapes
+
+Shapes define structural types through field requirements:
+
+```comp
+; Shape definition
+shape user {
+    name string
+    email string  
+    age num = 0              ; Default value
+}
+
+; Inheritance through spreading
+shape admin {
+    ..user                   ; Include all user fields
+    permissions []
+}
+
+; Optional fields with unions
+shape config {
+    port num = 8080
+    host string = "localhost"
+    ssl bool | nil = nil     ; Optional
 }
 ```
 
-**What's happening here:**
-- Variables store computed values (`@after`, `@fields`)  
-- Structures compose cleanly (`{..$var.fields repo="nushell/nushell"}`)
-- Pipelines chain operations naturally (`[|filter :{created-at >= $var.after}]`)
-- Pipeline modifiers add capabilities without changing logic (`|-| progressbar`, `|-| debug`)
-- Blocks capture scope and simplify syntax (`:{created-at >= $var.after}`)
-- Field shorthand reduces noise (`title=.` for `title=$in.title`)
-- Everything composes seamlessly
+### Morphing
 
-## Ready to Dive Deeper?
+Morphing transforms structures to match shapes:
 
-This barely scratches the surface. Deeper dives into topics contain
-explanations, examples, and comparisons.
+```comp
+; Basic morphing
+data = {name="Alice" age=30}
+u = data ~ user              ; Morph to user shape
 
-- **[syntax.md](syntax.md)** - Syntax rules, style guide, and formatting conventions
-- **[type.md](type.md)** - Numbers, strings, booleans, and unit systems
-- **[structure.md](structure.md)** - Structure operations, spreads, and lazy evaluation  
-- **[shape.md](shape.md)** - Shape system, morphing, and structural typing
-- **[tag.md](tag.md)** - Hierarchical tags and polymorphic dispatch
-- **[pipeline.md](pipeline.md)** - Pipeline operations, failure handling, and the wrench operator (`|-|`)
-- **[function.md](function.md)** - Function definition, dispatch, and composition
-- **[module.md](module.md)** - Module system, imports, and namespaces
-- **[trail.md](trail.md)** - Advanced navigation through complex data
-- **[store.md](store.md)** - Controlled mutable state when you need it
-- **[security.md](security.md)** - Security features and best practices
+; Different morph operators
+normal = data ~ shape        ; Apply defaults, allow extra fields
+strict = data ~* shape       ; No extra fields allowed
+weak = data ~? shape         ; Missing fields acceptable
 
-Comp is currently in development—these documents describe the intended behavior
-that will guide implementation. The foundations are solid, the vision is clear,
-and the potential is exciting.
+; Morphing in functions - automatic on call
+process_user {name string email string} (
+    ; Function body
+)
+
+; These all work through morphing:
+{name="Alice" email="a@b.com"} -> process_user
+{"Alice" "a@b.com"} -> process_user              ; Positional
+{email="a@b.com" name="Alice"} -> process_user   ; Reordered
+```
+
+### Tags
+
+Tags are hierarchical enums that serve as values and dispatch keys:
+
+```comp
+; Tag definition
+tag status = #active | #inactive | #pending | #error
+
+; Hierarchical tags  
+tag error = #network | #timeout | #permission
+
+; Tags with values
+tag priority = {
+    #low = 1
+    #medium = 2
+    #high = 3
+}
+
+; Tag dispatch for polymorphism
+handle {event #status} ("Generic handler")
+handle {event #error} ("Error handler")
+handle {event #network} ("Network specialist")
+
+; Usage
+current = #active
+problem = #timeout
+level = #high
+```
+
+## Modules and Imports
+
+```comp
+; Import from various sources
+import datetime from "std/datetime"
+import rio from "@gh/rio-dev/rio"
+import api from "https://api.example.com/openapi.json"
+
+; Module exports everything defined with shape/tag/function
+shape point {x num y num}
+tag color = #red | #green | #blue
+
+main args (
+    ; Main entry point
+)
+
+; Use imported definitions
+now -> datetime.format "%Y-%m-%d"
+rio.app {title="My App" root=my_component}
+```
+
+## Common Patterns
+
+### Immutable Updates
+
+```comp
+; Using 'with' for updates
+original = {name="Alice" age=30}
+updated = original with {age = 31}
+
+; Nested updates
+user = {
+    name = "Alice"
+    settings = {theme="dark" lang="en"}
+}
+updated = user with {
+    settings = settings with {theme = "light"}
+}
+```
+
+### Error Handling
+
+```comp
+; Fallback for simple cases
+value = risky_operation ?? default_value
+
+; Recovery blocks
+data -> dangerous_operation
+     -> catch error (
+         log "Operation failed: {error.message}"
+         use_fallback
+     )
+
+; Pattern matching on failures
+result -> match_shape
+    success s (s.value)
+    error e (handle_error e)
+```
+
+### Collection Operations
+
+```comp
+; Working with collections
+items 
+-> filter {.active}           ; Keep active items
+-> map {.name}                ; Extract names
+-> unique                     ; Remove duplicates
+-> sort                       ; Sort alphabetically
+-> join ", "                  ; Create string
+
+; Aggregation
+data -> group_by {.category}
+     -> map group (
+         {
+             category = group.key
+             total = group.values -> sum {.amount}
+             count = group.values -> length
+         }
+     )
+```
+
+### State Management
+
+```comp
+; Functional state updates
+update_cart cart item (
+    cart with {
+        items = items -> upsert item {.id == item.id}
+        total = calculate_total items
+    }
+)
+
+; Event handling with state
+todo_app state (
+    #column {
+        #text_input {
+            text = state.input
+            on_change = value (
+                state with {input = value}
+            )
+            on_submit = (
+                state with {
+                    input = ""
+                    todos = todos ++ [{title = state.input}]
+                }
+            )
+        }
+        
+        state.todos -> each todo_item state
+    }
+)
+```
+
+## Pipeline Modifiers
+
+The wrench operator (`|-|`) modifies pipeline behavior:
+
+```comp
+; Add progress tracking to iterations
+data -> filter {.valid}
+     -> map {expensive_transform}
+     |-| progressbar
+
+; Query optimization
+users -> filter {.active}
+      -> map {.name}
+      |-| optimize_sql    ; Pushes to database
+
+; Development tools
+data -> complex_pipeline
+     |-| debug            ; Log each stage
+     |-| profile          ; Time operations
+```
+
+## Standard Library Patterns
+
+### Core Functions
+
+```comp
+; Iteration
+items -> map {.value * 2}
+items -> filter {.active}
+items -> reduce 0 {acc + .value}
+items -> each {print .name}
+
+; Control flow
+condition -> if true_value false_value
+value -> when {. > 0} {process_positive}
+input -> match patterns...
+
+; Type checking/conversion
+value ~ shape           ; Morph to shape
+value ~? shape          ; Try morphing
+```
+
+### Working with Time
+
+```comp
+import datetime from "std/datetime"
+
+; Time operations
+now -> datetime.format "%Y-%m-%d"
+date -> datetime.add 7.days
+start -> datetime.until end
+
+; Scheduling
+schedule -> cron "0 9 * * MON-FRI" {
+    send_weekly_report
+}
+```
+
+### File Operations
+
+```comp
+import fs from "std/fs"
+
+; Reading files
+"data.json" -> fs.read -> json.parse
+
+; Writing files
+data -> json.stringify 
+     -> fs.write "output.json"
+
+; Directory operations
+"./src" -> fs.list
+        -> filter {.extension == ".comp"}
+        -> map {fs.read .path}
+```
+
+## Quick Reference
+
+### Operators
+
+```comp
+; Pipeline
+->          ; Function application
+|-|         ; Pipeline modifier (wrench)
+
+; Morphing
+~           ; Normal morph
+~*          ; Strong morph (strict)
+~?          ; Weak morph (partial)
+
+; Assignment
+=           ; Normal assignment
+=*          ; Strong (resists override)
+=?          ; Weak (only if undefined)
+
+; Spread
+..          ; Normal spread
+*..         ; Strong spread
+?..         ; Weak spread
+
+; Math (numbers only)
++ - * / %   ; Arithmetic
+**          ; Power
+< <= > >=   ; Comparison
+== !=       ; Equality
+
+; Boolean (booleans only)
+&& || !!    ; and, or, not
+
+; Other
+??          ; Fallback
+with        ; Update structure
+#           ; Tag prefix
+.           ; Field access
+```
+
+### Keywords
+
+```comp
+shape       ; Define structure shape
+tag         ; Define tag hierarchy
+import      ; Import modules
+from        ; Import source
+with        ; Structure update
+when        ; Conditional execution
+match_shape ; Pattern matching
+else        ; Default case
+```
+
+### Built-in Shapes
+
+```comp
+string      ; Text type
+num         ; Arbitrary precision number
+bool        ; Boolean (#true or #false)
+nil         ; Empty/null value
+any         ; Matches anything
+```
+
+### Common Tags
+
+```comp
+#true #false     ; Boolean values
+#nil            ; Empty/null marker
+#skip           ; Continue in iteration
+#break          ; Stop iteration
+#fail           ; Error marker
+```

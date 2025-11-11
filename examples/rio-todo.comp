@@ -1,91 +1,109 @@
-!mod.doc = "TODO UI App, based on hypothetical migration from the Rio UI library for Python."
+; Reactive Todo app with immutable state
+import rio from "@gh/rio-dev/rio-comp"
 
-!import /rio = comp "@gh/rio-dev/rio-comp@0.1.5/lib"
-
-!shape todo = {
-	title = string
-	complete = bool @default = #false
+shape todo {
+    title string
+    complete bool = false
+    id uuid = gen_uuid
 }
 
-!shape state = {
-	todos = todo[] @default = []
-	input = string @default = ""
-	filter = #filter @default = #all.filter
+shape state {
+    todos [todo] = []
+    input string = ""
+    filter #visibility = #all
 }
 
-!tag #filter = {
-	#all = {"All" {#true #false}}
-	#active = {"Active" {#false}}
-	#complete = {"Complete" {#true}}
-}
+tag visibility = #all | #active | #complete
 
-
-!func main-rio = {
-	[{title="Todo App" state=~state} 
-	-> app :(todo-app)]
-}
-
-
-!func todo-app = (
-	!var.s = fetch-state()
-
-	{#column spacing=1 padding=2
-		; Creation field
-		{#row
-			{#textinput
-				text = !var.s.input
-				placeholder = "What needs doing?"
-				on-change => ({* = !var.s input=value})
-				on-submit => ({* = !var.s
-					input = ""
-					todos = [* = !var.s.todos {!var.s.input -> {title=!in}}]
-				})
-			}
-		}
-		; Show filtered todos
-		!var.s.todos
-			-> filter() => {
-				!var.filter-values = !var.s.filter -> get-children() => 1  ; Get the boolean array
-				complete -> in(!var.filter-values)
-			}
-			-> map() => todo-item()
-
-		; Filter buttons
-		{#row spacing=0.5
-			#filter -> children() -> map() => {
-				!var.variant = if(!var.s.filter == tag) => {"primary"} => else {"secondary"}
-				{#button
-					text = value.0
-					variant = !var.variant
-					on-click => ({* = !var.s filter=tag})
-				}
-			}
-		}
-	}
+; Main app - Rio handles the reactive loop
+main (
+    rio.app title="Todo" state=state{} root=todo_app
 )
 
+; Build the UI declaratively
+todo_app state (
+    #column spacing=2 {
+        ; Stats bar
+        stats state
+        
+        ; Input field  
+        #row {
+            #text_input text=state.input 
+                       placeholder="What needs doing?"
+                       flex=1
+                       on_change={value} (state with {input=value})
+                       on_submit (add_todo state)
+            
+            #button text="Add" 
+                   disabled=(state.input == "")
+                   on_click (add_todo state)
+        }
+        
+        ; Todo list
+        state.todos -> filter_by state.filter
+                   -> each todo_item state
+        
+        ; Filter buttons
+        #row {
+            [#all #active #complete] -> each filter {
+                #button text=filter 
+                       variant=(when state.filter == filter "primary" else "outline")
+                       on_click (state with {filter})
+            }
+        }
+    }
+)
 
-!func todo-item = (
-	@arg = todo
+; Individual todo item
+todo_item todo state (
+    #row align="center" {
+        #checkbox checked=todo.complete 
+                 on_change (toggle_todo state todo.id)
+        
+        #text text=todo.title 
+             flex=1
+             style=(when todo.complete "strikethrough")
+        
+        #icon_button icon="delete" 
+                    on_click (delete_todo state todo.id)
+    }
+)
 
-	!var.s = fetch-state()
+; Stats display
+stats state (
+    active = state.todos -> count not .complete
+    
+    #card {
+        #text "📋 {active} of {state.todos.length} remaining" size="large"
+    }
+)
 
-	{#row spacing=1
-		; Completed check
-		{#checkbox
-			checked = !arg.complete
-			on-change => {
-				!var.new = {title=!arg.title complete=!!arg.complete}
-				!var.s -> {* = !in todos=!in.todos -> replace() => {title=!arg.title} => !var.new}
-			}
-		}
-		; Styled title
-		!var.style = if(!arg.complete) => {"strikethrough"} => else {"normal"}
-		{#text text=!arg.title style=!var.style}
-		; Delete button
-		{#iconbutton
-			icon = "material/delete"
-			on-click => ({* = !in todos=todos -> filter() => {title != !arg.title}})
-		}
-	}
+; State updates (pure functions)
+add_todo state (
+    when state.input.trim != "" (
+        state with {
+            input = ""
+            todos = state.todos ++ [{title=state.input}]
+        }
+    ) else (state)
+)
+
+toggle_todo state id (
+    state with {
+        todos = state.todos -> map t (
+            when t.id == id (t with {complete = not t.complete})
+            else (t)
+        )
+    }
+)
+
+delete_todo state id (
+    state with {todos = state.todos -> keep {.id != id}}
+)
+
+filter_by todos filter (
+    match_shape filter
+        #all (todos)
+        #active (todos -> keep not .complete)
+        #complete (todos -> keep .complete)
 )

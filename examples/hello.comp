@@ -1,11 +1,24 @@
-!mod.doc = "Simple hello world example"
+mod.doc = "Simple hello world example"
 
-!import os stdlib "core/os"
+import os stdlib "core/os"
 
 
-!func main = [
-	("USERNAME" "USER" "LOGNAME")
-	-> map :[!in -> getenv() ?? #skip]
-	-> first "World"
-	-> print "Hello, ${}!"
-]
+main (
+    username = ["USERNAME" "USER" "LOGNAME"]
+        -> find getenv
+        -> default "World"
+    
+    print "Hello, {username}!"
+)
+
+
+; or, more simply?
+
+
+main_b (
+    ["USERNAME" "USER" "LOGNAME"]
+    -> each getenv
+    -> keep exists
+    -> first "World"
+    -> print "Hello, {}!"
+)
