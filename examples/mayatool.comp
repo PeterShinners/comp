@@ -1,80 +1,67 @@
-!mod.doc = """; Insert locator or other transform halfway between parent
+import maya comp "maya-comp-spectacular@1.0.3"
 
-https://github.com/TrevisanGMW/gt-tools/blob/release/gt/tools/add_offset_transform/add_offset_transform.py
-"""
+---
+Maya tool to create offset transforms
+Based on https://github.com/TrevisanGMW/gt-tools
+---
 
-!import maya comp "maya-comp-sensational@1.0.0"
+tag #parent_type {#parent #selection}
 
-!shape layer-config = {
-	tag = str                    ; Suffix for created nodes
-	parent-type = #parent-type    ; #parent or #selection
-	layer-type = layer-types     ; #joint #locator or #group
+shape layer-types #joint/maya | #locator/maya | #group/maya
+
+shape layer-config {
+	suffix ~str  -- Suffix for created nodes
+	parent_type #parent_type  -- #parent or #selection
+	layer_type ~layer_types  -- #joint #locator or #group
 }
 
-!shape layer-types = #join/node | #locator/node | #group/node
 
-!tag #parent-type = {#parent #selection}
+func create-inbetween ~{} args ~layer_config (
+	<transaction maya_scene maya_selection>	
 
+	selection ()
+	| map obj:(
+		let parent = obj | get_parent ()
 
-!func create-inbetween = (
-	@call = {}
-	@args = layer-config
+		let transform = parent
+		| create_node (arg.layer_type name="${obj.name}${arg.suffix}")
+		| set-attr ("useOutlinerColor" #true)
+		| set-attr ("outlinerColor" arg.outliner_color ?? (1.0 0.5 0.0))  ; Orange default
+		| set_color (1.0 0.5 0.0)
+		| parent_to (parent)
 
-	!arg.transaction = !transact maya-scene
-	!arg.selection = !transact $restore-selection
+		; Parent constrain to correct target
+		let target = if (config.parent_type == #parent) (parent) |else (obj)
+		if (target.exists) :(constrain (target, transform))
 
-	selection()
-		-> map() => {
-			!var.obj = !in
-			!var.parent = !var.obj -> get-parent()  ; top level parents get a special "root" path
-
-			select-clear()
-
-			!var.transform = !arg.parent 
-			-> create-node(!arg.layer-type name="${!var.obj}${!var.tag}")
-			-> set-attr("useOutlinerColor" #true)
-			-> set-attr("outlinerColor" !arg.outliner-color ?? (1.0 0.5 0.0))  ; Orange default
-			-> parent(!arg.parent)
-
-			!var.target = if(!arg.parent-type == #parent) => !var.parent => else(!var.obj)
-			if(!arg.target.exists?) => {
-				{!arg.target !var.transform} -> parent-constraint() -> delete()
-			}
-
-			!arg.obj -> parent(!var.transform)
-		}
+		obj | parent_to (transform)
+	)
 )
 
 
-; Create random buble shapes
-; https://github.com/nestrada2/bubbles/blob/main/scripts/bubbles.py
+---
+Create random buble shapes
+https://github.com/nestrada2/bubbles/blob/main/scripts/bubbles.py
+---
 
-shape bubble_args {
-    count num = 10
-    radius_range num[2] = [0.1 0.5]
-    position_range num[2] = [0.1 5]
+shape ~bubble_args {
+	count ~num = 10
+	radius_range ~num[2] = [0.1 0.5]
+	position_range ~num[2] = [0.1 5]
 }
 
-create_bubbles parent=nil args=bubble_args (
-    transaction = transact maya_scene
-    
-    group = parent -> create_node #group name="bubbles"
-    
-    bubbles = 1..args.count -> each i {
-        name = "bubble_{i}"
-        radius = random args.radius_range
-        
-        position {
-            x = random args.position_range
-            y = random args.position_range  
-            z = random args.position_range
-        }
-        
-        sphere = group 
-            -> poly_sphere name radius
-            -> move position
-    }
-    
-    group -> select_replace
-    bubbles
+func create_bubbles parent ~nil args ~bubble_args (
+	<transaction maya_scene>	
+	
+	let group = parent | create_node (#group name="bubbles") | select (#replace)
+	<transaction <maya_selection>
+
+	range(1, args.count) | map :(
+		radius = random (args.radius_range)
+		let position = repeat(3) :{random args.position_range (args.position_range)}
+
+		sphere = group 
+		| poly_sphere ("bubble_${it}" radius)
+		| xform (position=position)
+	)
 )

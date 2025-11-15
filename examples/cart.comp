@@ -1,45 +1,66 @@
-; Production-ready cart with validation
-shape cart {
-    items {} = {}  ; Map of name -> {price qty}
-    discount num = 0
-    tax_rate num = 0.08
+---
+Shopping cart example demonstrating clean functional syntax
+
+Nothing exciting here, but demonstration of shapes, functions,
+and working with immutable data structures.
+---
+
+
+shape ~cart {
+    items ~{} = {}  ; Map of name -> {price qty}
+    discount ~num = 0  ; zero being full price, one being free
 }
 
+
+shape ~item {
+	name ~str
+	price ~num
+	quantity ~num = 1
+}
+
+
 main (
-    new_cart
-    -> add "Apple" 1.00 2
-    -> add "Banana" 0.50 3
-    -> add "Apple" 1.00  ; qty defaults to 1
-    -> remove "Banana"
-    -> add "Orange" 0.75 4
-    -> set_discount 0.2
-    -> checkout
+	let cart = [
+		{name="Apple" price=1.00 quantity=2}
+		{name="Banana" price=0.50 quantity=3}
+		{name="Apple" price=1.00 quantity=1}  ; Replaces previous Apple
+	]
+	| reduce (~cart()) :(
+		it.accum | upsert (it) check:(check.name == it.name)
+	)
+
+	cart
+	| set_discount (amount=0.2)
+	| total ()
+	| print ("Shopping cart: %{it | format_currency ()}")
 )
 
-new_cart (cart{})
 
-add cart name price qty=1 (
-    when price <= 0 (error "Invalid price")
-    cart with {items = items with {(name) = {price qty}}}
+-- Generate cart with newly applied discount rate
+pure func set_discount cart ~cart args ~{amount ~num}
+({
+	(..) = cart
+	discount = args.amount
+})
+
+
+
+-- Calculate total price of shopping cart with discounts
+pure func total cart ~cart
+(
+	cart.items | sum :(it.price * it.quantity) * (1 - cart.discount)
 )
 
-remove cart name (
-    cart with {items = items -> omit name}
+
+-- General 'modify or append' based on a matching condition block
+pure func upsert container ~struct args ~{item ~item compare ~block}
+(
+	let added = #false
+	let items = container.map existing:(
+		if :(args.compare(it)) :{it let added = #true}
+		| else existing
+	)
+	if (!!added) :{items | append (args.item)}
+	|else (items)
 )
 
-set_discount cart pct (
-    when pct < 0 or pct > 1 (error "Invalid discount")
-    cart with {discount = pct}
-)
-
-checkout cart (
-    subtotal = cart.items -> values -> sum {.price * .qty}
-    after_discount = subtotal * (1 - cart.discount)
-    tax = after_discount * cart.tax_rate
-    total = after_discount + tax
-    
-    print "Subtotal: ${subtotal:.2f}"
-    print "Discount: -${subtotal * cart.discount:.2f}"  
-    print "Tax: ${tax:.2f}"
-    print "Total: ${total:.2f}"
-)

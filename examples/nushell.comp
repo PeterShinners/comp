@@ -1,21 +1,21 @@
-!mod.doc = """Get top weekly thumbed issues from github
+---
+Get top weekly thumbed issues from github
 https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
-"""
+---
 
-!import gh comp "github-api"
-!import time std "core/time"
+import gh from "github-api"
+import time from "core/time"
 
 
-main (
-    after = now - 1 week
-    
-    "nushell/nushell"
-    -> gh.list_issues fields [title url created_at reactions]
-    -> keep created_at >= after
-    -> each {
-        title url
-        thumbs = reactions -> count content == #thumbs_up
-    }
-    -> sort thumbs desc
-    -> first 5
+func main (
+	let after = now() - 1#week
+
+	list_issues (repo="nushell/nushell" fields=[title url created_at reactions])
+	| filter :(it.created_at >= after)
+	| map :({
+		(title url) = it
+		thumbs_up = it.reactions | count :(it.content == #thumbs_up)
+	})
+	| sort (#reverse) :(it.thumbs_up)
+	| head (5)
 )

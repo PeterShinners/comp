@@ -1,80 +1,63 @@
-; Vector search API using Cloudflare Workers
-import cf from "@cloudflare/workers-comp"
+---
+Cloudflare Worker for vector search
+Based on https://developers.cloudflare.com/vectorize/get-started/embeddings/
+---
 
-model = "@cf/baai/bge-base-en-v1.5"
+import url stdlib "core/urllib"
+import cf comp "github://cloudflare/workers-comp@2.7/complib"
 
-; Route requests to handlers
-fetch request env (
-    route request.method request.url.pathname
-        #get "/health" (ok {status="healthy"})
-        #post "/embed" (embed_text request env)
-        #post "/search" (search_vectors request env)
-        #post "/index" (index_documents request env)
-        else (not_found)
+
+mod.model = "@cf/baai/bge-base-en-v1.5"
+
+context server {
+	; These values must be computed, can't be part of static module
+	vectorize = "VECTORIZE" -> binding/cf
+	ai = "AI" -> binding/cf
+}
+
+
+-- Map request urls to handlers and respond to errors
+cfmain (
+	arg.request.url
+	| parse/url ()
+	| dispatch_handlers/url ()
+	| handle (#post "/insert" insert-vectors)
+	| handle (#get "/favicon*" #not-found)
+	| handle (#get "/query/{q ~str}" query-vectors)
+	|? {
+		status = it.status ?? #server-error
+		body: "Request processing failed: ${it.message}"
+	}
+	| response-json ()
 )
 
-; Embed text and search for similar content
-search_vectors request env (
-    {query limit=5} = request -> json
-    
-    ; Pipeline: text -> embedding -> search -> results
-    query 
-    -> embed env.ai
-    -> search env.vectorize limit
-    -> with_metadata env.kv
-    -> ok
+
+-- Initialize vector with initial hardcoded data source (only needed once)
+func insert-vectors req ~request 
+(
+	{
+		"This is a story about an orange cloud"
+		"This is a story about a llama"
+		"This is a story about a hugging emoji"
+	}
+	| ai-run ()
+	| iter :({
+		id = "${it.index}"
+		values = it.value.embedding
+	})
+	| vectorize-upsert ()
 )
 
-; Index multiple documents
-index_documents request env (
-    docs = request -> json
-    
-    docs -> parallel doc (
-        embedding = doc.text -> embed env.ai
-        
-        env.vectorize -> upsert {
-            id = doc.id || gen_uuid
-            values = embedding
-            metadata = doc with {indexed_at = now}
-        }
-    )
-    -> await_all
-    -> count
-    -> {indexed} (ok {message="Indexed {indexed} documents"})
-)
 
-; Generate embedding using AI model
-embed ai text (
-    ai -> run model {text}
-       -> await
-       -> {.data.0.embedding}
-)
+-- Find closest match to query string
+func query-vectors req ~request  [
+	req.param.q
+	| if_empty ("orange cloud")
+	| ai-run ()
+	| vectorize-query (topK:1)
 
-; Search vector store and enhance results
-search vectorize embedding limit (
-    vectorize -> query embedding {top_k=limit}
-              -> await
-              -> {.matches}
-)
+	; Expect vector ID 1 to be your top match with a score of ~0.89693683
+	; This tutorial uses a cosine distance metric, where the closer to one,
+	; the more similar.
+]
 
-with_metadata kv matches (
-    matches -> each m {
-        m with {
-            content = kv -> get "doc:{m.id}"
-                        -> await
-                        -> json
-        }
-    }
-)
-
-; Response helpers
-ok data (cf.response status=200 json=data)
-not_found (cf.response status=404 json={error="Not found"})
-
-; Router with pattern matching
-route method path (
-    patterns -> find p (
-        p.method == method and path -> matches p.path
-    )
-    -> {.handler} || not_found
-)

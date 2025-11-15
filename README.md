@@ -1,39 +1,31 @@
 # Comp Language
 
-Comp is a functional, interpreted programming language designed for general
-purpose computing. It combines the flexibility of dynamic scripting with the
-safety of static types, making it ideal for data processing, API integration,
-and anywhere structured data flows reliably between systems.
+Comp is a functional, interpreted programming language designed to improve the
+lives and enjoyment of programmers. Combine the flexibility of dynamic scripting
+with the safety of static types, making it ideal for data processing, API
+integration, and anywhere structured data flows reliably between systems.
 
-The language is high-level and practical, inspired by JavaScript and Python's
-accessibility. Developers familiar with functional languages like Clojure will
-recognize the emphasis on data transformation and uniform syntax.
+The language is hosted and integrated with the Python runtime. Anything 
+running Python will be immediately improved by mixing in a bit of Comp.
 
 ## Development Status
 
-The language design is fairly well established and documented in the `design/` directory.
-Implementation is currently underway using an agent-assisted development approach
-with a roadmap organized into multiple chapters and phases. 
-
-## Quick Start
-
-Install and run Comp programs with `uv` (recommended)
-
-```bash
-uv pip install -e .
-uv run comp examples/hello.comp
-```
+The languge is in volatile design mode. Nothing is nailed down and everything
+slides. The language design is fairly well established and documented in the 
+`design/`. A variety of simple and approachable examples can be found in
+`examples/`. Minimal VS Code extensions exist to get syntax highlighting
+and formatting basics working..
 
 ## Introduction
 
 ```comp
 ; Hello World example in Comp language
 
-!func main = (
-	("USERNAME" "USER" "LOGNAME")
-	-> map() => (!in -> getenv() ?? #skip)
-	-> first("World")
-	-> print("Hello, ${}!")
+main (
+	[USERNAME USER LOGNAME]
+	| map :(in | getenv() ?? #skip)
+	| default ("World")
+	| print ("Hello, ${}!")
 )
 ```
 
@@ -47,25 +39,21 @@ from a series of environment variables.
 >
 > — Claude Sonnet 4 _(on an admittedly enthusiastic moment)_
 
+## Quick Start
+
+Install and run Comp programs with `uv` (recommended)
+
+```bash
+uv pip install -e .
+uv run comp examples/hello.comp
+```
+
 ## Highlights
 
 Start with the [Overview Document](design/overview.md) for the best summary
 of features and highlights like:
 
-- **Super Structures** - One type of data for all your data.
-- **Typed Schemas** - Data is matched and morphed based on explicit schemas.
+- **Super Structures** - One immutable type of data for all your data.
+- **Typed Schemas** - Data is validated and reshaped based on explicit schemas.
 - **Pipelined** - When everything is in a pipeline, everything fits together.
-- **Flow Control is Functions** - Write or extend your own loop operations, although the standard library has you well covered.
-
-## Project Structure
-
-```
-comp/
-├── design/             # Authoritative language design documents
-├── examples/           # Sample Comp programs
-├── tasks/              # Implementation phases and milestones
-├── tests/              # Executable test specifications
-├── src/comp            # Implementation source code
-├── docs/               # Additional documentation
-└── vscode/             # Syntax plugin (textmate) for VSCode
-```
+- **Flowchart functions** - Flow control is simple functions you can create yourself.

@@ -1,14 +1,19 @@
-; Show local times for distributed team meetings
-import datetime from "core/datetime"
+---
+Team Timezone Display
 
-shape team_member {
-    name string
-    tz timezone
-    working_hours [hour hour] = [9 17]
-}
+Original nushell script:
+https://github.com/nushell/nu_scripts/blob/main/sourced/examples/date_in_local_timezones.nu
 
-; Team data
-team = [
+This example demonstrates:
+- Working with structured data (list of records)
+- Timezone conversion and formatting
+- Templates as first-class data values
+- Structure spreading with {..$in field=value}
+- Module-level data with $mod
+---
+
+; Core team members with their timezone information
+mod.core_team = {
     {name="andres" tz="America/Guayaquil"}
     {name="fdncred" tz="US/Central"}
     {name="gedge" tz="US/Eastern"}
@@ -16,55 +21,41 @@ team = [
     {name="wycats" tz="US/Pacific"}
     {name="kubouch" tz="Europe/Helsinki"}
     {name="elferherrera" tz="Europe/London"}
-]
+}
 
-; Show meeting time in everyone's timezone
-main time="now" (
-    event = when time == "now" (datetime.now)
-            else (time -> parse_datetime)
-    
-    print "Meeting at {event -> format "%Y-%m-%d %H:%M %Z"}"
-    print "─" * 40
-    
-    team -> each member {
-        member with {
-            local = event -> to_timezone member.tz
-            hour = local -> hour
-            status = when hour in 9..17 ("✓") 
-                     when hour in 6..22 ("⚠") 
-                     else ("💤")
-        }
-    }
-    -> sort {.local.hour}
-    -> each m (
-        print "{m.status} {m.name:10} {m.local -> format "%H:%M"} {m.tz}"
-    )
+
+---
+Main entry point - displays team timezones for an upcoming meeting.
+
+Shows three things:
+1. Each person's timezone
+2. A header with the meeting time
+3. What time the meeting is for each person in their local timezone
+---
+main (
+    let event = "2021-08-31 15:00:21.290597200 -05:00"
+    let people = mod.core_team | with_local_time (event | parse-datetime())
+
+    print("for the next event on ${event}.. ")
+    people | each :(it |print ("%{name}'s: %{time} (timezone ${tz})"))
 )
 
-; Find best meeting times across timezones
-main #suggest (
-    print "Best times for {team.length} people:"
-    
-    0..23 -> each hour {
-        hour_utc = hour -> as_datetime
-        available = team -> count member (
-            local = hour_utc -> to_timezone member.tz -> hour
-            local in 9..17
-        )
-        {hour available}
-    }
-    -> keep {.available >= team.length * 0.6}
-    -> sort {.available} desc
-    -> first 3
-    -> each slot (print "  {slot.hour}:00 UTC - {slot.available}/{team.length} available")
-)
 
-; Add a new team member
-main #add name tz working_start=9 working_end=17 (
-    new_member = {name tz working_hours=[working_start working_end]}
-    
-    team -> append new_member 
-         -> save_to "team.comp"
-    
-    print "Added {name} in {tz}"
+---
+Enriches a list of people with local time for a given event.
+
+Takes each person's timezone and calculates what time the event
+occurs in their local timezone. Also capitalizes names.
+
+Returns a new structure with original fields plus:
+- name: Capitalized version of the original name
+- time: Formatted local time for the event
+---
+pure func with_local_time people ~struct arg ~datetime (
+    people 
+	|map :({
+		(..) = $in
+        name = in.name | capitalize ()
+        time = arg | to-timezone ($in.tz) | format/time ("%c")
+	})
 )

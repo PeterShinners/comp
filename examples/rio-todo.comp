@@ -1,109 +1,130 @@
-; Reactive Todo app with immutable state
-import rio from "@gh/rio-dev/rio-comp"
+---
+TODO app using Rio UI library
+Based on migration from Rio library for Python
 
-shape todo {
-    title string
-    complete bool = false
-    id uuid = gen_uuid
+
+my thoughts based on initial port
+- the spread operator is nasty in callbacks
+  `on_click = :({(..)=state filter=it})`
+- callbacks usually just a block that wraps a func with args that feels syntaxy
+  `on_clock = :(delete_todo (state todo.id))`
+- new 'id' type has automatic default computed value
+  - this seems like a language feature emerging
+		- don't want this to feel like class constructors - eeek
+---
+
+import rio comp "@gh/rio-dev/rio-comp"
+
+
+shape ~todo {
+	title ~string
+	complete ~bool = false
+	id ~id  -- auto unique value on construction (not a number or string)
 }
 
-shape state {
-    todos [todo] = []
-    input string = ""
-    filter #visibility = #all
+shape ~state {
+	todos ~todo[] = []
+	input ~str = ""
+	filter #visibility = #all
 }
 
-tag visibility = #all | #active | #complete
+tag #visibility tag_value_name {#all | #active | #complete}
 
-; Main app - Rio handles the reactive loop
-main (
-    rio.app title="Todo" state=state{} root=todo_app
+
+context rio {
+	title = "Todo" 
+	state = ~state ()
+	component = todo_app
+}
+
+
+-- Build app window component declaratively
+func todo_app state ~state ({
+	#column spacing=2 {
+		; Input field  
+		#row {
+			#text_input 
+			text = state.input 
+			placeholder = "What needs doing?"
+			flex = 1
+			on_change = :({(..)=it input=value})
+			on_submit = add_todo
+			
+			#button 
+			text = "Add" 
+			disabled = (state.input | trim () == "")
+			on_click = add_todo
+		}
+		
+		; Todo list
+		(..) = state.todos
+		| filter :(todo_visible (state.filter))
+		| map :(todo_item (state it))
+		
+		; Filter buttons
+		#row
+			{#all #active #complete} | each :({
+				#button
+				text = it.filter ~str
+				variant = (if (it == state.filter "primary") | else ("outline"))
+				on_click = :({(..)=state filter=it})
+			}) 
+			| flatten ()
+	}
+})
+
+
+-- Build individual todo item component declaratively
+pure func todo_item ~nil args ~{state ~state todo ~todo} ({
+	#row align="center" {
+		#checkbox 
+		checked = todo.complete 
+		on_change = :(toggle_todo (state todo.id))
+		
+		#text 
+		text = todo.title 
+		flex = 1
+		style = if (todo.complete "strikethrough")
+		
+		#icon_button 
+		icon = "delete" 
+		on_click = :(delete_todo (state todo.id))
+	}
+})
+
+
+-- Create new todo from current applications state
+pure func add_todo state ~state (
+	let name = state.input | trim () | if ((in | empty ()) "<no name>")
+	{
+		(..) = state
+		todos = state.todos | append (title ~todo)
+	}
 )
 
-; Build the UI declaratively
-todo_app state (
-    #column spacing=2 {
-        ; Stats bar
-        stats state
-        
-        ; Input field  
-        #row {
-            #text_input text=state.input 
-                       placeholder="What needs doing?"
-                       flex=1
-                       on_change={value} (state with {input=value})
-                       on_submit (add_todo state)
-            
-            #button text="Add" 
-                   disabled=(state.input == "")
-                   on_click (add_todo state)
-        }
-        
-        ; Todo list
-        state.todos -> filter_by state.filter
-                   -> each todo_item state
-        
-        ; Filter buttons
-        #row {
-            [#all #active #complete] -> each filter {
-                #button text=filter 
-                       variant=(when state.filter == filter "primary" else "outline")
-                       on_click (state with {filter})
-            }
-        }
-    }
-)
 
-; Individual todo item
-todo_item todo state (
-    #row align="center" {
-        #checkbox checked=todo.complete 
-                 on_change (toggle_todo state todo.id)
-        
-        #text text=todo.title 
-             flex=1
-             style=(when todo.complete "strikethrough")
-        
-        #icon_button icon="delete" 
-                    on_click (delete_todo state todo.id)
-    }
-)
+-- Toggle todo complete status
+pure func toggle_todo state ~state args ~{id ~id} ({
+	(..) = state
+	todos = state.todos | map :({
+		(..) = it
+		complete = if (it.id == args.id !!it.complete it.complete)
+	})
+})
 
-; Stats display
-stats state (
-    active = state.todos -> count not .complete
-    
-    #card {
-        #text "📋 {active} of {state.todos.length} remaining" size="large"
-    }
-)
 
-; State updates (pure functions)
-add_todo state (
-    when state.input.trim != "" (
-        state with {
-            input = ""
-            todos = state.todos ++ [{title=state.input}]
-        }
-    ) else (state)
-)
+-- Remove item from applicate state
+pure func delete_todo state ~state args ~{id ~id} ({
+	(..) = state
+	todos = state.todos | filter :(it.id == args.id)
+})
 
-toggle_todo state id (
-    state with {
-        todos = state.todos -> map t (
-            when t.id == id (t with {complete = not t.complete})
-            else (t)
-        )
-    }
-)
 
-delete_todo state id (
-    state with {todos = state.todos -> keep {.id != id}}
-)
-
-filter_by todos filter (
-    match_shape filter
-        #all (todos)
-        #active (todos -> keep not .complete)
-        #complete (todos -> keep .complete)
+-- Determine if an item should be visible based on filter
+pure func todo_visible todo ~todo args ~{filter #filter} (
+	switch (args.filter {
+		#all -> #true
+		#active -> !!it.complete
+		#complete -> it.complete
+	})
 )
