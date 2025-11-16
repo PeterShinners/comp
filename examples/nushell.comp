@@ -12,10 +12,10 @@ func main (
 
 	list_issues (repo="nushell/nushell" fields=[title url created_at reactions])
 	| filter :(it.created_at >= after)
-	| map :({
+	| map :{
 		(title url) = it
 		thumbs_up = it.reactions | count :(it.content == #thumbs_up)
-	})
-	| sort (#reverse) :(it.thumbs_up)
-	| head (5)
+	}
+	| sort {#reverse} :(it.thumbs_up)
+	| head {5}
 )

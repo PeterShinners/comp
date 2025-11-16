@@ -9,7 +9,8 @@ import cf comp "github://cloudflare/workers-comp@2.7/complib"
 
 mod.model = "@cf/baai/bge-base-en-v1.5"
 
-context server {
+context server 
+{
 	; These values must be computed, can't be part of static module
 	vectorize = "VECTORIZE" -> binding/cf
 	ai = "AI" -> binding/cf
@@ -17,47 +18,46 @@ context server {
 
 
 -- Map request urls to handlers and respond to errors
-cfmain (
+entry func cfmain (
 	arg.request.url
-	| parse/url ()
-	| dispatch_handlers/url ()
-	| handle (#post "/insert" insert-vectors)
-	| handle (#get "/favicon*" #not-found)
-	| handle (#get "/query/{q ~str}" query-vectors)
+	| parse/url {}
+	| dispatch_handlers/url {}
+	| handle {#post "/insert" insert_vectors}
+	| handle {#get "/favicon*" #not-found}
+	| handle {#get "/query/{q ~str}" query_vectors}
 	|? {
 		status = it.status ?? #server-error
 		body: "Request processing failed: ${it.message}"
 	}
-	| response-json ()
+	| response-json {}
 )
 
 
 -- Initialize vector with initial hardcoded data source (only needed once)
-func insert-vectors req ~request 
+func insert_vectors req ~request 
 (
 	{
 		"This is a story about an orange cloud"
 		"This is a story about a llama"
 		"This is a story about a hugging emoji"
 	}
-	| ai-run ()
-	| iter :({
+	| ai-run {}
+	| iter :{
 		id = "${it.index}"
 		values = it.value.embedding
-	})
-	| vectorize-upsert ()
+	}
+	| vectorize-upsert {}
 )
 
 
 -- Find closest match to query string
-func query-vectors req ~request  [
+func query_vectors req ~request  (
 	req.param.q
 	| if_empty ("orange cloud")
-	| ai-run ()
+	| ai-run {}
 	| vectorize-query (topK:1)
 
 	; Expect vector ID 1 to be your top match with a score of ~0.89693683
 	; This tutorial uses a cosine distance metric, where the closer to one,
 	; the more similar.
-]
-
+)

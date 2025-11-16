@@ -28,10 +28,11 @@ mod.package = {name="hello" version="1.0.0"}
 
 ; Line comments use semicolons, there are no separators.
 
-main (
-    gps_detect_planet() 
-    | capitalize ()
-    | print ("Greetings, ${}")
+entry func main 
+(
+    gps_detect_planet {} 
+    | capitalize {}
+    | print {"Greetings, ${}"}
 )
 
 
@@ -97,18 +98,20 @@ forms.
 
 ```comp
 
-shape ~user = {
+shape ~user = 
+{
     name ~str
     email ~str|~nil = {}
     age ~num#years
-    member-size ~timestamp
-    recent-purchases ~num = 0
+    member_since ~timestamp
+    purchases ~num = 0
 }
 
-func welcome_new_users ~{users ~user[]} (
+func welcome_new_users ~{users ~user[]} 
+(
     let recent = now() - 1#week
     users 
-    | filter :(it.created > recent)
+    | filter :(it.member_since > recent)
     | iter :(it | send-welcome-email ())
     |-| progressbar ()  ; Instrument the pipeline with progress reporting
     | print ("Finished greeting {in | length()} users")
@@ -130,7 +133,8 @@ Tags play a dual role in the language, acting as both values and shapes.
 The language uses them to disambiguate and dispatch data structures.
 
 ```comp
-!tag #status {
+!tag #status 
+{
     #active = 1
     #inactive = 0  
     #pending
@@ -146,10 +150,11 @@ current = #active
 problem = #maintenance.error
 
 ; Use them for dispatch
-handle-request (
-    '#timeout.error.status' = (retry-with-backoff ())
-    '#error.status' = (log-error() use-fallback())
-)
+handle-request 
+{
+    '#timeout.error.status' = :(retry-with-backoff {})
+    '#error.status' = :(log-error {} use-fallback {})
+}
 ```
 
 ### Modules and imports
@@ -176,8 +181,8 @@ import time std "core/time"
 import mars github+release "offworld/martiancalendar@1.0.4"
 
 ; Access through simple namespaces
-let token = "username" | fetch-auth-token() | base64/str()
-let now = now/time() ~num#day/mars
+let token = "username" | fetch-auth-token {} | base64/str {}
+let now = now/time {} ~num#day/mars
 ```
 
 ### Scopes
@@ -198,13 +203,14 @@ all scopes can be overwritten with assignments. Assignments without `let`
 are exported as fields inside of a structure's literal curly braces.
 
 ```comp
-func process-request in ~{request} arg ~{timeout ~num} (
-    let start = now/time ()  ; Function-local variable
+func process-request in ~{request} arg ~{timeout ~num} 
+(
+    let start = now/time {}  ; Function-local variable
     let user = in.user  ; Another local variable
 
     {
-        response = in | validate () | process ()  ; Struct field
-        duration = now () - start;  Field computed from local
+        response = in | validate {} | process {}  ; Struct field
+        duration = now {} - start;  Field computed from local
     }
 
     let ctx.server.timeout = arg.timeout  ; Copy argument value to context scope

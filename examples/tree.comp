@@ -2,7 +2,8 @@
 Binary search tree example for build, search, and iterate
 ---
 
-shape ~tree {
+shape ~tree 
+{
 	value ~num
 	left ~branch
 	right ~branch
@@ -14,27 +15,26 @@ shape ~branch ~tree | ~nil
 func main (
 	; Build tree from values
 	let tree = {5 3 8 1 7 9}
-	| reduce(#nil) :(tree_insert(it.accum it.val))
+	| reduce {#nil} :(tree_insert {it.accum it.val})
 
 	; Test finding values
-	let has_seven = tree_contains(tree 7)  ; #true
-	let has_four = tree_contains(tree 4)  ; #false
+	let has_seven = tree_contains {tree 7}  ; #true
+	let has_four = tree_contains {tree 4}  ; #false
 
 	; Get sorted values
-	values (tree) | print ()    ; [1 3 5 7 8 9]
+	tree_values {tree} | print {}    ; [1 3 5 7 8 9]
 )
 
 
 -- Insert value into binary search tree
 pure func tree_insert ~nil value ~num
 (
-	{value=value left=#nil right=#nil}
+	{value=value left=nil right=nil}
 )
 
 pure func tree_insert tree ~branch value ~num
 (
-	(..) = tree
-	(..) = if (value < tree.value) 
+	tree .. if (value < tree.value) 
 		:({left = tree_insert(tree.left, value)}) 
 	|else 
 		:({right = tree_insert(tree.right, value)})
@@ -50,26 +50,21 @@ pure func tree_contains ~nil value ~num
 pure func tree_contains tree ~branch value ~num
 (
 	if (value < tree.value)
-		:(tree_contains(tree.left, value))
+		:(tree_contains{tree.left, value})
 	|elif (value > tree.value)
-		:(tree_contains(tree.right, value))
+		:(tree_contains{tree.right, value})
 	|else
-		#true
+		(#true)
 )
 
 
 -- Sorted list of all values in tree
-pure func tree_insert ~nil
-(
-	{}
-)
+pure func tree_values ~nil
+{
+}
 
-pure func tree_insert tree ~branch
+pure func tree_values tree ~branch
 (
-	{
-		(..) = tree_insert(tree.left)
-		tree.value
-		(..) = tree_insert(tree.right)
-	}
+	{tree_values(tree.left) tree.value tree_values(tree.right)} 
+	| flatten {}
 )
-

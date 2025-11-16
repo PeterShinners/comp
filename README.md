@@ -24,8 +24,8 @@ and formatting basics working..
 main (
 	[USERNAME USER LOGNAME]
 	| map :(in | getenv() ?? #skip)
-	| default ("World")
-	| print ("Hello, ${}!")
+	| default("World")
+	| print("Hello, ${}!")
 )
 ```
 

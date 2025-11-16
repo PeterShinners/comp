@@ -6,46 +6,51 @@ Uses atomic swaps to retry while contested
 
 import atomic comp "@systems/atomic@1.0.1/lib"
 
-shape ~node = {
+shape ~node 
+{
 	data ~str
 	next ~node | ~nil
 }
 
-shape ~stack = {
+shape ~stack 
+{
 	head ~node | ~nil = {}
-	atomic ^version/atomic
+	atom ^version/atomic
+}
+
+
+entry main
+{
+	; Push some items
+	let stack = {}
+	| atomic-push {"first"}
+	| atomic-push {"second"}
+	| atomic-push {"third"}
+	
+	; Pop them back
+	forever :(
+		let stack = stack | pop {}
+		| print ("Popped: ${head.data}")
+		|? #field.fail #break  ; Stop gracefully when empty
+	)
 }
 
 
 -- Add a new string to the stack
-!func |atomic-push stack ~stack arg ~str (
-    stack | retry_exchange :({
+func atomic-push stack ~stack arg ~str 
+(
+    stack | retry_exchange :{
         head = {arg stack.head} ~node
-        atomic = stack.atomic
-    })
+        atom = stack.atom
+    }
 )
 
 
 -- Remove item from stack or #fail if empty
-!func |pop ^{stack ~stack} = {
-    stack | retry_exchange :({
+func pop ~nil arg ~{stack ~stack}
+(
+    stack | retry_exchange :{
         head = stack.head.next
-        atomic = stack.atomic
-    })
-}
-
-
-!func |test-stack = {
-	; Push some items
-	let stack = {}
-	|push data = "first"
-	|push data = "second" 
-	|push data = "third"
-	
-	; Pop them back
-	(|forever :{
-		let stack = stack | pop ()
-		| print ("Popped: ${head.data}")
-		|? #field.fail #break  ; Stop gracefully when empty
-	})
-}
+        atom = stack.atom
+    }
+)

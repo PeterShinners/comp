@@ -34,10 +34,10 @@ Shows three things:
 ---
 main (
     let event = "2021-08-31 15:00:21.290597200 -05:00"
-    let people = mod.core_team | with_local_time (event | parse-datetime())
+    let people = mod.core_team | with_local_time {event | parse-datetime {}}
 
     print("for the next event on ${event}.. ")
-    people | each :(it |print ("%{name}'s: %{time} (timezone ${tz})"))
+    people | each :(it | print ("%{name}'s: %{time} (timezone ${tz})"))
 )
 
 
@@ -52,10 +52,10 @@ Returns a new structure with original fields plus:
 - time: Formatted local time for the event
 ---
 pure func with_local_time people ~struct arg ~datetime (
-    people 
-	|map :({
-		(..) = $in
-        name = in.name | capitalize ()
-        time = arg | to-timezone ($in.tz) | format/time ("%c")
-	})
+    people |map :(
+        it .. {
+            name = in.name | capitalize {}
+            time = arg | to-timezone {it.tz} | format/time {"%c"}
+        }
+	)
 )

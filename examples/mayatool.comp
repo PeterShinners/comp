@@ -1,4 +1,7 @@
+-- Two different examples of working with Maya
+
 import maya comp "maya-comp-spectacular@1.0.3"
+
 
 ---
 Maya tool to create offset transforms
@@ -7,61 +10,65 @@ Based on https://github.com/TrevisanGMW/gt-tools
 
 tag #parent_type {#parent #selection}
 
-shape layer-types #joint/maya | #locator/maya | #group/maya
+shape ~layer-types #joint/maya | #locator/maya | #group/maya
 
-shape layer-config {
+
+shape ~layer-config 
+{
 	suffix ~str  -- Suffix for created nodes
 	parent_type #parent_type  -- #parent or #selection
 	layer_type ~layer_types  -- #joint #locator or #group
 }
 
 
-func create-inbetween ~{} args ~layer_config (
+func create-inbetween ~{} args ~layer_config 
+(
 	<transaction maya_scene maya_selection>	
 
-	selection ()
+	selection {}
 	| map obj:(
-		let parent = obj | get_parent ()
+		let parent = obj | get_parent {}
 
 		let transform = parent
-		| create_node (arg.layer_type name="${obj.name}${arg.suffix}")
-		| set-attr ("useOutlinerColor" #true)
-		| set-attr ("outlinerColor" arg.outliner_color ?? (1.0 0.5 0.0))  ; Orange default
-		| set_color (1.0 0.5 0.0)
-		| parent_to (parent)
+		| create_node {arg.layer_type name="${obj.name}${arg.suffix}"}
+		| set-attr {"useOutlinerColor" #true}
+		| set-attr {"outlinerColor" arg.outliner_color ?? (1.0 0.5 0.0)}  ; Orange default
+		| parent {parent}
 
 		; Parent constrain to correct target
-		let target = if (config.parent_type == #parent) (parent) |else (obj)
-		if (target.exists) :(constrain (target, transform))
+		let target = pick {config.parent_type == #parent parent obj}
+		if (target.exists) :(constrain {target, transform})
 
-		obj | parent_to (transform)
+		obj | parent {transform}
 	)
 )
 
 
 ---
-Create random buble shapes
+Create random bubble shapes
 https://github.com/nestrada2/bubbles/blob/main/scripts/bubbles.py
 ---
 
-shape ~bubble_args {
+shape ~bubble_args 
+{
 	count ~num = 10
 	radius_range ~num[2] = [0.1 0.5]
 	position_range ~num[2] = [0.1 5]
 }
 
+
 func create_bubbles parent ~nil args ~bubble_args (
 	<transaction maya_scene>	
 	
-	let group = parent | create_node (#group name="bubbles") | select (#replace)
+	let group = parent | create_node {#group name="bubbles"} | select {#replace}
 	<transaction <maya_selection>
 
-	range(1, args.count) | map :(
-		radius = random (args.radius_range)
-		let position = repeat(3) :{random args.position_range (args.position_range)}
+	range (args.count) | map :(
+		radius = random {args.radius_range}
+		let position = repeat {3} :{random {args.position_range}}
 
 		sphere = group 
-		| poly_sphere ("bubble_${it}" radius)
-		| xform (position=position)
+		| poly_sphere {"bubble_${it}" radius}
+		| xform {position=position}
 	)
 )
