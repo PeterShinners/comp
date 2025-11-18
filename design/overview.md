@@ -11,16 +11,16 @@ Organize and style code any way you want. A focus on minimizing delimiters,
 avoiding nesting, and ignoring whitespace. Define shared contexts that allow
 breaking functions into any density, across any files, defined in any order.
 
-A minimal langauge definition that let's the language build on top of it.
-Flow control, iterations, compilation and more is built in comp. Easy to
-extend, customize, or completely redefine for your own use cases.
+A minimal langauge definition that let's the language build on top of it. Flow
+control, iterations, compilation and more is built in comp. Easy to extend,
+customize, or completely redefine for your own use cases.
 
-Initiate transactions to allow atomic operations, or rollback everything, 
+Initiate transactions to allow atomic operations, or rollback everything,
 including data structures and participating resources.
 
-Comp is at home in Python. Interoperate closely with any running interpreter. 
-Access existing modules, or replace them with better implementations
-and use those from Python.
+Comp is at home in Python. Interoperate closely with any running interpreter.
+Access existing modules, or replace them with better implementations and use
+those from Python.
 
 ```comp
 -- There are many hello worlds, and this one is mine
@@ -74,8 +74,8 @@ modified and minimal clones of data. Think of the way Python handles strings,
 but now apply that to everything.
 
 Yes, there are simple data types like numbers and text. These are also
-immutable, and work interchangeably with simple structures that contain
-those single, scalar values.
+immutable, and work interchangeably with simple structures that contain those
+single, scalar values.
 
 ```comp
 42                     ; Auto-promotes to {42}
@@ -86,11 +86,11 @@ those single, scalar values.
 
 ### Pipelines: Data Flows Like Streams
 
-Pipelines are designed to work as a flat chain of operations. A function
-is code that takes an input struct and generates a new output struct.
+Pipelines are designed to work as a flat chain of operations. A function is code
+that takes an input struct and generates a new output struct.
 
-Flow control like conditionals and loops are just regular functions. Pass
-around and create blocks, which are simple executable values.
+Flow control like conditionals and loops are just regular functions. Pass around
+and create blocks, which are simple executable values.
 
 The pipeline itself is an inspectable data struct itself. Operations can be
 connected in helpful ways, or entire call graphs transformed into optimized
@@ -129,8 +129,8 @@ Tags solve the problem that enums never quite get right; they need to be
 extensible, hierarchical, and carry values. Comp takes them even further by
 using them for polymorphic dispatch.
 
-Tags play a dual role in the language, acting as both values and shapes.
-The language uses them to disambiguate and dispatch data structures.
+Tags play a dual role in the language, acting as both values and shapes. The
+language uses them to disambiguate and dispatch data structures.
 
 ```comp
 !tag #status 
@@ -187,20 +187,20 @@ let now = now/time {} ~num#day/mars
 
 ### Scopes
 
-Code executing in functions can reference and store data in a variety of
-scopes. Each has different rules about visibility and being overwritten.
+Code executing in functions can reference and store data in a variety of scopes.
+Each has different rules about visibility and being overwritten.
 
-Functions receive data directly in an argument and input scope, although
-both can be given any top level name desired. Function locals are defined
-and referenced with simple tokens for names.
+Functions receive data directly in an argument and input scope, although both
+can be given any top level name desired. Function locals are defined and
+referenced with simple tokens for names.
 
 Modules and contexts can also contribute into the namespace of visible values.
 Shapes are applied to ensure the expected types of data are provided where
 needed, and can possibly transform different data into different shapes.
 
-Assigning variables into these scopes use the `let` keyword, although not
-all scopes can be overwritten with assignments. Assignments without `let`
-are exported as fields inside of a structure's literal curly braces.
+Assigning variables into these scopes use the `let` keyword, although not all
+scopes can be overwritten with assignments. Assignments without `let` are
+exported as fields inside of a structure's literal curly braces.
 
 ```comp
 func process-request in ~{request} arg ~{timeout ~num} 
@@ -219,7 +219,8 @@ func process-request in ~{request} arg ~{timeout ~num}
 ```
 
 The combination of scopes makes it clear where each piece of data comes from:
-- Function locals that only exist within this function, these are referenced directly
+- Function locals that only exist within this function, these are referenced
+  directly
 - `arg` - Arguments passed to this function
 - `ctx` - Execution context shared across function calls
 - `mod` - Module-level configuration and state
@@ -231,8 +232,9 @@ Style Guide](syntax.md).
 
 ### Field Access That Just Works
 
-No matter what kind of data you're working with— API responses, database results,
-or values you've computed—accessing fields follows the same logical patterns.
+No matter what kind of data you're working with— API responses, database
+results, or values you've computed—accessing fields follows the same logical
+patterns.
 
 ```comp
 user.name  ; Get the name field
@@ -247,7 +249,7 @@ all structures, so the same operations work everywhere.
 ### Numbers That Don't Betray You
 
 Comp numbers work the way math actually works, not the way computer hardware
-forces them to behave. Expect lossless precision and accurate computations. 
+forces them to behave. Expect lossless precision and accurate computations.
 Forget about overflows, rounding errors, or clamping.
 
 Avoid special non-number values like "infinity" except for where you opt-in to
@@ -306,28 +308,3 @@ valid? = name != "" && email != ""      ; Logical combination
 Empty strings aren't false. Zero isn't false. Only `#false` is false, and only
 `#true` is true. This eliminates a whole class of subtle bugs that plague other
 languages.
-
-## Ready to Dive Deeper?
-
-This barely scratches the surface. Deeper dives into topics contain
-explanations, examples, and comparisons.
-
-- **[syntax.md](syntax.md)** - Syntax rules, style guide, and formatting
-  conventions
-- **[type.md](type.md)** - Numbers, strings, booleans, and unit systems
-- **[structure.md](structure.md)** - Structure operations, spreads, and lazy
-  evaluation  
-- **[shape.md](shape.md)** - Shape system, morphing, and structural typing
-- **[tag.md](tag.md)** - Hierarchical tags and polymorphic dispatch
-- **[pipeline.md](pipeline.md)** - Pipeline operations, failure handling, and
-  the wrench operator (`|-|`)
-- **[function.md](function.md)** - Function definition, dispatch, and
-  composition
-- **[module.md](module.md)** - Module system, imports, and namespaces
-- **[trail.md](trail.md)** - Advanced navigation through complex data
-- **[store.md](store.md)** - Controlled mutable state when you need it
-- **[security.md](security.md)** - Security features and best practices
-
-Comp is currently in development—these documents describe the intended behavior
-that will guide implementation. The foundations are solid, the vision is clear,
-and the potential is exciting.

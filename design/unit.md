@@ -1,12 +1,19 @@
 # Units
 
-Units provide semantic typing and automatic conversions for primitive values in Comp. They attach to numbers and strings using tag notation, creating typed values that maintain their meaning through operations and transformations.
+Units provide semantic typing and automatic conversions for primitive values in
+Comp. They attach to numbers and strings using tag notation, creating typed
+values that maintain their meaning through operations and transformations.
 
-Units are implemented as tag hierarchies with conversion rules and validation logic. For comprehensive information about the tag system underlying units, see [Tag System](tag.md).
+Units are implemented as tag hierarchies with conversion rules and validation
+logic. For comprehensive information about the tag system underlying units, see
+[Tag System](tag.md).
 
 ## Number Units
 
-Units provide semantic typing and automatic conversion for numeric values. They attach to numbers using tag notation, creating typed values that maintain their meaning through operations. Units are implemented as tag hierarchies with conversion rules.
+Units provide semantic typing and automatic conversion for numeric values. They
+attach to numbers using tag notation, creating typed values that maintain their
+meaning through operations. Units are implemented as tag hierarchies with
+conversion rules.
 
 ```comp
 ; Units as tags
@@ -27,10 +34,14 @@ kelvin = temp ~num#kelvin         ; 293.15
 ### Unit Rules
 
 Units follow algebraic rules during mathematical operations:
-- **Addition/subtraction require compatible units** - you can't add meters to seconds
-- **First operand's unit determines result unit** - `5#meter + 10#foot` returns meters
-- **Multiplication/division create compound units** - `100#kilometer / 1#hour` becomes `#kilometer-per-hour`
-- **Incompatible operations fail immediately** - type errors at validation time, not runtime
+- **Addition/subtraction require compatible units** - you can't add meters to
+  seconds
+- **First operand's unit determines result unit** - `5#meter + 10#foot` returns
+  meters
+- **Multiplication/division create compound units** - `100#kilometer / 1#hour`
+  becomes `#kilometer-per-hour`
+- **Incompatible operations fail immediately** - type errors at validation time,
+  not runtime
 
 ### Unit Hierarchies
 
@@ -134,7 +145,9 @@ total = atmospheric + tire-pressure    ; Result in atmospheres
 
 ## String Units
 
-String units attach to strings using tag notation, providing semantic meaning and controlling template behavior. Units can validate formats, apply transformations, and ensure proper escaping in templates.
+String units attach to strings using tag notation, providing semantic meaning
+and controlling template behavior. Units can validate formats, apply
+transformations, and ensure proper escaping in templates.
 
 ```comp
 ; String with unit tag
@@ -247,6 +260,8 @@ Units in Comp are:
 2. **Automatic**: Conversions happen transparently when needed
 3. **Composable**: Units combine through arithmetic operations naturally
 4. **Extensible**: Define custom units for domain-specific needs
-5. **Zero-overhead**: Unit information is compile-time only, no runtime cost for validated code
+5. **Zero-overhead**: Unit information is compile-time only, no runtime cost for
+   validated code
 
-Units transform error-prone manual conversions into automatic, validated operations that make code both safer and more readable.
+Units transform error-prone manual conversions into automatic, validated
+operations that make code both safer and more readable.

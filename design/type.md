@@ -1,44 +1,69 @@
 # Core Types
 
-## Overview
+Comp provides several fundamental, simple types designed to be reliable building
+blocks. These numbers, strings, and booleans are not structures themselves. They
+have no fields, but they do have their own extensible type system and are
+strictly typed themselves.
 
-Comp provides several fundamental, simple types designed to be reliable building blocks. These numbers, strings, and booleans are not structures themselves. They have no fields, but they do have their own extensible type system and are strictly typed themselves.
-
-- Numbers offer unlimited precision, avoiding integer overflow and precision loss. 
+- Numbers offer unlimited precision, avoiding integer overflow and precision
+  loss. 
 - Strings handle text with integrated templating. 
-- Booleans represent concrete logical values that do not become or act like other types.
+- Booleans represent concrete logical values that do not become or act like
+  other types.
 
-These simple types automatically promote to single-element structures when used in pipelines, maintaining Comp's uniform data model without mental overhead. Each type has a corresponding shape for specifications (`~num`, `~str`, `~bool`) and standard library module for advanced operations.
+These simple types automatically promote to single-element structures when used
+in pipelines, maintaining Comp's uniform data model without mental overhead.
+Each type has a corresponding shape for specifications (`~num`, `~str`, `~bool`)
+and standard library module for advanced operations.
 
-Comp also provides several other types to represent special objects in the language.
+Comp also provides several other types to represent special objects in the
+language.
 
 - Shapes are like simple structures that define a schema for structures
 - Functions are operations that take a fixed shape to create new data
-- Blocks are deferred structures, like lightweight functions that do not need arguments.
-- Tags are predefined enumerations that define a hierharchy. Tags are used as both values and as shapes.
-- Handles allow access to external resources like files, network, other languages, or anything outside control of the Comp language.
+- Blocks are deferred structures, like lightweight functions that do not need
+  arguments.
+- Tags are predefined enumerations that define a hierharchy. Tags are used as
+  both values and as shapes.
+- Handles allow access to external resources like files, network, other
+  languages, or anything outside control of the Comp language.
 - Id is a special value that has no value but defines uniqueness among objects
 
-The type system embodies principles that prevent common programming frustrations:
+The type system embodies principles that prevent common programming
+frustrations:
 
-- **No implicit conversion**: Types never automatically convert—prevents those "wait, why is this a string now?" moments
-- **Unlimited precision**: Numbers maintain exactness without overflow or rounding gotchas
-- **Total ordering**: Comparisons always succeed with deterministic results—no more "cannot compare X and Y" errors
-- **Semantic units**: Units provide meaning and safety for primitive values (see [Units](unit.md))
+- **No implicit conversion**: Types never automatically convert—prevents those
+  "wait, why is this a string now?" moments
+- **Unlimited precision**: Numbers maintain exactness without overflow or
+  rounding gotchas
+- **Total ordering**: Comparisons always succeed with deterministic results—no
+  more "cannot compare X and Y" errors
+- **Semantic units**: Units provide meaning and safety for primitive values (see
+  [Units](unit.md))
 
-These principles create a type system that is both simple and powerful, avoiding the complexity and pitfalls of elaborate type hierarchies or automatic conversions. 
+These principles create a type system that is both simple and powerful, avoiding
+the complexity and pitfalls of elaborate type hierarchies or automatic
+conversions. 
 
 ## Boolean Type
 
-Booleans are the simplest type, represented by two built-in tags: `#true` and `#false`. Conditionals in Comp require booleans, which are not automatically inferred from other value types. 
+Booleans are the simplest type, represented by two built-in tags: `#true` and
+`#false`. Conditionals in Comp require booleans, which are not automatically
+inferred from other value types. 
 
-Both of these are children tags of their parent `#bool`, which can be used in shape definitions.
+Both of these are children tags of their parent `#bool`, which can be used in
+shape definitions.
 
-Field and function names that are used to represent booleans will typeically use a trailing `?` in their token name, like `valid?` or `enabled?`.
+Field and function names that are used to represent booleans will typeically use
+a trailing `?` in their token name, like `valid?` or `enabled?`.
 
-Operators like `&&` and `||` perform boolean **and** and **or** logic to combine booleans. The `!!` **not** operator switches a boolean value. These operators do not work on any other types. These operators short circuit evaluation.
+Operators like `&&` and `||` perform boolean **and** and **or** logic to combine
+booleans. The `!!` **not** operator switches a boolean value. These operators do
+not work on any other types. These operators short circuit evaluation.
 
-Many types have a library of functions that can generate booleans. The comparison operators like `==` and `>` are also often used to create new boolean values.
+Many types have a library of functions that can generate booleans. The
+comparison operators like `==` and `>` are also often used to create new boolean
+values.
 
 ```comp
 ; Boolean literals are tags
@@ -71,7 +96,9 @@ a && b || !!c  ; AND - true when both true
 ## Number Type
 
 Numbers in Comp are not restricted to hardware representations and limitations.
-Comp code does not need to be concerned over integer overflow, overpoint precision. Numbers maintain exact precision when working with huge integers and precise decimals.
+Comp code does not need to be concerned over integer overflow, overpoint
+precision. Numbers maintain exact precision when working with huge integers and
+precise decimals.
 
 ```comp
 ; Unlimited range and precision
@@ -94,11 +121,13 @@ large = 2.5e50               ; Very large and still exact
 
 ### Number Literals
 
-Number literals support decimal notation, alternative bases, and scientific notation. All numbers maintain arbitrary precision and exact representation.
+Number literals support decimal notation, alternative bases, and scientific
+notation. All numbers maintain arbitrary precision and exact representation.
 
 #### Decimal Numbers
 
-Decimal numbers use standard base-10 notation with optional decimal points, signs, and readability underscores:
+Decimal numbers use standard base-10 notation with optional decimal points,
+signs, and readability underscores:
 
 ```comp
 ; Basic integers and decimals
@@ -173,7 +202,8 @@ Alternative base numbers follow these rules:
 
 #### Special Numeric Values
 
-Mathematical operations can produce special values that are represented as tagged numbers:
+Mathematical operations can produce special values that are represented as
+tagged numbers:
 
 ```comp
 ; Special values from mathematical operations
@@ -190,11 +220,13 @@ nan-literal = #nan.num          ; Not a number
 Special values are not regular numbers and require explicit handling:
 - They cannot be used with the `~num` shape matcher
 - Arithmetic with special values follows IEEE 754-like rules
-- Use specific shape matchers like `~maybe-infinite` for functions that accept them
+- Use specific shape matchers like `~maybe-infinite` for functions that accept
+  them
 
 ### Mathematical Operators
 
-Arithmetic operators work exclusively with numbers, providing standard mathematical operations:
+Arithmetic operators work exclusively with numbers, providing standard
+mathematical operations:
 
 ```comp
 ; Basic arithmetic
@@ -212,15 +244,17 @@ positive = +value       ; Rarely needed but available
 result = 2 + 3 * 4      ; 14, not 20
 ```
 
-The language operators do not support "floor division" or "integer division" as seen on other languages. Those are done with provided library functions.
+The language operators do not support "floor division" or "integer division" as
+seen on other languages. Those are done with provided library functions.
 
-The language does not currently have any syntax for "in-place" updates
-or increment operators. These seem useful, but are a secondary priority
-that will wait for other parts of the language to settle.
+The language does not currently have any syntax for "in-place" updates or
+increment operators. These seem useful, but are a secondary priority that will
+wait for other parts of the language to settle.
 
 ### Special Numeric Values
 
-Mathematical operations can produce special values that require explicit handling:
+Mathematical operations can produce special values that require explicit
+handling:
 
 ```comp
 ; Special values as tags
@@ -244,11 +278,14 @@ value = #inf.num               ; Can be stored and passed
 
 ## String Type
 
-Strings are immutable sequences of UTF-8 text. They cannot be modified after creation - operations create new strings. 
+Strings are immutable sequences of UTF-8 text. They cannot be modified after
+creation - operations create new strings. 
 
-String literals are created with text between double quotes. The language also supports multiline strings using triple quote characters.
+String literals are created with text between double quotes. The language also
+supports multiline strings using triple quote characters.
 
-There are no operators for use with strings. Code relies on formatting calls and a library of string related functions.
+There are no operators for use with strings. Code relies on formatting calls and
+a library of string related functions.
 
 ```comp
 greeting = "hello"  ; String "hello"
@@ -277,13 +314,18 @@ message = """
 
 ### Token literals
 
-Comp uses a special structure literal wrapped in square brackets `[]`. Any tokens and text in these structures are converted into positional values inside a struct. This allows `[one two]` as a shorthand for `{"one" "two"}`
+Comp uses a special structure literal wrapped in square brackets `[]`. Any
+tokens and text in these structures are converted into positional values inside
+a struct. This allows `[one two]` as a shorthand for `{"one" "two"}`
 
 ### Template Formatting
 
-Still in progess; formatting generally involves strings with a special `${}` referencing syntax inside.
+Still in progess; formatting generally involves strings with a special `${}`
+referencing syntax inside.
 
-Template formatting follows intuitive Python-style rules. Positional placeholders fill in order, named placeholders match field names, and the pipeline operator `|%` lets you apply templates in data flows naturally.
+Template formatting follows intuitive Python-style rules. Positional
+placeholders fill in order, named placeholders match field names, and the
+pipeline operator `|%` lets you apply templates in data flows naturally.
 
 ### String Operations
 
@@ -309,7 +351,9 @@ text | trim/str ()         ; Remove whitespace
 
 ## Comparison Operators
 
-Comparison operators work across all types with deterministic, total ordering. They never fail - any two values can be compared, with consistent results based on type-specific rules.
+Comparison operators work across all types with deterministic, total ordering.
+They never fail - any two values can be compared, with consistent results based
+on type-specific rules.
 
 ### Equality Comparisons
 
@@ -378,7 +422,9 @@ result = %"Hello, %{name}!"           ; "Hello, Alice!"
 
 ## Type Conversion
 
-Comp avoids automatic type conversion, requiring explicit operations to convert between types. This prevents subtle bugs from implicit coercions while keeping conversions straightforward.
+Comp avoids automatic type conversion, requiring explicit operations to convert
+between types. This prevents subtle bugs from implicit coercions while keeping
+conversions straightforward.
 
 ```comp
 ; String to number conversion
@@ -400,16 +446,17 @@ Count: %{} % {#true}                  ; Boolean to string
 ```
 ## Units
 
-Units are specially defined tags that can be attached to number and
-string values. These provide additional behaviors for the operators.
+Units are specially defined tags that can be attached to number and string
+values. These provide additional behaviors for the operators.
 
-For numbers these usually used to attach measurements or units to values.
-For example, values can be given different time units and compared and
-combined logically.
+For numbers these usually used to attach measurements or units to values. For
+example, values can be given different time units and compared and combined
+logically.
 
-For strings the units are used to assist formatting templates. Different contexts for text can use different escaping for substituted values. A unit
-on text literals can also assist developer tools to provide more context
-and syntax awareness for the string contents.
+For strings the units are used to assist formatting templates. Different
+contexts for text can use different escaping for substituted values. A unit on
+text literals can also assist developer tools to provide more context and syntax
+awareness for the string contents.
 
 ```comp
 email = "user@example.com"#email
@@ -423,5 +470,8 @@ speed = 100#kilometer / 1#hour     ; Compound unit
 meters = distance ~num#meter      ; 5000
 ```
 
-Units follow algebraic rules: addition/subtraction require compatible units, multiplication/division create compound units, and incompatible operations fail immediately. For detailed information about unit hierarchies, compound units, validation, and custom unit definitions, see [Units](unit.md).
+Units follow algebraic rules: addition/subtraction require compatible units,
+multiplication/division create compound units, and incompatible operations fail
+immediately. For detailed information about unit hierarchies, compound units,
+validation, and custom unit definitions, see [Units](unit.md).
 
