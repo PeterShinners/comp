@@ -1,499 +1,306 @@
 """Runtime values for the generator-based engine."""
 
-__all__ = ["Value", "fail", "Unnamed", "ChainedScope"]
+__all__ = ["Value", "Unnamed", "validate"]
 
+import copy
 import decimal
+import fractions
 import re
 
 import comp
 
-from . import _entity, _function
+
+_emptyset = frozenset()
 
 
-class Value(_entity.Entity):
-    """Runtime value wrapper.
+class Value:
+    """Comp runtime value.
 
-    Can hold Python primitives (int, float, str) or Comp values (tag, handle, struct).
-    Uses .data for the underlying value, and provides .struct as an alias when 
-    it's a dict.
+    Represents any of the possible data types supported by comp.
+    This means numbers, strings, tags, functions, shapes, handles, and more.
 
-    Inherits from Entity, making it passable through scopes and returnable
-    from evaluate() methods.
+    Values have an optional token that is set when the value comes from
+    a compiled data source. This is optional, and allows better error
+    reporting and tracking.
 
-    The engine generally manages the `ast` attribute to identify where this
-    value originated from, but it can optionally be None.
-    
+    Many builtin types like "nil" and "true" in comp are represented as
+    tags. Use the `frompython` and `topython` methods to convert between
+    more native data types.
+
+    The contents of the value are considered immutable, even when
+    represented by structures with dicts. 
+
     Args:
-        data: The underlying data. Can be:
-            - Value (copied)
-            - None (empty struct)
-            - bool (converted to TRUE/FALSE tags)
-            - int/float (converted to Decimal)
-            - Decimal (stored directly)
-            - str (stored directly)
-            - comp.TagRef (stored directly)
-            - comp.HandleInstance (stored directly)
-            - Block/RawBlock (stored directly)
-            - dict (recursively converted)
-            - list/tuple (converted to unnamed struct fields)
-        ast: Optional AST node that created this value (for error messages and source tracking)
-    
+        data: The underlying data.
+        token: Optional source token
     Attributes:
         data: The underlying data (primitives, tags, structs, etc.)
-        ast: Optional AST node that created this value (for error messages)
+        shape: (ShapeRef) Definition of represented data
+        token: Optional parsed token that created this value (for error messages)
         private: Module-private data storage dict
         handles: Frozenset of HandleInstance objects contained in this value
     """
+    __slots__ = ("data", "shape", "token", "private", "handles", "_guard")
+    _shapemap = None
+    _shapetypes = None
 
     def __init__(self, data):
-        # Handle Value copying
+
         if isinstance(data, Value):
-            self.data = data.data
-            # Share private data reference - values are immutable, no need to copy
-            self.private = data.private
-            # Copy the handles set (also immutable)
-            self.handles = data.handles
-            # Copy AST node reference
-            self.ast = data.ast
-            return
+            # This means values generally shouldn't be copied from other values,
+            # instead their references should be shared. Because of this the
+            # constructor will error for any code that tries to wrap a value on
+            # an existing value.
+            raise TypeError(f"Value init called with existing Value {data}")
+
+        # Token used for diagnostics and messages about where value came from
+        self.token = None
 
         # Module-private data storage
-        # Maps module_id -> Value (structure containing private data)
-        # Used by the & syntax for module-scoped private data
-        self.private = {}
-        
-        # AST node tracking (for error messages)
-        self.ast = None
+        # Maps module_id -> Value (structure containing private data) Used by
+        # the & syntax for module-scoped private data
+        self.private = None
+        # Value tracks (recursively) and references used, which are used to when
+        # cleaning up stack frames        
+        self.handles = _emptyset
 
-        # Handle None -> empty struct
-        if data is None:
-            self.data = {}
-            self.handles = frozenset()
-            return
+        # Data may not be valid for a Comp Value here, but accept it as-is in
+        # the name of efficiency. The `validate_value` method can be used for
+        # stricter checking.
 
-        # Handle bool -> Tag conversion
-        if isinstance(data, bool):
-            self.data = comp.builtin.TRUE if data else comp.builtin.FALSE
-            self.handles = frozenset()
-            return
-
-        # Handle numeric types -> Decimal
-        if isinstance(data, int):
-            self.data = decimal.Decimal(data)
-            self.handles = frozenset()
-            return
-        if isinstance(data, float):
-            self.data = decimal.Decimal(str(data))  # Convert via string to avoid precision issues
-            self.handles = frozenset()
-            return
-        if isinstance(data, decimal.Decimal):
-            self.data = data
-            self.handles = frozenset()
-            return
-
-        # Handle string
-        if isinstance(data, str):
-            self.data = data
-            self.handles = frozenset()
-            return
-
-        # Handle comp.TagRef
-        if isinstance(data, comp.TagRef):
-            self.data = data
-            self.handles = frozenset()
-            return
-
-        # Handle comp.HandleInstance (actual grabbed handles)
-        if isinstance(data, comp.HandleInstance):
-            self.data = data
-            # This value contains exactly one handle
-            self.handles = frozenset([data])
-            return
-
-        # Handle Block and RawBlock (can be wrapped in Value)
-        if isinstance(data, (_function.Block, _function.RawBlock)):
-            self.data = data
-            self.handles = frozenset()
-            return
-
-        # Handle dict -> struct (recursively convert keys and values)
         if isinstance(data, dict):
-            self.data = {
-                k if isinstance(k, Unnamed) else Value(k): Value(v)
-                for k, v in data.items()
-            }
-            # Compute handles from all field values (recursively)
-            self.handles = self._compute_struct_handles()
-            return
+            for value in data.values():
+                self.handles = self.handles.union(value.handles)
+            self._guard = iter(data)  # Used for validation
 
-        # Handle list/tuple -> unnamed struct fields
-        if isinstance(data, (list, tuple)):
-            self.data = {Unnamed(): Value(v) for v in data}
-            # Compute handles from all field values (recursively)
-            self.handles = self._compute_struct_handles()
-            return
-
-        # Handle other Python objects directly (for Python bridge)
-        # Store them as-is without conversion
         self.data = data
-        self.handles = frozenset()
-        return
 
-    def _compute_struct_handles(self):
-        """Recursively collect all handles from struct fields.
-        
-        Since Values are immutable and handles are computed at construction,
-        we can just collect the handles sets from all field values.
-        
-        Returns:
-            frozenset: HandleInstance objects, or empty frozenset
-        """
-        all_handles = set()
-        for field_value in self.data.values():
-            if field_value.handles:
-                all_handles.update(field_value.handles)
-        return frozenset(all_handles) if all_handles else frozenset()
+        # Late initialization of important maps for fetching types
+        if Value._shapemap is None:
+            Value._shapemap = {
+                fractions.Fraction: comp.shape_num,
+                decimal.Decimal: comp.shape_num,
+                str: comp.shape_text,
+                dict: comp.shape_struct,
+                comp.Func: comp.shape_func,
+            }
+            Value._shapetypes = (comp.Tag, comp.Shape, comp.Handle)
 
     @property
-    def is_number(self):
-        """Check if this value is a number (Decimal).
-        
-        Returns:
-            bool: True if data is a Decimal
-        """
-        return isinstance(self.data, decimal.Decimal)
+    def shape(self):
+        """(ShapeDef | TagDef | HandleDef) Shape reference for this value's data type."""
+        shape = Value._shapemap.get(type(self.data))
+        if shape is None and isinstance(self.data, Value._shapetypes):
+            shape = self.data.definition
+        return shape
 
-    @property
-    def is_string(self):
-        """Check if this value is a string.
-        
-        Returns:
-            bool: True if data is a str
-        """
-        return isinstance(self.data, str)
-
-    @property
-    def is_struct(self):
-        """Check if this value is a structure (dict).
-        
-        Returns:
-            bool: True if data is a dict
-        """
-        return isinstance(self.data, dict)
-
-    @property
-    def is_tag(self):
-        """Check if this value is a tag reference.
-        
-        Returns:
-            bool: True if data is a TagRef
-        """
-        return isinstance(self.data, comp.TagRef)
-
-    @property
-    def is_handle(self):
-        """Check if this value wraps a HandleInstance (grabbed handle).
-        
-        Returns:
-            bool: True if data is a HandleInstance
-        """
-        return isinstance(self.data, comp.HandleInstance)
-
-    @property
-    def is_block(self):
-        """Check if this value wraps a Block (typed, ready to invoke).
-        
-        Returns:
-            bool: True if data is a Block
-        """
-        return isinstance(self.data, comp.Block)
-
-    @property
-    def is_raw_block(self):
-        """Check if this value wraps a RawBlock (untyped, needs morphing).
-        
-        Returns:
-            bool: True if data is a RawBlock
-        """
-        return isinstance(self.data, comp.RawBlock)
-
-    @property
-    def is_fail(self):
-        """Check if a value is a fail value.
-        
-        Returns True if the struct contains a #fail tag or any child of #fail
-        in its unnamed fields. Uses proper tag hierarchy checking.
-        """
-        if not self.is_struct:
-            return False
-
-        # Import Unnamed for key type checking
-        from comp._value import Unnamed
-
-        # Get the builtin #fail tag definition
-        try:
-            builtin = comp.get_builtin_module()
-            fail_tag_def = builtin.lookup_tag(["fail"])
-        except (ValueError, AttributeError):
-            # Fallback during early initialization when builtin module may not be ready
-            # Use string matching as fallback - MUST ONLY CHECK UNNAMED FIELDS!
-            for key, val in self.data.items():
-                if isinstance(key, Unnamed) and val.is_tag:
-                    name = val.data.full_name
-                    if name == "fail" or name.startswith("fail."):
-                        return True
-            return False
-
-        # Look for #fail tag or any child of #fail in unnamed fields
-        for key, val in self.data.items():
-            # Only check unnamed fields - named fields can contain fail tags without being failures
-            if isinstance(key, Unnamed) and val.is_tag:
-                # Check if this tag is #fail or a descendant of #fail
-                if comp.is_tag_compatible(val.data.tag_def, fail_tag_def):
-                    return True
-        return False
-
-    @property
-    def struct(self):
-        """Alias for .data when it's a dict (for compatibility with AST nodes).
-        
-        Returns:
-            dict or None: The dict data if this is a struct, None otherwise
-        """
-        return self.data if isinstance(self.data, dict) else None
-
-    def as_scalar(self):
-        """Return value as a scalar value or itself.
-
-        Unwraps single-element structs (named or unnamed).
-        Returns self if already scalar (preserves object identity).
-        Preserves private data when unwrapping.
-        
-        Returns:
-            Value: The unwrapped scalar value, or self if already scalar or can't unwrap
-        """
-        # Already scalar - return self
-        if not self.is_struct:
-            return self
-            
-        # Check if struct can be unwrapped
-        if isinstance(self.data, dict) and len(self.data) == 1:
-            value = list(self.data.values())[0]
-            if value.is_number or value.is_string or value.is_tag or value.is_handle or value.is_block or value.is_raw_block:
-                # Check if we need to preserve private data
-                if self.private:
-                    # If the inner value already has the same private reference, return it directly
-                    # (this happens when as_struct() was called on a value with private data)
-                    if value.private is self.private:
-                        return value
-                    # Otherwise, create new value with combined private data
-                    unwrapped = Value(value.data)
-                    unwrapped.private = self.private
-                    # Preserve the ast attribute from the inner value
-                    unwrapped.ast = value.ast if hasattr(value, 'ast') else None
-                    return unwrapped
-                # No private data - return the inner value directly
-                return value
-        
-        # Can't unwrap - return self
-        return self
-
-    def as_struct(self):
-        """Wrap scalar values into single field structure.
-        
-        Returns self if already a struct (preserves object identity).
-        Preserves private data when wrapping.
-        
-        Returns:
-            Value: The wrapped struct value, or self if already a struct
-        """
-        # Already struct - return self
-        if self.is_struct:
-            return self
-            
-        # Wrap scalar and preserve private data
-        # Important: Create the dict manually to avoid Value() constructor
-        # converting self into a copy
-        wrapped = Value.__new__(Value)
-        wrapped.data = {Unnamed(): self}
-        wrapped.private = self.private
-        wrapped.ast = self.ast
-        # Compute handles from the wrapped value
-        wrapped.handles = self.handles
-        return wrapped
-
-    def get_private(self, module_id):
-        """Get module-private data for a specific module.
-        
-        Args:
-            module_id: Module identifier (from Module.module_id)
-            
-        Returns:
-            Value or None: Private data structure for the module, or None if not set
-        """
-        return self.private.get(module_id)
-    
-    def set_private(self, module_id, data):
-        """Set module-private data for a specific module.
-        
-        Args:
-            module_id: Module identifier (from Module.module_id)
-            data (Value): Value containing the private data (typically a structure)
-            
-        Notes:
-            - Mutates the private dict in place
-            - Private data is shared across value transformations (as_struct, etc.)
-            - Data must already be a Value instance
-        """
-        if not isinstance(data, Value):
-            raise TypeError(f"Private data must be a Value, got {type(data).__name__}")
-        self.private[module_id] = data
-
-    def unparse(self):
-        """Convert value back to a source-like representation.
-
-        Similar to AST node unparse() methods, this produces a string that
-        represents the value in a human-readable form. For simple values
-        (numbers, strings, tags), returns the data. For structs with a single
-        unnamed field, extracts that field's representation.
+    def format(self):
+        """Convert value to Comp literal expression.
 
         Returns:
-            str: String representation suitable for display
+            (str) String representation suitable for display
         """
-        if self.is_number:
+        shape = self.shape
+        if shape is comp.shape_num:
             return str(self.data)
-        if self.is_string:
-            return repr(self.data).replace('"', '\\"').replace("'", '"')
-        if self.is_tag:
-            return f"#{self.data.full_name}"
-        if self.is_handle:
-            return f"@{self.data.full_name}"
-        if self.is_struct:
+        if shape is comp.shape_text:
+            value = self.data.replace('"', '\\"')
+            return f'"""{value.replace('\n', '\\n')}"""' if '\n' in value else f'"{value}"'
+        if shape is comp.tag_true:
+            return "#true"
+        if shape is comp.tag_false:
+            return "#false"
+        if isinstance(self.data, comp.Tag):
+            return f"#{self.data.qualified}"
+        if isinstance(self.data, comp.Handle):
+            return f"^{self.data.definition.qualified}"
+        if isinstance(self.data, comp.Func):
+            return f"{self.data.definition.qualified}()"
+
+        if shape is comp.shape_struct:
             fields = []
             for k, v in self.data.items():
                 if isinstance(k, Unnamed):
-                    fields.append(v.unparse())
+                    fields.append(v.format())
                 elif isinstance(k, Value):
-                    if k.is_string:
-                        key = k.unparse()[1:-1]
+                    if k.shape == comp.shape_text:
+                        key = k.format()[1:-1]
                         # Check if key is a valid Comp identifier (TOKEN pattern: /[^\W\d][\w-]*[?]?/)
                         # Must start with letter/underscore, contain only alphanumeric/underscore/hyphen, optional trailing ?
                         if re.match(r'^[^\W\d][\w-]*\??$', key):
-                            fields.append(f"{key}={v.unparse()}")
+                            fields.append(f"{key}={v.format()}")
                         else:
                             # Need to quote the key
-                            fields.append(f'"{key}"={v.unparse()}')
+                            fields.append(f'"{key}"={v.format()}')
                     else:
-                        fields.append(f"{k.unparse()}={v.unparse()}")
+                        fields.append(f"'{k.format()}'={v.unparse()}")
 
             return "{" + " ".join(fields) + "}"
 
-        # Return the data, converting tags and decimals to strings
-        if isinstance(self.data, comp.TagRef):
-            return str(self.data)
-        if isinstance(self.data, decimal.Decimal):
-            return str(self.data)
-        if isinstance(self.data, str):
-            return self.data
-        if isinstance(self.data, dict):
-            # For complex structs, return the full representation
-            return str(self.data)
+        # Still need to handle blocks
+
         return str(self.data)
 
-    def to_python(self):
+    def to_python(self, field=None):
         """Convert this value to a Python equivalent.
 
+        If field is given it will assume this is a struct value and access
+        the given field by name (str) or by position (int).
+
+        Args:
+            field: (str | int | None) Optional field to access from struct
         Returns:
-            Decimal, str, bool, TagRef, dict, or None: Python equivalent of the value:
-                - Decimal for numbers
-                - str for strings
-                - bool for #true/#false tags
-                - comp.TagRef for other tags
-                - dict for structures (with recursively converted keys/values)
-                - None for other values
+            (object) Converted python value
+
         """
-        if isinstance(self.data, comp.TagRef):
-            # Convert #true and #false to Python booleans
-            if self.data.full_name == "true":
+        if field is not None:
+            if not self.is_struct:
+                raise TypeError(f"Cannot access field on non-struct value")
+            if isinstance(field, int):
+                # Access by position
+                for i, (k, v) in enumerate(self.data.items()):
+                    if i == field:
+                        return v.to_python()
+                raise IndexError(f"Struct field index {field} out of range")
+            else:
+                # Access by name
+                for k, v in self.data.items():
+                    if isinstance(k, Value) and k.is_string and k.data == field:
+                        return v.to_python()
+                raise KeyError(f"Struct field '{field}' not found")
+
+        if isinstance(self.data, comp.Tag):
+            # Convert #bool.true and #bool.false to Python booleans
+            if self.data.qualified == "bool.true":
                 return True
-            elif self.data.full_name == "false":
+            elif self.data.qualified == "bool.false":
                 return False
-            # Other tags remain as TagRef
+            # Other tags remain as Tag
             return self.data
-        if isinstance(self.data, (decimal.Decimal, str)):
+
+        if isinstance(self.data, decimal.Decimal):
             return self.data
+        if isinstance(self.data, fractions.Fraction):
+            return self.data
+        if isinstance(self.data, str):
+            return self.data
+
         if isinstance(self.data, dict):
-            # Check if all keys are Unnamed AND there's at least one element - if so, convert to list
-            # Empty structs remain as empty dicts
-            all_unnamed = all(isinstance(key, Unnamed) for key in self.data.keys()) and len(self.data) > 0
-            if all_unnamed:
-                # Convert to Python list
-                return [val.to_python() for val in self.data.values()]
-            
-            # Mixed or all named keys - convert to dict
+            # Check if all keys are Unnamed - convert to list
+            if self.data and all(isinstance(k, Unnamed) for k in self.data):
+                return [v.to_python() for v in self.data.values()]
+
+            # Mixed or named keys - convert to dict
             result = {}
             for key, val in self.data.items():
                 if isinstance(key, Unnamed):
-                    # For unnamed keys, use numeric indices
                     result[len(result)] = val.to_python()
                 else:
-                    # Convert Value keys to Python
                     result[key.to_python()] = val.to_python()
             return result
-        return None
+
+        return self.data
+
+
+    @classmethod
+    def from_python(cls, value):
+        """Convert Python values into native Comp Values.
+
+        Args:
+            value: Python value to convert
+        Returns:
+            (Value) Comp Value equivalent
+        Raises:
+            TypeError: If value is already a Value or cannot be converted
+        """
+        if isinstance(value, Value):
+            raise TypeError("from_python called with existing Value")
+
+        if isinstance(value, str):
+            return cls(value)
+
+        if value is True:
+            return cls(comp.Tag("bool.true", "", None))
+        if value is False:
+            return cls(comp.Tag("bool.false", "", None))
+
+        if isinstance(value, (int, float)):
+            return cls(decimal.Decimal(value))
+        if isinstance(value, decimal.Decimal):
+            return cls(value)
+        if isinstance(value, fractions.Fraction):
+            return cls(value)
+
+        if isinstance(value, dict):
+            struct = {}
+            for k, v in value.items():
+                struct[cls.from_python(k)] = cls.from_python(v)
+            return cls(struct)
+
+        if isinstance(value, (tuple, list)):
+            struct = {}
+            for item in value:
+                struct[Unnamed()] = cls.from_python(item)
+            return cls(struct)
+
+        if isinstance(value, comp.Tag):
+            return cls(value)
+
+        raise TypeError(f"Cannot convert Python type {type(value).__name__} to Comp Value")
+
 
     def __repr__(self):
-        return f"Value({self.data!r})"
+        return f"Value({self.format()})"
 
     def __eq__(self, other):
         if not isinstance(other, Value):
             return False
         return self.data == other.data
 
-    def __hash__(self):
-        """Make Value hashable so it can be used as dict keys."""
-        if isinstance(self.data, dict):
-            # Dicts aren't hashable, use tuple of items
-            return hash(tuple(sorted(self.data.items())))
-        return hash(self.data)
+    # def __hash__(self):
+    #     """Make Value hashable so it can be used as dict keys."""
+    #     if isinstance(self.data, dict):
+    #         # Dicts aren't hashable, use tuple of items
+    #         return hash(tuple(sorted(self.data.items())))
+    #     return hash(self.data)
 
 
-def fail(message, ast=None, **extra_fields):
-    """Create a failure structure with the given message.
+# def fail(message, ast=None, **extra_fields):
+#     """Create a failure structure with the given message.
 
-    The structure has the #fail tag as an unnamed field, plus named fields
-    for type and message. Additional fields can be added via kwargs.
-    This allows morphing against #fail to detect failures.
+#     The structure has the #fail tag as an unnamed field, plus named fields
+#     for type and message. Additional fields can be added via kwargs.
+#     This allows morphing against #fail to detect failures.
     
-    Args:
-        message: The failure message
-        ast: Optional AST node that generated this failure (for error messages and source tracking)
-        **extra_fields: Additional named fields to include in the failure struct
-    """
-    builtin = comp.builtin.get_builtin_module()
-    try:
-        fail_tag_def = builtin.lookup_tag(["fail"])
-    except ValueError as e:
-        # This should never happen - builtin module must have #fail tag
-        raise RuntimeError(f"Critical error: builtin #fail tag not found: {e}") from e
+#     Args:
+#         message: The failure message
+#         ast: Optional AST node that generated this failure (for error messages and source tracking)
+#         **extra_fields: Additional named fields to include in the failure struct
+#     """
+#     builtin = comp.builtin.get_builtin_module()
+#     try:
+#         fail_tag_def = builtin.lookup_tag(["fail"])
+#     except ValueError as e:
+#         # This should never happen - builtin module must have #fail tag
+#         raise RuntimeError(f"Critical error: builtin #fail tag not found: {e}") from e
 
-    # Create Value directly without going through constructor conversion
-    result = Value.__new__(Value)
-    result.data = {
-        Unnamed(): Value(comp.TagRef(fail_tag_def)),  # Tag as unnamed field for morphing
-        Value('type'): Value('fail'),
-        Value('message'): Value(message)
-    }
+#     # Create Value directly without going through constructor conversion
+#     result = Value.__new__(Value)
+#     result.data = {
+#         Unnamed(): Value(comp.Tag(fail_tag_def)),  # Tag as unnamed field for morphing
+#         Value('type'): Value('fail'),
+#         Value('message'): Value(message)
+#     }
     
-    # Add any extra fields
-    for key, value in extra_fields.items():
-        result.data[Value(key)] = Value(value)
+#     # Add any extra fields
+#     for key, value in extra_fields.items():
+#         result.data[Value(key)] = Value(value)
     
-    result.private = {}
-    result.ast = ast
-    # Compute handles from field values
-    result.handles = frozenset()  # fail values don't contain handles
-    return result
+#     result.private = {}
+#     result.ast = ast
+#     # Compute handles from field values
+#     result.handles = frozenset()  # fail values don't contain handles
+#     return result
 
 
 class Unnamed:
@@ -520,34 +327,47 @@ class Unnamed:
         return False
 
 
-class ChainedScope:
-    """A scope that chains multiple Value structs for field lookup.
+def validate(value):
+    """Validate that a Value is in a proper state.
 
-    When looking up a field, tries each scope in order and returns the first match.
-    This is used for the 'unnamed' scope to chain $out (accumulator) with $in.
-    
+    This isn't regularly done during runtime for efficiency. This can be used
+    for testing or analysis tools to detect problems with the runtime.
+
+    This shouldn't ever fail, if it does that means there is a bug in the
+    imlementation, not any comp code.
+
     Args:
-        *scopes: Value objects to chain. Earlier scopes have priority.
-    
-    Attributes:
-        scopes (tuple): The Value objects to search in order
+        value: (Value) object to check
+    Raises:
+        (Exception) if any type of problem is found
     """
+    if not isinstance(value, Value):
+        raise TypeError(f"Expected Value, got {type(value).__name__}")
 
-    def __init__(self, *scopes):
-        self.scopes = scopes
+    data = value.data
 
-    def lookup_field(self, field_key):
-        """Look up a field in the chained scopes.
+    if isinstance(data, dict):
+        for key, val in data.items():
+            if not isinstance(key, (Value, Unnamed)):
+                raise TypeError(f"Invalid field name for struct {val!r}")
+            if not isinstance(val, Value):
+                raise TypeError(f"Invalid field value for struct {key!r}={val!r}")
+            if not val.handles.issubset(value.handles):
+                raise comp.EvalError(f"Struct field {key!r} has invalid handles in value {val!r}")
+            # would be nice to pass some context to these, so the error describe
+            # the path to where this error happened
+            validate(key)
+            validate(val)  
 
-        Args:
-            field_key (Value): The field key to look up
+        try:
+            copy.copy(value._guard)
+        except RuntimeError:
+            # This catches if dictionary changed size after getting created,
+            # but doesn't catch if existing values are changed. For now I'll
+            # take it as a lightweight check.
+            raise comp.EvalError(f"Struct data has been mutated")
 
-        Returns:
-            Value or None: The value if found in any scope, None otherwise
-        """
-        for scope in self.scopes:
-            if scope is not None and scope.is_struct:
-                struct = scope.struct
-                if struct is not None and field_key in struct:
-                    return struct[field_key]
-        return None
+
+    if not isinstance(data, (comp.Tag, str, decimal.Decimal, fractions.Fraction)):
+        raise TypeError(f"Unknown internal type for value: {type(data).__name__}")
+

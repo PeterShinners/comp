@@ -1,7 +1,23 @@
 """Error classes and helpers"""
 
-__all__ = ["ParseError"]
+__all__ = ["EvalError", "ModuleError", "ParseError"]
 
+
+
+class EvalError(Exception):
+    """Error in internal processing of Comp engine.
+    
+    Args:
+        message (str): Error description
+    """
+
+
+class ModuleError(Exception):
+    """Error building module.
+    
+    Args:
+        message (str): Error description
+    """
 
 class ParseError(Exception):
     """Exception raised for parsing errors.
@@ -20,5 +36,6 @@ class ParseError(Exception):
         """
         self.message = message
         self.position = position
-        super().__init__(f"Parse error: {message}")
+        super().__init__(message)
+
 
