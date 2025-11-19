@@ -1,6 +1,6 @@
 [project]
 name = "comp"
-version = "0.1.0"
+version = "0.3.0"
 description = "Comp Programming Language"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -18,19 +18,15 @@ classifiers = [
     "Topic :: Software Development :: Interpreters",
 ]
 dependencies = [
+    "cbor2>=5.7.1",
     "lark>=1.1.0",
 ]
 
 [project.urls]
 Repository = "https://github.com/PeterShinners/comp"
 
-[project.scripts]
-comp = "comp.cli:main"
-
-[project.optional-dependencies]
-dev = [
-    "pyright>=1.1.0",
-]
+# [project.scripts]
+# comp = "comp.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -42,31 +38,6 @@ testpaths = ["tests"]
 [tool.hatch.build.targets.wheel]
 packages = ["src/comp"]
 
-[tool.pyright]
-include = ["src", "tests"]
-exclude = ["**/__pycache__"]
-pythonVersion = "3.12"
-pythonPlatform = "All"
-
-# Type checking settings
-typeCheckingMode = "basic"  # "off" | "basic" | "standard" | "strict"
-
-# Report settings (set to "warning" or "error" to enable, "none" to disable)
-reportMissingImports = "warning"
-reportMissingTypeStubs = "none"  # Don't complain about missing stubs for third-party libraries
-reportUnusedImport = "none"  # Allow imports used in docstrings
-reportUnusedVariable = "warning"
-reportUnusedFunction = "none"  # Allow helper functions that may not be used yet
-reportOptionalSubscript = "warning"
-reportOptionalMemberAccess = "warning"
-reportAttributeAccessIssue = "warning"
-reportGeneralTypeIssues = "warning"
-
-# Disable overly strict checks for dynamic code
-reportUnknownParameterType = "none"
-reportUnknownArgumentType = "none"
-reportUnknownVariableType = "none"
-reportUnknownMemberType = "none"
 
 [dependency-groups]
 dev = [
