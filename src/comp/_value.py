@@ -40,7 +40,7 @@ class Value:
         private: Module-private data storage dict
         handles: Frozenset of HandleInstance objects contained in this value
     """
-    __slots__ = ("data", "shape", "token", "private", "handles", "_guard")
+    __slots__ = ("data", "token", "private", "handles", "_guard")
     _shapemap = None
     _shapetypes = None
 
