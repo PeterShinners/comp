@@ -109,7 +109,7 @@ Unit type checking happens at shape validation time:
 
 ```comp
 ; Function with unit requirements
-func calculate-speed ~{distance ~num#meter time ~num#second} = {
+!func calculate-speed ~{distance ~num#meter time ~num#second} = {
     [distance / time]  ; Result: ~num#meter-per-second
 }
 

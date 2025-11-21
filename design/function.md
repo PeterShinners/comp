@@ -14,14 +14,14 @@ is a way of chaining function results to a series of operations.
 Functions are defined with `func` and become part of the module namespace:
 
 ```comp
-func calculate-area ~{width ~num height ~num}
+!func calculate-area ~{width ~num height ~num}
 (
     area = width * height
     perimeter = (width + height) * 2
     diagonal = (width ** 2 + height ** 2) ** 0.5
 )
 
-func get-timestamp arg ~{format ~str}
+!func get-timestamp arg ~{format ~str}
 (
     let current = now/time
     let formatted = current | format/time arg.format
@@ -51,13 +51,13 @@ Functions consist of several parts:
 
 ```comp
 ; Simple inline
-func double ~{~num} (in * 2)
+!func double ~{~num} (in * 2)
 
 ; Pure function
-pure func add ~{~num} arg ~{n ~num} (in + arg.n)
+!pure !func add ~{~num} arg ~{n ~num} (in + arg.n)
 
 ; Multi-line with arguments
-func filter-items ~{items[]} arg ~{threshold ~num = 0}
+!func filter-items ~{items[]} arg ~{threshold ~num = 0}
 (
     items | filter :(it > arg.threshold)
 )
@@ -103,12 +103,12 @@ lowest to highest priority)
   rules
 
 ```comp
-func process args ~{x ~num timeout ~num = 30}
+!func process args ~{x ~num timeout ~num = 30}
 (
     {args.x args.timeout}
 )
 
-func example-process-calls ~nil
+!func example-process-calls ~nil
 (
     let as-arg1 = process {2}  ; {2 30}
     let as-arg2 = process {3 4}  ; {3 4}
@@ -133,7 +133,7 @@ optimizations where some data is not needed.
 Functions compute fields on-demand rather than all at once:
 
 ```comp
-func expensive-analysis ~{data}
+!func expensive-analysis ~{data}
 {
     summary = data | compute-summary {}
     statistics = data | deep-statistical-analysis {}
@@ -169,7 +169,7 @@ pass through handle values, and can even drop them, making them invalid.
 Pure functions are defined with a `pure func` operator.
 
 ```comp
-pure func fibonacci ~{n ~num}
+!pure !func fibonacci ~{n ~num}
 (
     n | if :(it <= 1) :(it) :(
         let a = (n - 1) | fibonacci
@@ -178,7 +178,7 @@ pure func fibonacci ~{n ~num}
     )
 )
 
-pure func validate-email ~{email ~str}
+!pure !func validate-email ~{email ~str}
 (
     email | match/str "^[^@]+@[^@]+$"
 )
@@ -199,8 +199,8 @@ matching the shape of the input value. This dynamic dispatch is not based on the
 arguments, in fact each implementation could have different arguments.
 
 ```comp
-func render ~point-2d ("2D point")
-func render ~point-3d ("3D point")
+!func render ~point-2d ("2D point")
+!func render ~point-3d ("3D point")
 
 {x=5 y=10} | render           ; "2D improved" - strong wins
 {x=5 y=10 z=15} | render      ; "3D point" - more specific
@@ -233,17 +233,17 @@ link definition, but will use a `{nil}` value to specify that it has no
 requirements itself.
 
 ```comp
-func engine ~nil link {nil}
+!func engine ~nil link {nil}
 (
     let link = "train says, "
 )
 
-func car ~nil link {engine car}
+!func car ~nil link {engine car}
 (
     let link = "${link} chugga"
 )
 
-func caboose ~str link {engine car}
+!func caboose ~str link {engine car}
 (
     let link = "${link} choo choo"
 )
@@ -279,7 +279,7 @@ The common `in` variable still represents the input for the function.
 
 ```comp
 
-func logged-trim extends trim args ~{log ~logger}
+!func logged-trim extends trim args ~{log ~logger}
 (
     args.log |info "Someone called trim with ${extend.args}"
     in | $extend.base ($extend.args)

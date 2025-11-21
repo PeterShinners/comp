@@ -51,23 +51,23 @@ The `import` keyword assigns a namespace and specifies the source:
 
 ```comp
 ; Standard library
-import store std "core/store"
-import math std "core/math"
+!import store std "core/store"
+!import math std "core/math"
 
 ; Local filesystem
-import utils comp "./lib/utils"
-import shared comp "/home/shared/libs"
+!import utils comp "./lib/utils"
+!import shared comp "/home/shared/libs"
 
 ; Git repositories
-import project comp "git@github.com:company/project.git"
-import versioned comp "git@github.com:org/lib.git#v2.0.1"
+!import project comp "git@github.com:company/project.git"
+!import versioned comp "git@github.com:org/lib.git#v2.0.1"
 
 ; Python modules
-import numpy python "numpy"
-import requests python "requests"
+!import numpy python "numpy"
+!import requests python "requests"
 
 ; OpenAPI specs
-import api openapi "https://api.example.com/swagger.json"
+!import api openapi "https://api.example.com/swagger.json"
 ```
 
 ### Import Sources
@@ -90,10 +90,10 @@ Use `??` for fallback sources:
 
 ```comp
 ; Try multiple sources
-import json main "json" ?? std "core/json" ?? comp "./minimal-json"
+!import json main "json" ?? std "core/json" ?? comp "./minimal-json"
 
 ; Platform-specific
-import graphics comp "./graphics-gpu" ?? comp "./graphics-cpu"
+!import graphics comp "./graphics-gpu" ?? comp "./graphics-cpu"
 ```
 
 By default, libraries check if main module imported a dependency before using
@@ -101,11 +101,11 @@ their own:
 
 ```comp
 ; In library - automatically checks main first
-import json std "core/json"
+!import json std "core/json"
 ; Behaves as: main "json" ?? std "core/json"
 
 ; In main module - becomes source for libraries
-import json comp "git@github.com:fast/json.git#v2.0"
+!import json comp "git@github.com:fast/json.git#v2.0"
 ```
 
 ## Contexts
@@ -122,12 +122,12 @@ point can be defined in the module that defines it in the context, but is
 typically overridden by the module that is being executed.
 
 ```comp
-context cli extends default {
+!context cli extends default {
     verbose = #true
     source = "connection.json"
 }
 
-context default {
+!context default {
     threads = 4
 }
 
@@ -145,7 +145,7 @@ dependencies have prepared. It then chooses one of them to use to invoke the
 program.
 
 ```comp
-entry func cli {
+!entry !func cli {
     print ("Hello, World!")
 }
 
@@ -161,7 +161,7 @@ files or definition scripts to define their package information and
 requirements. There is a shape to define this package schema.
 
 ```comp
-let mod.package = {
+!mod package = {
     name="image-processor"
     version="2.1.0"
     author="Joe Q Developer <joeq@example.dev>"
@@ -174,9 +174,9 @@ let mod.package = {
 Imports from schemas generate typed namespaces:
 
 ```comp
-import api openapi "./swagger.json"
-import db postgres "localhost/mydb?schema=public"
-import proto protobuf "./messages.proto"
+!import api openapi "./swagger.json"
+!import db postgres "localhost/mydb?schema=public"
+!import proto protobuf "./messages.proto"
 
 ; Use generated namespaces
 let user = api.users.get {id=123}
@@ -221,8 +221,8 @@ text | length/str        ; Function from str module
 data ~matrix/math        ; Shape from math module
 
 ; Create aliases
-alias sqrt = sqrt/math
-alias vec = vector-3d/math
+!alias sqrt = sqrt/math
+!alias vec = vector-3d/math
 
 ; Use short forms
 4 | sqrt
@@ -242,24 +242,24 @@ Mark definitions private with `&` suffix:
 
 ```comp
 ; Public API
-func public-api ~{data}
+!func public-api ~{data}
 (
     data | internal-worker&
 )
 
 ; Private helper
-func internal-worker& ~{data}
+!func internal-worker& ~{data}
 (
     data | step1 | step2 | step3
 )
 
-shape config& = {
+!shape config& = {
     internal-cache ~str
     validation-state ~any
 }
 
 ; After import
-import utils comp "./utils"
+!import utils comp "./utils"
 
 data | public-api/utils       ; Works
 data | internal-worker/utils  ; ERROR - private
@@ -292,7 +292,7 @@ Modules attach private metadata invisible to other modules:
 
 ```comp
 ; Cache module
-func with-cache ~{key ~str}
+!func with-cache ~{key ~str}
 (
     let result = {key value=(key | fetch)}
     
@@ -303,7 +303,7 @@ func with-cache ~{key ~str}
 )
 
 ; Session module
-func with-session ~{user-data}
+!func with-session ~{user-data}
 (
     let result = {..user-data}
     let result&.session-id = new-session

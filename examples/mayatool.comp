@@ -1,6 +1,6 @@
 -- Two different examples of working with Maya
 
-import maya comp "maya-comp-spectacular@1.0.3"
+!import maya comp "maya-comp-spectacular@1.0.3"
 
 
 ---
@@ -8,12 +8,12 @@ Maya tool to create offset transforms
 Based on https://github.com/TrevisanGMW/gt-tools
 ---
 
-tag #parent_type {#parent #selection}
+!tag #parent_type {#parent #selection}
 
-shape ~layer-types #joint/maya | #locator/maya | #group/maya
+!shape ~layer-types #joint/maya | #locator/maya | #group/maya
 
 
-shape ~layer-config 
+!shape ~layer-config 
 {
 	suffix ~str  -- Suffix for created nodes
 	parent_type #parent_type  -- #parent or #selection
@@ -21,7 +21,7 @@ shape ~layer-config
 }
 
 
-func create-inbetween ~{} args ~layer_config 
+!func create-inbetween ~{} args ~layer_config 
 (
 	<transaction maya_scene maya_selection>	
 
@@ -49,7 +49,7 @@ Create random bubble shapes
 https://github.com/nestrada2/bubbles/blob/main/scripts/bubbles.py
 ---
 
-shape ~bubble_args 
+!shape ~bubble_args 
 {
 	count ~num = 10
 	radius_range ~num[2] = [0.1 0.5]
@@ -57,7 +57,7 @@ shape ~bubble_args
 }
 
 
-func create_bubbles parent ~nil args ~bubble_args (
+!func create_bubbles parent ~nil args ~bubble_args (
 	<transaction maya_scene>	
 	
 	let group = parent | create_node {#group name="bubbles"} | select {#replace}

@@ -22,11 +22,11 @@ This said; the language is flexible and allows for whatever format feels most
 readable and editable for your current project.
 
 ```comp
-mod.primes = {1 3
+!mod primes = {1 3
  5      7}
 
-func tight ~nil {"oneline"}
-func       ~nil 
+!func tight ~nil {"oneline"}
+!func       ~nil 
  |spacey
 {
                 var.first = 

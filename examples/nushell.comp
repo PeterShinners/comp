@@ -3,11 +3,11 @@ Get top weekly thumbed issues from github
 https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
 ---
 
-import gh from "github-api"
-import time from "core/time"
+!import gh from "github-api"
+!import time from "core/time"
 
 
-func main (
+!func main (
 	let after = now() - 1#week
 
 	list_issues (repo="nushell/nushell" fields=[title url created_at reactions])

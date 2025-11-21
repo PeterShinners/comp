@@ -19,7 +19,7 @@ Shapes are defined with `shape` and referenced with `~` prefix. They specify
 field types and defaults:
 
 ```comp
-shape ~point = {
+!shape ~point = {
     x ~num = 0
     y ~num = 0
 }
@@ -38,13 +38,13 @@ shape ~point = {
 }
 
 ; Shape composition through spreading
-shape ~point-3d = {
+!shape ~point-3d = {
     ..~point
     z ~num = 0
 }
 
 ; Array constraints
-shape ~config = {
+!shape ~config = {
     servers ~server[1-]    ; At least one
     backups ~backup[0-3]   ; Up to three
     options ~str[]         ; Any number
@@ -61,16 +61,16 @@ position):
 
 ```comp
 ; Named fields
-shape ~user = {name ~str age ~num}
+!shape ~user = {name ~str age ~num}
 {name="Alice" age=30} ~user      ; Named match
 {"Alice" 30} ~user               ; Positional fills named
 
 ; Positional fields
-shape ~pair = {~num ~num}
+!shape ~pair = {~num ~num}
 {5 10} ~pair                     ; Matched by position
 
 ; Mixed
-shape ~labeled = {~str name ~str}
+!shape ~labeled = {~str name ~str}
 {"ID" name="Alice"} ~labeled     ; Positional then named
 ```
 
@@ -81,7 +81,7 @@ Morphing tries named matches first, then fills remaining fields by position.
 Optional fields use union types with `~nil` and defaults:
 
 ```comp
-shape ~user = {
+!shape ~user = {
     name ~str
     email ~str | ~nil = {}
     age ~num | ~nil = {}
@@ -99,7 +99,7 @@ The `?` suffix on field names indicates boolean predicates (convention, not
 syntax):
 
 ```comp
-shape ~session = {
+!shape ~session = {
     user ~str
     active? ~bool = #true
     verified? ~bool = #false
@@ -117,7 +117,7 @@ Morphing transforms data to match shapes through a multi-phase process:
 5. **Default application** - Missing fields get defaults
 
 ```comp
-shape ~connection = {
+!shape ~connection = {
     host ~str = "localhost"
     port ~num = 8080
     secure? ~bool = #false
@@ -131,7 +131,7 @@ shape ~connection = {
 ; Result: {host="prod.example.com" port=8080 secure?=#false}
 
 ; Function parameters auto-morph
-func connect ~{conn ~connection} 
+!func connect ~{conn ~connection} 
 (
     "Connecting to %{host}:%{port}" | log
 )
@@ -172,8 +172,8 @@ data ~success | ~error   ; Picks most specific match
 value ~num | ~str        ; Specificity determines winner
 
 ; Union composition
-shape ~result = ~success | ~error
-shape ~maybe = ~result | ~nil
+!shape ~result = ~success | ~error
+!shape ~maybe = ~result | ~nil
 ; Expands to: ~success | ~error | ~nil
 ```
 
@@ -195,11 +195,11 @@ positional_matches)`
 - **Positional matches** provide final tiebreaker
 
 ```comp
-tag #status = {#active #error}
-tag #error.status = {#network #timeout}
+!tag #status = {#active #error}
+!tag #error.status = {#network #timeout}
 
-shape ~generic = {state #status}
-shape ~specific = {state #network.error}
+!shape ~generic = {state #status}
+!shape ~specific = {state #network.error}
 
 {state=#network.error} ~generic | ~specific
 ; Result: ~specific wins (deeper tag hierarchy)
@@ -208,15 +208,15 @@ shape ~specific = {state #network.error}
 **Ambiguous matches cause errors:**
 
 ```comp
-shape ~user = {name ~str email ~str}
-shape ~group = {name ~str members ~user[]}
+!shape ~user = {name ~str email ~str}
+!shape ~group = {name ~str members ~user[]}
 
 {name="X"} ~user | ~group
 ; ERROR: Ambiguous - both match 50%
 
 ; Resolve with discriminator tag
-shape ~user = {type #user name ~str email ~str}
-shape ~group = {type #group name ~str members ~user[]}
+!shape ~user = {type #user name ~str email ~str}
+!shape ~group = {type #group name ~str members ~user[]}
 
 {type=#user name="X"} ~user | ~group  ; Unambiguous
 ```
@@ -226,7 +226,7 @@ shape ~group = {type #group name ~str members ~user[]}
 **Functions use loose morphing** - extra fields ignored:
 
 ```comp
-func process ~{x ~num y ~num} (x + y)
+!func process ~{x ~num y ~num} (x + y)
 process {x=1 y=2 z=3}  ; Works - z ignored
 ```
 
@@ -243,20 +243,20 @@ let test = :(value > 10)
 Constraints validate field values during morphing:
 
 ```comp
-shape ~valid-user = {
+!shape ~valid-user = {
     name ~str {min-length=3 max-length=50}
     email ~str {pattern="^[^@]+@[^@]+$"}
     age ~num {min=13 max=120}
 }
 
 ; Custom validation functions
-pure func valid-username ~{name ~str}
+!pure !func valid-username ~{name ~str}
 (
-    (name | length/str) >= 3 && 
+    (name | length/str) >= 3 &&
     (name | match/str "^[a-z][a-z0-9_]*$")
 )
 
-shape ~account = {
+!shape ~account = {
     username ~str {validate=valid-username}
     balance ~num {min=0}
 }
@@ -268,17 +268,17 @@ Blocks in shapes use `:` prefix with their expected input shape:
 
 ```comp
 ; Block types
-shape ~transformer = {op ~:{~any}}
-shape ~validator = {check ~:{name ~str age ~num}}
-shape ~generator = {produce ~:{}}
+!shape ~transformer = {op ~:{~any}}
+!shape ~validator = {check ~:{name ~str age ~num}}
+!shape ~generator = {produce ~:{}}
 
 ; Usage
-func process arg ~{transform ~:{~any}}
+!func process arg ~{transform ~:{~any}}
 (
     data | map arg.transform
 )
 
-func repeat arg ~{count ~num op ~:{value ~str}}
+!func repeat arg ~{count ~num op ~:{value ~str}}
 (
     count | times :(value |: arg.op)
 )
@@ -291,15 +291,15 @@ For iteration patterns and streams, see [Iteration and Streams](loop.md).
 Tag fields enable clean flag-style arguments:
 
 ```comp
-tag #sort-order = {#asc #desc}
-tag #stability = {#stable #unstable}
+!tag #sort-order = {#asc #desc}
+!tag #stability = {#stable #unstable}
 
-shape ~sort-args = {
+!shape ~sort-args = {
     order #sort-order = #asc
     stability #stability = #unstable
 }
 
-func sort arg ~sort-args (...)
+!func sort arg ~sort-args (...)
 
 ; Usage
 data | sort #desc #stable  ; Morphs to {order=#desc stability=#stable}
@@ -317,15 +317,15 @@ Spread shapes to apply their defaults:
 
 ```comp
 ; Shape spreading
-shape ~defaults = {one ~num=1 active ~bool=#true}
+!shape ~defaults = {one ~num=1 active ~bool=#true}
 
-shape ~data = {
+!shape ~data = {
     name ~str
     ..~defaults
 }
 
 ; Structure literals
-shape ~config = {
+!shape ~config = {
     port ~num = 8080
     host ~str = "localhost"
     timeout ~num = 30
@@ -343,7 +343,7 @@ Spreading copies defaults mechanically; morphing transforms semantically. See
 Units provide semantic typing through tags:
 
 ```comp
-import unit std "core/unit"
+!import unit std "core/unit"
 
 ; Units attach to values
 distance = 5#kilometer
@@ -369,7 +369,7 @@ See [Units](unit.md) for full details.
 String units validate and transform strings:
 
 ```comp
-tag #email ~str = {
+!tag #email ~str = {
     validate = match/str "^[^@]+@[^@]+$"
     normalize = lowercase/str
 }
@@ -391,12 +391,12 @@ See [Units](unit.md) for more on string units and security.
 Combine shapes with `|` for variant types:
 
 ```comp
-shape ~result = ~success | ~error
-shape ~success = {value ~any}
-shape ~error = {#fail message ~str}
+!shape ~result = ~success | ~error
+!shape ~success = {value ~any}
+!shape ~error = {#fail message ~str}
 
 ; Pattern matching
-func process ~{input}
+!func process ~{input}
 (
     input | match
         :(it ~?success) :(value | handle-success)
@@ -409,11 +409,11 @@ func process ~{input}
 Use `~?` for shape-based pattern matching:
 
 ```comp
-shape ~get = {method=#get path ~str}
-shape ~post = {method=#post path ~str body ~any}
-shape ~delete = {method=#delete path ~str}
+!shape ~get = {method=#get path ~str}
+!shape ~post = {method=#post path ~str body ~any}
+!shape ~delete = {method=#delete path ~str}
 
-func handle-request ~{request}
+!func handle-request ~{request}
 (
     request | match
         :(it ~?get) :(it ~get | fetch-resource)

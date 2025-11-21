@@ -21,7 +21,7 @@ and formatting basics working..
 ```comp
 ; Hello World example in Comp language
 
-main (
+!entry main (
 	[USERNAME USER LOGNAME]
 	| map :(in | getenv() ?? #skip)
 	| default("World")

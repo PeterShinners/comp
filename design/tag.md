@@ -45,7 +45,7 @@ tag depths and values. The styles can be intermixed.
 
 ```comp
 ; Traditional nested style
-tag #status {
+!tag #status {
     #active 1
     #inactive 0
     #pending           ; No value - used as marker only
@@ -57,28 +57,28 @@ tag #status {
 }
 
 ; Flat top-down style - useful for long paths
-tag #status unknown
-tag #status.error -1
-tag #status.error.timeout -100
-tag #status.error.network -200
-tag #status.error.parse
-tag #status.active 1
-tag #status.inactive 0
-tag #status.pending
+!tag #status unknown
+!tag #status.error -1
+!tag #status.error.timeout -100
+!tag #status.error.network -200
+!tag #status.error.parse
+!tag #status.active 1
+!tag #status.inactive 0
+!tag #status.pending
 
 ; Mixed style - combine approaches as appropriate
-tag #priority {
+!tag #priority {
     #low 1
     #medium 2
     #high 3
 }
-tag #priority.critical 99       ; Add to existing hierarchy
-tag #priority.debug 0           ; Another addition
+!tag #priority.critical 99       ; Add to existing hierarchy
+!tag #priority.debug 0           ; Another addition
 
 ; Multiple definitions with same root - last definition wins
-tag #color {#red 1 #green 2}
-tag #color {#blue 3}          ; Replaces color with just blue
-tag #color.yellow 4             ; Adds yellow to color
+!tag #color {#red 1 #green 2}
+!tag #color {#blue 3}          ; Replaces color with just blue
+!tag #color.yellow 4             ; Adds yellow to color
 ```
 
 All definition styles are equivalent and produce the same hierarchy. Choose the
@@ -92,8 +92,8 @@ operators) it must be wrapped in parenthesis. This is required by the grammar to
 disambiguate it from the optional list of child tags.
 
 ```comp
-tag #fancy (["cat" |repeat3]) {#child}
-tag #numbers ({one=1 two=2}) {#three #four}
+!tag #fancy (["cat" |repeat3]) {#child}
+!tag #numbers ({one=1 two=2}) {#three #four}
 ```
 
 ## Automatic Value Generation
@@ -109,16 +109,16 @@ generation patterns like sequential numbering, bit flags, or string derivation
 from names.
 
 ```comp
-import /tag std "core/tag"
+!import /tag std "core/tag"
 
 ; Use standard generators
-tag #color name/tag {
+!tag #color name/tag {
     #red         ; Value: "red"
     #green       ; Value: "green"
     #blue        ; Value: "blue"
 }
 
-tag #permission bitflag/tag {
+!tag #permission bitflag/tag {
     #read        ; Value: 1 (1 << 0)
     #write       ; Value: 2 (1 << 1)
     #execute     ; Value: 4 (1 << 2)
@@ -126,11 +126,11 @@ tag #permission bitflag/tag {
 }
 
 ; Custom generator function
-pure func enum-from-100 ~{ctx} = {
+!pure !func enum-from-100 ~{ctx} = {
     parent-value + (index + 1) * 100
 }
 
-tag #error enum-from-100 {
+!tag #error enum-from-100 {
     #network     ; Value: 100
     #database    ; Value: 200
     #validation  ; Value: 300
@@ -231,9 +231,9 @@ information about function dispatch and polymorphic patterns, see [Functions and
 Blocks](function.md).
 
 ```comp
-func handle ~{event} (generic-status-handler())
-func handle ~{event #error} (error-status-handler())
-func handle ~{event #network.error} (network-error-specialist())
+!func handle ~{event} (generic-status-handler())
+!func handle ~{event #error} (error-status-handler())
+!func handle ~{event #network.error} (network-error-specialist())
 
 ; Dispatch examples
 {event=#active} | handle()        ; "Generic status handler"
@@ -256,17 +256,17 @@ hierarchy. The syntax uses `tag #local-name extends #parent-tag/module =
 
 ```comp
 ; base.comp - defines core tags
-tag #media {
+!tag #media {
     #image {#jpeg #png #gif}
     #video {#mp4 #webm}
     #audio {#mp3 #ogg}
 }
 
 ; extended.comp - adds domain-specific tags using extends
-import base comp "./base.comp"
+!import base comp "./base.comp"
 
 ; Extend media with additional formats
-tag #media extends #media/base = {
+!tag #media extends #media/base = {
     #image {#svg #webp}        ; Add to existing image branch
     #document {#pdf #epub}     ; Add new top-level branch
 }
@@ -276,7 +276,7 @@ let icon = #svg.image.media
 (icon | process-media/base())      ; Base functions handle extended tags
 
 ; Real-world example: Extending builtin fail tags
-tag #fail extends #fail/builtin {
+!tag #fail extends #fail/builtin {
     #interface      ; Connection errors
     #database       ; Database file errors
     #data           ; Data type conversion errors
@@ -295,10 +295,10 @@ immediate children:
 
 ```comp
 ; Simple extension without immediate children
-tag #status extends #status/other
+!tag #status extends #status/other
 
 ; Later in the same module, add children
-tag #status.custom-state 42
+!tag #status.custom-state 42
 ```
 
 For detailed information about module organization and cross-module
@@ -311,7 +311,7 @@ hierarchies. These functions enable iteration, introspection, and manipulation
 of tag structures at runtime.
 
 ```comp
-import tag std "core/tag"
+!import tag std "core/tag"
 
 ; Iterate over hierarchy
 #status | children/tag ()         ; Returns {#active #inactive #pending #error}
@@ -348,11 +348,11 @@ alias #error #error.status
 alias #critical #critical.priority
 
 ; Union types for flexible matching
-shape ~result #active | #inactive | #pending
-shape ~problem #error.status | #critical.priority
+!shape ~result #active | #inactive | #pending
+!shape ~problem #error.status | #critical.priority
 
 ; Usage in shapes
-shape ~task-status {
+!shape ~task-status {
     state #result         ; Must be active, inactive, or pending
     issues #problem[]     ; Array of errors or critical priorities
 }
@@ -367,7 +367,7 @@ within families while preventing nonsensical operations. More details are in the
 
 ```comp
 ; Units are tags with conversion values
-tag #length {
+!tag #length {
     #meter 1.0
     #kilometer 0.001
     #foot 3.28084

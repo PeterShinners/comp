@@ -6,14 +6,14 @@ and working with immutable data structures.
 ---
 
 
-shape ~cart 
+!shape ~cart 
 {
     items ~{} = {}  -- Map of name -> {price qty}
     discount ~num = 0  -- Zero being full price, one being free
 }
 
 
-shape ~item 
+!shape ~item 
 {
 	name ~str
 	price ~num
@@ -21,7 +21,7 @@ shape ~item
 }
 
 
-entry func main (
+!entry func main (
 	let cart = {
 		{name="Apple" price=1.00 quantity=2}
 		{name="Banana" price=0.50 quantity=3}
@@ -40,21 +40,21 @@ entry func main (
 
 
 -- Generate cart with newly applied discount rate
-pure func set_discount cart ~cart args ~{amount ~num}
+!pure func set_discount cart ~cart args ~{amount ~num}
 (
 	cart .. {discount = args.amount}
 )
 
 
 -- Calculate total price of shopping cart with discounts
-pure func total cart ~cart
+!pure func total cart ~cart
 (
 	cart.items | sum :(it.price * it.quantity) * (1 - cart.discount)
 )
 
 
 -- General 'modify or append' based on a matching condition block
-pure func upsert container ~struct args ~{item ~item compare ~block}
+!pure func upsert container ~struct args ~{item ~item compare ~block}
 (
 	let added = #false
 	let items = container.map existing:(

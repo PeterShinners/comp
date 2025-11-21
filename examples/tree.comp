@@ -2,17 +2,17 @@
 Binary search tree example for build, search, and iterate
 ---
 
-shape ~tree 
+!shape ~tree 
 {
 	value ~num
 	left ~branch
 	right ~branch
 }
 
-shape ~branch ~tree | ~nil
+!shape ~branch ~tree | ~nil
 
 
-func main (
+!entry func main (
 	; Build tree from values
 	let tree = {5 3 8 1 7 9}
 	| reduce {#nil} :(tree_insert {it.accum it.val})
@@ -27,12 +27,12 @@ func main (
 
 
 -- Insert value into binary search tree
-pure func tree_insert ~nil value ~num
+!pure func tree_insert ~nil value ~num
 (
 	{value=value left=nil right=nil}
 )
 
-pure func tree_insert tree ~branch value ~num
+!pure func tree_insert tree ~branch value ~num
 (
 	tree .. if (value < tree.value) 
 		:({left = tree_insert(tree.left, value)}) 
@@ -42,12 +42,12 @@ pure func tree_insert tree ~branch value ~num
 
 
 -- Check if value exists in tree
-pure func tree_contains ~nil value ~num
+!pure func tree_contains ~nil value ~num
 (
 	#false
 )
 
-pure func tree_contains tree ~branch value ~num
+!pure func tree_contains tree ~branch value ~num
 (
 	if (value < tree.value)
 		:(tree_contains{tree.left, value})
@@ -59,11 +59,11 @@ pure func tree_contains tree ~branch value ~num
 
 
 -- Sorted list of all values in tree
-pure func tree_values ~nil
+!pure func tree_values ~nil
 {
 }
 
-pure func tree_values tree ~branch
+!pure func tree_values tree ~branch
 (
 	{tree_values(tree.left) tree.value tree_values(tree.right)} 
 	| flatten {}

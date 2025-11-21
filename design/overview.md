@@ -24,19 +24,19 @@ those from Python.
 
 ```comp
 -- There are many hello worlds, and this one is mine
-mod.package = {name="hello" version="1.0.0"}
+!mod package = {name="hello" version="1.0.0"}
 
 ; Line comments use semicolons, there are no separators.
 
-entry func main 
+!entry !func main
 (
-    gps_detect_planet {} 
+    gps_detect_planet {}
     | capitalize {}
     | print {"Greetings, ${}"}
 )
 
 
-func gps_detect_planet ~nil ("earth")
+!func gps_detect_planet ~nil ("earth")
 
 ```
 
@@ -98,7 +98,7 @@ forms.
 
 ```comp
 
-shape ~user = 
+!shape ~user =
 {
     name ~str
     email ~str|~nil = {}
@@ -107,7 +107,7 @@ shape ~user =
     purchases ~num = 0
 }
 
-func welcome_new_users ~{users ~user[]} 
+!func welcome_new_users ~{users ~user[]} 
 (
     let recent = now() - 1#week
     users 
@@ -133,7 +133,7 @@ Tags play a dual role in the language, acting as both values and shapes. The
 language uses them to disambiguate and dispatch data structures.
 
 ```comp
-!tag #status 
+!tag #status
 {
     #active = 1
     #inactive = 0  
@@ -174,11 +174,11 @@ translating, caching, and packaging the external dependency.
 
 ```comp
 ; Use data from everywhere seamlessly
-import str std "core/str"
-import pygame python "pygame"
-import api openapi "http://api.example.org/v1"
-import time std "core/time"
-import mars github+release "offworld/martiancalendar@1.0.4"
+!import str std "core/str"
+!import pygame python "pygame"
+!import api openapi "http://api.example.org/v1"
+!import time std "core/time"
+!import mars github+release "offworld/martiancalendar@1.0.4"
 
 ; Access through simple namespaces
 let token = "username" | fetch-auth-token {} | base64/str {}
@@ -203,7 +203,7 @@ scopes can be overwritten with assignments. Assignments without `let` are
 exported as fields inside of a structure's literal curly braces.
 
 ```comp
-func process-request in ~{request} arg ~{timeout ~num} 
+!func process-request in ~{request} arg ~{timeout ~num} 
 (
     let start = now/time {}  ; Function-local variable
     let user = in.user  ; Another local variable

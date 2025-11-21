@@ -332,7 +332,7 @@ pipeline operator `|%` lets you apply templates in data flows naturally.
 String manipulation uses library functions rather than operators:
 
 ```comp
-import str std "core/str"
+!import str std "core/str"
 
 ; Common operations
 text | length ()           ; Character count

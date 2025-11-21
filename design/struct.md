@@ -163,7 +163,7 @@ Remove fields by creating new structures without them:
 cleaned = {..original !delete temp !delete old}
 
 ; Shape morphing for filtering
-shape ~public-user = {name ~str email ~str}
+!shape ~public-user = {name ~str email ~str}
 user = {name="Alice" email="alice@example.com" password="secret"}
 public = user ~public-user  ; Password removed
 ```
@@ -189,7 +189,7 @@ Standard library functions from `struct/` module enable field inspection,
 filtering, and transformation:
 
 ```comp
-import struct std "core/struct"
+!import struct std "core/struct"
 
 data | field-names/struct      ; ["name" "age" "status"]
 data | has-field/struct "email" ; #true or #false
@@ -202,7 +202,7 @@ data | map-fields/struct |upper/str
 The morph operator `~` transforms structures to match shapes:
 
 ```comp
-shape ~point = {x ~num y ~num}
+!shape ~point = {x ~num y ~num}
 data ~ ~point  ; Validates and transforms data to match shape
 ```
 

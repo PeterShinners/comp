@@ -3,13 +3,13 @@ Cloudflare Worker for vector search
 Based on https://developers.cloudflare.com/vectorize/get-started/embeddings/
 ---
 
-import url stdlib "core/urllib"
-import cf comp "github://cloudflare/workers-comp@2.7/complib"
+!import url stdlib "core/urllib"
+!import cf comp "github://cloudflare/workers-comp@2.7/complib"
 
 
-mod.model = "@cf/baai/bge-base-en-v1.5"
+!mod model = "@cf/baai/bge-base-en-v1.5"
 
-context server 
+!context server 
 {
 	; These values must be computed, can't be part of static module
 	vectorize = "VECTORIZE" -> binding/cf
@@ -18,7 +18,7 @@ context server
 
 
 -- Map request urls to handlers and respond to errors
-entry func cfmain (
+!entry func cfmain (
 	arg.request.url
 	| parse/url {}
 	| dispatch_handlers/url {}
@@ -34,7 +34,7 @@ entry func cfmain (
 
 
 -- Initialize vector with initial hardcoded data source (only needed once)
-func insert_vectors req ~request 
+!func insert_vectors req ~request 
 (
 	{
 		"This is a story about an orange cloud"
@@ -51,7 +51,7 @@ func insert_vectors req ~request
 
 
 -- Find closest match to query string
-func query_vectors req ~request  (
+!func query_vectors req ~request  (
 	req.param.q
 	| if_empty ("orange cloud")
 	| ai-run {}

@@ -13,27 +13,28 @@ my thoughts based on initial port
 		- don't want this to feel like class constructors - eeek
 ---
 
-import rio comp "@gh/rio-dev/rio-comp"
+!import rio comp "@gh/rio-dev/rio-comp"
 
 
-shape ~todo 
+!shape ~todo 
 {
 	title ~string
 	complete ~bool = false
 	id ~id  -- auto unique value on construction (not a number or string)
 }
 
-shape ~state 
+
+!shape ~state 
 {
 	todos ~todo[] = []
 	input ~str = ""
 	filter #visibility = #all
 }
 
-tag #visibility tag_value_name {#all | #active | #complete}
+!tag #visibility tag_value_name {#all | #active | #complete}
 
 
-context rio 
+!context rio 
 {
 	title = "Todo" 
 	state = ~state ()
@@ -42,7 +43,7 @@ context rio
 
 
 -- Build app window component declaratively
-func todo_app state ~state {
+!func todo_app state ~state {
 	#column spacing=2 {
 		; Input field  
 		#row {
@@ -78,7 +79,7 @@ func todo_app state ~state {
 
 
 -- Build individual todo item component declaratively
-pure func todo_item ~nil args ~{state ~state todo ~todo} {
+!pure func todo_item ~nil args ~{state ~state todo ~todo} {
 	#row align="center" {
 		#checkbox 
 		checked = todo.complete 
@@ -97,14 +98,14 @@ pure func todo_item ~nil args ~{state ~state todo ~todo} {
 
 
 -- Create new todo from current applications state
-pure func add_todo state ~state (
+!pure func add_todo state ~state (
 	let title = state.input | trim {} | if_empty ("<no name>")
 	state .. {todos = state.todos | extend {title ~todo}}
 )
 
 
 -- Toggle todo complete status
-pure func toggle_todo state ~state args ~{id ~id} (
+!pure func toggle_todo state ~state args ~{id ~id} (
 	let todos = state.todos | map :(
 		it .. {
 			complete = pick (it.id == args.id !!it.complete it.complete)
@@ -116,13 +117,13 @@ pure func toggle_todo state ~state args ~{id ~id} (
 
 
 -- Remove item from applicate state
-pure func delete_todo state ~state args ~{id ~id} (
+!pure func delete_todo state ~state args ~{id ~id} (
 	state .. {todos = state.todos | filter :(it.id == args.id)}
 )
 
 
 -- Determine if an item should be visible based on filter
-pure func todo_visible todo ~todo args ~{filter #filter} (
+!pure func todo_visible todo ~todo args ~{filter #filter} (
 	switch {args.filter {
 		'#all' = #true
 		'#active' = !!it.complete

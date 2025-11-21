@@ -13,7 +13,7 @@ This example demonstrates:
 ---
 
 ; Core team members with their timezone information
-mod.core_team = {
+!mod core_team = {
     {name="andres" tz="America/Guayaquil"}
     {name="fdncred" tz="US/Central"}
     {name="gedge" tz="US/Eastern"}
@@ -32,7 +32,7 @@ Shows three things:
 2. A header with the meeting time
 3. What time the meeting is for each person in their local timezone
 ---
-main (
+!entry func main (
     let event = "2021-08-31 15:00:21.290597200 -05:00"
     let people = mod.core_team | with_local_time {event | parse-datetime {}}
 
@@ -51,7 +51,7 @@ Returns a new structure with original fields plus:
 - name: Capitalized version of the original name
 - time: Formatted local time for the event
 ---
-pure func with_local_time people ~struct arg ~datetime (
+!pure func with_local_time people ~struct arg ~datetime (
     people |map :(
         it .. {
             name = in.name | capitalize {}
