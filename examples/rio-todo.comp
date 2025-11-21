@@ -5,9 +5,9 @@ Based on migration from Rio library for Python
 
 my thoughts based on initial port
 - the spread operator is nasty in callbacks
-  `on_click = :({(..)=state filter=it})`
+  `on-click = :({(..)=state filter=it})`
 - callbacks usually just a block that wraps a func with args that feels syntaxy
-  `on_clock = :(delete_todo (state todo.id))`
+  `on-clock = :(delete-todo (state todo.id))`
 - new 'id' type has automatic default computed value
   - this seems like a language feature emerging
 		- don't want this to feel like class constructors - eeek
@@ -31,39 +31,39 @@ my thoughts based on initial port
 	filter #visibility = #all
 }
 
-!tag #visibility tag_value_name {#all | #active | #complete}
+!tag #visibility tag-value-name {#all | #active | #complete}
 
 
 !context rio 
 {
 	title = "Todo" 
 	state = ~state ()
-	component = todo_app
+	component = todo-app
 }
 
 
 -- Build app window component declaratively
-!func todo_app state ~state {
+!func todo-app state ~state {
 	#column spacing=2 {
 		; Input field  
 		#row {
-			#text_input 
+			#text-input 
 			text = state.input 
 			placeholder = "What needs doing?"
 			flex = 1
-			on_change = :(it .. {input=value})
-			on_submit = add_todo
+			on-change = :(it .. {input=value})
+			on-submit = add-todo
 			
 			#button 
 			text = "Add" 
 			disabled = (state.input | trim {} == "")
-			on_click = add_todo
+			on-click = add-todo
 		}
 		
 		; Todo list
 		(..) = state.todos
-		| filter :(todo_visible (state.filter))
-		| map :(todo_item (state it))
+		| filter :(todo-visible (state.filter))
+		| map :(todo-item (state it))
 		
 		; Filter buttons
 		#row
@@ -71,7 +71,7 @@ my thoughts based on initial port
 				#button
 				text = it.filter ~str
 				variant = pick {it == state.filter "primary" "outline"}
-				on_click = :(state .. {filter=it})
+				on-click = :(state .. {filter=it})
 			}
 			| flatten {}
 	}
@@ -79,33 +79,33 @@ my thoughts based on initial port
 
 
 -- Build individual todo item component declaratively
-!pure func todo_item ~nil args ~{state ~state todo ~todo} {
+!pure func todo-item ~nil args ~{state ~state todo ~todo} {
 	#row align="center" {
 		#checkbox 
 		checked = todo.complete 
-		on_change = :(toggle_todo {state todo.id})
+		on-change = :(toggle-todo {state todo.id})
 		
 		#text 
 		text = todo.title 
 		flex = 1
 		style = pick {todo.complete "strikethrough" nil}
 		
-		#icon_button 
+		#icon-button 
 		icon = "delete" 
-		on_click = :(delete_todo {state todo.id})
+		on-click = :(delete-todo {state todo.id})
 	}
 }
 
 
 -- Create new todo from current applications state
-!pure func add_todo state ~state (
-	let title = state.input | trim {} | if_empty ("<no name>")
+!pure func add-todo state ~state (
+	let title = state.input | trim {} | if-empty ("<no name>")
 	state .. {todos = state.todos | extend {title ~todo}}
 )
 
 
 -- Toggle todo complete status
-!pure func toggle_todo state ~state args ~{id ~id} (
+!pure func toggle-todo state ~state args ~{id ~id} (
 	let todos = state.todos | map :(
 		it .. {
 			complete = pick (it.id == args.id !!it.complete it.complete)
@@ -117,13 +117,13 @@ my thoughts based on initial port
 
 
 -- Remove item from applicate state
-!pure func delete_todo state ~state args ~{id ~id} (
+!pure func delete-todo state ~state args ~{id ~id} (
 	state .. {todos = state.todos | filter :(it.id == args.id)}
 )
 
 
 -- Determine if an item should be visible based on filter
-!pure func todo_visible todo ~todo args ~{filter #filter} (
+!pure func todo-visible todo ~todo args ~{filter #filter} (
 	switch {args.filter {
 		'#all' = #true
 		'#active' = !!it.complete

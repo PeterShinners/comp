@@ -21,10 +21,10 @@ Based on https://developers.cloudflare.com/vectorize/get-started/embeddings/
 !entry func cfmain (
 	arg.request.url
 	| parse/url {}
-	| dispatch_handlers/url {}
-	| handle {#post "/insert" insert_vectors}
+	| dispatch-handlers/url {}
+	| handle {#post "/insert" insert-vectors}
 	| handle {#get "/favicon*" #not-found}
-	| handle {#get "/query/{q ~str}" query_vectors}
+	| handle {#get "/query/{q ~str}" query-vectors}
 	|? {
 		status = it.status ?? #server-error
 		body: "Request processing failed: ${it.message}"
@@ -34,7 +34,7 @@ Based on https://developers.cloudflare.com/vectorize/get-started/embeddings/
 
 
 -- Initialize vector with initial hardcoded data source (only needed once)
-!func insert_vectors req ~request 
+!func insert-vectors req ~request 
 (
 	{
 		"This is a story about an orange cloud"
@@ -51,9 +51,9 @@ Based on https://developers.cloudflare.com/vectorize/get-started/embeddings/
 
 
 -- Find closest match to query string
-!func query_vectors req ~request  (
+!func query-vectors req ~request  (
 	req.param.q
-	| if_empty ("orange cloud")
+	| if-empty ("orange cloud")
 	| ai-run {}
 	| vectorize-query (topK:1)
 

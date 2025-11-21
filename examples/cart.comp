@@ -33,14 +33,14 @@ and working with immutable data structures.
 	)
 
 	cart
-	| set_discount {amount=0.2}
+	| set-discount {amount=0.2}
 	| total {}
-	| print {"Shopping cart: %{it | format_currency ()}"}
+	| print {"Shopping cart: %{it | format-currency ()}"}
 )
 
 
 -- Generate cart with newly applied discount rate
-!pure func set_discount cart ~cart args ~{amount ~num}
+!pure func set-discount cart ~cart args ~{amount ~num}
 (
 	cart .. {discount = args.amount}
 )

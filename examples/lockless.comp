@@ -39,7 +39,7 @@ Uses atomic swaps to retry while contested
 -- Add a new string to the stack
 !func atomic-push stack ~stack arg ~str 
 (
-    stack | retry_exchange :{
+    stack | retry-exchange :{
         head = {arg stack.head} ~node
         atom = stack.atom
     }
@@ -49,7 +49,7 @@ Uses atomic swaps to retry while contested
 -- Remove item from stack or #fail if empty
 !func pop ~nil arg ~{stack ~stack}
 (
-    stack | retry_exchange :{
+    stack | retry-exchange :{
         head = stack.head.next
         atom = stack.atom
     }

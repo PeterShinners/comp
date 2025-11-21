@@ -10,12 +10,12 @@ https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
 !func main (
 	let after = now() - 1#week
 
-	list_issues (repo="nushell/nushell" fields=[title url created_at reactions])
-	| filter :(it.created_at >= after)
+	list-issues (repo="nushell/nushell" fields=[title url created-at reactions])
+	| filter :(it.created-at >= after)
 	| map :{
 		(title url) = it
-		thumbs_up = it.reactions | count :(it.content == #thumbs_up)
+		thumbs-up = it.reactions | count :(it.content == #thumbs-up)
 	}
-	| sort {#reverse} :(it.thumbs_up)
+	| sort {#reverse} :(it.thumbs-up)
 	| head {5}
 )
