@@ -1,7 +1,5 @@
----
 TODO app using Rio UI library
 Based on migration from Rio library for Python
-
 
 my thoughts based on initial port
 - the spread operator is nasty in callbacks
@@ -11,42 +9,42 @@ my thoughts based on initial port
 - new 'id' type has automatic default computed value
   - this seems like a language feature emerging
 		- don't want this to feel like class constructors - eeek
----
+___
 
-!import rio comp "@gh/rio-dev/rio-comp"
-
-
-!shape ~todo 
-{
-	title ~string
-	complete ~bool = false
-	id ~id  -- auto unique value on construction (not a number or string)
-}
+import.rio = {"@gh/rio-dev/rio-comp" comp}
 
 
-!shape ~state 
-{
-	todos ~todo[] = []
-	input ~str = ""
-	filter #visibility = #all
-}
-
-!tag #visibility tag-value-name {#all | #active | #complete}
-
-
-!context rio 
-{
-	title = "Todo" 
-	state = ~state ()
+context.rio = {
+	title = "Todo"
+	state = state {}
 	component = todo-app
 }
 
 
--- Build app window component declaratively
-!func todo-app state ~state {
-	#column spacing=2 {
-		; Input field  
-		#row {
+todo = ~{
+	title ~string
+	complete ~bool = false
+	id ~id  # auto unique value on construction (not a number or string)
+}
+
+
+state = ~{
+	todos ~todo[] = []
+	input ~text = ""
+	filter ~visibility = all
+}
+
+visibility.all = tag {}
+visibility.active = tag {}
+visibility.complete = tag {}
+
+
+todo-app = :state~state{
+	Build app window component declaratively
+	___
+	column spacing=2 {
+		# Input field  
+		row {
 			#text-input 
 			text = state.input 
 			placeholder = "What needs doing?"
@@ -60,73 +58,78 @@ my thoughts based on initial port
 			on-click = add-todo
 		}
 		
-		; Todo list
+		# Todo list
 		(..) = state.todos
 		| filter :(todo-visible (state.filter))
 		| map :(todo-item (state it))
 		
-		; Filter buttons
-		#row
-			{#all #active #complete} | map :{
-				#button
-				text = it.filter ~str
-				variant = pick {it == state.filter "primary" "outline"}
-				on-click = :(state .. {filter=it})
-			}
-			| flatten {}
+		# Filter buttons
+		row {all active complete} | map :{
+			button
+			text = it.filter ~text
+			variant = pick {it == state.filter "primary" "outline"}
+			on-click = :(state .. {filter=it})
+		} | flatten {}
 	}
 }
 
 
--- Build individual todo item component declaratively
-!pure func todo-item ~nil args ~{state ~state todo ~todo} {
-	#row align="center" {
-		#checkbox 
+todo-item = :args~{state~state todo~todo}{
+	Build individual todo item component declaratively
+	___
+	row align=center {
+		checkbox 
 		checked = todo.complete 
 		on-change = :(toggle-todo {state todo.id})
 		
-		#text 
+		text 
 		text = todo.title 
 		flex = 1
 		style = pick {todo.complete "strikethrough" nil}
 		
-		#icon-button 
+		icon-button 
 		icon = "delete" 
 		on-click = :(delete-todo {state todo.id})
 	}
 }
 
 
--- Create new todo from current applications state
-!pure func add-todo state ~state (
-	let title = state.input | trim {} | if-empty ("<no name>")
-	state .. {todos = state.todos | extend {title ~todo}}
+add-todo = :state~state(
+	Create new todo from current applications state
+	___
+	var.title = state.input | trim {} | if-empty ("<no name>")
+	merge {state 
+		todos = state.todos | extend {var.title ~todo}
+	}
 )
 
 
--- Toggle todo complete status
-!pure func toggle-todo state ~state args ~{id ~id} (
-	let todos = state.todos | map :(
-		it .. {
+toggle-todo = :state~state id~id(
+	Toggle todo complete status
+	___
+	var.todos = state.todos | map :(
+		merge {it 
 			complete = pick (it.id == args.id !!it.complete it.complete)
 		}
 	)
 
-	state .. {todos = todos}
+	merge {state todos=var.todos}
 )
 
 
--- Remove item from applicate state
-!pure func delete-todo state ~state args ~{id ~id} (
-	state .. {todos = state.todos | filter :(it.id == args.id)}
+delete-todo = :state~state id~id(
+	Remove item from applicate state
+	___
+	state | merge {todos = state.todos | filter :it(it.id == args.id)}
 )
 
 
--- Determine if an item should be visible based on filter
-!pure func todo-visible todo ~todo args ~{filter #filter} (
-	switch {args.filter {
-		'#all' = #true
-		'#active' = !!it.complete
-		'#complete' = it.complete
-	}}
+todo-visible = :todo~todo filter~filter(
+	Determine if an item should be visible based on filter
+	___
+	filter | case {
+		'all' = true
+		'active' = !!todo.complete
+		'complete' = todo.complete
+	}
 )

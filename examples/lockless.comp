@@ -1,54 +1,51 @@
----
 Lock free parallel stack
 
 Uses atomic swaps to retry while contested
----
+___
 
-!import atomic comp "@systems/atomic@1.0.1/lib"
+import.atomic = {"@systems/atomic@1.0.1/lib" comp}
 
-!shape ~node 
-{
-	data ~str
-	next ~node | ~nil
+
+node = ~{
+	data ~text
+	next ~{node | nil}
 }
 
-!shape ~stack 
-{
-	head ~node | ~nil = {}
-	atom ^version/atomic
+stack = ~{
+	head ~{node | nil}
+	atom ~atomic.version
 }
 
 
-!entry main
-{
-	; Push some items
-	let stack = {}
+main = :(
+	# Push some items
+	var.stack = {}
 	| atomic-push {"first"}
 	| atomic-push {"second"}
 	| atomic-push {"third"}
 	
-	; Pop them back
+	# Pop them back
 	forever :(
-		let stack = stack | pop {}
-		| print ("Popped: ${head.data}")
+		var.stack = atomic-pop {var.stack}
+		| print {"Popped: ${head.data}"}
 		|? #field.fail #break  ; Stop gracefully when empty
 	)
-}
+)
 
 
--- Add a new string to the stack
-!func atomic-push stack ~stack arg ~str 
-(
+atomic-push :stack~stack arg~text(
+	Add a new string to the stack
+	___
     stack | retry-exchange :{
-        head = {arg stack.head} ~node
+        head = node {arg stack.head}
         atom = stack.atom
     }
 )
 
 
--- Remove item from stack or #fail if empty
-!func pop ~nil arg ~{stack ~stack}
-(
+atompic-pop = :stack~stack(
+	Remove item from stack or #fail if empty
+	___
     stack | retry-exchange :{
         head = stack.head.next
         atom = stack.atom

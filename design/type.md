@@ -5,7 +5,7 @@ blocks. These numbers, strings, and booleans are not structures themselves. They
 have no fields, but they do have their own extensible type system and are
 strictly typed themselves.
 
-- Numbers offer unlimited precision, avoiding integer overflow and precision
+- Numbers offer huge precision, avoiding integer overflow and precision
   loss. 
 - Strings handle text with integrated templating. 
 - Booleans represent concrete logical values that do not become or act like
@@ -38,8 +38,6 @@ frustrations:
   rounding gotchas
 - **Total ordering**: Comparisons always succeed with deterministic results—no
   more "cannot compare X and Y" errors
-- **Semantic units**: Units provide meaning and safety for primitive values (see
-  [Units](unit.md))
 
 These principles create a type system that is both simple and powerful, avoiding
 the complexity and pitfalls of elaborate type hierarchies or automatic
@@ -444,6 +442,7 @@ bool = false | to-bool/str ()          ; Returns #false (special case)
 Value: %{} % {42}                     ; Number to string
 Count: %{} % {#true}                  ; Boolean to string
 ```
+
 ## Units
 
 Units are specially defined tags that can be attached to number and string

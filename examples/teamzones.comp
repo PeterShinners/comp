@@ -1,19 +1,13 @@
----
 Team Timezone Display
 
 Original nushell script:
 https://github.com/nushell/nu-scripts/blob/main/sourced/examples/date-in-local-timezones.nu
 
-This example demonstrates:
-- Working with structured data (list of records)
-- Timezone conversion and formatting
-- Templates as first-class data values
-- Structure spreading with {..$in field=value}
-- Module-level data with $mod
----
+___
 
-; Core team members with their timezone information
-!mod core-team = {
+core-team = {
+    Core team members with their timezone information
+    ___
     {name="andres" tz="America/Guayaquil"}
     {name="fdncred" tz="US/Central"}
     {name="gedge" tz="US/Eastern"}
@@ -24,38 +18,35 @@ This example demonstrates:
 }
 
 
----
-Main entry point - displays team timezones for an upcoming meeting.
+main = :(
+    Main entry point - displays team timezones for an upcoming meeting.
 
-Shows three things:
-1. Each person's timezone
-2. A header with the meeting time
-3. What time the meeting is for each person in their local timezone
----
-!entry func main (
-    let event = "2021-08-31 15:00:21.290597200 -05:00"
-    let people = mod.core-team | with-local-time {event | parse-datetime {}}
+    Shows three things:
+    1. Each person's timezone
+    2. A header with the meeting time
+    3. What time the meeting is for each person in their local timezone
+    ___
+    var.event = "2021-08-31 15:00:21.290597200 -05:00"
+    var.people = mod.core-team | with-local-time {var.event | parse-datetime {}}
 
-    print("for the next event on ${event}.. ")
-    people | each :(it | print ("%{name}'s: %{time} (timezone ${tz})"))
+    print("for the next event on ${var.event}.. ")
+    var.people | each :it(it | print ("%{name}'s: %{time} (timezone ${tz})"))
 )
 
 
----
-Enriches a list of people with local time for a given event.
+with-local-time = :people event~datetime pure( 
+    Enriches a list of people with local time for a given event.
 
-Takes each person's timezone and calculates what time the event
-occurs in their local timezone. Also capitalizes names.
+    Takes each person's timezone and calculates what time the event
+    occurs in their local timezone as `time`. Also capitalizes `name`.
 
-Returns a new structure with original fields plus:
-- name: Capitalized version of the original name
-- time: Formatted local time for the event
----
-!pure func with-local-time people ~struct arg ~datetime (
-    people |map :(
-        it .. {
-            name = in.name | capitalize {}
-            time = arg | to-timezone {it.tz} | format/time {"%c"}
+    Returns a new structure with original fields with `name` capitalied
+    and a new `time` converted to local time for the person.
+    ___
+    people | map :person(
+        person .. {
+            name = person.name | capitalize {}
+            time = arg | to-timezone {person.tz} | format/time {"%c"}
         }
 	)
 )

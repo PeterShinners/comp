@@ -1,74 +1,64 @@
--- Two different examples of working with Maya
+Two examples of working with Maya
+___
 
-!import maya comp "maya-comp-spectacular@1.0.3"
+import.maya = {"maya-comp-spectacular@1.0.3" comp}
 
-
----
-Maya tool to create offset transforms
-Based on https://github.com/TrevisanGMW/gt-tools
----
-
-!tag #parent-type {#parent #selection}
-
-!shape ~layer-types #joint/maya | #locator/maya | #group/maya
-
-
-!shape ~layer-config 
-{
-	suffix ~str  -- Suffix for created nodes
-	parent-type #parent-type  -- #parent or #selection
-	layer-type ~layer-types  -- #joint #locator or #group
+layer-config = ~{
+    suffix ~text
+    parent-type ~{parent | selection}
+    layer-type ~{joint | locator | group}
+    outliner-color ~{~num ~num ~num} = {orange___ 1.0 0.5 0.0}
 }
 
 
-!func create-inbetween ~{} args ~layer-config 
-(
-	<transaction maya-scene maya-selection>	
+create-inbetween = :arg~layer-config(
+	Maya tool to create offset transforms
+	Based on https://github.com/TrevisanGMW/gt-tools
+	___
+    !transact maya.scene maya.preserve-selection
 
-	selection {}
-	| map obj:(
-		let parent = obj | get-parent {}
+    maya.selection {}
+    | map :obj(
+        var.parent = obj | maya.get-parent {}
 
-		let transform = parent
-		| create-node {arg.layer-type name="${obj.name}${arg.suffix}"}
-		| set-attr {"useOutlinerColor" #true}
-		| set-attr {"outlinerColor" arg.outliner-color ?? (1.0 0.5 0.0)}  ; Orange default
-		| parent {parent}
+        var.transform = var.parent
+        | maya.create-node {arg.layer-type name=format {"${obj.name}${arg.suffix}"}}
+        | maya.set-attr {useOutlinerColor true}
+        | maya.set-attr {outlinerColor arg.outliner-color}
+        | maya.parent {var.parent}
 
-		; Parent constrain to correct target
-		let target = pick {config.parent-type == #parent parent obj}
-		if (target.exists) :(constrain {target, transform})
+        var.target = if (arg.parent-type == parent) :(var.parent) | else :(obj)
+        if (var.target | maya.exists {}) :(
+            var.target | maya.constrain {var.transform}
+        )
 
-		obj | parent {transform}
-	)
+        obj | maya.parent {var.transform}
+    )
 )
 
 
----
-Create random bubble shapes
-https://github.com/nestrada2/bubbles/blob/main/scripts/bubbles.py
----
-
-!shape ~bubble-args 
-{
-	count ~num = 10
-	radius-range ~num[2] = [0.1 0.5]
-	position-range ~num[2] = [0.1 5]
+bubble-args = ~{
+    count ~num = 10
+    radius-range ~{~num ~num} = {0.1 0.5}
+    position-range ~{~num ~num} = {0.1 5.0}
 }
 
+create-bubbles = :parent arg~bubble-args(
+	Create random bubble shapes
+	Based on https://github.com/nestrada2/bubbles
+	___
+    !transact ~maya.scene
 
-!func create-bubbles parent ~nil args ~bubble-args (
-	<transaction maya-scene>	
-	
-	let group = parent | create-node {#group name="bubbles"} | select {#replace}
-	<transaction <maya-selection>
+    var.group = parent 
+    | maya.create-node {group name="bubbles"} 
+    | maya.select {replace}
 
-	range (args.count) | map :(
-		radius = random {args.radius-range}
-		let position = repeat {3} :{random {args.position-range}}
+    !transact ~maya.preserve-selection
 
-		sphere = group 
-		| poly-sphere {"bubble-${it}" radius}
-		| xform {position=position}
-	)
+    range {arg.count} | map :i(
+        var.position = repeat {3} :(random {arg.position-range})
+        var.group
+        | maya.poly-sphere {name=format {"bubble-${i}"} radius=random {arg.radius-range}}
+        | maya.xform {position=var.position}
+    )
 )

@@ -1,59 +1,80 @@
 # Comp Language
 
-Comp is a functional, interpreted programming language designed to improve the
-lives and enjoyment of programmers. Combine the flexibility of dynamic scripting
-with the safety of static types, making it ideal for data processing, API
-integration, and anywhere structured data flows reliably between systems.
+Comp is a high level interpeted language. It's goal is to allow cleaner,
+expressive, and more readable code that similar languages. The design and syntax
+steer developers towards ideal solutions instead of away from them.
 
-The language is hosted and integrated with the Python runtime. Anything 
-running Python will be immediately improved by mixing in a bit of Comp.
+This requires some opinionated departures from traditional high level languages.
+Data is immutable and stored in structures that operate both positionally and by
+field names. Namespaces are declarative, keeping many development problems as
+built errors. The result looks like a functional style language, where there are
+no classes and operations are pipelined. But be assured that there are clean
+solutions for code that wants to work like classes in an imperative style.
 
-## Development Status
+The language tries to be minimal, while still presenting high level
+functionality. Flow control and iteration are implemented as regular functions.
+Implement your own or enhance the existing calls and they are interchangeable
+with any part of the language.
 
-The languge is in volatile design mode. Nothing is nailed down and everything
-slides. The language design is fairly well established and documented in the 
-`design/`. A variety of simple and approachable examples can be found in
-`examples/`. Minimal VS Code extensions exist to get syntax highlighting
-and formatting basics working..
+Comp is design to run alongside a Python interpreter. Anywhere Python goes, Comp
+should be a viable alternative, ideally even preferred.
 
-## Introduction
+Start with the [Overview Document](design/overview.md) for a summary of features
+and highlights.
+
+## Example
 
 ```comp
-; Hello World example in Comp language
+Hello World example in Comp language.
+Try to personalize the greeting with a series of fallback environment
+variable lookups.
+___
 
-!entry main (
-	[USERNAME USER LOGNAME]
-	| map :(in | getenv() ?? #skip)
-	| default("World")
-	| print("Hello, ${}!")
+main = :(
+  {"USERNAME" "USER" "LOGNAME"}
+  | map :in(getenv(in) ?? skip)
+  | first(else="World")
+  | print("Hello, ${}!")
 )
 ```
 
-This Hello World attempts to be extra personal by looking for a login name
-from a series of environment variables.
-
-**Testimonials**
-
-> This might be one of the most information-dense yet readable
-> "hello world" examples in any language!
->
-> — Claude Sonnet 4 _(on an admittedly enthusiastic moment)_
-
 ## Quick Start
 
-Install and run Comp programs with `uv` (recommended)
+Install and run Comp programs with `uv` (recommended). With a checkout of this
+repository;
 
 ```bash
 uv pip install -e .
 uv run comp examples/hello.comp
 ```
 
-## Highlights
+The barrier to entry is as minimal as possible. An entire project with metadata,
+dependencies, code, and documentation all comes from a single `.comp` file. Of
+course, that can eventually be structured into a helpful hierarchy of files,
+modules, and dependencies as desired.
 
-Start with the [Overview Document](design/overview.md) for the best summary
-of features and highlights like:
+## Where Comp Shines
+Comp is designed for:
 
-- **Super Structures** - One immutable type of data for all your data.
-- **Typed Schemas** - Data is validated and reshaped based on explicit schemas.
-- **Pipelined** - When everything is in a pipeline, everything fits together.
-- **Flowchart functions** - Flow control is simple functions you can create yourself.
+- **Tool scripts** Maya, Blender, Houdini automation
+- **Data pipelines** ETL, transformation, analysis
+- **API integration** Clean composition of web services
+- **Configuration** Type-safe, validated config files
+- **Prototyping** Quick iteration with strong guarantees
+
+## Development Status
+
+The languge is in volatile design mode. Things are moving fast, and breaking.
+The syntax is on its fourth reworking with more on the way. Nothing is nailed
+down and everything slides. Many of the concepts show signs of solidifying and
+are tracked in the [Design Documents](design/). The primary sandbox for
+development comes from the directory of [Examples](/examples/), which are always
+kept up to date with the syntax.
+
+The [Source](src/) is written in Python (yes, an interepreted language inside an
+interpreted language) but currently mostly empty after restarting with the
+recent design updates.
+
+The minimal [Vscode Extension](vscode/) does an basic job of highlighting.
+
+The project is open source under the [MIT license](LICENSE).

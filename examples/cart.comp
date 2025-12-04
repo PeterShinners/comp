@@ -1,66 +1,52 @@
----
-Shopping cart example demonstrating clean functional syntax
+Shopping cart module.
 
-Nothing exciting here, but demonstration of shapes, functions,
-and working with immutable data structures.
----
+Simple demonstration with shapes and function.
+Also working with immutable data structures.
+___
 
+cart = ~{
+    items ~item[] = {}
+    discount ~num = 0
+}
 
-!shape ~cart 
-{
-    items ~{} = {}  -- Map of name -> {price qty}
-    discount ~num = 0  -- Zero being full price, one being free
+item = ~{
+    name ~text
+    price ~num
+    quantity ~num = 1
 }
 
 
-!shape ~item 
-{
-	name ~str
-	price ~num
-	quantity ~num = 1
+main = :{
+    {
+        {"Apple" price=1.00 quantity=2}
+        {"Banana" price=0.50 quantity=2}
+        {"Apple" price=1.00 quantity=2}  # Will replace the first item
+    }
+    | reduce {initial=cart {} add-item} # Add each item to an initial cart
+    | set-discount {amount=0.2}
+    | total {} 
+    | print {"Shopping cart: ${in}"}
 }
 
 
-!entry func main (
-	let cart = {
-		{name="Apple" price=1.00 quantity=2}
-		{name="Banana" price=0.50 quantity=3}
-		{name="Apple" price=1.00 quantity=1}  ; Replaces previous Apple
-	}
-	| reduce {~cart {}} :(
-		it.accum 
-		| upsert (it) check:(check.name == it.name)
-	)
+total = :cart~cart pure{
+    Calculate total price with discounts applied.
+    ___
+    cart.items | sum :item{item.price * item.quantity} * (1 - cart.discount)
+}
 
-	cart
-	| set-discount {amount=0.2}
-	| total {}
-	| print {"Shopping cart: %{it | format-currency ()}"}
+
+set-discount = :cart~cart amount~num pure(
+    Apply a discount rate to the cart.
+    ___
+    merge {cart discount=amount}
 )
 
 
--- Generate cart with newly applied discount rate
-!pure func set-discount cart ~cart args ~{amount ~num}
-(
-	cart .. {discount = args.amount}
-)
-
-
--- Calculate total price of shopping cart with discounts
-!pure func total cart ~cart
-(
-	cart.items | sum :(it.price * it.quantity) * (1 - cart.discount)
-)
-
-
--- General 'modify or append' based on a matching condition block
-!pure func upsert container ~struct args ~{item ~item compare ~block}
-(
-	let added = #false
-	let items = container.map existing:(
-		if :(args.compare(it)) :(let added = #true it)
-		| else (existing)
-	)
-	if (!!added) :(items | append {args.item})
-	|else (items)
+add-item = :cart~cart item~item pure(
+    Add or update an item. Replaces if name matches.
+    ___
+    merge {cart 
+        items = cart.items | upsert {new :i(i.name == new.name)}
+    }
 )

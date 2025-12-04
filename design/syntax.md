@@ -22,15 +22,11 @@ This said; the language is flexible and allows for whatever format feels most
 readable and editable for your current project.
 
 ```comp
-!mod primes = {1 3
- 5      7}
-
-!func tight ~nil {"oneline"}
-!func       ~nil 
- |spacey
-{
-                var.first = 
-    1 var.second =2
+tight=:{"oneline"}  # No spacing
+spacey       = :arg ~num  # Wild spacing
+     { prose and docs___
+            var.first = 
+    1 var.second =arg
 }
 ```
 
@@ -40,8 +36,8 @@ Tokens are used for naming variables, functions, tags, and nearly everything in
 the language. Tokens have the following rules:
 
 - Use kebab-case with hyphens as word separators
-  - **No leading or trailing hyphens allowed**
-- **No leading digits** (digits allowed after first character)
+  - No leading or trailing hyphens allowed
+- No leading digits (digits allowed after first character)
 - Leading underscores are allowed
 - Final character may be a question mark `?`
 - Characters are case sensitive
@@ -66,27 +62,19 @@ The style of using lowercase words with hyphen separators is referred to as
 **kebab-case**.
 
 Allowed tokens (although not always preferred)
+
 - `html5`
 - `Content-Accept`
 - `_parity_bit?`
 - `用户名`
 
-Several builtin types are prefixed with special characters. These are needed
-when referencing these values from the module namespace, although they can be
-assigned to local and context variables used without the decorators.
-
-- `~` shape definitions and references
-- `#` tag definitions and references
-- `^` handle definitions and references
-
-
 ## Identifier Fields
 
-Most identifiers will use a chain of dotted field names, like `"one.two.three"`.
+Most identifiers will use a chain of dotted field names, like `one.two.three`.
 
-There are three ways to reference field names that do not follow token naming
-rules. Any expression and value type can be used as a field name. This is done
-by wrapping the name in single quotes. This allows any type of value, like
+There are additional ways to reference field names that do not follow token
+naming rules. Any expression and value type can be used as a field name. This is
+done by wrapping the name in single quotes. This allows any type of value, like
 numbers, booleans, tags and anything else. Like `'2+4'` or `'#status.ok'`.
 
 Fields can also be referenced positionally. This is done using the `#` with a
@@ -107,7 +95,7 @@ records.#0."Owners".'var.owner-name'.active?
 
 Structs are usually created from code surrounded by curly braces `{}`. These can
 contain any mix of positional fields and named fields, which are separated by
-any whitespace.
+any whitespace. All values have a positional order, even the named fields.
 
 The language provides two alternative sets of braces for creating structs. These
 result in regular structs, but the syntax used to define them is somewhat
@@ -118,10 +106,10 @@ changed.
 - `()` statement struct takes whatever the final expression is and uses that as
   the struct value.
 
-```
+```comp
 {1 2 z=3}
-[one two 3]  ; {"one" "two" 3}
-(color="red" 5)  ; 5
+[one two 3]  # {"one" "two" 3}
+(color="red" 5)  # 5
 ```
 
 These types of containers can be used interchangeably in many parts of the
@@ -135,106 +123,95 @@ language
 More details about how scopes and created and referenced is in the
 [Struct](struct.md) documentation.
 
-
 ## Comments and Documentation
 
-Comp uses `;` semicolons to create line comments. Everything following the `;`
-until the end of the line is ignored by the parser. There is no support for
-block style comments.
+Comp uses `#` hashes to create line comments. Everything following the `#` until
+the end of the line is ignored by the parser. There is no support for block
+comments.
 
 The language does not do any interpretation of the comment contents. Everything
 from the begin of the comment to the end of the line is strictly ignored.
 
-Comp can define documentation. This gets attached to objects and and can be
-referenced by developer tools to describe those objects and how they are used.
+Each struct and the module itself can define optional textual documentation for
+that object. This is separated from the regular struct body with a `___` symbol.
 
-There are two styles of documentation. 
+This can be done inline for compact definition, but is often placed on its own
+line. The documentation text is used as-is, even line comments it may contain
+are treated as regular text, making it ideal for code examples and more.
 
-- Line documentation uses a `--` symbol and uses everything until the end of the
-  current line as documentation.
-  - If the `--` is the first (and only) statement on the current line then the
-    documentation is attached to whatever object follows this line.
-  - Otherwise the `--` line document is attached to whatever object or field
-    precedes the documentation.
-- Block documentation uses a `---` symbol as the only statement on a line to
-  begin and end a block of documentation.
-  - The block documentation is positionally attached to the module. This can be
-    used for grouping functions into described sections.
-
+The text will be unindented to match whatever indentation is used for the second
+line.
 
 ```comp
-
----
 The save functions will error if the given resources are not found
 or do not have proper permissions.
 
 ### Markdown
 
-It's likely that block documentation will be interpreted as markdown
+It's possible that block documentation will be interpreted as markdown
 in many contexts. What does this mean? Only time can tell.
----
+___
 
--- "Process different types of data appropriately"
-func save ~{data} {
-    ; Function implementation
+save = ~{data} {
+    Process different types of data appropriately
+    ___
+    # Function implementation
 }
+
+color = {red ___ 1 0 0}
+
 ```
 
 ## Operator Reference
 
 **Mathematical operators:**
+
 - `+`, `-`, `*`, `/` - Arithmetic operations  
 - `==`, `!=` - Equality comparison
 - `<`, `<=`, `>`, `>=` - Ordered comparison
 
-**Logical operators (symmetric double-character design):**
-- `&&` - Logical AND (short-circuiting)
-- `||` - Logical OR (short-circuiting)  
+**Logical operators:**
+
+- `&&`, '||' - Logical AND and OR (short-circuiting)
 - `!!` - Logical NOT (boolean negation)
-- Note: All logical operators use double characters for consistency and clarity
+
+All logical operators use double characters for consistency and clarity
 
 **Pipeline and function operators:**
-- `|` - Pipeline attachment
-- `|?` - Fallback atttachment
+
+- `|` - Pipeline function chaining
+- `|?` - Pipeline fallback operator
 
 **Assignment operators:**
+
 - `=` - Normal assignment
 - `=*` - Strong assignment (resists overwriting)  
 - `=?` - Weak assignment (only if undefined)
 
 **Special operators:**
+
 - `??` - Provide fallback value
-- `~` - Shape morphing
-- `..` - Struct update
-- `???` - Placeholder for unimplemented code
-- `:` - Create block for deferred execution
+- `~` - Shape definition
+- `:` - Block or function definition
 
 Comp's use of kebab case conflicts with use of the mathematic subtraction
 operator between two tokens. For these cases an alternative syntax must be
 chosen.
+
 - `a - b` use spaces around the operator
 - `a+-b` an add of the mathematic is the same as subtraction
 - `(a)-(b)` one or both tokens must be wrapped in parenthesis
 
+## Scope Reference
 
-### Struct morph and update
+List of all named scopes, where they are defined, where they are accessible,
+how they work, and when they can be modified.
 
-Two important operators are used to modify structs. Remember that values are
-immutable, these create new structs based on the originals.
-
-- The `~` morph operator takes a struct and a shape and alters the data in the
-struct to match the given shape. 
-- The `..` update operator takes two structs and applies data in the second
-struct the first.
-
-```comp
-loaded-data ~account-shape
-{} ~shape-with-all-defaults
-
-default-setting .. loaded-settings
-server .. {port=8080 host="0.0.0.0"}
-```
-
-The [Struct](struct.md) documentation has details on defining shapes and
-applying updates and morphs to them.
-
+- mod
+- my
+- pkg
+- import
+- context
+- (pipeline input) gets arbitrary name per function
+- (function args) gets arbitrary name per function
+- var

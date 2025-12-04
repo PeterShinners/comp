@@ -1,41 +1,39 @@
----
 Cloudflare Worker for vector search
 Based on https://developers.cloudflare.com/vectorize/get-started/embeddings/
----
+___
 
-!import url stdlib "core/urllib"
-!import cf comp "github://cloudflare/workers-comp@2.7/complib"
+import.url = {"core/urllib" stdlib}
+import.cf = {"github://cloudflare/workers-comp@2.7/complib" comp}
+
+mod.model = "@cf/baai/bge-base-en-v1.5"
 
 
-!mod model = "@cf/baai/bge-base-en-v1.5"
-
-!context server 
-{
-	; These values must be computed, can't be part of static module
-	vectorize = "VECTORIZE" -> binding/cf
-	ai = "AI" -> binding/cf
+context.server = :{
+	# These values must be computed; can't be part of static module
+	vectorize = cf.binding/cf {"VECTORIZE"}
+	ai =  cf.binding/cf {"AI"}
 }
 
 
--- Map request urls to handlers and respond to errors
-!entry func cfmain (
-	arg.request.url
-	| parse/url {}
-	| dispatch-handlers/url {}
-	| handle {#post "/insert" insert-vectors}
-	| handle {#get "/favicon*" #not-found}
-	| handle {#get "/query/{q ~str}" query-vectors}
+cfmain = :req~request(
+	Map request urls to handlers and respond to errors
+	___
+	req.url
+	| url.dispatch-handlers {}
+	| url.handle {url.post "/insert" insert-vectors}
+	| url.handle {url.get "/favicon*" url.not-found}
+	| url.handle {url.get "/query/{q ~text}" query-vectors}
 	|? {
 		status = it.status ?? #server-error
-		body: "Request processing failed: ${it.message}"
+		body: "Request processing failed: ${in.message}"
 	}
 	| response-json {}
 )
 
 
--- Initialize vector with initial hardcoded data source (only needed once)
-!func insert-vectors req ~request 
-(
+insert-vectors = :req~request(
+	Initialize vector with initial hardcoded data source (only needed once)
+	___
 	{
 		"This is a story about an orange cloud"
 		"This is a story about a llama"
@@ -50,14 +48,15 @@ Based on https://developers.cloudflare.com/vectorize/get-started/embeddings/
 )
 
 
--- Find closest match to query string
-!func query-vectors req ~request  (
+query-vectors = :req~request(
+	Find closest match to query string
+	___
 	req.param.q
-	| if-empty ("orange cloud")
+	| if-empty {"orange cloud"}
 	| ai-run {}
-	| vectorize-query (topK:1)
+	| vectorize-query {top-k=1}
 
-	; Expect vector ID 1 to be your top match with a score of ~0.89693683
-	; This tutorial uses a cosine distance metric, where the closer to one,
-	; the more similar.
+	# Expect vector ID 1 to be your top match with a score of ~0.89693683
+	# This tutorial uses a cosine distance metric, where the closer to one,
+	# the more similar.
 )

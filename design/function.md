@@ -1,27 +1,36 @@
-# Functions
+# Functions and Blocks
 
-Functions transform structures through pipelines. Every function receives input
-via pipeline and returns a new structure, with arguments controlling behavior
-separately from data flow.
+Blocks and functions are both deferred structure literals. They are
+evaluated with optional input and argument data that match defined shapes.
+Functions are assigned names are part of the module's namespace.
+
+Invoking a function or block is visually represented by annotating a
+structure literal as arguments for a callable.
 
 To call a function, it must be referenced from the namespace and apply a set of
 arguments, even if that set of arguments is empty. Data can be passed as an
 input to the function by preceding the function with a pipe `|` operator, which
 is a way of chaining function results to a series of operations.
 
-## Function Definition
+## Definition
 
-Functions are defined with `func` and become part of the module namespace:
+Blocks and definitions are defined by prefixing a structure literal with a `:`.
+A simple block is just any value prefixed with the colon. 
 
 ```comp
-!func calculate-area ~{width ~num height ~num}
+simple = :{4 + 4}  # A hardcoded result
+get-version = :{mod.version}   # Fetch constant value from module
+
+
+```comp
+calculate-area = ~{width ~num height ~num}
 (
     area = width * height
     perimeter = (width + height) * 2
     diagonal = (width ** 2 + height ** 2) ** 0.5
 )
 
-!func get-timestamp arg ~{format ~str}
+get-timestamp arg ~{format ~str}
 (
     let current = now/time
     let formatted = current | format/time arg.format
@@ -305,7 +314,6 @@ let first-five-block = :(trim {#head size=5})
 let start = "Alphabets" | first-five-block {} ;  "Alpha"
 ```
 
-
 ### Function Arguments
 
 Blocks are often used in function arguments to define logic and behavior. The
@@ -317,7 +325,7 @@ arguments.
 This is commonly used for conditionals and iteration functions that allow a body
 of operations to be passed as an argument.
 
-```
+```comp
 let path = arg.path
 if (path == nil) :(
     let path = "placeholder.txt"
