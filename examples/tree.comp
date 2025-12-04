@@ -35,9 +35,9 @@ Binary search tree example for build, search, and iterate
 !pure func tree-insert tree ~branch value ~num
 (
 	tree .. if (value < tree.value) 
-		:({left = tree-insert(tree.left, value)}) 
+		:{left = tree-insert(tree.left, value)}
 	|else 
-		:({right = tree-insert(tree.right, value)})
+		:{right = tree-insert(tree.right, value)}
 )
 
 
@@ -50,9 +50,9 @@ Binary search tree example for build, search, and iterate
 !pure func tree-contains tree ~branch value ~num
 (
 	if (value < tree.value)
-		:(tree-contains{tree.left, value})
+		:(tree-contains {tree.left, value})
 	|elif (value > tree.value)
-		:(tree-contains{tree.right, value})
+		:(tree-contains {tree.right, value})
 	|else
 		(#true)
 )

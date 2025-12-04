@@ -13,7 +13,7 @@ https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
 	list-issues (repo="nushell/nushell" fields=[title url created-at reactions])
 	| filter :(it.created-at >= after)
 	| map :{
-		(title url) = it
+		[title url] = it
 		thumbs-up = it.reactions | count :(it.content == #thumbs-up)
 	}
 	| sort {#reverse} :(it.thumbs-up)

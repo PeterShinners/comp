@@ -15,7 +15,7 @@ Based on https://github.com/TrevisanGMW/gt-tools
 
 !shape ~layer-config 
 {
-	suffix ~str  -- Suffix for created nodes
+	suffix ~text  -- Suffix for created nodes
 	parent-type #parent-type  -- #parent or #selection
 	layer-type ~layer-types  -- #joint #locator or #group
 }
@@ -23,7 +23,7 @@ Based on https://github.com/TrevisanGMW/gt-tools
 
 !func create-inbetween ~{} args ~layer-config 
 (
-	<transaction maya-scene maya-selection>	
+	!transact maya-scene maya-selection
 
 	selection {}
 	| map obj:(
@@ -52,19 +52,19 @@ https://github.com/nestrada2/bubbles/blob/main/scripts/bubbles.py
 !shape ~bubble-args 
 {
 	count ~num = 10
-	radius-range ~num[2] = [0.1 0.5]
-	position-range ~num[2] = [0.1 5]
+	radius-range ~num[2] = {0.1 0.5}
+	position-range ~num[2] = {0.1 5}
 }
 
 
 !func create-bubbles parent ~nil args ~bubble-args (
-	<transaction maya-scene>	
+	!transact maya-scene
 	
 	let group = parent | create-node {#group name="bubbles"} | select {#replace}
-	<transaction <maya-selection>
+	!transact <maya-selection
 
 	range (args.count) | map :(
-		radius = random {args.radius-range}
+		let radius = random {args.radius-range}
 		let position = repeat {3} :{random {args.position-range}}
 
 		sphere = group 

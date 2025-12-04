@@ -12,8 +12,8 @@ Based on https://developers.cloudflare.com/vectorize/get-started/embeddings/
 !context server 
 {
 	; These values must be computed, can't be part of static module
-	vectorize = "VECTORIZE" -> binding/cf
-	ai = "AI" -> binding/cf
+	vectorize = binding/cf {VECTORIZE}
+	ai = binding/cf {AI}
 }
 
 
@@ -24,7 +24,7 @@ Based on https://developers.cloudflare.com/vectorize/get-started/embeddings/
 	| dispatch-handlers/url {}
 	| handle {#post "/insert" insert-vectors}
 	| handle {#get "/favicon*" #not-found}
-	| handle {#get "/query/{q ~str}" query-vectors}
+	| handle {#get "/query/{q ~text}" query-vectors}
 	|? {
 		status = it.status ?? #server-error
 		body: "Request processing failed: ${it.message}"
@@ -53,9 +53,9 @@ Based on https://developers.cloudflare.com/vectorize/get-started/embeddings/
 -- Find closest match to query string
 !func query-vectors req ~request  (
 	req.param.q
-	| if-empty ("orange cloud")
+	| if-empty {"orange cloud"}
 	| ai-run {}
-	| vectorize-query (topK:1)
+	| vectorize-query {topK=1}
 
 	; Expect vector ID 1 to be your top match with a score of ~0.89693683
 	; This tutorial uses a cosine distance metric, where the closer to one,

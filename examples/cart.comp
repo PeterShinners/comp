@@ -8,14 +8,14 @@ and working with immutable data structures.
 
 !shape ~cart 
 {
-    items ~{} = {}  -- Map of name -> {price qty}
+    items ~struct = {}  -- Map of name -> {price qty}
     discount ~num = 0  -- Zero being full price, one being free
 }
 
 
 !shape ~item 
 {
-	name ~str
+	name ~text
 	price ~num
 	quantity ~num = 1
 }
@@ -28,8 +28,7 @@ and working with immutable data structures.
 		{name="Apple" price=1.00 quantity=1}  ; Replaces previous Apple
 	}
 	| reduce {~cart {}} :(
-		it.accum 
-		| upsert (it) check:(check.name == it.name)
+		it.accum | upsert (it) check:(check.name == it.name)
 	)
 
 	cart

@@ -27,7 +27,7 @@ my thoughts based on initial port
 !shape ~state 
 {
 	todos ~todo[] = []
-	input ~str = ""
+	input ~text = ""
 	filter #visibility = #all
 }
 
@@ -69,7 +69,7 @@ my thoughts based on initial port
 		#row
 			{#all #active #complete} | map :{
 				#button
-				text = it.filter ~str
+				text = it.filter ~text
 				variant = pick {it == state.filter "primary" "outline"}
 				on-click = :(state .. {filter=it})
 			}

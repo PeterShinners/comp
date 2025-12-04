@@ -8,7 +8,7 @@ Uses atomic swaps to retry while contested
 
 !shape ~node 
 {
-	data ~str
+	data ~text
 	next ~node | ~nil
 }
 
@@ -37,7 +37,7 @@ Uses atomic swaps to retry while contested
 
 
 -- Add a new string to the stack
-!func atomic-push stack ~stack arg ~str 
+!func atomic-push stack ~stack arg ~text 
 (
     stack | retry-exchange :{
         head = {arg stack.head} ~node
