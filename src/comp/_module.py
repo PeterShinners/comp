@@ -5,7 +5,7 @@ import os
 import comp
 
 
-__all__ = ["Module"]
+__all__ = ["Module", "SystemModule"]
 
 
 class Module:
@@ -152,7 +152,7 @@ class Import:
     def __init__(self, namespace, compiler):
         self.namespace = namespace
         self.compiler = compiler
-        self.provider = None  # populated by import process
+        self.loader = None  # populated by import process
         self.module = None  # populated by import process
 
 
@@ -164,18 +164,19 @@ class SystemModule(Module):
         super().__init__("system")
         self.token = "system#0000"
 
-        # Builtin tags
-        self.bool = comp.tag_bool
-        self.true = comp.tag_true
-        self.false = comp.tag_false
-        self.fail = comp.tag_fail
+        self.local_tags.extend((
+            comp.tag_bool,
+            comp.tag_true,
+            comp.tag_false,
+        ))
 
-        # Builtin shapes
-        self.num = comp.shape_num
-        self.text = comp.shape_text
-        self.struct = comp.shape_struct
-        self.any = comp.shape_any
-        self.func = comp.shape_func
+        self.local_shapes.extend((
+            comp.shape_num,
+            comp.shape_text,
+            comp.shape_struct,
+            comp.shape_any,
+            comp.shape_func,
+        ))
 
     @classmethod
     def get(cls):
@@ -184,6 +185,7 @@ class SystemModule(Module):
         global _system_module
         if SystemModule._singleton is None:
             SystemModule._singleton = cls()
+            SystemModule._singleton.finalize()
         return SystemModule._singleton
 
 
