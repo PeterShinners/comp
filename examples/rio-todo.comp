@@ -22,54 +22,54 @@ context.rio = {
 
 
 todo = ~{
-	title ~string
-	complete ~bool = false
-	id ~id  # auto unique value on construction (not a number or string)
+	title~string
+	complete~bool = false
+	id~id  # auto unique value on construction (not a number or string)
 }
 
 
 state = ~{
-	todos ~todo[] = []
-	input ~text = ""
-	filter ~visibility = all
+	todos~todo[] = []
+	input~text = ""
+	filter~visibility = all
 }
 
-visibility.all = tag {}
-visibility.active = tag {}
-visibility.complete = tag {}
+visibility.all = tag{}
+visibility.active = tag{}
+visibility.complete = tag{}
 
 
 todo-app = :state~state{
 	Build app window component declaratively
 	___
-	column spacing=2 {
+	column spacing=2{
 		# Input field  
-		row {
+		row{
 			#text-input 
 			text = state.input 
 			placeholder = "What needs doing?"
 			flex = 1
-			on-change = :(it .. {input=value})
+			on-change = :(it |merge {input=value})
 			on-submit = add-todo
 			
 			#button 
 			text = "Add" 
-			disabled = (state.input | trim {} == "")
+			disabled = (state.input |trim{} == "")
 			on-click = add-todo
 		}
 		
 		# Todo list
 		(..) = state.todos
-		| filter :(todo-visible (state.filter))
-		| map :(todo-item (state it))
+		|filter:(todo-visible(state.filter))
+		|map:(todo-item (state it))
 		
 		# Filter buttons
-		row {all active complete} | map :{
+		row{all active complete} |map:it{
 			button
 			text = it.filter ~text
-			variant = pick {it == state.filter "primary" "outline"}
+			variant = pick{it == state.filter "primary" "outline"}
 			on-click = :(state .. {filter=it})
-		} | flatten {}
+		} |flatten{}
 	}
 }
 
@@ -77,19 +77,19 @@ todo-app = :state~state{
 todo-item = :args~{state~state todo~todo}{
 	Build individual todo item component declaratively
 	___
-	row align=center {
+	row align=center{
 		checkbox 
 		checked = todo.complete 
-		on-change = :(toggle-todo {state todo.id})
+		on-change = :(toggle-todo{state todo.id})
 		
 		text 
 		text = todo.title 
 		flex = 1
-		style = pick {todo.complete "strikethrough" nil}
+		style = pick{todo.complete "strikethrough" nil}
 		
 		icon-button 
 		icon = "delete" 
-		on-click = :(delete-todo {state todo.id})
+		on-click = :(delete-todo{state todo.id})
 	}
 }
 
@@ -97,9 +97,9 @@ todo-item = :args~{state~state todo~todo}{
 add-todo = :state~state(
 	Create new todo from current applications state
 	___
-	var.title = state.input | trim {} | if-empty ("<no name>")
-	merge {state 
-		todos = state.todos | extend {var.title ~todo}
+	var.title = state.input |trim{} |if-empty("<no name>")
+	merge{state 
+		todos = state.todos |extend{var.title ~todo}
 	}
 )
 
@@ -107,27 +107,27 @@ add-todo = :state~state(
 toggle-todo = :state~state id~id(
 	Toggle todo complete status
 	___
-	var.todos = state.todos | map :(
-		merge {it 
+	var.todos = state.todos |map :(
+		merge{it 
 			complete = pick (it.id == args.id !!it.complete it.complete)
 		}
 	)
 
-	merge {state todos=var.todos}
+	merge{state todos=var.todos}
 )
 
 
 delete-todo = :state~state id~id(
 	Remove item from applicate state
 	___
-	state | merge {todos = state.todos | filter :it(it.id == args.id)}
+	state |merge{todos = state.todos |filter :it(it.id == args.id)}
 )
 
 
 todo-visible = :todo~todo filter~filter(
 	Determine if an item should be visible based on filter
 	___
-	filter | case {
+	filter |case{
 		'all' = true
 		'active' = !!todo.complete
 		'complete' = todo.complete

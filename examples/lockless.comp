@@ -7,28 +7,28 @@ import.atomic = {"@systems/atomic@1.0.1/lib" comp}
 
 
 node = ~{
-	data ~text
-	next ~{node | nil}
+	data~text
+	next~{node |nil}
 }
 
 stack = ~{
-	head ~{node | nil}
-	atom ~atomic.version
+	head~{node |nil}
+	atom~atomic.version
 }
 
 
 main = :(
 	# Push some items
 	var.stack = {}
-	| atomic-push {"first"}
-	| atomic-push {"second"}
-	| atomic-push {"third"}
+	|atomic-push{"first"}
+	|atomic-push{"second"}
+	|atomic-push{"third"}
 	
 	# Pop them back
 	forever :(
-		var.stack = atomic-pop {var.stack}
-		| print {"Popped: ${head.data}"}
-		|? #field.fail #break  ; Stop gracefully when empty
+		var.stack = atomic-pop{var.stack}
+		|print{"Popped: ${head.data}"}
+		|? field.fail break  # Stop gracefully when empty
 	)
 )
 
@@ -36,17 +36,17 @@ main = :(
 atomic-push :stack~stack arg~text(
 	Add a new string to the stack
 	___
-    stack | retry-exchange :{
-        head = node {arg stack.head}
+    stack |retry-exchange:{
+        head = node{arg stack.head}
         atom = stack.atom
     }
 )
 
 
 atompic-pop = :stack~stack(
-	Remove item from stack or #fail if empty
+	Remove item from stack or `fail` if empty
 	___
-    stack | retry-exchange :{
+    stack |retry-exchange:{
         head = stack.head.next
         atom = stack.atom
     }

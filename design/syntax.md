@@ -177,10 +177,11 @@ color = {red ___ 1 0 0}
 
 All logical operators use double characters for consistency and clarity
 
-**Pipeline and function operators:**
+**Pipeline and flow control:**
 
 - `|` - Pipeline function chaining
 - `|?` - Pipeline fallback operator
+- `??` - Provide fallback value
 
 **Assignment operators:**
 
@@ -190,7 +191,6 @@ All logical operators use double characters for consistency and clarity
 
 **Special operators:**
 
-- `??` - Provide fallback value
 - `~` - Shape definition
 - `:` - Block or function definition
 

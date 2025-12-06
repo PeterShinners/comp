@@ -11,7 +11,7 @@ mod.model = "@cf/baai/bge-base-en-v1.5"
 context.server = :{
 	# These values must be computed; can't be part of static module
 	vectorize = cf.binding/cf {"VECTORIZE"}
-	ai =  cf.binding/cf {"AI"}
+	ai = cf.binding/cf{"AI"}
 }
 
 
@@ -19,32 +19,32 @@ cfmain = :req~request(
 	Map request urls to handlers and respond to errors
 	___
 	req.url
-	| url.dispatch-handlers {}
-	| url.handle {url.post "/insert" insert-vectors}
-	| url.handle {url.get "/favicon*" url.not-found}
-	| url.handle {url.get "/query/{q ~text}" query-vectors}
+	|url.dispatch-handlers{}
+	|url.handle{url.post "/insert" insert-vectors}
+	|url.handle{url.get "/favicon*" url.not-found}
+	|url.handle{url.get "/query/{q ~text}" query-vectors}
 	|? {
-		status = it.status ?? #server-error
-		body: "Request processing failed: ${in.message}"
+		status = it.status ?? server-error
+		body = "Request processing failed: ${in.message}"
 	}
-	| response-json {}
+	|response-json{}
 )
 
 
 insert-vectors = :req~request(
-	Initialize vector with initial hardcoded data source (only needed once)
+	Initialize vector with initial hardcoded data source, only needed once
 	___
 	{
 		"This is a story about an orange cloud"
 		"This is a story about a llama"
 		"This is a story about a hugging emoji"
 	}
-	| ai-run {}
-	| iter :{
+	|ai-run{}
+	|iter:{
 		id = "${it.index}"
 		values = it.value.embedding
 	}
-	| vectorize-upsert {}
+	|vectorize-upsert{}
 )
 
 
@@ -52,9 +52,9 @@ query-vectors = :req~request(
 	Find closest match to query string
 	___
 	req.param.q
-	| if-empty {"orange cloud"}
-	| ai-run {}
-	| vectorize-query {top-k=1}
+	|if-empty{"orange cloud"}
+	|ai-run{}
+	|vectorize-query{top-k=1}
 
 	# Expect vector ID 1 to be your top match with a score of ~0.89693683
 	# This tutorial uses a cosine distance metric, where the closer to one,

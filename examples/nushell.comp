@@ -8,16 +8,16 @@ import.time = {"core/time" stdlib}
 
 
 main = :(
-    var.after = time.now {} - 1~week
+    var.after = time.now{} - 1~week
     var.fields = {~created-at ~title ~url ~reactions}
 
-    gh.list-issues {repo="nushell/nushell" fields=var.fields}
-    | filter :issue(issue.created-at >= var.after)
-    | map :i{i | merge {
-        num-thumbs = i.reactions | count :r(r.content == ~thumbs-up)
+    gh.list-issues{repo="nushell/nushell" fields=var.fields}
+    |filter:issue(issue.created-at >= var.after)
+    |map:i{i |merge{
+        num-thumbs = i.reactions |count:r(r.content == ~thumbs-up)
     }}
-    | sort {~reverse} :i(i.num-thumbs)
-    | first {5}
-	| rename-fields {num-thumbs="👍"}
-	| to-markdown {}
+    |sort{~reverse}:i(i.num-thumbs)
+    |first{5}
+	|rename-fields{num-thumbs="👍"}
+	|to-markdown{}
 )

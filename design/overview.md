@@ -60,55 +60,17 @@ are ready.
 
 ### Structures and Shapes
 
-Comp data is stored in one powerful and flexible structure type. It combines
-positional and named data into a single container. It combines the use cases of
-iterators, sequences, and maps into a flexible container that does more and does
-it uniformly.
+Comp data is stored in one powerful and flexible structure type that combines
+positional and named data into a single container. Structures are immutable with
+rich operations that naturally create modified clones of data. Even functions
+are defined as structures, which run as deferred code. Fields can have names or
+be defined positionally, with optional types and default values.
 
-Even functions are defined as structures, which run in as deferred code. A
-structure definition can define and reference local temporary values, which
-works comfortably for both literal values and function definitions. It combines
-positional and named fields interchangeably. Imagine a data structure that could
-describe arguments for a Python function.
-
-Imagine a data structure that could define the argument signature for a Python
-function. Fields can have names or be defined positionally. They can also have
-optional types and optional default values.
-
-Each structure is immutable, but has rich operations that naturally create
-modified and minimal clones of data. Think of the way Python handles strings,
-but now apply that to everything.
-
-There are simple data types like numbers and text. These are also immutable, and
-work interchangeably with simple structures that containing single, scalar
-values.
-
-Comp uses shape values to define a schema for data. Data can be tested and
-converted between compatible shapes. The language doesn't use classes or
-restrictive definitions, any function can be called an compatible data. Shapes
-are defined using the `~` operator on a structure and can be referenced and used
-like any regular value.
-
-The `~` is used to define the shapes, and internally applied to individual
-fields to define their own shapes.. No inheritance hierarchies, no interface
-implementations—just structural matching that works intuitively. The shape
-schemas provide strongly typed data validation in a way that is reusable and
-expressive.
-
-A shape definition is also a callable object which is used to construct or
-convert data into the defined shape.
-
-Structure literals can be defines with two syntaxes. The traditional uses curly
-brackets `{}` to define individual fields. Parenthesis `()` can also be used
-when assembling structures from predefined calls or data. Both can be used
-interchangeably in function calls, argument definitions, or any place structures
-are needed. They both produce the same structure object types, they just provide
-alternative ways of getting to the same destination.
-
-Structures are not classes. Comp has no traditional class definitions and
-behaviors. There are ways to perform many similar operations that traditional
-classes define, but they are done in a way that makes the data the priority, not
-the code.
+Shapes define schemas for data using the `~` operator. Data can be tested and
+converted between compatible shapes through structural matching—no inheritance
+hierarchies or interface implementations required. Shape definitions are also
+callable objects used to construct or convert data. For more details, see
+[Structures and Shapes](structure.md).
 
 ```comp
 42                     # Auto-promotes to {42}
@@ -120,42 +82,15 @@ the code.
 ### Pipelined Functions and Blocks
 
 A Comp function is a deferred structure that takes input data to create a
-different structure. Function calls are designed to be chained together using
-the pipeline `|` operator. A deferred function is defined with a `:` preceding a
-literal structure definition.
+different structure. Function calls are chained together using the pipeline `|`
+operator. Flow control like conditionals and loops are just regular functions,
+and anonymous functions called "blocks" use the same syntax for inline behavior.
 
-Flow control, like conditionals and loops, are just regular functions. The
-language provides many traditional "if" and "map" looping operations. Users are
-free to build on these for more specific operations, or create their own library
-of helpers from scratch.
-
-Functions can define special links that provide additional behevior, like `if`
-`else` being separate functions, but coordinating together to create higher
-level flow control.
-
-Functions can be referenced and used like any value data. Anonymous functions
-can also be created called "blocks". These use the same syntax as function
-definitions and are often passed as argument to define behavior for functions
-that perform flow control.
-
-A function really is just a structure literal that runs at a later time. The
-deferred structure also defines optional information about the shapes for
-arguments. There are also flags, like "pure" which restrict a function from
-using external resources, which can then be called during build time.
-
-Multiple functions can overload with the same name. The language will dispatch
-to the most specific implementation based on the incoming data shapes. Functions
-can also wrap existing functions to inherit their behavior and definition, but
-extend or change the functionality in some way; similar to middleware some
-frameworks use.
-
-The pipeline of functions is itself exposed as a structure, and can be recreated
-or overridden by special "wrench" operators. These can optimize queries,
-instrument code, or add progress tracking to a pipeline before it gets executed.
-
-Calling a function or block is intended to look like an annotated structure
-literal. A function reference is followed by a structure literal to define its
-arguments. `sum {1 2 3}`.
+Multiple functions can overload with the same name, dispatching to the most
+specific implementation based on incoming data shapes. The pipeline itself is
+exposed as a structure that can be modified by "wrench" operators for
+optimization, instrumentation, or progress tracking. For more details, see
+[Functions and Blocks](function.md).
 
 ```comp
 
@@ -299,7 +234,7 @@ Style Guide](syntax.md).
 
 ## Working with Data
 
-### Field Access That Just Works
+### Flexible Field Access
 
 All data in comp is handled and performs the same. There is no first class
 or secondary data. Data can come from network responses, database results,
@@ -355,30 +290,3 @@ message = format {"Hello, ${name}!"}  # Automatically handles escaping based on 
 
 SQL injection and XSS attacks become type errors instead of security
 vulnerabilities.
-
-### Strict Booleans
-
-Booleans are strongly typed, just like everything else. There are no "truthy" or
-"falsey" values. Booleans come from literals and operations that result in
-booleans.
-
-The booleans are simply builtin tags named `true` and `false`. There is a
-builtin union type named `bool` to represent either one as a type.
-
-The builtin conditionals expect boolean types. No trying to guess if a string
-like `"0"` represents true or false. (Although when you want this, write your
-own simple conditional operators.)
-
-The language allows question marks in valid tokens. Use consistent naming
-instead of marking up functions and values with "is" or "has" or "was" naming
-conventions.
-
-```comp
-active? = true                         ; Explicit boolean values
-ready? = count > 0                      ; Clear comparisons
-valid? = name != "" && email != ""      ; Logical combination
-```
-
-Empty strings aren't false. Zero isn't false. Only `false` is false, and only
-`#true` is true. This eliminates a whole class of subtle bugs that plague other
-languages.
