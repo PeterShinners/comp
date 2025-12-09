@@ -54,9 +54,10 @@ instrument code, or add progress tracking to a pipeline before it gets executed.
 
 Calling a function or block is intended to look like an annotated structure
 literal. A function reference is followed by a structure literal to define its
-arguments. `sum {1 2 3}`.
+arguments. `sum(1 2 3)`.
 
 These callable structures have several other states and flags they can use.
+
 - Pure functions cannot use external resources but can be called at build time
 - Extended functions wrap existing functions and inherit their functionality
 
@@ -75,8 +76,8 @@ Blocks and definitions are defined by prefixing a structure literal with a `:`.
 A simple block is just any value prefixed with the colon.
 
 ```comp
-simple = :{4 + 4}  # A hardcoded result
-get-version = :{mod.version}   # Fetch constant value from module
+simple = :(4 + 4)  -- A hardcoded result
+get-version = :(mod.version)  -- Fetch constant value from module
 ```
 
 All of a function's metadata is placed between the leading `:` colon and the
@@ -98,32 +99,30 @@ Most functions will use a shape structure to allow multiple arguments.
 
 ```comp
 
-# Defining a function with one piece of information.
-# Which can be called in either style.
+-- Defining a function with one piece of information.
+-- Which can be called in either style.
 
-double = :val~num{val + val}
-bigger = :args~{a~num b~num}{a > b}
+double = :val~num(val + val)
+bigger = :args~(a~num b~num)(a > b)
 
-var.eight = double {4}
-var.six = 3 | double {}
+var.eight = double(4)
+var.six = 3 |double()
 
-var yes = bigger {1 2}
-var no = {11 4} | bigger {}
+var yes = bigger(1 2)
+var no = (11 4) |bigger()
 
 ```
 
 When a function defines two named definitions the first one must be provided as
 through the pipeline input. The second one only defines arguments.
 
-
 ```comp
-sort = :data~struct args~{~reverse}(
+sort = :data~struct args~(~reverse)(
     # implementation...
 )
 
-data | sort {reverse}
+data | sort (reverse)
 ```
-
 
 **Function arguments** control behavior (transformations, options)  
 **Pipeline input** provides data to work on
@@ -161,6 +160,7 @@ contexts.
 
 This means arguments for functions will resolve from these locations (from
 lowest to highest priority)
+
 - Default value in the argument shape definition
 - Named fields assigned to `mod` scope
 - Named fields assigned to `ctx` scope
@@ -168,27 +168,27 @@ lowest to highest priority)
   rules
 
 ```comp
-process = :args~{x ~num timeout ~num = 30}(
-    {args.x args.timeout}
+process = :args~(x ~num timeout ~num = 30) (
+    (args.x args.timeout)
 )
 
 example-process-calls :(
 (
-    var.as-arg1 = process {2}  ; {2 30}
-    var.as-arg2 = process {3 4}  ; {3 4}
-    var.as-arg3 = process {timeout=5 6}  ; {6 5}
+    var.as-arg1 = process (2)  ; (2 30)
+    var.as-arg2 = process (3 4)  ; (3 4)
+    var.as-arg3 = process (timeout=5 6)  ; (6 5)
 
     ctx.timeout = 8
-    var.as-ctx1 = process {7}  ; {7 8}
+    var.as-ctx1 = process (7)  ; (7 8)
 
     ctx.x = 9
-    var.as-ctx2 = process {}  ; {9 8}
+    var.as-ctx2 = process ()  ; (9 8)
 )
 ```
 
 ## Lazy Evaluation
 
-Functions that use a body defined with `{}` curly braces will have their results
+Functions that use a body defined with `()` curly braces will have their results
 lazily computed.
 
 This behavior is transparent to users of the structures, but it allows some
@@ -197,18 +197,18 @@ optimizations where some data is not needed.
 Functions compute fields on-demand rather than all at once:
 
 ```comp
-expensive-analysis = :~{data}{
-    summary = data | compute-summary {}
-    statistics = data | deep-statistical-analysis {}
-    visualization = data | generate-charts {}
-    report = compile-full-report {}
-}
+expensive-analysis = :~(data)(
+    summary = data | compute-summary ()
+    statistics = data | deep-statistical-analysis ()
+    visualization = data | generate-charts ()
+    report = compile-full-report ()
+)
 
 ; So far, none of the functions have been evaluated
 ; Only computes what's needed
-var.analysis = data |expensive-analysis{}
-var.quick-view = analysis.summary{}  ; Only computes summary
-var.full = analysis{summary statistics}  ; Computes two fields
+var.analysis = data |expensive-analysis()
+var.quick-view = analysis.summary()  ; Only computes summary
+var.full = analysis(summary statistics)  ; Computes two fields
 ```
 
 As fields are computed, their results are cached and the structure eventually
@@ -231,7 +231,7 @@ pass through handle values, and can even drop them, making them invalid.
 Pure functions are defined with a `pure func` operator.
 
 ```comp
-fibonacci = :n~num pure(
+fibonacci = :n~num pure (
     n | if:it(it <= 1) :(it) :(
         let a = (n - 1) | fibonacci
         let b = (n - 2) | fibonacci
@@ -239,8 +239,8 @@ fibonacci = :n~num pure(
     )
 )
 
-validate-email = :~email~text}(
-    email |match{"^[^@]+@[^@]+$"}
+validate-email = :~email~text) (
+    email |match("^[^@]+@[^@]+$")
 )
 ```
 
@@ -262,16 +262,15 @@ arguments, in fact each implementation could have different arguments.
 d2.render = :pt~point-2d("2D point")
 d3.render = :pt~point-3d("3D point")
 
-{x=5 y=10} |render{}  # "2D improved" - strong wins
-{x=5 y=10 z=15} |render{}  # "3D point" - more specific
-{5 10} | render{}  # "2D improved" - positional
+(x=5 y=10) |render()  # "2D improved" - strong wins
+(x=5 y=10 z=15) |render()  # "3D point" - more specific
+(5 10) |render()  # "2D improved" - positional
 ```
 
 The overloaded implementation must be unambiguous or cause build-time error. Use
 `=?` (weak) or `=*` (strong) assignment to break ties. There still may be
 runtime failures if the incoming data is unable to pick one specific
 implementation.
-
 
 ## Function Linking
 
@@ -289,28 +288,27 @@ function that preceded this call.
 
 This data linking only passes through a single call in a pipeline. A function
 that wants to provide linked data to following functions also needs to use the
-link definition, but will use a `{nil}` value to specify that it has no
+link definition, but will use a `(nil)` value to specify that it has no
 requirements itself.
 
 ```comp
-engine= :link={nil}(
-    let link = "train says, "
+engine= :link=(nil) (
+    link = "train says, "
 )
 
-car= :link={engine car}(
-    let link = "${link} chugga"
+car= :link=(engine car) (
+    link = link | format("$(link) chugga")
 )
 
-caboose= :link={engine car}(
-    let link = "${link} choo choo"
+caboose= :link=(engine car) (
+    link = link | format("$(link) choo choo")
 )
 
-engine{} | car{} | car{} | caboose{} # "train says, chugga chugga choo choo"
+engine() |car() |car() |caboose() # "train says, chugga chugga choo choo"
 ```
 
 In this example, there will be a build time failure if `car` or `caboose` are
 called without a preceding engine.
-
 
 ## Function Extensions
 
@@ -335,9 +333,8 @@ namespace which identifies the arguments and reference to the original function.
 The common `in` variable still represents the input for the function.
 
 ```comp
-
-logged-trim = :extends=trim args~{log ~logger}(
-    args.log |info{"Someone called trim with ${extend.args}"}
+logged-trim = :extends=trim args~(log ~logger) (
+    args.log |info("Someone called trim with $(extend.args)")
     in |extend.base(extend.args)
 )
 ```
@@ -348,7 +345,7 @@ Any statement or structure can be wrapped in a deferred container called a
 block. Blocks are use like simple functions that take no arguments.
 
 Similar to function bodies, blocks can be defined using the different braces
-like `{}` `()` and `[]`, and reuse the same rules and syntax these structure
+like `()` `()` and `[]`, and reuse the same rules and syntax these structure
 syntaxes generate. A block definition uses one of these braces preceded with a
 colon `:` character.
 
@@ -356,8 +353,8 @@ Blocks capture the scope of the functions they are defined in. This allows them
 to acces and modify local variables shared with the function they come from.
 
 ```comp
-var.first-five-block = :(trim {head size=5})
-var.start = "Alphabets" |first-five-block {}  # "Alpha"
+var.first-five-block = :(trim (head size=5))
+var.start = "Alphabets" |first-five-block ()  # "Alpha"
 ```
 
 ### Function Arguments
@@ -365,7 +362,7 @@ var.start = "Alphabets" |first-five-block {}  # "Alpha"
 Blocks are often used in function arguments to define logic and behavior. The
 language supports a special syntax to attach block definitions to function
 arguments outside of the argument syntax. Functions using this alternative block
-literals for arguments do not need to pass an empty `{}` arguments if there are
+literals for arguments do not need to pass an empty `()` arguments if there are
 arguments.
 
 This is commonly used for conditionals and iteration functions that allow a body
@@ -373,11 +370,11 @@ of operations to be passed as an argument.
 
 ```comp
 var.path = arg.path
-if(path == nil):(
+if(path == nil) : (
     var.path = "placeholder.txt"
 )
-read-values (path) |sum:{
-    var.distance = line-length{it}
+read-values (path) |sum : (
+    var.distance = line-length(it)
     distance * distance
-}
+)
 ```

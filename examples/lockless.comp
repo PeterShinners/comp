@@ -1,5 +1,4 @@
-Lock free parallel stack
-
+--- Lock free parallel stack
 Uses atomic swaps to retry while contested
 ---
 
@@ -18,24 +17,24 @@ stack = ~(
 
 
 main = :(
-	; Push some items
+	-- Push some items
 	var.stack = ()
 	|atomic-push("first")
 	|atomic-push("second")
 	|atomic-push("third")
 	
-	; Pop them back
+	-- Pop them back
 	forever :(
 		var.stack = atomic-pop(var.stack)
 		|print("Popped: $(head.data)")
-		|? field.fail break  ; Stop gracefully when empty
+		|? field.fail break  -- Stop gracefully when empty
 	)
 )
 
 
+-- Add a new string to the stack
+
 atomic-push :stack~stack arg~text (|val
-	Add a new string to the stack
-	---
     stack |retry-exchange : (
         head = node(arg stack.head)
         atom = stack.atom
@@ -43,9 +42,9 @@ atomic-push :stack~stack arg~text (|val
 )
 
 
-atompic-pop = :stack~stack (|val
-	Remove item from stack or `fail` if empty
-	---
+-- Remove item from stack or `fail` if empty
+
+atomic-pop = :stack~stack (|val
     stack |retry-exchange : (
         head = stack.head.next
         atom = stack.atom

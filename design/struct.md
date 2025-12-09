@@ -49,7 +49,7 @@ A shape definition is also a callable object which is used to construct or
 convert data into the defined shape.
 
 Structure literals can be defines with two syntaxes. The traditional uses curly
-brackets `{}` to define individual fields. Parenthesis `()` can also be used
+brackets `()` to define individual fields. Parenthesis `()` can also be used
 when assembling structures from predefined calls or data. Both can be used
 interchangeably in function calls, argument definitions, or any place structures
 are needed. They both produce the same structure object types, they just provide
@@ -62,28 +62,28 @@ the code.
 
 ## Structure Definition and Field Access
 
-Structures are created with `{}` braces containing field definitions. Fields can
-be named or positional (unnamed). Named fields use `=` for assignment, while
-unnamed fields are simply listed.
+Structures are created with `()` parenthesis containing field definitions.
+Fields can be named or positional (unnamed). Named fields use `=` for
+assignment, while unnamed fields are simply listed.
 
 ```comp
 # Simple structures
-user = {name="Alice" age=30}
-coords = {10 20 30}
-mixed = {x=5 10 y=15}
+user = (name="Alice" age=30)
+coords = (10 20 30)
+mixed = (x=5 10 y=15)
 
 # Field access
-user.name                    # Named field
-coords.#0                    # First positional field (indexed)
-user.#active.status          # Tag as field name
+user.name  -- Named field
+coords.#0  -- First positional field (indexed)
+user.#active.status  -- Tag as field name
 
 # String and computed field names
-data."Full Name" = "Alice"   # String field name
-data.'field-' ++ suffix      # Computed field name
+data."Full Name" = "Alice"  -- String field name
+data.'field-' ++ suffix  -- Computed field name
 
 # Chained access
-users.#0.name                # Index then field
-config."servers".#0.host     # String field, index, then field
+users.#0.name  -- Index then field
+config."servers".#0.host  -- String field, index, then field
 ```
 
 **Field access types:**
@@ -93,41 +93,41 @@ config."servers".#0.host     # String field, index, then field
 - `data.'expr'` - Computed field name
 - `data."string"` - String literal field name
 
-## Alternative Syntaxes
+## Literal decorators
 
-Structures can be created with different bracket types, each with distinct
-behavior:
+Any structure literal (including function/block definitions) can be prefixed
+with a decorator. This is a pure defined function that modifies the
+interpretation of the structure literal. These are prefixed with a `|` pipe
+symbol at the begining of the struct.
 
-- `{}` - Normal struct with evaluated expressions
-- `[]` - Literal struct: tokens become strings, expressions evaluate to values
-- `()` - Statement struct: evaluates to the final expression only
+The libraries provide several common decorators.
+
+- `val` - Whatever the final evaluated value in this structure becomes the
+  resulting value of this literal.
+- `mix` - Merge all the values and fields in this single structure
+- `flat` - Sequentially order all the fields and values defined in this
+  structure
 
 ```comp
-{1+2 three 4}    # {3 three 4} - evaluates expression, preserves token
-(1+2 three 4)    # 4 - returns only final value
+(|val 1+2 three (4 5))  -- (4 5) - returns only final value
+(|flat 1+2 three (4 5))  -- (3 three 4 5) - values unwrapped
+
+(|mix (one=1 two=2) (three=3)) -- (one=1 two=2 three=3)
+(|flat (one=1 two=2) (three=3)) -- (1 2 3)
 ```
-
-**When to use each:**
-
-- `{}` for normal structures and function bodies building structs
-- `()` for function bodies that return a computed value
-
-Function arguments typically use `{}` since you're defining individual named or
-positional fields. Function bodies use `()` when computing a single return
-value, or `{}` when building a result structure field-by-field.
 
 ## Assignment Operators
 
 Assignment creates new structures - nothing is modified in place.
 
 ```comp
-# Override behavior
-config = {
+-- Override behavior
+config = (
     port = 8080
     host = "localhost"
     timeout = 30
-    log = {severity=warning ignore="http"}
-}
+    log = (severity=warning ignore="http")
+)
 ```
 
 **Assignment targets:**
@@ -141,21 +141,21 @@ config = {
 Extract multiple fields from a structure in a single statement:
 
 ```comp
-# Extract named fields
-let {name age city} = user
+-- Extract named fields
+(name age city) = user
 
-# Extract with renaming
-let {name=username age=years} = user
+-- Extract with renaming
+(name=username age=years) = user
 
-# Mix named and positional
-let {x y label=name} = point
-# Gets first two unnamed fields as x, y and 'label' field as name
+-- Mix named and positional
+(x y label=name) = point
+-- Gets first two unnamed fields as x, y and 'label' field as name
 
-# Nested destructuring
-let {user={name email} status} = response
+-- Nested destructuring
+(user=(name email) status) = response
 
-# With defaults
-let {port ?? 8080 host ?? "localhost"} = config
+-- With defaults
+(port ?? 8080 host ?? "localhost") = config
 ```
 
 ## Field Deletion
@@ -163,13 +163,14 @@ let {port ?? 8080 host ?? "localhost"} = config
 Remove fields by creating new structures without them:
 
 ```comp
-# Delete operator
-cleaned = {..original !delete temp !delete old}
+-- Delete operator
+cleaned = mix(original temp=delete old=delete)
+cleaned = original |remove-fields("temp" "old")
 
-# Shape morphing for filtering
-!shape ~public-user = {name ~str email ~str}
-user = {name="Alice" email="alice@example.com" password="secret"}
-public = user ~public-user  # Password removed
+-- Shape morphing for filtering
+public-user = ~(name~str email~str)
+user = (name="Alice" email="alice@example.com" password="secret")
+public = public-user(user)  -- Password removed
 ```
 
 Using shapes for field filtering is idiomatic and provides type safety.
@@ -179,79 +180,86 @@ Using shapes for field filtering is idiomatic and provides type safety.
 Structures support equality and ordering comparisons:
 
 ```comp
-# Equality - named field order doesn't matter
-{x=1 y=2} == {y=2 x=1}  # true
-{1 2 3} == {1 2 3}  # true
-{x=1 2} == {2 x=1}  # false - positional order matters
+-- Equality - named field order doesn't matter
+(x=1 y=2) == (y=2 x=1)  -- true
+(1 2 3) == (1 2 3)  -- true
+(x=1 2) == (2 x=1)  -- false - positional order matters
 
-# Ordering - lexicographic comparison
-{a=1} < {a=2}  # true
-{x=1} < {x=1 y=2}  # true
+-- Ordering - lexicographic comparison
+(a=1) < (a=2)  -- true
+(x=1) < (x=1 y=2)  -- true
 ```
 
 Standard library functions from `struct/` module enable field inspection,
 filtering, and transformation:
 
 ```comp
-import.struct = {"core/struct" std}
+import.struct = ("core/struct" std)
 
-data |field-names{} # ["name" "age" "status"]
-data |has-field{} "email"  # true or false
+data |field-names() -- ("name" "age" "status")
+data |has-field() "email"  -- true or false
 data |filter:(value > 0)
-data |map-fields{} |upper{}
+data |map-fields() |upper()
 ```
 
 ## Shapes
 
 Shapes define structural types for data validation and transformation. Instead
 of rigid class hierarchies, shapes use structural compatibility: any data with
-the right fields matches. No inheritance ceremonies, no interface
-implementations—just data that fits.
+the right fields matches.
+
+Shape definitions are actually functions that can be used to construct and
+convert data and arguments into specific shapes.
 
 The shape system integrates with units to provide semantic typing. Units attach
-meaning to values: `5#meter` is different from `5#second`, and the type system
+meaning to values: `5~meter` is different from `5~second`, and the type system
 prevents mixing them. Together, shapes and units create compile-time validation
 without runtime overhead.
 
-For information about the tag system underlying units, see
-[Tag System](tag.md). For primitive types, see [Core Types](type.md).
+Defined tags are also valid shapes. The hierarchical parent of tags can be
+used as a type specification for any of its children.
 
 ## Shape Definition
 
-Shapes are defined with `shape` and referenced with `~` prefix. They specify
-field types and defaults:
+Shapes are defined like structs with a `~` prefix but use a slightly
+different syntax. Each field in the struct can define an optional name,
+an optional type, and an optional default value. Without a name fields
+are considered as positional values.
+
+The default value can only use literal values or expressions. They cannot
+use function calls of their own. (Perhaps one day pure calls will be allowed?)
 
 ```comp
-point = ~{
+point = ~(
     x~num = 0
     y~num = 0
-}
+)
 
-point-3d = ~{
+point-3d = ~(
     ..~point-2d  # Inherit x, y fields
     z~num = 0  # Add z coordinate
-}
+)
 
-user = ~{
+user = ~(
     name~text
     email~text
     age~num = 0
     active?~bool = true  # ? suffix for boolean predicate (Ruby idiom)
     user-tag[]  # Array of specific tags
-}
+)
 
-# Shape composition through spreading
-point-3d = ~{
-    ..~point
+-- Shape composition through spreading
+point-3d = ~(
+    ..~point  -- todo, need a syntax for this?
     z~num = 0
-}
+)
 
-# Array constraints
-config = ~{
-    servers~server[1-]  # At least one
-    backups~backup[0-3]  # Up to three
-    options~text[]  # Any number
-}
+-- Array constraints
+config = ~(
+    servers~server[1-]  -- At least one
+    backups~backup[0-3]  -- Up to three
+    options~text[]  -- Any number
+)
 ```
 
 ### Named vs Positional Fields
@@ -261,17 +269,17 @@ position):
 
 ```comp
 # Named fields
-user = ~{name~text age~num}
-{name="Alice" age=30} ~user  # Named match
-{"Alice" 30} ~user  # Positional fills named
+user = ~(name~text age~num)
+(name="Alice" age=30) ~user  # Named match
+("Alice" 30) ~user  # Positional fills named
 
 # Positional fields
-pair = {~num ~num}
-{5 10} ~pair  # Matched by position
+pair = (~num ~num)
+(5 10) ~pair  # Matched by position
 
 # Mixed
-labeled = {~text name ~text}
-{"ID" name="Alice"} ~labeled  # Positional then named
+labeled = (~text name ~text)
+("ID" name="Alice") ~labeled  # Positional then named
 ```
 
 Morphing tries named matches first, then fills remaining fields by position.
@@ -281,29 +289,29 @@ Morphing tries named matches first, then fills remaining fields by position.
 Optional fields use union types with `~nil` and defaults:
 
 ```comp
-user = ~{
+user = ~(
     name~text
-    email~{text | ~nil} = {}
-    age~{num | ~nil} = {}
-}
+    email~(text | nil) = ()
+    age~(num | nil) = ()
+)
 
 # Usage
-user{name="Alice"}
-# Result: {name="Alice" email={} age={}}
+user(name="Alice")
+# Result: (name="Alice" email=() age=()
 
-user{name="Bob" email="bob@example.com"}
-# Result: {name="Bob" email="bob@example.com" age={}}
+user(name="Bob" email="bob@example.com")
+# Result: (name="Bob" email="bob@example.com" age=()
 ```
 
-The `?` suffix on field names indicates boolean predicates (convention, not
-syntax):
+The `?` suffix on field names indicates boolean predicates. This is just a
+convention, not part of the syntax or any other requirement.
 
 ```comp
-session = ~{
+session = ~(
     user~text
     active?~bool = true
     verified?~bool = false
-}
+)
 ```
 
 ### Shape Morphing
@@ -327,6 +335,7 @@ Morphing transforms data to match shapes through a multi-phase process:
 5. **Default application** - Missing fields get defaults
 
 **Specificity ranking:**
+
 - Exact field matches beat partial matches
 - Named fields beat positional fields
 - Specific types beat generic types (`~num` > `~any`)
@@ -344,39 +353,30 @@ positional_matches)`
 - **Positional matches** provide final tiebreaker
 
 ```comp
-!  #status = {#  #error}
-!  #error.status = {#  #timeout}
 
-generic = {  #status}
-specific = {  #network.error}
+-- This is a mess, what is going on here (too many syntax replacement ops?)
 
-{state=#network.error} ~generic | ~specific
-# Result: ~specific wins (deeper tag hierarchy)
-```
+status.ok = tag()
+status.error = tag()
 
-**Ambiguous matches cause errors:**
+generic = (  #status)
+specific = (  #network.error)
 
-```comp
-user = {name ~text email ~text}
-group = {name ~text members ~user[]}
+(state=#network.error) ~generic | ~specific
+-- Result: ~specific wins (deeper tag hierarchy)
 
-{name="X"} ~user | ~group
-# ERROR: Ambiguous - both match 50%
+-- Ambiguous matches cause errors:**
+user = (name ~text email ~text)
+group = (name ~text members ~user[])
 
-# Resolve with discriminator tag
-user = {  #user name ~text email ~text}
-group = {  #group name ~text members ~user[]}
+(name="X") ~user | ~group
+-- ERROR: Ambiguous - both match 50%
 
-{type=#user name="X"} ~user | ~group  # Unambiguous
-```
+-- Resolve with discriminator tag
+user = (  #user name ~text email ~text)
+group = (  #group name ~text members ~user[])
 
-### Function vs Block Morphing
-
-**Functions use loose morphing** - extra fields ignored:
-
-```comp
-!func process ~{x ~num y ~num} (x + y)
-process {x=1 y=2 z=3}  # Works - z ignored
+(type=#user name="X") ~user | ~group  -- Unambiguous
 ```
 
 ### Shape Constraints
@@ -386,20 +386,20 @@ TODO, this syntax doesn't quite hold. maybe constraints can use []
 Constraints validate field values during morphing:
 
 ```comp
-valid-user = ~{
-    name ~text {min-length=3 max-length=50}
-    email ~text {pattern="^[^@]+@[^@]+$"}
-    age ~num {min=13 max=120}
-}
+valid-user = ~(
+    name ~text (min-length=3 max-length=50)
+    email ~text (pattern="^[^@]+@[^@]+$")
+    age ~num (min=13 max=120)
+)
 
 # Custom validation functions
 valid-username = :name~text(
-    (length{name}) >= 3 &&
-    (name | match{"^[a-z][a-z0-9_]*$"})
+    (length(name)) >= 3 &&
+    (name | match("^[a-z][a-z0-9_]*$"))
 )
 
-account = {
-    username ~text {validate=valid-username}
-    balance ~num {min=0}
-}
+account = (
+    username ~text (validate=valid-username)
+    balance ~num (min=0)
+)
 ```

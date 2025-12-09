@@ -50,24 +50,24 @@ using top level keywords at the module level.
 The `import` keyword assigns a namespace and specifies the source:
 
 ```comp
-# Standard library
-import.store = {"core/store" std}
-import.math = {"core/math" std}
+-- Standard library
+import.store = ("core/store" std)
+import.math = ("core/math" std)
 
-# Local filesystem
-import.utils = {"./lib/utils" comp}
-import.shared = {"/home/shared/libs" comp}
+-- Local filesystem
+import.utils = ("./lib/utils" comp)
+import.shared = ("/home/shared/libs" comp)
 
-# Git repositories
-import.project = {"git@github.com:company/project.git" comp}
-import.versioned = {"git@github.com:org/lib.git#v2.0.1" comp}
+-- Git repositories
+import.project = ("git@github.com:company/project.git" comp)
+import.versioned = ("git@github.com:org/lib.git#v2.0.1" comp)
 
-# Python modules
-import.numpy = {"numpy" python}
-import.requests = {"requests" python}
+-- Python modules
+import.numpy = ("numpy" python)
+import.requests = ("requests" python)
 
-# OpenAPI specs
-import.api = {"https://api.example.com/swagger.json" openapi}
+-- OpenAPI specs
+import.api = ("https://api.example.com/swagger.json" openapi)
 ```
 
 ### Import Sources
@@ -91,26 +91,26 @@ import.api = {"https://api.example.com/swagger.json" openapi}
 Use `??` for fallback sources:
 
 ```comp
-# Try multiple sources
-import.json = {"json" ?? std "core/json" ?? comp "./minimal-json" main}
+-- Try multiple sources
+import.json = ("json" ?? std "core/json" ?? comp "./minimal-json" main)
 
-# Platform-specific
-import.graphics = {"./graphics-gpu" ?? comp "./graphics-cpu" comp}
+-- Platform-specific
+import.graphics = ("./graphics-gpu" ?? comp "./graphics-cpu" comp)
 ```
 
 By default, libraries check if main module imported a dependency before using
 their own:
 
 ```comp
-# In library - automatically checks main first
-import.json = {"core/json" std}
-# Behaves as: main "json" ?? std "core/json"
+-- In library - automatically checks main first
+import.json = ("core/json" std)
+-- Behaves as: main "json" ?? std "core/json"
 
-# In main module - becomes source for libraries
-import.json = {"git@github.com:fast/json.git#v2.0" comp}
+-- In main module - becomes source for libraries
+import.json = ("git@github.com:fast/json.git#v2.0" comp)
 ```
 
-## Contexts
+## Startup Contexts
 
 As comp functions execute they define a shared context that can be updated and
 passed through the call chain. Modules can coordinate and define different
@@ -124,14 +124,14 @@ point can be defined in the module that defines it in the context, but is
 typically overridden by the module that is being executed.
 
 ```comp
-context.cli = extends default {
-    verbose = #true
+startup.cli = extends default (
+    verbose = true
     source = "connection.json"
-}
+)
 
-context.default = {
+startup.default = (
     threads = 4
-}
+)
 
 All modules will invoke their context definitions in order
 
@@ -147,12 +147,12 @@ files or definition scripts to define their package information and
 requirements. There is a shape to define this package schema.
 
 ```comp
-pkg = {
+pkg = (
     name="image-processor"
     version="2.1.0"
     author="Joe Q Developer <joeq@example.dev>"
     homepage="https://example.com/image-processor"
-}
+)
 pkg.license = "MIT"
 ```
 
@@ -161,13 +161,13 @@ pkg.license = "MIT"
 Imports from schemas generate typed namespaces:
 
 ```comp
-import.api = {"./swagger.json" openapi}
-import.db = {"localhost/mydb?schema=public" postgres}
-import.proto = {"./messages.proto" protobuf}
+import.api = ("./swagger.json" openapi)
+import.db = ("localhost/mydb?schema=public" postgres)
+import.proto = ("./messages.proto" protobuf)
 
-; Use generated namespaces
-let user = api.users.get {id=123}
-let result = db.users.find-by-email {email="user@example.com"}
+-- Use generated namespaces
+let user = api.users.get (id=123)
+let result = db.users.find-by-email (email="user@example.com")
 ```
 
 ## Platform-Specific Modules
@@ -185,10 +185,10 @@ When importing comp modules the most specific decorated file will be selected.
 This also works for indiidual files inside a directory-based module.
 
 ```comp
-render.comp  # Default implementation
-render.windows.comp  # Windows-specific
-render.linux.comp  # Linux-specific
-render.wasm.comp  # WebAssembly
+render.comp  -- Default implementation
+render.windows.comp  -- Windows-specific
+render.linux.comp  -- Linux-specific
+render.wasm.comp  -- WebAssembly
 ```
 
 ## Namespace Aliasing
@@ -204,25 +204,23 @@ Aliases can also be used define alternative names for internally defined
 objects.
 
 ```comp
-text | text.length{text}  # Function from str module
-math.matrix{data}  # Shape from math module
+text | text.length(text)  -- Function from str module
+math.matrix(data)  -- Shape from math module
 
-# Create aliases
+-- Create aliases
 sqrt = fast-math.sqrt
 vec = math.vector-3d
 
-# Use short forms
-sqrt{4}
-vec{point}
-
+-- Use short forms
+sqrt(4)
+vec(point)
 ```
 
-## Import Process 
+## Import Process
 
 Import handlers coordinate with the import system to download, cache, and
 resolve versions. This hierarchy of dependencies is computed initially and
 validated before any code in any modules is evaluated.
-
 
 The languages itself comes with handlers for common types of data and.
 
@@ -242,32 +240,32 @@ The languages itself comes with handlers for common types of data and.
 Modules attach private metadata invisible to other modules:
 
 ```comp
-# Cache module
-with-cache = :key~text(
-    var.result = {key value=(key |fetch{})}
+-- Cache module
+with-cache = :key~text (
+    var.result = (key value=(key |fetch()))
     
-    # Attach private data
+    -- Attach private data
     var.result&.cached-at = time.now
     var.result&.cache-key = key
     result
 )
 
-# Session module
-with-session = :user-data~in(
-    var.result = {..user-data}
+-- Session module
+with-session = :user-data~in (
+    var.result = (..user-data)
     var.result&.session-id = new-session
     var.result&.session-start = time.now
     result
 )
 
-# Usage - both attach private data to same structure
-var.user = {name="alice" email="alice@example.com"}
-|with-cache{}
-|with-session{}
+-- Usage - both attach private data to same structure
+var.user = (name="alice" email="alice@example.com")
+|with-cache()
+|with-session()
 
-# Each module sees only its own private data
-# cache sees: user&.cached-at, user&.cache-key
-# session sees: user&.session-id, user&.session-start
+-- Each module sees only its own private data
+-- cache sees: user&.cached-at, user&.cache-key
+-- session sees: user&.session-id, user&.session-start
 ```
 
 ## Caching and Optimization
@@ -282,11 +280,11 @@ Package applications with all dependencies in a single archive:
 
 ```comp
 # Build tool generates manifest
-dependencies = {
+dependencies = (
     "main/json" = "./bundle/json.comp"
     "main/store/utils" = "./bundle/store-utils.comp"
     "std/core/str" = "./bundle/str.comp"
-}
+)
 
 # Deploy standalone executable
 # ```comp app.comp --bundle ./app.bundle```

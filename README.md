@@ -2,7 +2,7 @@
 
 Comp is a high level interpeted language. It's goal is to allow cleaner,
 expressive, and more readable code that similar languages. The design and syntax
-steer developers towards ideal solutions instead of away from them.
+steer developers towards ideal implementations and clean projects.
 
 This requires some opinionated departures from traditional high level languages.
 Data is immutable and stored in structures that operate both positionally and by
@@ -25,10 +25,10 @@ and highlights.
 ## Example
 
 ```comp
-Hello World example in Comp language.
+--- Hello World example in Comp language.
 Try to personalize the greeting with a series of fallback environment
 variable lookups.
-___
+---
 
 main = :(
   ("USERNAME" "USER" "LOGNAME")
@@ -45,7 +45,7 @@ repository;
 
 ```bash
 uv pip install -e .
-uv run comp examples/hello.comp
+uv run comp examples/tree.comp
 ```
 
 The barrier to entry is as minimal as possible. An entire project with metadata,
@@ -57,7 +57,7 @@ modules, and dependencies as desired.
 
 Comp is designed for:
 
-- **Tool scripts** Maya, Blender, Houdini automation
+- **Tool scripting** Maya, Blender, Houdini automation
 - **Data pipelines** ETL, transformation, analysis
 - **API integration** Clean composition of web services
 - **Configuration** Type-safe, validated config files

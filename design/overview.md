@@ -2,161 +2,150 @@
 
 ## Features
 
-Cleaner and simpler code that gets more work done. This high level language
-focuses on removing developer friction. Simple and consistent high level
-features with more build-time validation than similar high level approaches. The
-language is whitespace independent, doesn't use separators, and avoids nested
-braces.
+Comp is born from an excercise to improve the state of developing in high level
+languages like Python. This requires new ideas and behaviors to avoid the ruts
+and common errors these languages encourage. The goal is a lightweight and
+readable language that prioritizes the developer experience.
 
-Organize and style your code so it can look its best. Split and manage your
-files in any style with no worries about circular imports or definition orders.
-The language features allow splitting code into functions and files with any
-desired structure and granularity.
+```comp
+--- Get top weekly thumbed issues from GitHub
+Based on: https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
+---
 
-Each module defines a declarative namespace that can be queried and validated
-before runtime. A module is its own package definition, with dependencies and
-metadata available for analysis. This data remains usable even when paired with
-common syntactical and grammar errors within the file.
+import.gh = ("github-api" comp)
+import.time = ("core/time" stdlib)
 
-A minimal language definition that builds on itself. Everything is stored in
-structures, even functions are just deferred structure literals. Flow control,
-iteration, compilation and more are built in Comp. Easy to extend, customize,
-and redefine for your own use cases.
+main = :(
+    var.after = time.now() - 1~week
+    var.fields = (created-at title url reactions)
 
-Access system and external resources through handles. Anything that changes
-state outside of the language is a resource. Alternatively, code that doesn't
-need these resources is considered "pure" and runs without limitations, even at
-build time. The handles can also participate in language level transactions;
-rollback everything on failures, including data structures.
+    gh.list-issues(repo="nushell/nushell" fields=var.fields)
+    |filter :issue (issue.created-at >= var.after)
+    |map :repo (|mix 
+        repo
+        num-thumbs = repo.reactions |count :react (react.content == thumbs-up)
+    )
+    |sort(reverse) :repo (repo.num-thumbs)
+    |first(5)
+    |rename-fields(num-thumbs="👍")
+    |to-markdown()
+    |print()
+)
+```
+
+Not all the motiviations are easy to describe, but there have been several
+primary driving guidelines.
+
+Clean and consistent syntax with minimal noise and no whitespace dependence.
+This removes delimiters and allows structuring code in any desired style. It
+also works hard to avoid unnecessary nesting of braces and structures.
+
+Everything is stored in a powerful structure class and the data is all
+immutable. The struct container allows both named and unnamed fields and
+ordered. Even functions (executable blocks) use the same syntax as structure
+literals.
+
+Data is the same wherever it comes from. There are no classes or hierarchies,
+function calls, dispatch, and behaviors are all based on the shape of the data.
+Schemas define and dispatch behaviors and work the same whether the data comes
+from code literals, database lookups, networked json, or api calls.
+
+A strictly declarative namespace. The language takes advantage of knowing
+everything referenced and imported. No code execution is needed to define and
+create all references. This also moves a large class of high level language
+errors to build time, and even more available with static analysis.
+
+A comp file is also its own package definition. A project can be defined by a
+single source file, or be split into flexible directories and organized however
+the authors see fit. Import dependencies from immediate directories or reliably
+across the internet.
+
+Flow control and conditionals are implemented as regular functions. This keeps
+the language minimal and lightweight. Enhance the builtin looping or match
+operations with your own, or replace them entirely. The standard library prides
+itself on being written in clean and idiomatic style.
 
 Comp is at home in Python. Interoperate closely with any running interpreter.
 Access existing modules, or replace them with better implementations and use
 those from Python.
 
-```comp
-There are many hello worlds, and this one is mine
-___
+## Structures and Shapes
 
-import.hello = {"examples/hello" comp}
+The struct container combines a variety of behaviors into a single container. It
+can describe sequences, hashmaps, unordered sets, and more.
 
-# Line comments use colons
+A struct is an immutable piece of data. The language provides regular functions
+to combine and edit structures into new pieces of data.
 
-main = :{
-    gps_detect_planet {}
-    | capitalize {}
-    | print {"Greetings, ${}"}
-}
+Comp allows defining shapes which define the required shape for data. Functions
+define required shapes for their arguments which allows rich validation. The
+shapes themselves can be constructors to morph and modify data from one shape to
+another.
 
-gps_detect_planet = :{"earth"}
+Shapes are defined as literals prefixed with a `~` tilde, although they contain
+slightly different grammar rules than a regular struct. A shape definition is
+actually sugar for a function definition that automatically converts data.
 
-```
-
-Save as `hello.comp`, run with `comp hello.comp`. That's it. No build files, no
-configuration complexity, no dependency management, and no 30 file project
-templates to navigate. Projects grow from here in flexible ways, only when you
-are ready.
-
-## Guiding Design
-
-### Structures and Shapes
-
-Comp data is stored in one powerful and flexible structure type that combines
-positional and named data into a single container. Structures are immutable with
-rich operations that naturally create modified clones of data. Even functions
-are defined as structures, which run as deferred code. Fields can have names or
-be defined positionally, with optional types and default values.
-
-Shapes define schemas for data using the `~` operator. Data can be tested and
-converted between compatible shapes through structural matching—no inheritance
-hierarchies or interface implementations required. Shape definitions are also
-callable objects used to construct or convert data. For more details, see
-[Structures and Shapes](structure.md).
+The [Struct and Shape](struct.md) documentation contains much more information
+like applying modifiers to shapes, morphing rules, and indexing into structures.
 
 ```comp
-42                     # Auto-promotes to {42}
-{x=10 y=20}            # Named fields
-{1+1 2+2 3+3}          # Positional fields  
-{name="Alice" 30 active?=true}  # Mixed data
+42  -- Auto-promotes to (42)
+(x=10 y=20)  -- Named fields
+(1+1 2+2 3+3)  -- Positional fields  
+(name="Alice" 30 active?=true)  -- Mixed data
+
+player = ~(name~text score~num=0)  -- Define a shape
+optional-text = ~(text | nil)  -- Union types (shapes)
+
+spawned = player("PET")  -- Promote simple data into our shape
 ```
 
 ### Pipelined Functions and Blocks
 
-A Comp function is a deferred structure that takes input data to create a
-different structure. Function calls are chained together using the pipeline `|`
-operator. Flow control like conditionals and loops are just regular functions,
-and anonymous functions called "blocks" use the same syntax for inline behavior.
+Any structure literal can become a callable object by prefixing the structure
+with `:`. These can be used as functions which get assigned into the module
+namespace, or used as anonymous blocks as simple callbacks.
 
-Multiple functions can overload with the same name, dispatching to the most
-specific implementation based on incoming data shapes. The pipeline itself is
-exposed as a structure that can be modified by "wrench" operators for
-optimization, instrumentation, or progress tracking. For more details, see
-[Functions and Blocks](function.md).
+By default these callable structs take no arguments and can return any type of
+data. Optional definitions can be added to define required shapes for the
+arguments as well as additional behaviors and identifiers.
+
+Multiple functions can be overloaded with the same name. The namespace keeps
+track of them separately. By determining the matching shapes of data function
+calls will automatically dispatch to the most specific implementation.
+
+Calling functions and blocks requires a struct of argument but can optionally be
+combined with blocks that are added to the argument list. This allows function
+blocks to be passed as arguments for natural feeling flow control, iteration,
+and other behaviors.
+
+Functions and blocks can be assembled into a pipeline of operations using the
+`|` pipe operator. Functions can also specificy special links in the pipeline to
+allow additional behaviors when combined. The pipeline itself is a malleable
+data structure that can be explicitly rewritten and enhanced with special
+operators.
+
+Pure functions can be defined that are restricted from accessing external
+handles. These functions can be evaluated at build time and other special
+contexts.
+
+The [Functions and Blocks](function.md) contains more details like overloaded
+dispatch, input and argument management, and runtime scopes.
 
 ```comp
-
-user = ~{
-    A shape defines a schema, which can be used to define arguments
-    ___
-    name ~str
-    email ~optional-text = nil
-    age ~num~years
-    member-since ~timestamp
-    purchases ~num = 0
-}
-
-optional-text = ~{text | nil}  # Union types
-
-welcome-new-users :users~user[](
-    Act on all recently registered user entries
-    ___
+welcome-new-users :users~user[] (
+    -- Act on all recently registered user entries
     var.recent = now () - 1~week
     users 
-    | filter :u(u.member_since > recent)
-    | each :u(u | send-welcome-email ())
-    |-| progressbar ()  # Wrench to report progress tracking
-    | print ("Finished greeting {in | length()} users")
+    |filter :u (u.member_since > recent)
+    |each :u (send-welcome-email(u))
+    |-|progressbar()  # Wrench to inject progress tracking
+    |log("Finished greeting $(in | length()) recent users")
 )
 ```
 
-### Tags: Enumerations and more
-
-Tags are declared constants that can be identified uniquely. Like all data they
-can be defined hierarchically.
-
-They work similar to enumerations, but play several important roles in the
-language. Tags play a dual role in the language, acting as both values and
-shapes.
-
-Tags also have a priority role when converting structures between different
-shapes. With function overloading this allows tag fields to be used like
-polymorphic classes and dispatch appropriately.
-
-Tag hierarchies can be extended by external modules, independently from the
-initial definition.
-
-All values can be used as field names in structures, including tags.
-
-```comp
-# Define tags
-ok = tag {}
-error = tag {}
-pending = tag {}
-
-# Hierarchical tags
-visibility.all = tag {}
-visibility.active = tag {}
-visibility.complete = tag {}
-
-# Use them as values
-current = pending
-mask = visibility.all
-
-# Use them as types in shape definitions
-arguments = ~{vis~visibility = visibility.all}
-
-```
-
-### Modules and imports
+## Modules and imports
 
 Modules define a namespace that is declarative and predefined. This allows
 defining functions, shapes, and data in any order. It also allows validation and
@@ -167,126 +156,134 @@ dependencies. All is validated and assembled and built time.
 
 A module can be a single, standalone file. It can also be defined by a directory
 of comp files. These files are combined in an order independent way that is
-treated as a single module source. There are no circular imports or confusion
-in these multi-file modules. There are no class definitions or forced groups
-that restrict what can go into which file. Shared contexts allow exchanging
-data without directly passing large amounts of state between the calls.
+treated as a single module source.
 
-The language provides a rich and extensible set of compilers. Import Python
-modules at runtime, OpenAPI specs downloaded from a website, git repostories
-containing toml or some other format. The build time is when all the dynamic
-handling and resolution happens, not at runtime. Let the runtime deal with
-translating, caching, and packaging the external dependency.
+Traditional languages resist code organization through strict import orders and
+inflexible namespaces. Define functions, shapes, and data in any order across
+any file. The results are declarative and validated without needing to execute
+logic.
+
+The importer allows an extensible set of compilers that allow reliable
+namespaces from python modules, openapi specifications. Any of these types can
+come from the network, filesystem, package libraries, git repositories, and
+more. Let the import machinery and builtin packaging tools provide consistent
+environemnts, reliable caching, and secure validation.
 
 ```comp
 # Use data from everywhere seamlessly
-import.str = {"core/str" std}
-import.pygame = {"pygame" python}
-import.api = {"http://api.example.org/v1" openapi}
-import.time = {"core/time" std}
-import.mars = {"github://offworld/martiancalendar" comp branch="edge"}
+import.str = ("core/str" std)
+import.pygame = ("pygame" python)
+import.api = ("http://api.example.org/v1" openapi)
+import.time = ("core/time" std)
+import.mars = ("github://offworld/martiancalendar" comp branch="edge")
 
 # Access through simple namespaces
-mod.token = "username" | fetch-auth-token {} | base64/str {}
-mod.now = now/time {} ~num#day/mars
+mod.token = "username" | fetch-auth-token () | base64/str ()
+mod.now = now/time () ~num#day/mars
 ```
 
-### Scopes
+## Other unique idioms
 
-As code is executed, a variety of scopes are available to the running code.
-These are always referenced through their fully qualified name, like
-`mod.version` or `arg.verbose`. In some contexts different scopes can be
-written to, like `ctx.server.port = 8000`. Remember that assignment doesn't
-modify existing structures since they are immutable. Instead they construct a
-new data with overlayed edits (and as much shared data as possible).
+- Structure literals can define internal temporary values by assigning and
+  referencing them from the `var` namespace, like `var.counter = 1`. This
+  obviously works for function/block definitions as well.
+- Structure literals may begin with a special `|modifer` which defines
+  operations that modify the contents or behavior of the resulting structure.
+  Common ones like `|val` just uses the final result as the outgoing structure.
+  Define your own.
 
-Functions optionally receive separate scopes for provded arguments and for
-data passed through the pipeline. The block definition can define what name
-these two structs will be assigned inside the body.
+## Types
 
-The pipeline data will always match the defined shape. It may also contain
-extra data and fields..
+Comp provides several lower level data types. The primary ones are numbers,
+text, and tags.
 
-The arguments struct is stricter and only contains explicitly defined fields.
-The arguments can be contributed to by other scopes like `ctx` or `mod`
-if they contain data that matches the defined shapes.
+These values can be passed around and used outside of structs. In most contexts
+they can also be used inside simple structures with single values.
 
-The special `var` context is used for storing temporaries inside the scope.
-This scope is shared with any blocks defined inside the same function.
-
-```comp
-process-request = :in ~{request} arg ~{timeout ~num} (
-    var.start = time {}  ; Function-local variable
-    var.user = in.user  ; Another local variable
-
-    {
-        response = in | validate {} | process {}  ; Struct field
-        duration = now {} - start;  Field computed from local
-    }
-
-    var.ctx.server.timeout = arg.timeout  ; Copy argument value to context scope
-    var.config = mod.settings  ; Module-level constants
-)
-```
-
-For the complete reference on how these scopes are managed, see [Syntax and
-Style Guide](syntax.md).
-
-## Working with Data
-
-### Flexible Field Access
-
-All data in comp is handled and performs the same. There is no first class
-or secondary data. Data can come from network responses, database results,
-parsed json. These all work equivalently to data defined in the code as
-literals or assembled through function calls.
-
-Struct data is hierarchical and allows deep references through the hierarchy.
-
-There are several syntaxes for different types of fields in addition to
-using tokens separated with `.` dots.
-
-```comp
-user.name  # Get the name field
-settings.#0  # First item in a list
-config.'config-field-name {"port"}' # Computed field name
-data."New York"  # Field names with special characters or spaces
-```
+More details and a look at other builtin types are in the [Types](type.md)
+documentation.
 
 ### Proper Numbers
 
-Comp numbers work the way math actually works, not the way computer hardware
-forces them to behave. Expect lossless precision and accurate computations.
-Forget about overflows, rounding errors, or clamping.
+The `~num` numeric type uses big precision numbers with accurate and correct
+fractional values. The types are not restricted by tranditional computer
+hardware limitations. Avoid overflows, inaccuracies, clamping, and other
+mathematical problems. Opt in to special non-numeric values like "infinity" only
+where specifically allowed.
 
-Avoid special non-number values like "infinity" except for where you opt-in to
-allowing them.
+Comp provides most standard numeric operators to add, multiply. These operators
+only work with numbers. There are also libraries of functions to work with
+numbers and large collections of data.
 
-Numbers with units catch unit conversion errors at the type level.
-
-```comp
-huge = 999_999_999_999_999_999_999_999  # No overflow
-precise = 1/3  # Exact rational arithmetic
-scientific = 6.022e23  # Standard notation
-binary = 0b1010  # Binary literals
-speed = 100#seconds  # Units become additional types for data
-duration = endtime - starttime  # Becomes a relative time offset
-```
-
-### Strings and Templates
-
-Strings in Comp can carry information about what kind of data they represent.
-This enables automatic safety features without manual work. The unit system
-enhances strings by appropriately escaping substitutions by default.
+Number types can be extended by units, which allow defining measurements and
+hardware representation restriction to numbers. Use this unit type system to
+avoid mixing distance values with time values. This also allows automatic
+conversion between compatible types, like kilometers and miles.
 
 ```comp
-name = "Alice"  # Regular string
-query = "SELECT * FROM users"#sql  # SQL-aware string
-html = "<div>Content</div>"#html  # HTML-aware string
-
-# Templates respect string types
-message = format {"Hello, ${name}!"}  # Automatically handles escaping based on context
+huge = 999_999_999_999_999_999_999_999  -- No overflow
+precise = 1/3  -- Exact rational arithmetic
+scientific = 6.022e23  -- Standard notation
+binary = 0b1010  -- Binary literals
+speed = 100~seconds  -- Units become additional types for data
+duration = endtime - starttime  -- Becomes a relative time offset
 ```
 
-SQL injection and XSS attacks become type errors instead of security
-vulnerabilities.
+### Text and Templates
+
+Text is represented as immutable streams of unicode characters. Provided
+libraries allow the standard searching, editing, and formatting of textual data.
+
+Text can optionally be decorated with constraints that can influence how the
+strings are used. This marks text with domains to enforce safe formatting and
+substitution. Vulnerable SQL injection and XSS code becomes type errors instead
+of security vulnerabilities.
+
+```comp
+name = "Alice"  -- Regular string
+query = "SELECT * FROM users"~sql  -- SQL-aware string
+html = "<div>Content</div>"~html  -- HTML-aware string
+
+-- Templates respect string types
+message = fields | format(my-select)  -- Proper escaping
+```
+
+### Tags
+
+Tags are declared constants that can be identified uniquely. These are often
+defined in named hierarchies. They work similar to enumerations and play a dual
+role in the language, acting as both values and shapes.
+
+The language provides additional builtin types and shapes that are actual tags.
+Tags like `true` and `false` are the builtin boolean types.
+
+Tag hierarchies can be extended by external modules, independently from the
+initial definition.
+
+When matching and morphing data into shapes, tags get a special priority for
+matching fields. This allows tags to be arbitrarily added into data structures
+and have a high influence on how shapes are matched and functions dispatched.
+This allows tag fields to be used like polymorphic classes and dispatch
+appropriately.
+
+Tags are also used as the foundation for referencing external and system data,
+that lives outside the control of the language.
+
+```comp
+-- Define tags
+ok = tag()
+error = tag()
+pending = tag()
+
+-- Hierarchical tags
+visibility.all = tag()
+visibility.active = tag()
+visibility.complete = tag()
+
+-- Use them as values
+current = pending
+mask = visibility.all
+
+-- Use them as types in shape definitions
+arguments = ~(vis~visibility = visibility.all)
+```

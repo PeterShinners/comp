@@ -3,27 +3,16 @@
   "name": "Comp",
   "scopeName": "source.comp",
   "patterns": [
-    { "include": "#module-frontmatter" },
     { "include": "#main" }
   ],
   "repository": {
-    "module-frontmatter": {
-      "comment": "Module-level frontmatter: prose text at start of file until ---. File must start with a letter (not code characters)",
-      "name": "meta.frontmatter.module.comp",
-      "begin": "\\A(?=[A-Za-z])",
-      "end": "(---)",
-      "endCaptures": {
-        "1": { "name": "punctuation.separator.frontmatter.comp" }
-      },
-      "contentName": "comment.block.documentation.frontmatter.comp"
-    },
-
     "main": {
       "patterns": [
+        { "include": "#doc-block" },
+        { "include": "#doc-line" },
         { "include": "#comment" },
         { "include": "#string-triple" },
         { "include": "#string-double" },
-        { "include": "#frontmatter-separator" },
         { "include": "#block" },
         { "include": "#directive" },
         { "include": "#parameter" },
@@ -38,21 +27,38 @@
       ]
     },
 
-    "frontmatter-separator": {
-      "comment": "Frontmatter separator ---",
-      "name": "punctuation.separator.frontmatter.comp",
-      "match": "---"
+    "doc-block": {
+      "comment": "Block documentation delimited by ---",
+      "name": "comment.block.documentation.comp",
+      "begin": "---",
+      "end": "---",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.comment.begin.comp" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.comment.end.comp" }
+      }
     },
 
     "comment": {
+      "comment": "Line comment starting with ;",
       "name": "comment.line.semicolon.comp",
-      "match": ";.*$"
+      "match": "(;)(.*)$",
+      "captures": {
+        "1": { "name": "punctuation.definition.comment.comp" }
+      }
     },
 
     "string-triple": {
       "name": "string.quoted.triple.comp",
       "begin": "\"\"\"",
       "end": "\"\"\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.comp" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.comp" }
+      },
       "patterns": [
         { "include": "#string-interpolation" }
       ]
@@ -62,6 +68,12 @@
       "name": "string.quoted.double.comp",
       "begin": "\"",
       "end": "\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.comp" }
+      },
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.comp" }
+      },
       "patterns": [
         { "include": "#string-interpolation" },
         { "include": "#string-escape" }
@@ -78,7 +90,7 @@
       "endCaptures": {
         "0": { "name": "punctuation.definition.interpolation.end.comp" }
       },
-      "contentName": "meta.embedded.expression.comp",
+      "contentName": "source.comp.embedded",
       "patterns": [
         { "include": "#main" }
       ]
@@ -90,72 +102,18 @@
     },
 
     "block": {
-      "comment": "Parenthesized block - check for frontmatter patterns",
+      "comment": "Parenthesized block",
+      "name": "meta.block.comp",
+      "begin": "(\\()",
+      "end": "(\\))",
+      "beginCaptures": {
+        "1": { "name": "punctuation.section.block.begin.comp" }
+      },
+      "endCaptures": {
+        "1": { "name": "punctuation.section.block.end.comp" }
+      },
       "patterns": [
-        {
-          "comment": "Block with opening frontmatter delimiter: (--- ... ---",
-          "name": "meta.block.with-frontmatter.comp",
-          "begin": "(\\()(---)",
-          "end": "(\\))",
-          "beginCaptures": {
-            "1": { "name": "punctuation.definition.block.begin.comp" },
-            "2": { "name": "punctuation.separator.frontmatter.comp" }
-          },
-          "endCaptures": {
-            "1": { "name": "punctuation.definition.block.end.comp" }
-          },
-          "patterns": [
-            {
-              "comment": "Frontmatter content until closing ---",
-              "begin": "(?<=---)",
-              "end": "(---)",
-              "endCaptures": {
-                "1": { "name": "punctuation.separator.frontmatter.comp" }
-              },
-              "contentName": "comment.block.documentation.frontmatter.comp"
-            },
-            { "include": "#main" }
-          ]
-        },
-        {
-          "comment": "Block with inline frontmatter: (text --- code) on same line, not starting with |",
-          "name": "meta.block.with-frontmatter.comp",
-          "begin": "(\\()(?=\\s*[^|()\\s][^()]*---)",
-          "end": "(\\))",
-          "beginCaptures": {
-            "1": { "name": "punctuation.definition.block.begin.comp" }
-          },
-          "endCaptures": {
-            "1": { "name": "punctuation.definition.block.end.comp" }
-          },
-          "patterns": [
-            {
-              "comment": "Frontmatter content before ---",
-              "begin": "(?<=\\()",
-              "end": "(---)",
-              "endCaptures": {
-                "1": { "name": "punctuation.separator.frontmatter.comp" }
-              },
-              "contentName": "comment.block.documentation.frontmatter.comp"
-            },
-            { "include": "#main" }
-          ]
-        },
-        {
-          "comment": "Block without frontmatter",
-          "name": "meta.block.comp",
-          "begin": "(\\()",
-          "end": "(\\))",
-          "beginCaptures": {
-            "1": { "name": "punctuation.definition.block.begin.comp" }
-          },
-          "endCaptures": {
-            "1": { "name": "punctuation.definition.block.end.comp" }
-          },
-          "patterns": [
-            { "include": "#main" }
-          ]
-        }
+        { "include": "#main" }
       ]
     },
 
@@ -166,9 +124,8 @@
     },
 
     "parameter": {
-      "comment": "Parameter declarations like :arg~type",
-      "name": "meta.parameter.comp",
-      "match": "(:)([a-zA-Z][a-zA-Z0-9-]*\\??)(~)([a-zA-Z][a-zA-Z0-9-]*\\??)?",
+      "comment": "Parameter declarations like :arg~type or just :arg",
+      "match": "(:)([a-zA-Z][a-zA-Z0-9-]*\\??)(~([a-zA-Z][a-zA-Z0-9-]*\\??))?",
       "captures": {
         "1": { "name": "punctuation.definition.parameter.comp" },
         "2": { "name": "variable.parameter.comp" },
@@ -179,7 +136,6 @@
 
     "tag": {
       "comment": "Tags like ~text, ~num, ~nil",
-      "name": "meta.tag.comp",
       "match": "(~)([a-zA-Z][a-zA-Z0-9-]*\\??)",
       "captures": {
         "1": { "name": "punctuation.definition.tag.comp" },
@@ -191,7 +147,6 @@
       "patterns": [
         {
           "comment": "Number with unit like 1~week",
-          "name": "meta.number-with-unit.comp",
           "match": "([0-9]+\\.?[0-9]*)(~)([a-zA-Z][a-zA-Z0-9-]*)",
           "captures": {
             "1": { "name": "constant.numeric.comp" },
@@ -211,8 +166,6 @@
         }
       ]
     },
-
-
 
     "pipe-operator": {
       "comment": "Pipe operator | - control flow",
@@ -248,8 +201,7 @@
 
     "function-call": {
       "comment": "Function calls like name() or namespace.name()",
-      "name": "meta.function-call.comp",
-      "match": "([a-zA-Z][a-zA-Z0-9-]*(?:\\.[a-zA-Z][a-zA-Z0-9-]*)*)(?=\\()",
+      "match": "([a-zA-Z][a-zA-Z0-9-]*(?:\\.[a-zA-Z][a-zA-Z0-9-]*)*)(?=\\s*\\()",
       "captures": {
         "1": { "name": "entity.name.function.comp" }
       }
@@ -268,6 +220,12 @@
       "comment": "Regular identifiers with kebab-case and optional trailing ?",
       "name": "variable.other.comp",
       "match": "[a-zA-Z][a-zA-Z0-9-]*\\??"
+    },
+
+    "doc-line": {
+      "comment": "Single line documentation: -- followed by text",
+      "name": "comment.line.documentation.comp",
+      "match": "--.*$"
     }
   }
 }

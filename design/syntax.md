@@ -17,17 +17,18 @@ The standard style uses:
 - Lines under 100 characters when reasonable
 - Space around binary operators
 - Space between function name and container for arguments
+- Long pipelines split with `|` starting a new line
 
 This said; the language is flexible and allows for whatever format feels most
 readable and editable for your current project.
 
 ```comp
-tight=:{"oneline"}  # No spacing
-spacey       = :arg ~num  # Wild spacing
-     { prose and docs___
+tight=:("oneline")  -- No spacing
+spacey       = :arg ~num  -- Wild spacing
+     ( prose and docs___
             var.first = 
     1 var.second =arg
-}
+)
 ```
 
 ## Tokens
@@ -49,7 +50,6 @@ Python. These are combined with a set of preferred patterns:
 
 - Prefer lowercase tokens
 - Prefer boolean functions and fields with a trailing `?`
-- Operators at the start (`|`) when splitting long lines
 
 The language convention is to use all lowercase characters when writing purely
 Comp-specific identifiers. When interfacing with other languages or data
@@ -93,27 +93,20 @@ records.#0."Owners".'var.owner-name'.active?
 
 ## Struct literals
 
-Structs are usually created from code surrounded by curly braces `{}`. These can
+Structs are usually created from code surrounded by parenthesis `()`. These can
 contain any mix of positional fields and named fields, which are separated by
 any whitespace. All values have a positional order, even the named fields.
 
-The language provides two alternative sets of braces for creating structs. These
-result in regular structs, but the syntax used to define them is somewhat
-changed.
-
-- `[]` literals struct converts tokens and numbers into a struct of positional
-  literals
-- `()` statement struct takes whatever the final expression is and uses that as
-  the struct value.
+Struct literals can provide a decorator which modifies how the literal is
+interepreted to define a new literal. These must be pure methods that use a
+special `~literal` argument.
 
 ```comp
-{1 2 z=3}
-[one two 3]  # {"one" "two" 3}
-(color="red" 5)  # 5
+(|val color="red" 5)  -- 5
+(|flat (1 2 3) (4) (5 6)) -- (1 2 3 4 5 6)
 ```
 
-These types of containers can be used interchangeably in many parts of the
-language
+These decorators can be used interchangeably in many parts of the language
 
 - Struct literals
 - Function call arguments
@@ -125,24 +118,27 @@ More details about how scopes and created and referenced is in the
 
 ## Comments and Documentation
 
-Comp uses `#` hashes to create line comments. Everything following the `#` until
-the end of the line is ignored by the parser. There is no support for block
-comments.
+Comp uses `--` to define line comments that include everything to the end of the
+line. Block comments are nested between triple dash `---` symbols.
 
-The language does not do any interpretation of the comment contents. Everything
-from the begin of the comment to the end of the line is strictly ignored.
+These comments actually become floating documentation that is associated with
+the code around them in different ways.
 
-Each struct and the module itself can define optional textual documentation for
-that object. This is separated from the regular struct body with a `___` symbol.
+Multiline comments will be unindented to positionally match the indentation of
+the opening `---` symbol.
 
-This can be done inline for compact definition, but is often placed on its own
-line. The documentation text is used as-is, even line comments it may contain
-are treated as regular text, making it ideal for code examples and more.
+The documentation is generally freely positioned through the code, and can be
+represented as literal information for documentation generators.
 
-The text will be unindented to match whatever indentation is used for the second
-line.
+- The opening comment for a file is considered documentation for the module
+  itself.
+- Comments mid stream become general section information and apply to all
+  following code.
+- Line comments that follow code are applied to all the preceding code on that
+  line.
 
 ```comp
+---
 The save functions will error if the given resources are not found
 or do not have proper permissions.
 
@@ -150,15 +146,14 @@ or do not have proper permissions.
 
 It's possible that block documentation will be interpreted as markdown
 in many contexts. What does this mean? Only time can tell.
-___
+--
 
-save = ~{data} {
-    Process different types of data appropriately
-    ___
-    # Function implementation
-}
+-- Process different types of data appropriately
 
-color = {red ___ 1 0 0}
+save = :~nil ()
+save = ~(data) (implementation())
+
+color = (1 0 0) -- red
 
 ```
 
@@ -202,16 +197,81 @@ chosen.
 - `a+-b` an add of the mathematic is the same as subtraction
 - `(a)-(b)` one or both tokens must be wrapped in parenthesis
 
-## Scope Reference
+## Scopes
 
-List of all named scopes, where they are defined, where they are accessible,
-how they work, and when they can be modified.
+The language uses many predefined scopes. Some can be read and others can be
+written to in specific contexts of the language.
 
-- mod
-- my
-- pkg
-- import
-- context
-- (pipeline input) gets arbitrary name per function
-- (function args) gets arbitrary name per function
-- var
+- `mod` these constant values can only be set at the top level of the module.
+  They can only be set to simple expressions or literal values, like the default
+  for shape fields. They can be read from anywhere within the same file, but are
+  not visible to code outside the module.
+- `my` a simple scope that module assignments can be made to that are private to
+  the current module. Values written to this scope can be referenced normally
+  within the same module.
+- `pkg` like `mod` these can be assigned to at the module top level. These
+  contain package metadata for the module. These are intended to be accessed and
+  read externally. There is a defined set of expected and optional field names
+  that packages can define, although anything can be set here.
+- `import` module level code can assign simple structures that define an import
+  specification. The handling of imports is managed by the language before the
+  module evaluates any code.
+- `startup` a module level context that named functions or struct literals are
+  assigned into. These are discoverable by runtime tools. The fields these
+  defines become values defined in the `ctx` scope.
+- `ctx` are values defined by the startup functions. This special context can
+  only be accessed inside evaluating functions. It's fields are not normally
+  accessible, but instead get merged into the function's argument definitions.
+  It is possible to assign or overwrite new fields into this context, which will
+  then be adopted by all function calls made from the current function.
+- `var` is an internal private namespace for local variables. These can be used
+  in functions and blocks, and is also accessible from regular struct literals
+  to reuse data. Blocks defined in a function share the same `var` scope as the
+  function that defined them.
+- `out` when a function is running this can refer to fields that have already
+  been defined. Nothing can be written to this scope directly.
+- `<in>` each function can define a shape used for its input and choose whatever
+  name it wants to represent this input. When data is given to a function
+  through pipeline input it is only loosely matched, and can contain additional
+  fields not part of the input shape.
+- `<arg>` each function can also defin a shape used to define its argument. It
+  can name this scope whatever it wants in the function definition. Argument
+  values are strictly matched to their scope. The arguments will not contain any
+  fields that are not in the function definition. This argument scope will be
+  populated by the `ctx` and `mod` scopes with any named fields that satisfy the
+  shape requirements for those arguments.
+
+As code is executed, a variety of scopes are available to the running code.
+These are always referenced through their fully qualified name, like
+`mod.version` or `arg.verbose`. In some contexts different scopes can be written
+to, like `ctx.server.port = 8000`. Remember that assignment doesn't modify
+existing structures since they are immutable. Instead they construct a new data
+with overlayed edits (and as much shared data as possible).
+
+Functions optionally receive separate scopes for provded arguments and for data
+passed through the pipeline. The block definition can define what name these two
+structs will be assigned inside the body.
+
+The pipeline data will always match the defined shape. It may also contain extra
+data and fields..
+
+The arguments struct is stricter and only contains explicitly defined fields.
+The arguments can be contributed to by other scopes like `ctx` or `mod` if they
+contain data that matches the defined shapes.
+
+The special `var` context is used for storing temporaries inside the scope. This
+scope is shared with any blocks defined inside the same function.
+
+```comp
+process-request = :in~(request) arg~(timeout ~num) (
+    var.start = time()  -- Function-local variable
+    var.user = in.user  -- Another local variable
+    (
+        response = in |validate() |process()  -- Struct field
+        duration = now() - start  -- Field computed from local
+    )
+
+    var.ctx.server.timeout = arg.timeout  -- Copy argument value to context scope
+    var.config = mod.settings  -- Module-level constants
+)
+```
