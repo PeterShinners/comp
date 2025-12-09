@@ -1,135 +1,124 @@
-TODO app using Rio UI library
+Classic Todo app using UI library
 Based on migration from Rio library for Python
+---
 
-my thoughts based on initial port
-- the spread operator is nasty in callbacks
-  `on-click = :({(..)=state filter=it})`
-- callbacks usually just a block that wraps a func with args that feels syntaxy
-  `on-clock = :(delete-todo (state todo.id))`
-- new 'id' type has automatic default computed value
-  - this seems like a language feature emerging
-		- don't want this to feel like class constructors - eeek
-___
-
-import.rio = {"@gh/rio-dev/rio-comp" comp}
+import.rio = ("@gh/rio-dev/rio-comp" comp)
 
 
-context.rio = {
+context.rio = (
 	title = "Todo"
-	state = state {}
+	state = state ()
 	component = todo-app
-}
+)
 
 
-todo = ~{
+todo = ~(
 	title~string
 	complete~bool = false
-	id~id  # auto unique value on construction (not a number or string)
-}
+	id~id  ; auto unique value on construction (not a number or string)
+)
 
 
-state = ~{
+state = ~(
 	todos~todo[] = []
 	input~text = ""
 	filter~visibility = all
-}
+)
 
-visibility.all = tag{}
-visibility.active = tag{}
-visibility.complete = tag{}
+visibility.all = tag()
+visibility.active = tag()
+visibility.complete = tag()
 
 
-todo-app = :state~state{
+todo-app = :state~state (
 	Build app window component declaratively
-	___
-	column spacing=2{
-		# Input field  
-		row{
-			#text-input 
+	---
+	component.column spacing=2 (|mix
+		; Input field  
+		component.row(
+			component.text-input 
 			text = state.input 
 			placeholder = "What needs doing?"
 			flex = 1
-			on-change = :(it |merge {input=value})
+			on-change = : (it |merge (input=value))
 			on-submit = add-todo
 			
-			#button 
+			component.button 
 			text = "Add" 
-			disabled = (state.input |trim{} == "")
+			disabled = (state.input |trim() == "")
 			on-click = add-todo
-		}
+		)
 		
-		# Todo list
-		(..) = state.todos
-		|filter:(todo-visible(state.filter))
-		|map:(todo-item (state it))
+		; Todo list
+		state.todos
+		|filter : (todo-visible(state.filter))
+		|map : (todo-item (state it))
 		
-		# Filter buttons
-		row{all active complete} |map:it{
-			button
+		; Filter buttons
+		component.row(all active complete) |map :it (
+			component.button
 			text = it.filter ~text
-			variant = pick{it == state.filter "primary" "outline"}
-			on-click = :(state .. {filter=it})
-		} |flatten{}
-	}
-}
+			variant = pick(it == state.filter "primary" "outline")
+			on-click = :it (state .. (filter=it))
+		) |flatten()
+	)
+)
 
 
-todo-item = :args~{state~state todo~todo}{
+todo-item = :args~(state~state todo~todo)(
 	Build individual todo item component declaratively
-	___
-	row align=center{
-		checkbox 
+	---
+	component.row align=center(
+		component.checkbox 
 		checked = todo.complete 
-		on-change = :(toggle-todo{state todo.id})
+		on-change = : (|val toggle-todo(state todo.id))
 		
-		text 
+		component.text 
 		text = todo.title 
 		flex = 1
-		style = pick{todo.complete "strikethrough" nil}
+		style = pick(todo.complete "strikethrough" nil)
 		
-		icon-button 
+		component.icon-button 
 		icon = "delete" 
-		on-click = :(delete-todo{state todo.id})
-	}
-}
-
-
-add-todo = :state~state(
-	Create new todo from current applications state
-	___
-	var.title = state.input |trim{} |if-empty("<no name>")
-	merge{state 
-		todos = state.todos |extend{var.title ~todo}
-	}
-)
-
-
-toggle-todo = :state~state id~id(
-	Toggle todo complete status
-	___
-	var.todos = state.todos |map :(
-		merge{it 
-			complete = pick (it.id == args.id !!it.complete it.complete)
-		}
+		on-click = : (|val delete-todo(state todo.id))
 	)
-
-	merge{state todos=var.todos}
 )
 
 
-delete-todo = :state~state id~id(
+add-todo = :state~state (|mix
+	Create new todo from current applications state
+	---
+	var.title = state.input |trim() |if-empty("<no name>")
+	state 
+	todos = state.todos |extend(var.title ~todo)
+)
+
+
+toggle-todo = :state~state id~id (|mix
+	Toggle todo complete status
+	---
+	state
+	todos = state.todos |map :it (|mix
+		it 
+		complete = pick (|val it.id == args.id !!it.complete it.complete)
+	)
+)
+
+
+delete-todo = :state~state id~id (|mix
 	Remove item from applicate state
-	___
-	state |merge{todos = state.todos |filter :it(it.id == args.id)}
+	---
+	state
+	todos = state.todos |filter :it (it.id != args.id)
 )
 
 
-todo-visible = :todo~todo filter~filter(
+todo-visible = :todo~todo filter~filter (|val
 	Determine if an item should be visible based on filter
-	___
-	filter |case{
+	---
+	filter |case(
 		'all' = true
 		'active' = !!todo.complete
 		'complete' = todo.complete
-	}
+	)
 )

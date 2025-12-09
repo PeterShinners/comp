@@ -1,34 +1,23 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "Comp in Markdown",
+  "name": "Comp Markdown Injection",
   "scopeName": "text.html.markdown.comp.injection",
   "injectionSelector": "L:text.html.markdown",
   "patterns": [
     {
-      "include": "#comp-code-block"
-    }
-  ],
-  "repository": {
-    "comp-code-block": {
-      "begin": "(^|\\G)(\\s*)(```|~~~)\\s*(?i:(comp)((\\s+|:|,|{|\\s*$).*)?$)",
-      "while": "(^|\\G)(?!\\s*([`~]{3,})\\s*$)",
+      "begin": "(^|\\G)(\\s*)(```)(comp)\\s*$",
+      "end": "(^|\\G)(\\2)(```)\\s*$",
+      "beginCaptures": {
+        "3": { "name": "punctuation.definition.markdown" },
+        "4": { "name": "fenced_code.block.language.markdown" }
+      },
+      "endCaptures": {
+        "3": { "name": "punctuation.definition.markdown" }
+      },
       "contentName": "meta.embedded.block.comp",
       "patterns": [
-        {
-          "include": "source.comp"
-        }
-      ],
-      "beginCaptures": {
-        "3": {
-          "name": "punctuation.definition.markdown"
-        },
-        "4": {
-          "name": "fenced_code.block.language.markdown"
-        },
-        "5": {
-          "name": "fenced_code.block.language.attributes.markdown"
-        }
-      }
+        { "include": "source.comp" }
+      ]
     }
-  }
+  ]
 }

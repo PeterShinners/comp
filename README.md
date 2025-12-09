@@ -31,10 +31,10 @@ variable lookups.
 ___
 
 main = :(
-  {"USERNAME" "USER" "LOGNAME"}
-  | map :in(getenv(in) ?? skip)
-  | first(else="World")
-  | print("Hello, ${}!")
+  ("USERNAME" "USER" "LOGNAME")
+  |map :in (getenv(in) ?? skip)
+  |first(else="World")
+  |print("Hello, ${}!")
 )
 ```
 
@@ -54,6 +54,7 @@ course, that can eventually be structured into a helpful hierarchy of files,
 modules, and dependencies as desired.
 
 ## Where Comp Shines
+
 Comp is designed for:
 
 - **Tool scripts** Maya, Blender, Houdini automation

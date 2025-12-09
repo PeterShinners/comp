@@ -1,0 +1,135 @@
+URL shortener service
+
+A simple URL shortener using Redis for storage.
+---
+
+import.http = ("http-server" stdlib)
+import.redis = ("redis" stdlib)
+import.url = ("core/url" stdlib)
+import.template = ("core/template" stdlib)
+
+pkg.name = "shortly"
+pkg.version = "1.0.0"
+
+mod.keys = (
+    target = "url-target:$()"
+    counter = "click-count:$()"
+    reverse = "reverse-url:$()"
+    total = "last-url-id"
+)
+
+
+; Context functions bootstrap values before startup
+ctx.server = : (
+    static = "./static"
+    templates = "./templates"
+)
+
+ctx.redis = : (
+    host = "localhost"
+    port = 6379
+    -- need to connect here
+)
+
+
+server = :request~http.request (|val
+    Primary entry for handling http server requests
+    ---
+    request |dispatch()
+    |post("/") :req (post-url)
+    |get("/" forward-url)
+    |get("/") : (response-template("newurl.html")
+    |get("/{id}" follow)
+    |get("/{id}.json" short-link-details)
+    |missing : (response-template("404.html" status=404)
+)
+
+
+post-url = :request~http.request (
+    Handle form submission to create new short URL
+    ---
+    request.form.url 
+    |assert (parse(url).scheme |in("http" "https") : (
+        (error="Please enter a valid URL" url=var.url)
+        |respond-template("newurl.html")
+    )
+    |insert-url()
+    |format("/$(id).json")
+    |http.redirect()
+)
+
+
+follow = :request~http.request(
+    request.params.id 
+    |details()
+    |increment()
+    |{in.target}  ; this needs some language definition
+    |http.redirect()
+    |?respond-missing()
+)
+
+
+short-link-details = :request~http.request (
+    request.params.id 
+    |details()
+    |render("details.html")
+    |?respond-missing()
+)
+
+
+details = ~(
+    id~text
+    target~text
+    clicks~num = 0
+)
+
+
+details = :id~text (|mix
+    id = id
+    (
+        target = id |format(mod.keys.target)
+        clicks = id |format(mod.keys.counter)
+    )
+    |redis.mget()
+    |defaults(clicks=0)
+)
+
+
+increment = :details~details (|val
+    Increment click count for given short id.
+    ---
+    redis.incr(details.id |format(mod.keys.counter))
+)
+
+
+insert-url = :url~text (|val
+    Inserts URL and returns short ID, reusing existing if present.
+    ---
+    url 
+    |format(mod.keys.reverse)
+    |redis.get()
+    |if-empty? : (|val
+        var.id = redis.incr(mod.keys.total) | base36-encode()
+        (
+            'var.id |format(mod.keys.target)' = url
+            'var.id |format(mod.keys.counter)' = 1
+            'url |format(mod.keys.reverse)' = var.id
+        )
+        |redis.mset()
+        var.id
+    )
+)
+
+
+base36-encode = :num~num pure (
+    Encodes positive integer to base36 string.
+    ---
+    var.charset = "0123456789abcdefghijklmnopqrstuvwxyz"
+    var.result = ""
+    var.n = num
+    while(var.n > 0) :(
+        var.result = mod.base36-chars.(var.n % 36) ++ var.result
+        var.n = var.n / 36 |floor()
+    )
+    var.result |if-empty?("0")
+)

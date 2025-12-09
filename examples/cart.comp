@@ -2,51 +2,45 @@ Shopping cart module.
 
 Simple demonstration with shapes and function.
 Also working with immutable data structures.
-___
+---
 
-cart = ~{
-    items~item[] = {}
+cart = ~(
+    items~item[] = ()
     discount~num = 0
-}
+)
 
-item = ~{
+item = ~(
     name~text
     price~num
     quantity~num = 1
-}
-
-
-main = :{
-    {
-        {"Apple" price=1.00 quantity=2}
-        {"Banana" price=0.50 quantity=2}
-        {"Apple" price=1.00 quantity=2}  # Will replace the first item
-    }
-    |reduce{initial=cart {} add-item}  # Add each item to an initial cart
-    |set-discount{amount=0.2}
-    |total{} 
-    |print{"Shopping cart: ${in}"}
-}
-
-
-total = :cart~cart pure{
-    Calculate total price with discounts applied.
-    ___
-    cart.items |sum:item{item.price * item.quantity} * (1 - cart.discount)
-}
-
-
-set-discount = :cart~cart amount~num pure(
-    Apply a discount rate to the cart.
-    ___
-    cart | merge{discount=amount}
 )
 
 
-add-item = :cart~cart item~item pure(
+main = :(
+    (
+        ("Apple" price=1.00 quantity=2)
+        ("Banana" price=0.50 quantity=2)
+        ("Apple" price=1.00 quantity=2)  ; Will replace the first item
+    )
+    |reduce(initial=cart () add-item)  ; Add each item to an initial cart
+    |merge(discount=0.2)
+    |set-discount(amount=0.2)
+    |total() 
+    |print("Shopping cart: $(in)")
+)
+
+
+total = :cart~cart pure (|val
+    Calculate total price with discounts applied.
+    ---
+    cart.items |sum:item(item.price * item.quantity) * (1 - cart.discount)
+)
+
+
+add-item = :cart~cart item~item pure (|val
     Add or update an item. Replaces if name matches.
-    ___
-    cart | merge{
-        items = cart.items |upsert{item match=:i(i.name == new.name)}
-    }
+    ---
+    cart | merge(
+        items = cart.items |upsert(item match= :i (i.name == new.name))
+    )
 )

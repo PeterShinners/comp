@@ -1,23 +1,24 @@
 Get top weekly thumbed issues from GitHub
 
-Based on: https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
-___
+Based on: https://julianhofer.eu/blog/2025/nushell/;format-table-in-markdown-format
+---
 
-import.gh = {"github-api" comp}
-import.time = {"core/time" stdlib}
+import.gh = ("github-api" comp)
+import.time = ("core/time" stdlib)
 
 
 main = :(
-    var.after = time.now{} - 1~week
-    var.fields = {~created-at ~title ~url ~reactions}
+    var.after = time.now() - 1~week
+    var.fields = (created-at title url reactions)
 
-    gh.list-issues{repo="nushell/nushell" fields=var.fields}
-    |filter:issue(issue.created-at >= var.after)
-    |map:i{i |merge{
-        num-thumbs = i.reactions |count:r(r.content == ~thumbs-up)
-    }}
-    |sort{~reverse}:i(i.num-thumbs)
-    |first{5}
-	|rename-fields{num-thumbs="👍"}
-	|to-markdown{}
+    gh.list-issues(repo="nushell/nushell" fields=var.fields)
+    |filter :iss (iss.created-at >= var.after)
+    |map :repo (|mix 
+        repo
+        num-thumbs = repo.reactions |count :reac (reac.content == thumbs-up)
+    )
+    |sort(reverse) :repo (repo.num-thumbs)
+    |first(5)
+	|rename-fields(num-thumbs="👍")
+	|to-markdown()
 )

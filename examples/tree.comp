@@ -1,72 +1,72 @@
 Binary search tree example for build, search, and iterate
-___
+---
 
-tree = ~{
+tree = ~(
 	value~num
 	left~branch = nil
 	right~branch = nil
-}
+)
 
-branch = ~{tree | nil}
+branch = ~(tree | nil)
 
 
 main = :(
-	# Build tree from values
-	var.tree = {5 3 8 1 7 9} |reduce {initial=tree{}}:it(
-		it.accum |tree-insert{it.val}
+	; Build tree from values
+	var.tree = (5 3 8 1 7 9) |reduce (initial=tree() : it(
+		it.accum |tree-insert(it.val)
 	)
 
-	# Test finding values
-	var.seven? = tree |tree-contains{7}  # true
-	var.four? = tree |tree-contains{4}  # false
+	; Test finding values
+	var.seven? = tree |tree-contains(7)  ; true
+	var.four? = tree |tree-contains(4)  ; false
 
-	# Get sorted values
-	tree-values{tree} |print{}    # [1 3 5 7 8 9]
+	; Get sorted values
+	tree-values(tree) |print()    ; [1 3 5 7 8 9]
 )
 
 
-empty.tree-insert = :tree~nil value~num pure(
+tree-insert = :tree~nil value~num pure (|val
 	Insert value into binary search tree
-	___
-	tree{value}
+	---
+	tree(value)
 )
 
 
-some.tree-insert = :tree~branch value~num pure(
-	merge{
-		tree 
-		if(value < tree.value) 
-			:{left = tree-insert{tree.left value}}
-		|else 
-			:{right = tree-insert{tree.right value}}
-	}
+tree-insert = :tree~branch value~num pure (|mix
+	tree 
+	if(value < tree.value) 
+		: (left = tree-insert(tree.left value)
+	|else 
+		: (right = tree-insert(tree.right value)
 )
 
 
-empty.tree-contains = :tree~nil value~num pure(
+tree-contains = :tree~nil value~num pure (|val
 	Check if value exists in tree
-	___
+	---
 	false
 )
 
 
-some.tree-contains = :tree~branch value~num pure(
+tree-contains = :tree~branch value~num pure (|val
 	if(value < tree.value)
-		:(tree-contains{tree.left value})
+		:(tree-contains(tree.left value))
 	|elif(value > tree.value)
-		:(tree-contains{tree.right value})
+		:(tree-contains(tree.right value))
 	|else
 		(true)
 )
 
 
-empty.tree-values = :tree~nil pure( 
+tree-values = :tree~nil pure (|val
 	Sorted list of all values in tree
-	___
-	{}
+	---
+	()
 )
 
 
-some.tree-values = :tree~branch pure(
-	flatten{tree-values(tree.left) tree.value tree-values(tree.right)} 
+tree-values = :tree~branch pure (|flat
+	tree-values(tree.left) 
+	tree.value 
+	tree-values(tree.right)
 )

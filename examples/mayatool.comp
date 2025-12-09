@@ -1,64 +1,64 @@
 Two examples of working with Maya
-___
+---
 
-import.maya = {"maya-comp-spectacular@1.0.3" comp}
+import.maya = ("maya-comp-spectacular@1.0.3" comp)
 
-layer-config = ~{
+layer-config = ~(
     suffix~text
-    parent-type~{parent | selection}
-    layer-type~{joint |locator | group}
-    outliner-color~{~num ~num ~num} = {orange___ 1.0 0.5 0.0}
-}
+    parent-type~(parent | selection)
+    layer-type~(joint | locator | group)
+    outliner-color~(~num ~num ~num) = (orange--- 1.0 0.5 0.0)
+)
 
 
-create-inbetween = :arg~layer-config(
+create-inbetween = :arg~layer-config (|val
 	Maya tool to create offset transforms
 	Based on https://github.com/TrevisanGMW/gt-tools
-	___
+	---
     !transact maya.scene maya.preserve-selection
 
-    maya.selection {}
-    |map :obj(
-        var.parent = obj |maya.get-parent{}
+    maya.selection ()
+    |map :obj (
+        var.parent = obj |maya.get-parent()
 
         var.transform = var.parent
-        |maya.create-node{arg.layer-type name=format{"${obj.name}${arg.suffix}"}}
-        |maya.set-attr{useOutlinerColor true}
-        |maya.set-attr{outlinerColor arg.outliner-color}
-        |maya.parent{var.parent}
+        |maya.create-node(arg.layer-type name=format("$(obj.name)$(arg.suffix)"))
+        |maya.set-attr(useOutlinerColor true)
+        |maya.set-attr(outlinerColor arg.outliner-color)
+        |maya.parent(var.parent)
 
         var.target = if(arg.parent-type == parent):(var.parent) |else:(obj)
-        if(var.target |maya.exists{}):(
-            var.target |maya.constrain{var.transform}
+        if(var.target |maya.exists()) : (
+            var.target |maya.constrain(var.transform)
         )
 
-        obj |maya.parent{var.transform}
+        obj |maya.parent(var.transform)
     )
 )
 
 
-bubble-args = ~{
+bubble-args = ~(
     count~num = 10
-    radius-range~{~num ~num} = {0.1 0.5}
-    position-range~{~num ~num} = {0.1 5.0}
-}
+    radius-range~(~num ~num) = (0.1 0.5)
+    position-range~(~num ~num) = (0.1 5.0)
+)
 
-create-bubbles = :parent arg~bubble-args(
+create-bubbles = :parent arg~bubble-args(|val
 	Create random bubble shapes
 	Based on https://github.com/nestrada2/bubbles
-	___
-    !transact ~maya.scene
+	---
+    !transact maya.scene
 
     var.group = parent 
-    |maya.create-node{group name="bubbles"} 
-    |maya.select{replace}
+    |maya.create-node(group name="bubbles") 
+    |maya.select(replace)
 
-    !transact ~maya.preserve-selection
+    !transact maya.preserve-selection
 
-    range{arg.count} |map :i(
-        var.position = repeat{3}:(random{arg.position-range})
+    range(arg.count) |map :i (
+        var.position = repeat(3) : (random(arg.position-range))
         var.group
-        |maya.poly-sphere{name=format{"bubble-${i}"} radius=random{arg.radius-range}}
-        |maya.xform{position=var.position}
+        |maya.poly-sphere(name=format("bubble-$(i)") radius=random(arg.radius-range)
+        |maya.xform(position=var.position)
     )
 )
