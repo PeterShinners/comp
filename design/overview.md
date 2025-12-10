@@ -16,7 +16,7 @@ import.gh = ("github-api" comp)
 import.time = ("core/time" stdlib)
 
 main = :(
-    var.after = time.now() - 1~week
+    var.after = time.now() - 1(week)
     var.fields = (created-at title url reactions)
 
     gh.list-issues(repo="nushell/nushell" fields=var.fields)
@@ -271,14 +271,13 @@ that lives outside the control of the language.
 
 ```comp
 -- Define tags
-ok = tag()
-error = tag()
-pending = tag()
+tag.ok = ~()
+tag.error = ~()
+tag.pending = ~()
 
 -- Hierarchical tags
-visibility.all = tag()
-visibility.active = tag()
-visibility.complete = tag()
+tag.visibility = ~(all active)
+tag.visibility.complete = ~()
 
 -- Use them as values
 current = pending

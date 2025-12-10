@@ -13,9 +13,10 @@ branch = ~(tree | nil)
 
 main = :(
 	-- Build tree from values
-	var.tree = (5 3 8 1 7 9) |reduce (initial=tree() : it(
+	var.tree = (5 3 8 1 7 9) 
+	|reduce (initial=tree() : it(
 		it.accum |tree-insert(it.val)
-	)
+	))
 
 	-- Test finding values
 	var.seven? = tree |tree-contains(7)  -- true
@@ -24,7 +25,6 @@ main = :(
 	-- Get sorted values
 	tree-values(tree) |print()    -- [1 3 5 7 8 9]
 )
-
 
 -- Insert value into binary search tree
 
@@ -35,9 +35,9 @@ tree-insert = :tree~nil value~num pure (|val
 tree-insert = :tree~branch value~num pure (|mix
 	tree 
 	if(value < tree.value) 
-		: (left = tree-insert(tree.left value)
+		: (left = tree-insert(tree.left value))
 	|else 
-		: (right = tree-insert(tree.right value)
+		: (right = tree-insert(tree.right value))
 )
 
 -- Search existance of value in tree
@@ -55,11 +55,9 @@ tree-contains = :tree~branch value~num pure (|val
 		(true)
 )
 
-
 -- Generate sequence of sorted tree members
 
-tree-values = :tree~nil pure (|val
-	()
+tree-values = :tree~nil pure (
 )
 
 tree-values = :tree~branch pure (|flat

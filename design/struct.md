@@ -216,18 +216,18 @@ meaning to values: `5~meter` is different from `5~second`, and the type system
 prevents mixing them. Together, shapes and units create compile-time validation
 without runtime overhead.
 
-Defined tags are also valid shapes. The hierarchical parent of tags can be
-used as a type specification for any of its children.
+Defined tags are also valid shapes. The hierarchical parent of tags can be used
+as a type specification for any of its children.
 
 ## Shape Definition
 
-Shapes are defined like structs with a `~` prefix but use a slightly
-different syntax. Each field in the struct can define an optional name,
-an optional type, and an optional default value. Without a name fields
-are considered as positional values.
+Shapes are defined like structs with a `~` prefix but use a slightly different
+syntax. Each field in the struct can define an optional name, an optional type,
+and an optional default value. Without a name fields are considered as
+positional values.
 
-The default value can only use literal values or expressions. They cannot
-use function calls of their own. (Perhaps one day pure calls will be allowed?)
+The default value can only use literal values or expressions. They cannot use
+function calls of their own. (Perhaps one day pure calls will be allowed?)
 
 ```comp
 point = ~(
@@ -356,8 +356,7 @@ positional_matches)`
 
 -- This is a mess, what is going on here (too many syntax replacement ops?)
 
-status.ok = tag()
-status.error = tag()
+tag.status = ~(ok error)
 
 generic = (  #status)
 specific = (  #network.error)
@@ -379,27 +378,62 @@ group = (  #group name ~text members ~user[])
 (type=#user name="X") ~user | ~group  -- Unambiguous
 ```
 
-### Shape Constraints
+## Checks and Lists Constraints
 
-TODO, this syntax doesn't quite hold. maybe constraints can use []
+Shapes can be enhanced with additional constraints. Checks validate that values
+meet specific requirements beyond their base type. Lists specify how many values
+of a shape can appear in a sequence. Both can be combined to create precise type
+definitions that are reusable throughout a module.
 
-Constraints validate field values during morphing:
+Checks are specified in square brackets [] after a shape. Each check is a pure
+function that validates the value. If any check fails, the value cannot morph to
+that shape. Multiple checks can be listed together and all must pass. Common
+checks include numeric bounds like min and max, text constraints like non-empty
+and ascii, and pattern matching with match for regular expressions.
+
+List constraints use curly braces {} with syntax borrowed from regular
+expressions. A single number specifies an exact count, two comma-separated
+numbers specify a range (inclusive), and omitting a number leaves that bound
+open. For example, {3} means exactly three, {1,5} means one to five, {2,} means
+two or more, and {,8} means up to eight.
+
+Any pure function can serve as a check if it takes the appropriate type and
+optionally an argument, returning a failure when the value doesn't satisfy the
+constraint.
 
 ```comp
-valid-user = ~(
-    name ~text (min-length=3 max-length=50)
-    email ~text (pattern="^[^@]+@[^@]+$")
-    age ~num (min=13 max=120)
+-- Define constrained types
+uint8 = num[integer min=0 max=255]
+unix-name = text[ascii size=(1 32) match="^[a-z_][a-z0-9_-]*$"]
+
+-- Build on constrained types with lists
+rgb = uint8{3}
+path-segments = text[non-empty]{1,}
+
+-- Use in shape definitions
+sprite = ~(
+    position~num{2}
+    color~rgb
+    layers~image{1,4}
 )
 
-# Custom validation functions
-valid-username = :name~text(
-    (length(name)) >= 3 &&
-    (name | match("^[a-z][a-z0-9_]*$"))
+-- Custom check function
+divisible-by = :val~num divisor~num pure (|val
+    if(divmod(val divisor).#1 != 0) :(
+        fail("$(val) is not divisible by $(divisor)")
+    )
 )
 
-account = (
-    username ~text (validate=valid-username)
-    balance ~num (min=0)
-)
+-- Use custom checks alongside builtins
+grid-size = num[positive integer divisible-by=8]
 ```
+
+Comp also defines a system called units as a way to extend number and text
+values. These are separate from these constraints, and the two concepts can be
+combined. See [Type Documentation](type.md) for more unit details.
+
+Checks and lists are separate from units. Checks validate during morphing but
+don't persist on values — a number that passes [min=0] is still just a number.
+Units are tags that attach to numbers and text and persist through operations,
+enabling dispatch and conversion between compatible measurements.
+

@@ -25,9 +25,7 @@ state = ~(
 	filter~visibility = all
 )
 
-visibility.all = tag()
-visibility.active = tag()
-visibility.complete = tag()
+tag.visibility = ~(all active complete)
 
 
 -- Build app window component declaratively
@@ -39,7 +37,7 @@ todo-app = :state~state (
 			text = state.input 
 			placeholder = "What needs doing?"
 			flex = 1
-			on-change = : (it |merge (input=value))
+			on-change = :it (it |merge (input=value))
 			on-submit = add-todo
 			
 			component.button 

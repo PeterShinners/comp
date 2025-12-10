@@ -146,7 +146,7 @@ or do not have proper permissions.
 
 It's possible that block documentation will be interpreted as markdown
 in many contexts. What does this mean? Only time can tell.
---
+---
 
 -- Process different types of data appropriately
 
@@ -154,7 +154,6 @@ save = :~nil ()
 save = ~(data) (implementation())
 
 color = (1 0 0) -- red
-
 ```
 
 ## Operator Reference
@@ -228,6 +227,8 @@ written to in specific contexts of the language.
   in functions and blocks, and is also accessible from regular struct literals
   to reuse data. Blocks defined in a function share the same `var` scope as the
   function that defined them.
+- `tag` modules define tag hiearchy in this declarative namespace. They
+  then become part of the module namespace after being processed.
 - `out` when a function is running this can refer to fields that have already
   been defined. Nothing can be written to this scope directly.
 - `<in>` each function can define a shape used for its input and choose whatever
