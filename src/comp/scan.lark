@@ -1,0 +1,81 @@
+// Comp Language Module Scanner
+// Extracts: doc comments, import assignments, pkg assignments
+// Everything else is parsed loosely for structure only
+
+?start: item*
+
+?item: struct
+     | brackets
+     | braces
+     | doc_comment
+     | line_comment
+     | assignment
+     | text
+     | number
+     | identifier
+     | DOT
+     | ASSIGN
+     | BLOB
+
+
+// Nested structures - all parens are just "struct" for simplicity
+STRUCT_OPEN.6: "("
+STRUCT_CLOSE.6: ")"
+CHECK_OPEN.6: "["
+CHECK_CLOSE.6: "]"
+LIST_OPEN.6: "{"
+LIST_CLOSE.6: "}"
+
+struct: STRUCT_OPEN item* STRUCT_CLOSE
+brackets: CHECK_OPEN item* CHECK_CLOSE
+braces: LIST_OPEN item* LIST_CLOSE
+
+// Comment parsing with separated delimiters and content.
+DOC_OPEN.5: "---"
+DOC_CONTENT.5: /(.|\n)+?(?=---)/
+_doc_comment: DOC_OPEN DOC_CONTENT? DOC_OPEN
+doc_comment: _doc_comment
+
+LINE_OPEN.5: "--"
+LINE_CONTENT.5: /[^\r\n]+/
+_line_comment: LINE_OPEN LINE_CONTENT?
+line_comment: _line_comment
+
+
+// Assignment - the key structure we need
+ASSIGN.5: "="
+assignment: identifier ASSIGN item
+
+
+// Text parsing with separated quotes and content.
+DUBQUOTE.3: "\""
+SIXQUOTE.3:  "\"\"\""
+SHORT_TEXT_CONTENT.3: /(?:[^"\\\r\n]|\\.)+/
+_short_text: DUBQUOTE SHORT_TEXT_CONTENT? DUBQUOTE
+LONG_TEXT_CONTENT.3: /(.|\n)+?(?=""")/s
+_long_text: SIXQUOTE LONG_TEXT_CONTENT? SIXQUOTE
+text: _short_text | _long_text
+
+
+// Numbers - basic support
+number: DECIMAL | INTEGER
+INTEGER.3: /0[xXbBoO](_?[\da-zA-Z])+/
+DECIMAL.3: /\d(_?\d)*\.(\d(_?\d)*)?/
+         | /\.\d(_?\d)*/
+         | /\d(_?\d)*/
+
+
+// Identifiers - dotted paths for import.x and pkg.x
+// Allow structs after DOT for dynamic access like foo.(expr)
+// Allow DOT after DOT for .. merge operator
+TOKENFIELD.4: /[a-zA-Z_][\w-]*/
+DOT.6: "."
+identifier: TOKENFIELD (DOT (TOKENFIELD | struct | DOT))*
+
+
+// Blob catches everything else - exclude structural chars
+BLOB.1: /[^\s()\[\]{}."]+/
+
+
+%import common.WS
+%ignore WS
