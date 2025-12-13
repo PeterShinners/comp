@@ -93,7 +93,7 @@ like applying modifiers to shapes, morphing rules, and indexing into structures.
 42  -- Auto-promotes to (42)
 (x=10 y=20)  -- Named fields
 (1+1 2+2 3+3)  -- Positional fields  
-(name="Alice" 30 active?=true)  -- Mixed data
+(name="Alice" 30 is-active=true)  -- Mixed data
 
 player = ~(name~text score~num=0)  -- Define a shape
 optional-text = ~(text | nil)  -- Union types (shapes)

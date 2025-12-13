@@ -4,7 +4,7 @@ Also working with immutable data structures.
 ---
 
 cart = ~(
-    items~item[] = ()
+    items~item{} = ()
     discount~num = 0
 )
 

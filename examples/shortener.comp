@@ -109,7 +109,7 @@ insert-url = :url~text db~redis.connection (|val
     url 
     |format(mod.keys.reverse)
     |redis.get(db)
-    |if-empty? : (|val
+    |if-empty : (|val
         var.id = redis.incr(db mod.keys.total) | base36-encode()
         (
             'var.id |format(mod.keys.target)' = url
@@ -131,5 +131,5 @@ base36-encode = :num~num pure (
         var.result = mod.base36-chars.(var.n % 36) ++ var.result
         var.n = var.n / 36 |floor()
     )
-    var.result |if-empty?("0")
+    var.result |if-empty("0")
 )

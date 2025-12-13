@@ -19,14 +19,9 @@ Comp also provides several other types to represent special objects in the
 language.
 
 - Shapes are like simple structures that define a schema for structures
-- Functions are operations that take a fixed shape to create new data
-- Blocks are deferred structures, like lightweight functions that do not need
-  arguments.
-- Tags are predefined enumerations that define a hierharchy. Tags are used as
-  both values and as shapes.
-- Handles allow access to external resources like files, network, other
-  languages, or anything outside control of the Comp language.
-- Id is a special value that has no value but defines uniqueness among objects
+- Blocks are deferred structures generated from an input
+- Functions are just blocked assigned to a namespace
+- Tags are predefined hierarchical enumerations that can also be external handles.
 
 The type system embodies principles that prevent common programming
 frustrations:
@@ -342,8 +337,7 @@ Values are not converted to booleans automatically. They are only the result of
 comparison operators and any functions that result in the boolean literals.
 
 Function and field names representing booleans are incouraged to use a naming
-scheme with trailing questiong mark, instead of compound names using terms like
-"is" or "has".
+with a leading prefix like `is-` or `has-`.
 
 Operators like `&&` and `||` perform boolean **and** and **or** logic to combine
 booleans. The `!!` **not** operator switches a boolean value. These operators do
@@ -356,15 +350,15 @@ values.
 ```comp
 -- Boolean literals are tags
 (
-    valid? = true
-    enabled? = false
+    validated = true
+    enabled = false
 )
 
 -- Comparison operators return booleans
-let result? = x > 5  -- Returns true or false
-let equal? = name == Alice  -- Explicit comparison
+let is-big = x > 5  -- Returns true or false
+let is-alice = name == Alice  -- Explicit comparison
 
-"text" | empty?  -- Boolean True if string has no characters
+"text" | is-empty  -- Boolean True if string has no characters
 
 -- Logical operators (short-circuiting)
 -- Design note: All logical operators use double-character syntax
@@ -439,21 +433,21 @@ current = http.status.success.ok
 response-code = http.code.not-found
 
 -- Retrieve associated value
-value(http.code.ok)           -- 200
-value(http.status.success)    -- nil (no value, has children)
+value(http.code.ok)  -- 200
+value(http.status.success)  -- nil (no value, has children)
 
 -- Use tags as types in shapes
 request = ~(
-    method~http.method        -- any child of http.method
-    status~http.status        -- any child of http.status  
-    valid?~bool               -- true or false, not bool itself
+    method~http.method  -- any child of http.method
+    status~http.status  -- any child of http.status  
+    is-valid~bool  -- true or false, not bool itself
 )
 
 -- Tag matching in function dispatch
 handle = :response~http.status.success (...)
 handle = :response~http.status.error (...)
 
-response |handle()            -- dispatches based on tag hierarchy
+response |handle()  -- dispatches based on tag hierarchy
 ```
 
 ## Units
@@ -503,36 +497,36 @@ timeout = 30(second)
 query = "SELECT * FROM users"(sql)
 
 -- Convert between compatible units
-height(foot)              -- 1 (12 inches = 1 foot)
-height(meter)             -- 0.3048
-timeout(minute)           -- 0.5
+height(foot)  -- 1 (12 inches = 1 foot)
+height(meter)  -- 0.3048
+timeout(minute)  -- 0.5
 
 -- Strip units
-raw = height(num)         -- 12 (plain number)
-plain = query(text)       -- "SELECT * FROM users" (plain text)
+raw = height(num)  -- 12 (plain number)
+plain = query(text)  -- "SELECT * FROM users" (plain text)
 
 -- Inspect units
-unit(height)              -- inch
-unit(timeout)             -- second  
-unit(42)                  -- nil
+unit(height)  -- inch
+unit(timeout)  -- second  
+unit(42)  -- nil
 
 -- Arithmetic respects units
-total = 12(inch) + 1(foot)    -- 24(inch), converts to common unit
-combined = 5(meter) + 10(foot) -- result in meters
+total = 12(inch) + 1(foot)  -- 24(inch), converts to common unit
+combined = 5(meter) + 10(foot  -- result in meters
 
 -- Incompatible units fail
 mixed = 5(meter) + 3(second)  -- ERROR: incompatible units
 
 -- Shape definitions: leaf unit provides default, converts compatible units
 speed = ~(distance~meter duration~second)  
-data |speed()             -- plain numbers become meters/seconds
+data |speed()  -- plain numbers become meters/seconds
 
 -- Shape definitions: family requires unit already present
 generic-speed = ~(distance~length duration~time)
-data |generic-speed()     -- fails if values lack units
+data |generic-speed()  -- fails if values lack units
 
 -- Units combine with checks and lists
-coordinates = ~length[min=0]{3}       -- 3 non-negative length values
-queries = ~sql[non-empty]{1,}         -- 1+ non-empty SQL strings
+coordinates = ~length[min=0]{3}  -- 3 non-negative length values
+queries = ~sql[non-empty]{1,}  -- 1+ non-empty SQL strings
 safe-timeout = ~second[positive max=300]  -- positive seconds, max 5 minutes
 ```

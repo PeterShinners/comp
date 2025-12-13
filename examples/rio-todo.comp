@@ -7,7 +7,7 @@ import.rio = ("@gh/rio-dev/rio-comp" comp)
 
 startup.rio = (
 	title = "Todo"
-	state = state ()
+	state = state()
 	component = todo-app
 )
 
@@ -20,7 +20,7 @@ todo = ~(
 
 
 state = ~(
-	todos~todo[] = []
+	todos~todo{} = ()
 	input~text = ""
 	filter~visibility = all
 )

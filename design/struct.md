@@ -244,7 +244,7 @@ user = ~(
     name~text
     email~text
     age~num = 0
-    active?~bool = true  # ? suffix for boolean predicate (Ruby idiom)
+    is-active~bool = true
     user-tag[]  # Array of specific tags
 )
 
@@ -303,14 +303,11 @@ user(name="Bob" email="bob@example.com")
 # Result: (name="Bob" email="bob@example.com" age=()
 ```
 
-The `?` suffix on field names indicates boolean predicates. This is just a
-convention, not part of the syntax or any other requirement.
-
 ```comp
 session = ~(
     user~text
-    active?~bool = true
-    verified?~bool = false
+    is-active~bool = true
+    is-verified~bool = false
 )
 ```
 

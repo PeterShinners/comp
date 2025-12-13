@@ -37,13 +37,11 @@ Tokens are used for naming variables, functions, tags, and nearly everything in
 the language. Tokens have the following rules:
 
 - Use kebab-case with hyphens as word separators
-  - No leading or trailing hyphens allowed
 - No leading digits (digits allowed after first character)
-- Leading underscores are allowed
-- Final character may be a question mark `?`
+- Leading and trailing underscores are allowed
+- No leading or trailing hyphens allowed
 - Characters are case sensitive
-- Follow the UAX #31 specification for valid unicode tokens
-  - With allowances for previously mentioned special characters
+- Allows UAX #31 specification for valid unicode tokens
 
 This unicode UAX #31 is the same character set used by languages like Rust and
 Python. These are combined with a set of preferred patterns:
@@ -65,7 +63,7 @@ Allowed tokens (although not always preferred)
 
 - `html5`
 - `Content-Accept`
-- `_parity_bit?`
+- `_parity_bit`
 - `用户名`
 
 ## Identifier Fields

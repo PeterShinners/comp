@@ -19,8 +19,8 @@ main = :(
 	))
 
 	-- Test finding values
-	var.seven? = tree |tree-contains(7)  -- true
-	var.four? = tree |tree-contains(4)  -- false
+	var.seven = tree |tree-contains(7)  -- true
+	var.four = tree |tree-contains(4)  -- false
 
 	-- Get sorted values
 	tree-values(tree) |print()    -- [1 3 5 7 8 9]
