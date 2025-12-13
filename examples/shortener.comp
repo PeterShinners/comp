@@ -40,10 +40,10 @@ server = :request~http.request (|val
     request |dispatch()
     |post("/") :req (post-url)
     |get("/" forward-url)
-    |get("/") : (response-template("newurl.html")
+    |get("/") : (response-template("newurl.html"))
     |get("/{id}" link-redirect)
     |get("/{id}.json" link-details)
-    |missing : (response-template("404.html" status=404)
+    |missing : (response-template("404.html" status=404))
 )
 
 
@@ -54,7 +54,7 @@ post-url = :request~http.request (
     |assert (parse(url).scheme |in("http" "https") : (
         (error="Please enter a valid URL" url=var.url)
         |respond-template("newurl.html")
-    )
+    ))
     |insert-url()
     |format("/$(id).json")
     |http.redirect()
@@ -65,7 +65,7 @@ link-redirect = :request~http.request(
     request.params.id 
     |details()
     |increment()
-    |{in.target}  -- this needs some language definition
+    |(in.target)  -- this needs some language definition
     |http.redirect()
     |?respond-missing()
 )

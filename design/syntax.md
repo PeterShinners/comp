@@ -173,7 +173,7 @@ All logical operators use double characters for consistency and clarity
 
 - `|` - Pipeline function chaining
 - `|?` - Pipeline fallback operator
-- `??` - Provide fallback value
+- `?` - Provide fallback value
 
 **Assignment operators:**
 

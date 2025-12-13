@@ -1,0 +1,127 @@
+// Comp Language Grammar
+
+?start: module*
+
+?module: mod_field
+       | expression
+     // | BLOB
+
+mod_field: identifier ASSIGN expression
+
+
+PAREN_OPEN.6: "("
+PAREN_CLOSE.6: ")"
+ASSIGN.5: "="
+COLON.4: ":"
+
+// Shape
+TILDE.4: "~"
+COMMA.4: ","
+shape: TILDE shape_spec
+shape_spec: (identifier | paren_shape) check_suffix? array_suffix?
+CHECK_OPEN.4: "["
+CHECK_CLOSE.4: "]"
+ARRAY_OPEN.4: "{"
+ARRAY_CLOSE.4: "}"
+check_suffix: CHECK_OPEN struct_field+ CHECK_CLOSE
+array_suffix: ARRAY_OPEN (number (COMMA number?)?)? ARRAY_CLOSE
+paren_shape: PAREN_OPEN shape_content PAREN_CLOSE
+
+shape_content: shape_union | shape_field*
+shape_union: shape_spec (PIPE shape_spec)+
+shape_field: (TOKENFIELD | shape | TOKENFIELD shape) (ASSIGN field_default_value)?
+?field_default_value: simple_expr | structure
+
+
+// Keywords (having custom syntaxes)
+KEY_TRANSACT.5: "!transact"
+KEY_GRAB.5: "!grab"
+KEY_DROP.5: "!drop"
+KEY_PUSH.5: "!push"
+KEY_PULL.5: "!pull"
+transaction: KEY_TRANSACT PAREN_OPEN identifier+ PAREN_CLOSE
+
+?expression: comparison
+           | transaction
+
+
+// Expressions
+EQ.6: "=="
+NE.6: "!="
+LT.6: "<"
+GT.6: ">"
+LE.6: "<="
+GE.6: ">="
+
+PIPE.4: "|"
+PIPEFALLBACK.4: "|?"
+
+LNOT.5: "!!"
+LAND.5: "&&"
+LOR.5: "||"
+
+PLUS.3: "+"
+MINUS.3: "-"
+KEBAB_MINUS.3: "+-"
+STAR.3: "*"
+SLASH.3: "/"
+
+?comparison: arithmetic
+           | comparison EQ arithmetic -> binary_op
+           | comparison NE arithmetic -> binary_op
+           | comparison LT arithmetic -> binary_op
+           | comparison GT arithmetic -> binary_op
+           | comparison LE arithmetic -> binary_op
+           | comparison GE arithmetic -> binary_op
+
+?arithmetic: term
+           | arithmetic (PLUS | MINUS | KEBAB_MINUS) term -> binary_op
+
+?term: pipeline_expr
+     | term (STAR | SLASH) pipeline_expr -> binary_op
+
+?pipeline_expr: unary
+              | pipeline_expr (PIPE | PIPEFALLBACK) unary -> binary_op
+
+?unary: postfix
+      | (PLUS | MINUS | LNOT) unary -> unary_op
+
+postfix: atom (DOT TOKENFIELD)*
+
+// Simplified expressions, for default values  (avoids ambiguity) 
+?simple_expr: simple_term
+             | simple_expr (PLUS | MINUS | KEBAB_MINUS | LAND | LOR) simple_term -> binary_op
+?simple_term: simple_atom
+            | simple_term (STAR | SLASH) simple_atom -> binary_op
+?simple_atom: number | text | identifier
+             | (PLUS | MINUS | LNOT) simple_atom -> unary_op
+
+
+// Structures and Blocks
+block: COLON shape_field* structure
+structure: PAREN_OPEN struct_decorator* struct_field* PAREN_CLOSE
+struct_decorator: PIPE identifier
+struct_field: (identifier ASSIGN)? expression
+
+
+// Identifiers and Atoms
+// Basic bulding blocks
+identifier: TOKENFIELD (DOT TOKENFIELD)*
+
+?atom: number
+     | text
+     | identifier
+     | structure
+     | block
+     | shape
+
+
+// Comments completely ignored in the full grammar parse. They are
+// captured in the scan.lark prepass.
+DOC_COMMENT.6: /---(.|\n)*?---/s
+LINE_COMMENT.5: /--[^\r\n]*/
+
+%import .common (text, number, TOKENFIELD, DOT, WS)
+%ignore WS
+%ignore LINE_COMMENT
+%ignore DOC_COMMENT

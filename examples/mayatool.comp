@@ -20,7 +20,7 @@ layer-config = ~(
 )
 
 create-inbetween = :arg~layer-config (|val
-    !transact maya.scene maya.preserve-selection
+    !transact(maya.scene maya.preserve-selection)
 
     maya.selection ()
     |map :obj (
@@ -55,19 +55,19 @@ bubble-args = ~(
     position-range~(~num ~num) = (0.1 5.0)
 )
 
-create-bubbles = :parent arg~bubble-args(|val
-    !transact maya.scene
+create-bubbles = :parent arg~bubble-args (|val
+    !transact(maya.scene)
 
     var.group = parent 
     |maya.create-node(group name="bubbles") 
     |maya.select(replace)
 
-    !transact maya.preserve-selection
+    !transact(maya.preserve-selection)
 
     range(arg.count) |map :i (
         var.position = repeat(3) : (random(arg.position-range))
         var.group
-        |maya.poly-sphere(name=format("bubble-$(i)") radius=random(arg.radius-range)
+        |maya.poly-sphere(name=format("bubble-$(i)") radius=random(arg.radius-range))
         |maya.xform(position=var.position)
     )
 )

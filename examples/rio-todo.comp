@@ -56,7 +56,7 @@ todo-app = :state~state (
 			component.button
 			text = it.filter ~text
 			variant = pick(it == state.filter "primary" "outline")
-			on-click = :it (state .. (filter=it))
+			on-click = :it (state |merge(filter=it))
 		)
 	)
 )

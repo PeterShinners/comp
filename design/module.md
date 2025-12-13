@@ -88,14 +88,14 @@ import.api = ("https://api.example.com/swagger.json" openapi)
 
 ## Import Fallbacks and Coordination
 
-Use `??` for fallback sources:
+Use `?` for fallback sources:
 
 ```comp
 -- Try multiple sources
-import.json = ("json" ?? std "core/json" ?? comp "./minimal-json" main)
+import.json = ("json" ? std "core/json" ? comp "./minimal-json" main)
 
 -- Platform-specific
-import.graphics = ("./graphics-gpu" ?? comp "./graphics-cpu" comp)
+import.graphics = ("./graphics-gpu" ? comp "./graphics-cpu" comp)
 ```
 
 By default, libraries check if main module imported a dependency before using
@@ -104,7 +104,7 @@ their own:
 ```comp
 -- In library - automatically checks main first
 import.json = ("core/json" std)
--- Behaves as: main "json" ?? std "core/json"
+-- Behaves as: main "json" ? std "core/json"
 
 -- In main module - becomes source for libraries
 import.json = ("git@github.com:fast/json.git#v2.0" comp)

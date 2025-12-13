@@ -155,7 +155,7 @@ Extract multiple fields from a structure in a single statement:
 (user=(name email) status) = response
 
 -- With defaults
-(port ?? 8080 host ?? "localhost") = config
+(port ? 8080 host ? "localhost") = config
 ```
 
 ## Field Deletion

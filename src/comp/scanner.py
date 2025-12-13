@@ -18,7 +18,7 @@ from lark import Lark, Token, Tree
 
 
 # Grammar file location
-GRAMMAR_PATH = Path(__file__).parent / "scan.lark"
+GRAMMAR_PATH = Path(__file__).parent / "lark" / "scan.lark"
 
 
 @dataclass
@@ -76,7 +76,12 @@ class ModuleScanner:
         if cls._parser is None:
             with open(GRAMMAR_PATH) as f:
                 grammar = f.read()
-            cls._parser = Lark(grammar, parser="lalr", propagate_positions=True)
+            cls._parser = Lark(
+                grammar,
+                parser="lalr",
+                propagate_positions=True,
+                import_paths=[str(GRAMMAR_PATH.parent)],
+            )
         return cls._parser
     
     @classmethod
