@@ -375,17 +375,17 @@ group = (  #group name ~text members ~user[])
 (type=#user name="X") ~user | ~group  -- Unambiguous
 ```
 
-## Checks and Lists Constraints
+## Guards and Lists Constraints
 
-Shapes can be enhanced with additional constraints. Checks validate that values
+Shapes can be enhanced with additional constraints. Guards validate that values
 meet specific requirements beyond their base type. Lists specify how many values
 of a shape can appear in a sequence. Both can be combined to create precise type
 definitions that are reusable throughout a module.
 
-Checks are specified in square brackets [] after a shape. Each check is a pure
-function that validates the value. If any check fails, the value cannot morph to
-that shape. Multiple checks can be listed together and all must pass. Common
-checks include numeric bounds like min and max, text constraints like non-empty
+Guards are specified in square brackets [] after a shape. Each guard is a pure
+function that validates the value. If any guard fails, the value cannot morph to
+that shape. Multiple guards can be listed together and all must pass. Common
+guards include numeric bounds like min and max, text constraints like non-empty
 and ascii, and pattern matching with match for regular expressions.
 
 List constraints use curly braces {} with syntax borrowed from regular
@@ -394,7 +394,7 @@ numbers specify a range (inclusive), and omitting a number leaves that bound
 open. For example, {3} means exactly three, {1,5} means one to five, {2,} means
 two or more, and {,8} means up to eight.
 
-Any pure function can serve as a check if it takes the appropriate type and
+Any pure function can serve as a guard if it takes the appropriate type and
 optionally an argument, returning a failure when the value doesn't satisfy the
 constraint.
 
@@ -414,14 +414,14 @@ sprite = ~(
     layers~image{1,4}
 )
 
--- Custom check function
+-- Custom guard function
 divisible-by = :val~num divisor~num pure (|val
     if(divmod(val divisor).#1 != 0) :(
         fail("$(val) is not divisible by $(divisor)")
     )
 )
 
--- Use custom checks alongside builtins
+-- Use custom guards alongside builtins
 grid-size = num[positive integer divisible-by=8]
 ```
 
@@ -429,7 +429,7 @@ Comp also defines a system called units as a way to extend number and text
 values. These are separate from these constraints, and the two concepts can be
 combined. See [Type Documentation](type.md) for more unit details.
 
-Checks and lists are separate from units. Checks validate during morphing but
+Guards and lists are separate from units. Guards validate during morphing but
 don't persist on values — a number that passes [min=0] is still just a number.
 Units are tags that attach to numbers and text and persist through operations,
 enabling dispatch and conversion between compatible measurements.

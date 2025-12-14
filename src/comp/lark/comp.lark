@@ -18,12 +18,12 @@ COLON.4: ":"
 TILDE.4: "~"
 COMMA.4: ","
 shape: TILDE shape_spec
-shape_spec: (identifier | paren_shape) check_suffix? array_suffix?
-CHECK_OPEN.4: "["
-CHECK_CLOSE.4: "]"
+shape_spec: (identifier | paren_shape) guard_suffix? array_suffix?
+GUARD_OPEN.4: "["
+GUARD_CLOSE.4: "]"
 ARRAY_OPEN.4: "{"
 ARRAY_CLOSE.4: "}"
-check_suffix: CHECK_OPEN struct_field+ CHECK_CLOSE
+guard_suffix: GUARD_OPEN struct_field+ GUARD_CLOSE
 array_suffix: ARRAY_OPEN (number (COMMA number?)?)? ARRAY_CLOSE
 paren_shape: PAREN_OPEN shape_content PAREN_CLOSE
 

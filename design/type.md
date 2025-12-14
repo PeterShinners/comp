@@ -483,10 +483,10 @@ family.
 In shape definitions, unit tags serve as type annotations. A leaf unit like
 meter provides a default for plain values and a conversion target. A family tag
 like length requires values already have a unit in that family. Units combine
-with checks and lists — the shape specifies the unit, checks constrain the
+with guards and lists — the shape specifies the unit, guards constrain the
 value, lists specify cardinality.
 
-Units are separate from constraint checks and lists. These concepts can be
+Units are separate from constraint guards and lists. These concepts can be
 combined with together, see the [Shape Documentation](shape.md) for details.
 
 ```comp
@@ -525,7 +525,7 @@ data |speed()  -- plain numbers become meters/seconds
 generic-speed = ~(distance~length duration~time)
 data |generic-speed()  -- fails if values lack units
 
--- Units combine with checks and lists
+-- Units combine with guards and lists
 coordinates = ~length[min=0]{3}  -- 3 non-negative length values
 queries = ~sql[non-empty]{1,}  -- 1+ non-empty SQL strings
 safe-timeout = ~second[positive max=300]  -- positive seconds, max 5 minutes

@@ -21,13 +21,13 @@
 // Nested structures - all parens are just "struct" for simplicity
 STRUCT_OPEN.6: "("
 STRUCT_CLOSE.6: ")"
-CHECK_OPEN.6: "["
-CHECK_CLOSE.6: "]"
+GUARD_OPEN.6: "["
+GUARD_CLOSE.6: "]"
 LIST_OPEN.6: "{"
 LIST_CLOSE.6: "}"
 
 struct: STRUCT_OPEN item* STRUCT_CLOSE
-brackets: CHECK_OPEN item* CHECK_CLOSE
+brackets: GUARD_OPEN item* GUARD_CLOSE
 braces: LIST_OPEN item* LIST_CLOSE
 
 // Comment parsing with separated delimiters and content.

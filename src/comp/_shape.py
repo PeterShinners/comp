@@ -6,7 +6,7 @@ import comp
 __all__ = [
     "ShapeDef", "Shape", "FieldDef",
     "shape_num", "shape_text", "shape_struct", "shape_any",
-    "shape_func", "shape_tag", "shape_handle"]
+    "shape_func", "shape_tag"]
 
 
 class ShapeDef:
@@ -113,4 +113,3 @@ shape_func = ShapeDef("func", False)
 
 # Internal shapes - used by implementation, not exposed to comp language
 shape_tag = ShapeDef("tag", True)
-shape_handle = ShapeDef("handle", True)

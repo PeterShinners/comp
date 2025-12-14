@@ -84,14 +84,14 @@ class Value:
                 dict: comp.shape_struct,
                 comp.Func: comp.shape_func,
             }
-            Value._shapetypes = (comp.Tag, comp.Shape, comp.Handle)
+            Value._shapetypes = (comp.Tag, comp.Shape)
 
     @property
     def shape(self):
-        """(ShapeDef | TagDef | HandleDef) Shape reference for this value's data type."""
+        """(ShapeDef | TagDef) Shape reference for this value's data type."""
         shape = Value._shapemap.get(type(self.data))
         if shape is None and isinstance(self.data, Value._shapetypes):
-            shape = self.data.definition
+            shape = self.data  # tag
         return shape
 
     def format(self):
@@ -107,13 +107,11 @@ class Value:
             value = self.data.replace('"', '\\"')
             return f'"""{value.replace('\n', '\\n')}"""' if '\n' in value else f'"{value}"'
         if shape is comp.tag_true:
-            return "#true"
+            return "true"
         if shape is comp.tag_false:
-            return "#false"
+            return "false"
         if isinstance(self.data, comp.Tag):
-            return f"#{self.data.qualified}"
-        if isinstance(self.data, comp.Handle):
-            return f"^{self.data.definition.qualified}"
+            return f"{self.data.qualified}"
         if isinstance(self.data, comp.Func):
             return f"{self.data.definition.qualified}()"
 
@@ -136,8 +134,6 @@ class Value:
                         fields.append(f"'{k.format()}'={v.unparse()}")
 
             return "{" + " ".join(fields) + "}"
-
-        # Still need to handle blocks
 
         return str(self.data)
 
@@ -234,7 +230,9 @@ class Value:
         if isinstance(value, dict):
             struct = {}
             for k, v in value.items():
-                struct[cls.from_python(k)] = cls.from_python(v)
+                if not isinstance(k, Unnamed):
+                    k = cls.from_python(k)
+                struct[k] = cls.from_python(v)
             return cls(struct)
 
         if isinstance(value, (tuple, list)):
@@ -257,12 +255,12 @@ class Value:
             return False
         return self.data == other.data
 
-    # def __hash__(self):
-    #     """Make Value hashable so it can be used as dict keys."""
-    #     if isinstance(self.data, dict):
-    #         # Dicts aren't hashable, use tuple of items
-    #         return hash(tuple(sorted(self.data.items())))
-    #     return hash(self.data)
+    def __hash__(self):
+        """Make Value hashable so it can be used as dict keys."""
+        if isinstance(self.data, dict):
+            # Dicts aren't hashable, use tuple of items
+            return hash(tuple(sorted(self.data.items())))
+        return hash(self.data)
 
 
 # def fail(message, ast=None, **extra_fields):
@@ -334,7 +332,7 @@ def validate(value):
     for testing or analysis tools to detect problems with the runtime.
 
     This shouldn't ever fail, if it does that means there is a bug in the
-    imlementation, not any comp code.
+    implementation, not any comp code.
 
     Args:
         value: (Value) object to check

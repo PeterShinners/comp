@@ -62,7 +62,7 @@ class Tag:
         self.anchor = anchor
 
     def __repr__(self):
-        return f"Tag(#{self.qualified}/{self.namespace})"
+        return f"Tag(#{self.namespace} {self.qualified})"
 
 
 tag_bool = TagDef("bool", False)
