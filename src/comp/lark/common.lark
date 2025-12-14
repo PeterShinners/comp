@@ -1,23 +1,3 @@
-// Comp Language - Common Grammar Rules
-// Shared between scan.lark and comp.lark
-//
-// Contains: comments, strings, numbers, identifiers
-// These are the fundamental building blocks that both grammars need.
-
-// === COMMENTS ===
-
-// Doc comments: --- content ---
-DOC_OPEN.5: "---"
-DOC_CONTENT.5: /(.|\n)+?(?=---)/
-_doc_comment: DOC_OPEN DOC_CONTENT? DOC_OPEN
-doc_comment: _doc_comment
-
-// Line comments: -- content
-LINE_OPEN.5: "--"
-LINE_CONTENT.5: /[^\r\n]+/
-_line_comment: LINE_OPEN LINE_CONTENT?
-line_comment: _line_comment
-
 
 // === STRING LITERALS ===
 
@@ -49,17 +29,5 @@ DECIMAL.1: /(([1-9](_?\d)*)|0(_?0)*)/                      // Integer: 123, 1_00
          | /\.\d(_?\d)*(SCIENTIFIC)?/              // Leading dot: .5, .123_456, .5e10
          | /\d(_?\d)*SCIENTIFIC/                   // Scientific integer: 1e5, 1_000e10
 SCIENTIFIC.1: /[eE][+-]?\d(_?\d)*/
-
-// === IDENTIFIER TOKENS ===
-
-// Basic identifier token - allows kebab-case
-TOKENFIELD.4: /[a-zA-Z_][\w-]*/
-
-// Dot for field access
-DOT.6: "."
-
-
-// === WHITESPACE ===
-// Each importing grammar should add their own %ignore WS
 
 WS: /\s+/

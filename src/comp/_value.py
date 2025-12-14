@@ -35,7 +35,7 @@ class Value:
         token: Optional source token
     Attributes:
         data: The underlying data (primitives, tags, structs, etc.)
-        shape: (ShapeRef) Definition of represented data
+        shape: (ShapeRef) Definition of represented data, or unit for basic types
         token: Optional parsed token that created this value (for error messages)
         private: Module-private data storage dict
         handles: Frozenset of HandleInstance objects contained in this value

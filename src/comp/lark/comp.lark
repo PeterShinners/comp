@@ -104,9 +104,16 @@ struct_decorator: PIPE identifier
 struct_field: (identifier ASSIGN)? expression
 
 
-// Identifiers and Atoms
-// Basic bulding blocks
-identifier: TOKENFIELD (DOT TOKENFIELD)*
+DOT.6: "."
+HASH: "#"
+TOKENFIELD.4: /[a-zA-Z_][\w-]*/
+indexfield: HASH number
+indexprfield: HASH PAREN_OPEN simple_expr PAREN_CLOSE
+dynfield: PAREN_OPEN expression PAREN_CLOSE
+EXPRFIELD.4: /'[^']+'/
+?field: TOKENFIELD -> tokenfield | indexfield | indexprfield | EXPRFIELD -> exprfield
+identifier: field (DOT (text | field | dynfield))*
+
 
 ?atom: number
      | text
@@ -118,10 +125,10 @@ identifier: TOKENFIELD (DOT TOKENFIELD)*
 
 // Comments completely ignored in the full grammar parse. They are
 // captured in the scan.lark prepass.
-DOC_COMMENT.6: /---(.|\n)*?---/s
-LINE_COMMENT.5: /--[^\r\n]*/
+DOC_COMMENT.8: /---(.|\n)*?---/s
+LINE_COMMENT.8: /--[^\r\n]*/
 
-%import .common (text, number, TOKENFIELD, DOT, WS)
+%import .common (text, number, DOT, WS)
 %ignore WS
 %ignore LINE_COMMENT
 %ignore DOC_COMMENT

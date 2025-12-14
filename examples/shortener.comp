@@ -128,8 +128,10 @@ base36-encode = :num~num pure (
     var.result = ""
     var.n = num
     while(var.n > 0) :(
-        var.result = mod.base36-chars.(var.n % 36) ++ var.result
-        var.n = var.n / 36 |floor()
+        var.div = var.n | divmod(36)
+        var.letter = var.charset | char(var.div.remainder)
+        var.result = join(var.letter var.result)
+        var.n = var.div.division
     )
     var.result |if-empty("0")
 )

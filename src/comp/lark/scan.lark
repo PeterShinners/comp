@@ -47,24 +47,6 @@ ASSIGN.5: "="
 assignment: identifier ASSIGN item
 
 
-// Text parsing with separated quotes and content.
-DUBQUOTE.3: "\""
-SIXQUOTE.3:  "\"\"\""
-SHORT_TEXT_CONTENT.3: /(?:[^"\\\r\n]|\\.)+/
-_short_text: DUBQUOTE SHORT_TEXT_CONTENT? DUBQUOTE
-LONG_TEXT_CONTENT.3: /(.|\n)+?(?=""")/s
-_long_text: SIXQUOTE LONG_TEXT_CONTENT? SIXQUOTE
-text: _short_text | _long_text
-
-
-// Numbers - basic support
-number: DECIMAL | INTEGER
-INTEGER.3: /0[xXbBoO](_?[\da-zA-Z])+/
-DECIMAL.3: /\d(_?\d)*\.(\d(_?\d)*)?/
-         | /\.\d(_?\d)*/
-         | /\d(_?\d)*/
-
-
 // Identifiers - dotted paths for import.x and pkg.x
 // Allow structs after DOT for dynamic access like foo.(expr)
 // Allow DOT after DOT for .. merge operator
@@ -76,6 +58,5 @@ identifier: TOKENFIELD (DOT (TOKENFIELD | struct | DOT))*
 // Blob catches everything else - exclude structural chars
 BLOB.1: /[^\s()\[\]{}."]+/
 
-
-%import common.WS
+%import .common (text, number, WS)
 %ignore WS
