@@ -137,7 +137,7 @@ class Value:
 
         return str(self.data)
 
-    def to_python(self, field=None):
+    def to_python(self, field=None, rich_numbers=False):
         """Convert this value to a Python equivalent.
 
         If field is given it will assume this is a struct value and access
@@ -145,24 +145,25 @@ class Value:
 
         Args:
             field: (str | int | None) Optional field to access from struct
+            rich_numbers: (bool) Allow richer number types like Decimal
         Returns:
             (object) Converted python value
 
         """
         if field is not None:
-            if not self.is_struct:
+            if not isinstance(self.data, dict):
                 raise TypeError(f"Cannot access field on non-struct value")
             if isinstance(field, int):
                 # Access by position
                 for i, (k, v) in enumerate(self.data.items()):
                     if i == field:
-                        return v.to_python()
+                        return v.to_python(rich_numbers=rich_numbers)
                 raise IndexError(f"Struct field index {field} out of range")
             else:
                 # Access by name
                 for k, v in self.data.items():
-                    if isinstance(k, Value) and k.is_string and k.data == field:
-                        return v.to_python()
+                    if isinstance(k, Value) and isinstance(k.data, str) and k.data == field:
+                        return v.to_python(rich_numbers=rich_numbers)
                 raise KeyError(f"Struct field '{field}' not found")
 
         if isinstance(self.data, comp.Tag):
@@ -174,25 +175,31 @@ class Value:
             # Other tags remain as Tag
             return self.data
 
-        if isinstance(self.data, decimal.Decimal):
-            return self.data
-        if isinstance(self.data, fractions.Fraction):
-            return self.data
         if isinstance(self.data, str):
             return self.data
+        if isinstance(self.data, (fractions.Fraction, decimal.Decimal)):
+            num, denom = self.data.as_integer_ratio()
+            if rich_numbers:
+                return self.data
+            if denom == 1:
+                return num
+            return float(self.data)
 
         if isinstance(self.data, dict):
             # Check if all keys are Unnamed - convert to list
             if self.data and all(isinstance(k, Unnamed) for k in self.data):
-                return [v.to_python() for v in self.data.values()]
+                return [v.to_python(rich_numbers=rich_numbers) for v in self.data.values()]
 
             # Mixed or named keys - convert to dict
             result = {}
             for key, val in self.data.items():
                 if isinstance(key, Unnamed):
-                    result[len(result)] = val.to_python()
+                    val = val.to_python(rich_numbers=rich_numbers)
+                    result[len(result)] = val
                 else:
-                    result[key.to_python()] = val.to_python()
+                    key = key.to_python(rich_numbers=rich_numbers)
+                    val = val.to_python(rich_numbers=rich_numbers)
+                    result[key] = val
             return result
 
         return self.data
@@ -210,15 +217,18 @@ class Value:
             TypeError: If value is already a Value or cannot be converted
         """
         if isinstance(value, Value):
-            raise TypeError("from_python called with existing Value")
+            return value
 
         if isinstance(value, str):
+            if type(value) is not str:
+                raise TypeError(f"Cannot convert Python string subtype {type(value).__name__} to Comp Value")
+                
             return cls(value)
 
         if value is True:
-            return cls(comp.Tag("bool.true", "", None))
+            return comp.tag_true
         if value is False:
-            return cls(comp.Tag("bool.false", "", None))
+            return comp.tag_false
 
         if isinstance(value, (int, float)):
             return cls(decimal.Decimal(value))

@@ -4,7 +4,6 @@
 
 ?module: mod_field
        | expression
-     // | BLOB
 
 mod_field: identifier ASSIGN expression
 
@@ -86,7 +85,7 @@ SLASH.3: "/"
 ?unary: postfix
       | (PLUS | MINUS | LNOT) unary -> unary_op
 
-postfix: atom (DOT TOKENFIELD)*
+?postfix: atom (DOT TOKENFIELD)*
 
 // Simplified expressions, for default values  (avoids ambiguity) 
 ?simple_expr: simple_term
@@ -106,13 +105,15 @@ struct_field: (identifier ASSIGN)? expression
 
 DOT.6: "."
 HASH: "#"
+ONEQUOTE: "'"
 TOKENFIELD.4: /[a-zA-Z_][\w-]*/
-indexfield: HASH number
+indexfield: HASH INTEGER
 indexprfield: HASH PAREN_OPEN simple_expr PAREN_CLOSE
-dynfield: PAREN_OPEN expression PAREN_CLOSE
-EXPRFIELD.4: /'[^']+'/
-?field: TOKENFIELD -> tokenfield | indexfield | indexprfield | EXPRFIELD -> exprfield
-identifier: field (DOT (text | field | dynfield))*
+exprfield: ONEQUOTE expression ONEQUOTE
+// EXPRFIELD.4: /'[^']+'/
+?firstfield: TOKENFIELD -> tokenfield | exprfield
+?nextfield: firstfield | indexfield | indexprfield | text -> textfield
+identifier: firstfield (DOT nextfield)*
 
 
 ?atom: number
@@ -128,7 +129,7 @@ identifier: field (DOT (text | field | dynfield))*
 DOC_COMMENT.8: /---(.|\n)*?---/s
 LINE_COMMENT.8: /--[^\r\n]*/
 
-%import .common (text, number, DOT, WS)
+%import .common (text, number, INTEGER, DOT, WS)
 %ignore WS
 %ignore LINE_COMMENT
 %ignore DOC_COMMENT

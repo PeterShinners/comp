@@ -1,6 +1,7 @@
-"""Module represents a module's module at runtime"""
+"""Module represents a module's namespace at runtime"""
 
 import os
+from typing import Any
 
 import comp
 
@@ -13,6 +14,9 @@ class Module:
 
     Namespaces are used to organize and scope identifiers in the language.
     They provide a way to group related definitions and prevent naming conflicts.
+
+    Modules are immutable once finalized. The finalize() method must be called
+    before any code from the module can be compiled or executed.
 
     Args:
         token: (str) Somewhat internal identifier for module
@@ -27,19 +31,53 @@ class Module:
         Module._token_counter += 1
         self.token = f"{token}#{count:04x}"
 
-        self.package = {}  # statically defined constants
-        self.scope = {}  # define constant module scope
+        self.package = {}  # statically defined constants (pkg.name, etc)
+        self.scope = {}  # module-level constants (mod.x assignments)
         self.contexts = {}  # defined context startups for this module
         self.imports = {}  # defined imports
         self.privatedefs = []  # The 'my' namespace
         self.publicdefs = []  # All defined/exported values
-        self.namespace = None  # Finally resolved namespace internal
+        
+        # Populated by finalize()
+        self.namespace = None  # Finally resolved namespace dict
+        self._finalized = False
+        
+        # Slot mappings for compilation (populated during finalize)
+        self._const_slots: dict[str, int] = {}  # name -> slot index
+        self._const_values: list[Any] = []  # slot index -> Value
 
     def __repr__(self):
         return f"Module<{self.token}>"
 
     def __hash__(self):
         return id(self.token)
+
+    @property
+    def is_finalized(self) -> bool:
+        return self._finalized
+
+    def add_constant(self, name: str, value: Any) -> int:
+        """Add a module constant and return its slot index.
+        
+        Must be called before finalize().
+        """
+        if self._finalized:
+            raise RuntimeError("Cannot add constants to finalized module")
+        if name in self._const_slots:
+            raise ValueError(f"Constant '{name}' already defined")
+        
+        slot = len(self._const_values)
+        self._const_slots[name] = slot
+        self._const_values.append(value)
+        return slot
+
+    def get_const_slot(self, name: str) -> int | None:
+        """Get the slot index for a module constant, or None if not found."""
+        return self._const_slots.get(name)
+
+    def get_const_value(self, slot: int) -> Any:
+        """Get a constant value by slot index."""
+        return self._const_values[slot]
 
     def finalize(self):
         """Finalize module after all imports and definitions are added.

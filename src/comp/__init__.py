@@ -15,4 +15,4 @@ from ._shape import *
 from ._func import *
 from ._interp import *
 from ._module import *
-from ._ast import *
+from ._parse import *

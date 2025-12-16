@@ -20,7 +20,6 @@ class FuncDef:
         qualified: (str) Fully qualified function name
         module: (Module | None) The module that defined this function
         private: (bool) Function is private to its module
-        entry: (bool) Function is an entry point
         pure: (bool) Function has no side effects
         input_name: (str | None) Name for the input value
         input_shape: (Shape) Shape constraint for input
@@ -36,7 +35,6 @@ class FuncDef:
         self.private = private
         self.module = None
         self.pure = False
-        self.entry = False
         self.input_name = None
         self.input_shape = None
         self.arg_name = None

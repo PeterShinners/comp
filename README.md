@@ -32,7 +32,7 @@ variable lookups.
 
 main = :(
   ("USERNAME" "USER" "LOGNAME")
-  |map :in (getenv(in) ?? skip)
+  |map :in (getenv(in) ? skip)
   |first(else="World")
   |print("Hello, ${}!")
 )
