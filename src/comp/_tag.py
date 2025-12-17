@@ -5,7 +5,7 @@ import comp
 
 __all__ = [
     "TagDef", "Tag", 
-    "tag_bool", "tag_true", "tag_false", "tag_fail"]
+    "tag_nil", "tag_bool", "tag_true", "tag_false", "tag_fail"]
 
 
 class TagDef:
@@ -65,6 +65,7 @@ class Tag:
         return f"Tag(#{self.namespace} {self.qualified})"
 
 
+tag_nil = TagDef("nil", False)
 tag_bool = TagDef("bool", False)
 tag_true = TagDef("bool.true", False)
 tag_false = TagDef("bool.false", False)

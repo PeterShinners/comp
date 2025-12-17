@@ -89,17 +89,18 @@ def prettycop(cop, field=None, indent=0):
         key = key.data if not isinstance(key, comp.Unnamed) else None
         if key == "pos":
             continue
-        if value.shape is comp.shape_struct:
-            kids.append((key, value))
+        if key == "kids":
+            kids = list(value.data.items())
+            continue
+        if key:
+            tokens.append(f"{key}={value.format()}")
         else:
-            if key:
-                tokens.append(f"{key}={value.format()}")
-            else:
-                tokens.append(value.format())
+            tokens.append(value.format())
     line = " ".join(tokens)
     print(f"{ind}{line}")
-    for key, value in kids:
-        prettycop(value, field=key, indent=indent + 1)
+    for field, child in kids:
+        field = field.to_python() if not isinstance(field, comp.Unnamed) else None
+        prettycop(child, field=field, indent=indent + 1)
 
 
 def parse_source(source, use_scanner=False, show_positions=False):
@@ -122,7 +123,9 @@ def main():
     parser.add_argument("--text", action="store_true",
         help="Treat source as direct expression to be parsed")
     parser.add_argument("--cop", action="store_true",
-        help="Report parsed cop structure (instead of lark)")
+        help="Report parsed cop structure")
+    parser.add_argument("--resolve", action="store_true",
+        help="Report resolved cop structure")
     parser.add_argument("--scan", action="store_true",
         help="Use the scanner grammar (scan.lark) instead of full grammar")
     parser.add_argument( "--raw", action="store_true",
@@ -135,7 +138,7 @@ def main():
         import debugpy
         if debugpy.is_client_connected():
             print("Debugger attached.")
-            argv = ['1.23 + 4.56', '--text', '--cop']
+            argv = ['11+ -2.34', '--text', '--resolve']
     except ImportError:
         pass
 
@@ -151,8 +154,11 @@ def main():
             filepath = Path.cwd() / filepath
         source = filepath.read_text()
 
-    if args.cop:
-        cop = comp.parse(source)    
+    if args.cop or args.resolve:
+        cop = comp.parse(source)
+        if args.resolve:
+            namespace = None
+            cop = comp.resolve(cop, namespace)
         prettycop(cop)
     else:
         parse_source(source, use_scanner=args.scan, show_positions=args.pos)

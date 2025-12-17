@@ -69,8 +69,6 @@ class Value:
         # stricter checking.
 
         if isinstance(data, dict):
-            for value in data.values():
-                self.handles = self.handles.union(value.handles)
             self._guard = iter(data)  # Used for validation
 
         self.data = data
@@ -106,6 +104,8 @@ class Value:
         if shape is comp.shape_text:
             value = self.data.replace('"', '\\"')
             return f'"""{value.replace('\n', '\\n')}"""' if '\n' in value else f'"{value}"'
+        if shape is comp.tag_nil:
+            return "nil"
         if shape is comp.tag_true:
             return "true"
         if shape is comp.tag_false:
@@ -168,9 +168,11 @@ class Value:
 
         if isinstance(self.data, comp.Tag):
             # Convert #bool.true and #bool.false to Python booleans
+            if self.data.qualified == "nil":
+                return None
             if self.data.qualified == "bool.true":
                 return True
-            elif self.data.qualified == "bool.false":
+            if self.data.qualified == "bool.false":
                 return False
             # Other tags remain as Tag
             return self.data
@@ -222,9 +224,10 @@ class Value:
         if isinstance(value, str):
             if type(value) is not str:
                 raise TypeError(f"Cannot convert Python string subtype {type(value).__name__} to Comp Value")
-                
             return cls(value)
 
+        if value is None:
+            return cls(comp.tag_nil)
         if value is True:
             return comp.tag_true
         if value is False:
@@ -256,6 +259,28 @@ class Value:
 
         raise TypeError(f"Cannot convert Python type {type(value).__name__} to Comp Value")
 
+    def field(self, name):
+        """Get named field from struct, otherwise TypeError"""
+        if self.shape != comp.shape_struct:
+            raise TypeError(f"Cannot access named field on non-struct value, {self.format()}")
+        if not isinstance(name, Value):
+            name = Value.from_python(name)
+        value = self.data.get(name)
+        if value is None:
+            raise KeyError(f"Struct field '{name.format()}' not found in value")
+        return value
+
+    def positional(self, index):
+        """Get positional field from struct value, otherwise TypeError"""
+        if self.shape != comp.shape_struct:
+            raise TypeError(f"Cannot access positional field on non-struct value, {self.format()}")
+        if index < 0:
+            raise IndexError(f"Negative positional index {index} not supported")
+        elif index >= len(self.data):
+            raise IndexError(f"Positional index {index} out of range for struct with {len(self.data)} fields")
+        for i, (k, v) in enumerate(self.data.items()):
+            if i == index:
+                return v        
 
     def __repr__(self):
         return f"Value({self.format()})"
