@@ -73,21 +73,27 @@ class TreePrinter:
             lines.append(f"{prefix}??? {type(node).__name__}: {node!r}")
 
 
-def prettycop(cop, field=None, indent=0):
+def prettycop(cop, field=None, indent=0, show_pos=False):
     """Pretty-print a cop structure."""
     ind = '  ' * indent
     if field:
         ind += f"{field}="
-    if cop.shape is not comp.shape_struct:
-        print(f"{ind}{cop.format()} <not a cop>")
+    if cop.shape is not comp.shape_struct or (
+                cop.data and not isinstance(cop.positional(0).shape, comp.Tag)):
+        valcop = cop.cop.format() if cop.cop else ""
+        print(f"{ind}{cop.format()} <{cop.shape.qualified}> {valcop}")
         return
 
     items = list(cop.data.items())
     tokens = []
     kids = []
+    pos = ""
     for key, value in items:
         key = key.data if not isinstance(key, comp.Unnamed) else None
         if key == "pos":
+            if show_pos:
+                nums = [n.data for n in value.data.values()]
+                pos = f"  [{nums[0]},{nums[1]}-{nums[2]},{nums[3]}]"
             continue
         if key == "kids":
             kids = list(value.data.items())
@@ -97,10 +103,10 @@ def prettycop(cop, field=None, indent=0):
         else:
             tokens.append(value.format())
     line = " ".join(tokens)
-    print(f"{ind}{line}")
+    print(f"{ind}{line}{pos}")
     for field, child in kids:
         field = field.to_python() if not isinstance(field, comp.Unnamed) else None
-        prettycop(child, field=field, indent=indent + 1)
+        prettycop(child, field=field, indent=indent + 1, show_pos=show_pos)
 
 
 def parse_source(source, use_scanner=False, show_positions=False):
@@ -138,7 +144,7 @@ def main():
         import debugpy
         if debugpy.is_client_connected():
             print("Debugger attached.")
-            argv = ['11+ -2.34', '--text', '--resolve']
+            argv = ['examples/cart.comp', '--cop']
     except ImportError:
         pass
 
@@ -159,7 +165,7 @@ def main():
         if args.resolve:
             namespace = None
             cop = comp.resolve(cop, namespace)
-        prettycop(cop)
+        prettycop(cop, show_pos=args.pos)
     else:
         parse_source(source, use_scanner=args.scan, show_positions=args.pos)
 

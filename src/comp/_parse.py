@@ -1,16 +1,19 @@
 """Parse code into cop (comp operators) structure.
 
-The cops are similar to an ast structure. They are designed to be easy
-to manipulate, assemble, and transform. The cop objects are simple comp
-structures and easy to serialize.
+The cops are similar to an ast structure. They are designed to be easy to
+manipulate, assemble, and transform. The cop objects are simple comp structures
+and easy to serialize.
 
-This data is usually generated from source with `comp.parse`. Each
-cop structure tracks the position it was generated from in the original
-source string. Cop data is built into executable code objects with `comp.build`.
+This data is usually generated from source with `comp.parse`. Each cop structure
+tracks the position it was generated from in the original source string. Cop
+data is built into executable code objects with `comp.build`.
 
-Cop structures will eventually reference literals and other comp.Values
-directory, but after parsing they will contain only other cop structures.
-
+Each cop node has a positional tag as its first child. There is also an optional
+"kids" field which contains a struct of positional cop nodes. (the kids can be
+named, but the name is ignored other than for diagnostic info). There is also a
+recommended "pos" field which defines the 4 numbers defining the source span
+defining the cop. There can be any number of additional named fields which
+should have full Value types as values.
 """
 
 __all__ = [
@@ -23,7 +26,6 @@ __all__ = [
 ]
 
 import decimal
-import pathlib
 import lark
 import comp
 
@@ -55,7 +57,6 @@ def resolve(cop, namespace):
     Returns:
         (Value) Modified cop structure
     """
-    # Should this node just be swapped completely?
     tag = cop.positional(0).data.qualified
 
     kids = []
@@ -69,16 +70,15 @@ def resolve(cop, namespace):
             kids.append(kid)
 
     match tag:
+        case "value.text":
+            literal = cop.to_python("value")
+            constant = comp.Value.from_python(literal)
+            return _make_constant(cop, constant)
         case "value.number":
             literal = cop.to_python("value")
             value = decimal.Decimal(literal)
             constant = comp.Value.from_python(value)
-            return _resolved("value.constant", cop, value=constant)
-        case "value.number":
-            literal = cop.to_python("value")
-            value = decimal.Decimal(literal)
-            constant = comp.Value.from_python(value)
-            return _resolved("value.constant", cop, value=constant)
+            return _make_constant(cop, constant)
         case "value.math.unary":
             op = cop.to_python("op")
             if op == "+":
@@ -86,14 +86,57 @@ def resolve(cop, namespace):
             value = _get_constant(kids[0])
             if value is not None:
                 modified = comp.math_unary(op, value)
-                return _resolved("value.constant", cop, value=modified)
+                return _make_constant(cop, modified)
         case "value.math.binary":
             op = cop.to_python("op")
             left = _get_constant(kids[0])
             right = _get_constant(kids[1])
             if left is not None and right is not None:
                 modified = comp.math_binary(op, left, right)
-                return _resolved("value.constant", cop, value=modified)
+                return _make_constant(cop, modified)
+        case "struct.define":
+            struct = {}
+            for field_cop in kids:
+                field_tag = field_cop.positional(0).data.qualified
+                field_kids = _cop_kids(field_cop)
+                if field_tag == "struct.posfield":
+                    key = comp.Unnamed()
+                    value = _get_constant(field_kids[0])
+                elif field_tag == "struct.namedfield":
+                    key = _get_simple_identifier(field_kids[0])
+                    value = _get_constant(field_kids[1])
+                else:
+                    key = value = None
+                # else struct.decorators, no constant folding for now
+                if value is None:
+                    struct = None
+                    break
+                struct[key] = value
+            value = comp.Value(struct)
+            return _make_constant(cop, value)
+        case "shape.define":
+            # Build a ShapeDef with FieldDefs from shape.field children
+            shape_def = comp.ShapeDef("", False)  # Anonymous inline shape
+            for field_cop in kids:
+                field_tag = field_cop.positional(0).data.qualified
+                if field_tag == "shape.field":
+                    field_name = field_cop.to_python("name")
+                    field_kids = _cop_kids(field_cop)
+                    default = None
+                    if field_kids:
+                        default = _get_constant(field_kids[0])
+                        if default is None:
+                            # Can't resolve - default isn't constant
+                            shape_def = None
+                            break
+                    field_def = comp.FieldDef(name=field_name, default=default)
+                    shape_def.fields.append(field_def)
+                else:
+                    raise ValueError(f"Unexpected cop in shape.define {field_tag}")
+            if shape_def is not None:
+                shape_ref = comp.Shape(shape_def)
+                value = comp.Value.from_python(shape_ref)
+                return _make_constant(cop, value)
 
     if not changed:
         return cop
@@ -111,6 +154,13 @@ def _cop_kids(cop):
         return kids
     except KeyError:
         return []
+
+
+def _make_constant(original, value):
+    """Create a derived constant cop node."""
+    value.cop = original
+    cop = _resolved("value.constant", original, value=value)
+    return cop
 
 
 def _resolved(tag, original, **fields):
@@ -139,17 +189,45 @@ def _get_constant(cop):
     return None
 
 
+def _get_simple_identifier(cop):
+    """Get the simple name of a single named identifier"""
+    tag = cop.positional(0).data.qualified
+    if tag != "value.identifier":
+        return None
+
+    kids = list(cop.field("kids").data.values())
+    if len(kids) != 1:
+        return None
+
+    name_cop = kids[0]
+    name_tag = name_cop.positional(0).data.qualified
+    match name_tag:
+        case "ident.token":
+            name = name_cop.field("value")
+            return name
+        case "ident.text" | "ident.expr":
+            name_kids = _cop_kids(name_cop)
+            name = _get_constant(name_kids[0])
+            if name is not None:
+                return name
+    return None
+
+
 COP_TAGS = [
     "shape.identifier", # (identifier, checks, array, default)
     "shape.union", # (shapes, checks, array, default)
     "shape.define", # (fields, checks, array)
-    "shape.field", # (name, shape, default)
+    "shape.field", # (kids) 3 kids (name, shape, default)
 
     "struct.define", # (kids)
-    "struct.field", # (name, op, kids) 1 kid
+    "struct.posfield", # (kids) 1 kid
+    "struct.namefield", # (op, kids) 2 kids (name value)
+    "struct.decorator", # (op, kids) 1 kid (name/identifier/ref)
 
-    "mod.field", # (name, op, kids) 1 kid
+    "mod.define", # (kids)
+    "mod.namefield", # (op, kids) 2 kids (name value)
 
+    "value.identassign", # (kids)  same as identifier, but in an assignment
     "value.identifier", # (kids)
     "ident.token", # (value)
     "ident.index", # (value)
@@ -237,7 +315,6 @@ def _merge_pos(pos1, pos2):
     return (pos1[0], pos1[1], pos2[2], pos2[3])
 
 
-
 def _parsed(treetoken, tag, kids, **fields):
     """Create a cop node with position from tree/token."""
 
@@ -299,7 +376,7 @@ def _convert_tree(tree):
         case 'number':
             return _parsed(tree, "value.number", [], value=kids[0].value)
         case 'text':
-            return _parsed(tree, "value.text", [], value=kids[1])
+            return _parsed(tree, "value.text", [], value=kids[1].value)
 
         # Operators
         case 'binary_op':
@@ -324,7 +401,7 @@ def _convert_tree(tree):
         # Identifier and fields
         case 'identifier':
             fields = [_convert_tree(k) for k in kids[::2]]
-            return _parsed(tree, "value.identifier", [], fields=fields)
+            return _parsed(tree, "value.identifier", fields)
         
         case 'tokenfield':
             return _parsed(tree, "ident.token", [], value=kids[0].value)
@@ -346,22 +423,83 @@ def _convert_tree(tree):
 
         case 'struct_field':
             if len(kids) == 1:
-                name = None
-                op = ""
                 value = _convert_tree(kids[0])
-            else:
-                name = _convert_tree(kids[0])
-                op = kids[1].value
-                value = _convert_tree(kids[2])
-            return _parsed(tree, "struct.field", value, name=name, op=op)
+                return _parsed(tree, "struct.posfield", [value])
+            name = _convert_tree(kids[0])
+            op = kids[1].value
+            value = _convert_tree(kids[2])
+            return _parsed(tree, "struct.namefield", {"n":name, "v":value}, op=op)
 
+        case 'struct_decorator':
+            name = _convert_tree(kids[1])
+            return _parsed(tree, "struct.decorator", [name])
+
+        case 'block':
+            # COLON shape_field* structure
+            # Signature is shape_fields (all kids except first COLON and last structure)
+            sig_fields = [_convert_tree(kid) for kid in kids[1:-1]]
+            signature = _parsed(tree, "shape.define", sig_fields)
+            body = _convert_tree(kids[-1])
+            return _parsed(tree, "value.block", {"s": signature, "b": body})
+
+        # Module-level field assignment
+        case 'mod_field':
+            name = _convert_tree(kids[0])
+            op = kids[1].value
+            value = _convert_tree(kids[2])
+            return _parsed(tree, "mod.namefield", {"n": name, "v": value}, op=op)
+
+        # Shape definitions
+        case 'shape':
+            # TILDE shape_spec
+            spec = _convert_tree(kids[1])
+            return spec
+
+        case 'shape_spec':
+            # (identifier | paren_shape) guard_suffix? array_suffix?
+            base = _convert_tree(kids[0])
+            # TODO: handle guard_suffix and array_suffix
+            return base
+
+        case 'paren_shape':
+            # PAREN_OPEN shape_content PAREN_CLOSE
+            content = _convert_tree(kids[1])
+            return content
+
+        case 'shape_content':
+            # shape_union | shape_field*
+            fields = [_convert_tree(kid) for kid in kids]
+            return _parsed(tree, "shape.define", fields)
+
+        case 'shape_union':
+            # shape_spec (PIPE shape_spec)+
+            # Kids alternate: shape_spec, PIPE, shape_spec, PIPE, ...
+            specs = [_convert_tree(kid) for kid in kids[::2]]  # Skip PIPE tokens
+            return _parsed(tree, "shape.union", specs)
+
+        case 'shape_field':
+            # (TOKENFIELD | shape | TOKENFIELD shape) (ASSIGN field_default_value)?
+            if len(kids) == 1:
+                # Just a field name
+                name = kids[0].value if hasattr(kids[0], 'value') else _convert_tree(kids[0])
+                return _parsed(tree, "shape.field", [], name=name)
+            elif len(kids) == 3 and kids[1].type == 'ASSIGN':
+                # name = default_value
+                name = kids[0].value
+                value = _convert_tree(kids[2])
+                return _parsed(tree, "shape.field", [value], name=name)
+            else:
+                # More complex cases (TOKENFIELD shape, etc.)
+                name = kids[0].value if hasattr(kids[0], 'value') else None
+                return _parsed(tree, "shape.field", [], name=name)
 
         # Pass-through rules (no node created, just process children)
         case 'start':
-            if kids:
-                return _convert_tree(kids[0]) if len(kids) == 1 else _convert_tree(kids)
-            return []
-
+            cops = []
+            for kid in kids:
+                cop = _convert_tree(kid)
+                cops.append(cop)
+            return _parsed(tree, "mod.define", cops)
         case _:
             raise ValueError(f"Unhandled grammar rule: {tree.data}")
 

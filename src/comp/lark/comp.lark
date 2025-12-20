@@ -105,12 +105,11 @@ struct_field: (identifier ASSIGN)? expression
 
 DOT.6: "."
 HASH: "#"
-ONEQUOTE: "'"
-TOKENFIELD.4: /[a-zA-Z_][\w-]*/
+ONEQUOTE.7: "'"
+TOKENFIELD.4: /[a-zA-Z_][\w-]*(?!\.\d)/  //negative lookahead prevents matching sibling numbers without space
 indexfield: HASH INTEGER
 indexprfield: HASH PAREN_OPEN simple_expr PAREN_CLOSE
 exprfield: ONEQUOTE expression ONEQUOTE
-// EXPRFIELD.4: /'[^']+'/
 ?firstfield: TOKENFIELD -> tokenfield | exprfield
 ?nextfield: firstfield | indexfield | indexprfield | text -> textfield
 identifier: firstfield (DOT nextfield)*
@@ -129,7 +128,7 @@ identifier: firstfield (DOT nextfield)*
 DOC_COMMENT.8: /---(.|\n)*?---/s
 LINE_COMMENT.8: /--[^\r\n]*/
 
-%import .common (text, number, INTEGER, DOT, WS)
+%import .common (text, number, INTEGER, WS)
 %ignore WS
 %ignore LINE_COMMENT
 %ignore DOC_COMMENT

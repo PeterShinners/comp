@@ -64,8 +64,10 @@ class Shape:
         self.definition = definition
 
     def __repr__(self):
-        suffix = self.definition.module.token if self.definition.module.token else ""
-        return f"Shape({self.definition.qualified}/{suffix})"
+        if self.definition.module:
+            suffix = self.definition.module.token if self.definition.module.token else ""
+            return f"Shape({self.definition.qualified}/{suffix})"
+        return f"Shape({self.definition.qualified})"
 
 
 class FieldDef:

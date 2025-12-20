@@ -36,11 +36,11 @@ class Value:
     Attributes:
         data: The underlying data (primitives, tags, structs, etc.)
         shape: (ShapeRef) Definition of represented data, or unit for basic types
-        token: Optional parsed token that created this value (for error messages)
+        cop: Optional parsed cop that created this value (for errors and diags)
         private: Module-private data storage dict
         handles: Frozenset of HandleInstance objects contained in this value
     """
-    __slots__ = ("data", "token", "private", "handles", "_guard")
+    __slots__ = ("data", "cop", "private", "handles", "_guard")
     _shapemap = None
     _shapetypes = None
 
@@ -54,7 +54,7 @@ class Value:
             raise TypeError(f"Value init called with existing Value {data}")
 
         # Token used for diagnostics and messages about where value came from
-        self.token = None
+        self.cop = None
 
         # Module-private data storage
         # Maps module_id -> Value (structure containing private data) Used by
@@ -131,9 +131,9 @@ class Value:
                             # Need to quote the key
                             fields.append(f'"{key}"={v.format()}')
                     else:
-                        fields.append(f"'{k.format()}'={v.unparse()}")
+                        fields.append(f"'{k.format()}'={v.format()}")
 
-            return "{" + " ".join(fields) + "}"
+            return "(" + " ".join(fields) + ")"
 
         return str(self.data)
 
@@ -255,6 +255,9 @@ class Value:
             return cls(struct)
 
         if isinstance(value, comp.Tag):
+            return cls(value)
+
+        if isinstance(value, comp.Shape):
             return cls(value)
 
         raise TypeError(f"Cannot convert Python type {type(value).__name__} to Comp Value")

@@ -1,0 +1,58 @@
+--- Pygame chimp tutorial example (React style)
+Punch a monkey to win prizes
+---
+
+import.pg = ("bindings/pygame" comp)
+import.res = ("./data" pg.resources)
+
+
+main = :(
+    ctx.window = pg.display 
+    | window(1280 480 scaled=true)
+    | caption("Monkey Fever")
+    | mouse-visible(false)
+    
+    var.state = (
+		bgd = card(window.size)
+		| fill(.7 .9 .7)
+		| text("Pummel the chimp and win $$$" 0(center) 10 (.1 .1 .1))
+        fist = card(res.fist pivot=(235 80))
+        chimp = card(res.chimp
+			pivot=center
+			position.x = tween(0 ctx.window.width-card.width loop pingpong) -- no easy way to reference self.width here
+			flip.x = tween(out.position.x.direction)
+        )
+    )
+    
+	var.quit-events = (event.quit key.escape)
+    pg.loop(ctx.window quit-on=var.quit-events) :~frame(
+        frame.events | each :e(e|handle(frame.state))
+        frame.draw
+        | clear(.7 .9 .7)
+        | text("Pummel the chimp and win $$$" pos=(center 10) color=(.1 .1 .1))
+        | card(state.chimp)
+        | card(state.fist)
+    )
+)
+
+
+handle = :~event[type==mouse.down] ~state (|update
+    fist = state.fist | move(10 90)
+    var.hit = intersect(state.fist|shrink(5) state.chimp)
+    
+    if(var.hit):(
+        chimp.rotate spin(360 0.5 ease-out) -- setting "pause" was easier but I wanted to see what the using "after" felt like. It does seem like both have value...
+		chimp.translate.x = state.chimp.translate.x | update (after=out.chimp.rotate)
+        play(res.punch)
+    ) | else:(
+        play(res.whiff)
+    )
+)
+
+handle = :~event[type==mouse.up] ~state (|update
+    fist = state.fist | move(-10 -90)
+)
+
+handle = :~event[type==mouse.move] ~state (|update
+    fist = state.fist | position(event.position)
+)

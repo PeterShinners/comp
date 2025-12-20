@@ -1,15 +1,17 @@
 # Comp Language
 
-Comp is a high level interpeted language. It's goal is to allow cleaner,
-expressive, and more readable code that similar languages. The design and syntax
-steer developers towards ideal implementations and clean projects.
+Comp is born from an excercise to improve the state of developing in high level
+languages like Python. This requires new ideas and behaviors to avoid the ruts
+and common errors these languages encourage. The goal is a lightweight and
+readable language that prioritizes the developer experience.
 
 This requires some opinionated departures from traditional high level languages.
-Data is immutable and stored in structures that operate both positionally and by
-field names. Namespaces are declarative, keeping many development problems as
-built errors. The result looks like a functional style language, where there are
-no classes and operations are pipelined. But be assured that there are clean
-solutions for code that wants to work like classes in an imperative style.
+All data is immutable and stored in structures that operate both positionally
+and by field names. Data from any source becomes interchangeable with anything
+loaded, generated, or defined with source. Namespaces and imports and
+definitions are declarative, leading to greater analysis and improving build
+time errors and reports. The result looks like a functional style language,
+where there are no classes and function calls chain together into a pipeline.
 
 The language tries to be minimal, while still presenting high level
 functionality. Flow control and iteration are implemented as regular functions.
@@ -48,10 +50,10 @@ uv pip install -e .
 uv run comp examples/tree.comp
 ```
 
-The barrier to entry is as minimal as possible. An entire project with metadata,
-dependencies, code, and documentation all comes from a single `.comp` file. Of
-course, that can eventually be structured into a helpful hierarchy of files,
-modules, and dependencies as desired.
+The barrier to entry is minimal. An entire project with metadata, dependencies,
+code, and documentation all comes from a single `.comp` file. Of course, that
+can eventually be structured into a helpful hierarchy of files, modules, and
+dependencies as desired.
 
 ## Where Comp Shines
 

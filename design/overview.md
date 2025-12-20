@@ -37,8 +37,9 @@ Not all the motiviations are easy to describe, but there have been several
 primary driving guidelines.
 
 Clean and consistent syntax with minimal noise and no whitespace dependence.
-This removes delimiters and allows structuring code in any desired style. It
-also works hard to avoid unnecessary nesting of braces and structures.
+This removes delimiters and allows structuring code in any desired style. The
+language helps to keep the structure flat instead of relying on deeply nested
+logic and data.
 
 Everything is stored in a powerful structure class and the data is all
 immutable. The struct container allows both named and unnamed fields and
@@ -51,9 +52,9 @@ Schemas define and dispatch behaviors and work the same whether the data comes
 from code literals, database lookups, networked json, or api calls.
 
 A strictly declarative namespace. The language takes advantage of knowing
-everything referenced and imported. No code execution is needed to define and
-create all references. This also moves a large class of high level language
-errors to build time, and even more available with static analysis.
+everything referenced, imported, and defined before any code is evaluated. This
+also moves a large class of high level language errors to build time, and even
+more available with static analysis.
 
 A comp file is also its own package definition. A project can be defined by a
 single source file, or be split into flexible directories and organized however
@@ -69,6 +70,9 @@ Comp is at home in Python. Interoperate closely with any running interpreter.
 Access existing modules, or replace them with better implementations and use
 those from Python.
 
+The [Syntax Documentation](syntax.md) provides more details on the language
+structure and grammar.
+
 ## Structures and Shapes
 
 The struct container combines a variety of behaviors into a single container. It
@@ -82,9 +86,11 @@ define required shapes for their arguments which allows rich validation. The
 shapes themselves can be constructors to morph and modify data from one shape to
 another.
 
-Shapes are defined as literals prefixed with a `~` tilde, although they contain
-slightly different grammar rules than a regular struct. A shape definition is
-actually sugar for a function definition that automatically converts data.
+Shapes are defined as literals prefixed with a `~` tilde. This type of
+schema is a regular value that can be referenced or defined inline wherever
+the language needs to understand data types. The shape is also its own
+constructor, for initializing or converting data into the a stricter
+definition of its type.
 
 The [Struct and Shape](struct.md) documentation contains much more information
 like applying modifiers to shapes, morphing rules, and indexing into structures.
@@ -104,21 +110,20 @@ spawned = player("PET")  -- Promote simple data into our shape
 ### Pipelined Functions and Blocks
 
 Any structure literal can become a callable object by prefixing the structure
-with `:`. These can be used as functions which get assigned into the module
-namespace, or used as anonymous blocks as simple callbacks.
+with `:`. These can be used as functions when assigned into the module's
+namespace. They are also commonly used as anonymous blocks of code that can
+be arguments for flow control functions, or passed around as regular values.
 
-By default these callable structs take no arguments and can return any type of
-data. Optional definitions can be added to define required shapes for the
-arguments as well as additional behaviors and identifiers.
+Functions are designed to work as logic that takes data in and generates
+transformed data as output. There are two channels for a function to get data,
+through the input, which belongs to pipelines and is designed to be the data the
+function operates on. Also through traditional arguments, intended to modify how
+the function behaves.
 
-Multiple functions can be overloaded with the same name. The namespace keeps
-track of them separately. By determining the matching shapes of data function
-calls will automatically dispatch to the most specific implementation.
-
-Calling functions and blocks requires a struct of argument but can optionally be
-combined with blocks that are added to the argument list. This allows function
-blocks to be passed as arguments for natural feeling flow control, iteration,
-and other behaviors.
+Multiple functions can be overloaded with the same name. By determining the
+matching shapes of data function calls will automatically dispatch to the most
+specific implementation. This will cause build time errors if ambigious
+implementations match the provided data.
 
 Functions and blocks can be assembled into a pipeline of operations using the
 `|` pipe operator. Functions can also specificy special links in the pipeline to
@@ -126,9 +131,9 @@ allow additional behaviors when combined. The pipeline itself is a malleable
 data structure that can be explicitly rewritten and enhanced with special
 operators.
 
-Pure functions can be defined that are restricted from accessing external
-handles. These functions can be evaluated at build time and other special
-contexts.
+Functions can be marked as "pure", which restricts them from managing any
+outside resources. With several limitations these functions can now be
+evaluated at build time and other priveleged contexts.
 
 The [Functions and Blocks](function.md) contains more details like overloaded
 dispatch, input and argument management, and runtime scopes.
@@ -182,19 +187,13 @@ mod.token = "username" | fetch-auth-token () | base64/str ()
 mod.now = now/time () ~num#day/mars
 ```
 
-## Other unique idioms
-
-- Structure literals can define internal temporary values by assigning and
-  referencing them from the `var` namespace, like `var.counter = 1`. This
-  obviously works for function/block definitions as well.
-- Structure literals may begin with a special `|modifer` which defines
-  operations that modify the contents or behavior of the resulting structure.
-  Common ones like `|val` just uses the final result as the outgoing structure.
-  Define your own.
+The [Module](module.md) documetion describes the details of how modules
+are defined and imported. Also the use of specialized compilers and 
+building namespaces for external data.
 
 ## Types
 
-Comp provides several lower level data types. The primary ones are numbers,
+Comp provides a handful of lower level data types. The primary ones are numbers,
 text, and tags.
 
 These values can be passed around and used outside of structs. In most contexts
@@ -241,8 +240,8 @@ of security vulnerabilities.
 
 ```comp
 name = "Alice"  -- Regular string
-query = "SELECT * FROM users"~sql  -- SQL-aware string
-html = "<div>Content</div>"~html  -- HTML-aware string
+query = "SELECT * FROM users"(sql)  -- SQL-aware string
+html = "<div>Content</div>"(html)  -- HTML-aware string
 
 -- Templates respect string types
 message = fields | format(my-select)  -- Proper escaping
@@ -250,8 +249,8 @@ message = fields | format(my-select)  -- Proper escaping
 
 ### Tags
 
-Tags are declared constants that can be identified uniquely. These are often
-defined in named hierarchies. They work similar to enumerations and play a dual
+Tags are declared constants that can be identified uniquely, often organized
+into a hierarchy. They work similar to traditional enumerations and play a dual
 role in the language, acting as both values and shapes.
 
 The language provides additional builtin types and shapes that are actual tags.
@@ -266,8 +265,9 @@ and have a high influence on how shapes are matched and functions dispatched.
 This allows tag fields to be used like polymorphic classes and dispatch
 appropriately.
 
-Tags are also used as the foundation for referencing external and system data,
-that lives outside the control of the language.
+Tags can also be promoted into handles, which are the foundation for accessing
+and managing external resources. This allows working with files, networking,
+and other languages that live outside the control of the Comp language.
 
 ```comp
 -- Define tags
