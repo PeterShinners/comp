@@ -23,13 +23,15 @@ def math_binary(op, left, right):
     """Math binary operation.
 
     This only works with numeric types.
-    
+
     Args:
-        op (str): Operator like "+" "-" "/" "*" "**"
-        left (Value): Left value
-        right (Value): Right value
+        op: (str) Operator like "+" "-" "/" "*" "**"
+        left: (Value) Left value
+        right: (Value) Right value
+
     Returns:
-        Value
+        (Value) Result of operation
+
     Raises:
         TypeError: If operands are not numeric
         ZeroDivisionError: If dividing by zero
@@ -65,12 +67,14 @@ def math_unary(op, right):
     """Math unary operation.
 
     This only works with numeric types.
-    
+
     Args:
-        op (str): Operator like "+" "-"
-        right (Value): Right value
+        op: (str) Operator like "+" "-"
+        right: (Value) Right value
+
     Returns:
-        Value
+        (Value) Result of operation
+
     Raises:
         TypeError: If operand is not numeric
     """
@@ -97,13 +101,14 @@ def logic_binary(op, left, right):
     """Logic binary operation.
 
     This only works with boolean types.
-    
+
     Args:
-        op (str): Operator like "&&" "||"
-        left (Value): Left value
-        right (Value): Right value
+        op: (str) Operator like "&&" "||"
+        left: (Value) Left value
+        right: (Value) Right value
+
     Returns:
-        Value
+        (Value) Result of operation
     """
     if left.shape not in (comp.tag_true, comp.tag_false):
         raise TypeError(f"Left operand is not a boolean: {left.format()}")
@@ -134,12 +139,13 @@ def logic_unary(op, right):
     """Logic unary operation.
 
     This only works with boolean types.
-    
+
     Args:
-        op (str): Operator like "!!"
-        right (Value): Right value
+        op: (str) Operator like "!!"
+        right: (Value) Right value
+
     Returns:
-        Value
+        (Value) Result of operation
     """
     if right.shape not in (comp.tag_true, comp.tag_false):
         raise TypeError(f"Unary operand is not a boolean: {right.format()}")
@@ -158,13 +164,14 @@ def compare(op, left, right):
     """Comparison operation.
 
     All types are comparable with any type.
-    
+
     Args:
-        op (str): Operator like "==" "!=" "<" "<=" ">" ">="
-        left (Value): Left value
-        right (Value): Right value
+        op: (str) Operator like "==" "!=" "<" "<=" ">" ">="
+        left: (Value) Left value
+        right: (Value) Right value
+
     Returns:
-        Value (true or false tag)
+        (Value) true or false tag
     """
     match op:
         case "==":
@@ -186,7 +193,15 @@ def compare(op, left, right):
 
 
 def _equal(left, right):
-    """Helper for equality comparison of two Values."""
+    """Helper for equality comparison of two Values.
+
+    Args:
+        left: (Value) Left value
+        right: (Value) Right value
+
+    Returns:
+        (bool) True if values are equal
+    """
     lval = left.data
     rval = right.data
     if lval is rval:
@@ -236,10 +251,18 @@ def _equal(left, right):
             return False
 
     return True
-    
+
 
 def _lessthan(left, right):
-    """Helper for sorted comparison"""
+    """Helper for sorted comparison.
+
+    Args:
+        left: (Value) Left value
+        right: (Value) Right value
+
+    Returns:
+        (bool) True if left is less than right
+    """
     # Results on _equal values is undefined
 
     lval = left.data
@@ -274,7 +297,14 @@ def _lessthan(left, right):
 
 
 def _typeorder(value):
-    """Return number describing sort order for mixed type comparisons"""
+    """Return number describing sort order for mixed type comparisons.
+
+    Args:
+        value: (Value) Value to get type order for
+
+    Returns:
+        (int) Sort order number
+    """
     shape = value.shape
     if shape is comp.shape_struct:
         # Struct order based on field count (empty or not)
@@ -292,4 +322,4 @@ def _typeorder(value):
     if shape is comp.shape_text:
         return 5
 
-    return 7 # Unexpected or unknown type
+    return 7  # Unexpected or unknown type

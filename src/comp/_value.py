@@ -28,7 +28,7 @@ class Value:
     more native data types.
 
     The contents of the value are considered immutable, even when
-    represented by structures with dicts. 
+    represented by structures with dicts.
 
     Args:
         data: The underlying data.
@@ -40,12 +40,12 @@ class Value:
         private: Module-private data storage dict
         handles: Frozenset of HandleInstance objects contained in this value
     """
+
     __slots__ = ("data", "cop", "private", "handles", "_guard")
     _shapemap = None
     _shapetypes = None
 
     def __init__(self, data):
-
         if isinstance(data, Value):
             # This means values generally shouldn't be copied from other values,
             # instead their references should be shared. Because of this the
@@ -61,7 +61,7 @@ class Value:
         # the & syntax for module-scoped private data
         self.private = None
         # Value tracks (recursively) and references used, which are used to when
-        # cleaning up stack frames        
+        # cleaning up stack frames
         self.handles = _emptyset
 
         # Data may not be valid for a Comp Value here, but accept it as-is in
@@ -87,8 +87,8 @@ class Value:
     @property
     def shape(self):
         """(ShapeDef | TagDef) Shape reference for this value's data type."""
-        shape = Value._shapemap.get(type(self.data))
-        if shape is None and isinstance(self.data, Value._shapetypes):
+        shape = Value._shapemap.get(type(self.data))  # type: ignore
+        if shape is None and isinstance(self.data, Value._shapetypes):  # type: ignore
             shape = self.data  # tag
         return shape
 
@@ -103,7 +103,9 @@ class Value:
             return str(self.data)
         if shape is comp.shape_text:
             value = self.data.replace('"', '\\"')
-            return f'"""{value.replace('\n', '\\n')}"""' if '\n' in value else f'"{value}"'
+            return (
+                f'"""{value.replace("\n", "\\n")}"""' if "\n" in value else f'"{value}"'
+            )
         if shape is comp.tag_nil:
             return "nil"
         if shape is comp.tag_true:
@@ -125,7 +127,7 @@ class Value:
                         key = k.format()[1:-1]
                         # Check if key is a valid Comp identifier (TOKEN pattern: /[^\W\d][\w-]*[?]?/)
                         # Must start with letter/underscore, contain only alphanumeric/underscore/hyphen, optional trailing ?
-                        if re.match(r'^[^\W\d][\w-]*\??$', key):
+                        if re.match(r"^[^\W\d][\w-]*\??$", key):
                             fields.append(f"{key}={v.format()}")
                         else:
                             # Need to quote the key
@@ -162,7 +164,11 @@ class Value:
             else:
                 # Access by name
                 for k, v in self.data.items():
-                    if isinstance(k, Value) and isinstance(k.data, str) and k.data == field:
+                    if (
+                        isinstance(k, Value)
+                        and isinstance(k.data, str)
+                        and k.data == field
+                    ):
                         return v.to_python(rich_numbers=rich_numbers)
                 raise KeyError(f"Struct field '{field}' not found")
 
@@ -190,7 +196,9 @@ class Value:
         if isinstance(self.data, dict):
             # Check if all keys are Unnamed - convert to list
             if self.data and all(isinstance(k, Unnamed) for k in self.data):
-                return [v.to_python(rich_numbers=rich_numbers) for v in self.data.values()]
+                return [
+                    v.to_python(rich_numbers=rich_numbers) for v in self.data.values()
+                ]
 
             # Mixed or named keys - convert to dict
             result = {}
@@ -205,7 +213,6 @@ class Value:
             return result
 
         return self.data
-
 
     @classmethod
     def from_python(cls, value):
@@ -223,7 +230,9 @@ class Value:
 
         if isinstance(value, str):
             if type(value) is not str:
-                raise TypeError(f"Cannot convert Python string subtype {type(value).__name__} to Comp Value")
+                raise TypeError(
+                    f"Cannot convert Python string subtype {type(value).__name__} to Comp Value"
+                )
             return cls(value)
 
         if value is None:
@@ -260,12 +269,16 @@ class Value:
         if isinstance(value, comp.Shape):
             return cls(value)
 
-        raise TypeError(f"Cannot convert Python type {type(value).__name__} to Comp Value")
+        raise TypeError(
+            f"Cannot convert Python type {type(value).__name__} to Comp Value"
+        )
 
     def field(self, name):
         """Get named field from struct, otherwise TypeError"""
         if self.shape != comp.shape_struct:
-            raise TypeError(f"Cannot access named field on non-struct value, {self.format()}")
+            raise TypeError(
+                f"Cannot access named field on non-struct value, {self.format()}"
+            )
         if not isinstance(name, Value):
             name = Value.from_python(name)
         value = self.data.get(name)
@@ -276,14 +289,18 @@ class Value:
     def positional(self, index):
         """Get positional field from struct value, otherwise TypeError"""
         if self.shape != comp.shape_struct:
-            raise TypeError(f"Cannot access positional field on non-struct value, {self.format()}")
+            raise TypeError(
+                f"Cannot access positional field on non-struct value, {self.format()}"
+            )
         if index < 0:
             raise IndexError(f"Negative positional index {index} not supported")
         elif index >= len(self.data):
-            raise IndexError(f"Positional index {index} out of range for struct with {len(self.data)} fields")
+            raise IndexError(
+                f"Positional index {index} out of range for struct with {len(self.data)} fields"
+            )
         for i, (k, v) in enumerate(self.data.items()):
             if i == index:
-                return v        
+                return v
 
     def __repr__(self):
         return f"Value({self.format()})"
@@ -307,7 +324,7 @@ class Value:
 #     The structure has the #fail tag as an unnamed field, plus named fields
 #     for type and message. Additional fields can be added via kwargs.
 #     This allows morphing against #fail to detect failures.
-    
+
 #     Args:
 #         message: The failure message
 #         ast: Optional AST node that generated this failure (for error messages and source tracking)
@@ -327,11 +344,11 @@ class Value:
 #         Value('type'): Value('fail'),
 #         Value('message'): Value(message)
 #     }
-    
+
 #     # Add any extra fields
 #     for key, value in extra_fields.items():
 #         result.data[Value(key)] = Value(value)
-    
+
 #     result.private = {}
 #     result.ast = ast
 #     # Compute handles from field values
@@ -349,6 +366,7 @@ class Unnamed:
     Comparison always returns False - unnamed fields are never "equal"
     as keys, they're distinguished by position/identity.
     """
+
     __slots__ = ()
 
     def __repr__(self):
@@ -389,11 +407,13 @@ def validate(value):
             if not isinstance(val, Value):
                 raise TypeError(f"Invalid field value for struct {key!r}={val!r}")
             if not val.handles.issubset(value.handles):
-                raise comp.EvalError(f"Struct field {key!r} has invalid handles in value {val!r}")
+                raise comp.EvalError(
+                    f"Struct field {key!r} has invalid handles in value {val!r}"
+                )
             # would be nice to pass some context to these, so the error describe
             # the path to where this error happened
             validate(key)
-            validate(val)  
+            validate(val)
 
         try:
             copy.copy(value._guard)
@@ -403,7 +423,5 @@ def validate(value):
             # take it as a lightweight check.
             raise comp.EvalError(f"Struct data has been mutated")
 
-
     if not isinstance(data, (comp.Tag, str, decimal.Decimal, fractions.Fraction)):
         raise TypeError(f"Unknown internal type for value: {type(data).__name__}")
-

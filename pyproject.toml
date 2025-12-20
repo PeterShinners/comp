@@ -1,6 +1,6 @@
 [project]
 name = "comp"
-version = "0.3.0"
+version = "0.4.0"
 description = "Comp Programming Language"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -42,4 +42,38 @@ packages = ["src/comp"]
 [dependency-groups]
 dev = [
     "pytest>=8.4.2",
+    "ruff>=0.8.0",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src"]
+exclude = ["src/comp/run"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # pyflakes
+    "I",      # isort
+    "N",      # pep8-naming
+    "Q",      # flake8-quotes
+    "UP",     # pyupgrade
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "F403",   # import *, still used in __init__ and thats good
+]
+
+[tool.ruff.lint.flake8-quotes]
+docstring-quotes = "double"
+inline-quotes = "double"
+multiline-quotes = "double"
+
+[tool.ruff.lint.isort]
+force-single-line = false
+combine-as-imports = true
+
+[tool.ruff.format]
+quote-style = "double"

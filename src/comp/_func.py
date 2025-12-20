@@ -27,8 +27,19 @@ class FuncDef:
         arg_shape: (Shape) Shape constraint for argument
         body: (object) AST node for function body
     """
-    __slots__ = ("qualified", "private", "module", "pure", "entry",
-                 "input_name", "input_shape", "arg_name", "arg_shape", "body")
+
+    __slots__ = (
+        "qualified",
+        "private",
+        "module",
+        "pure",
+        "entry",
+        "input_name",
+        "input_shape",
+        "arg_name",
+        "arg_shape",
+        "body",
+    )
 
     def __init__(self, qualified, private):
         self.qualified = qualified
@@ -59,7 +70,8 @@ class Func:
         qualified: (str) Fully qualified name of the function
         namespace: (str) The name of the namespace used to reference this function
     """
-    __slots__ = ("definition", )
+
+    __slots__ = ("definition",)
 
     def __init__(self, definition):
         self.definition = definition
@@ -71,7 +83,7 @@ class Func:
 
 class Block:
     """Executable block value.
-    
+
     A block is generated in functions and captures the scopes that defined them.
 
     Args:
@@ -80,7 +92,13 @@ class Block:
         identifier: (str) Generated identifier for block
         body: (object) AST node for block body
     """
-    __slots__ = ("frame", "shape", "identifier", "body",)
+
+    __slots__ = (
+        "frame",
+        "shape",
+        "identifier",
+        "body",
+    )
 
     def __init__(self, frame, shape, identifier, body):
         self.frame = frame

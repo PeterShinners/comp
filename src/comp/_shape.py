@@ -4,9 +4,16 @@ import comp
 
 
 __all__ = [
-    "ShapeDef", "Shape", "FieldDef",
-    "shape_num", "shape_text", "shape_struct", "shape_any",
-    "shape_func", "shape_tag"]
+    "ShapeDef",
+    "Shape",
+    "FieldDef",
+    "shape_num",
+    "shape_text",
+    "shape_struct",
+    "shape_any",
+    "shape_func",
+    "shape_tag",
+]
 
 
 class ShapeDef:
@@ -26,6 +33,7 @@ class ShapeDef:
         module: (Module | None) The module that defined this shape
         fields: (list[FieldDef]) Field definitions for structure shapes
     """
+
     __slots__ = ("qualified", "private", "module", "fields")
 
     def __init__(self, qualified, private):
@@ -58,6 +66,7 @@ class Shape:
         definition: (ShapeDef | TagDef | HandleDef) Definition for this shape reference
 
     """
+
     __slots__ = ("definition",)
 
     def __init__(self, definition):
@@ -65,7 +74,9 @@ class Shape:
 
     def __repr__(self):
         if self.definition.module:
-            suffix = self.definition.module.token if self.definition.module.token else ""
+            suffix = (
+                self.definition.module.token if self.definition.module.token else ""
+            )
             return f"Shape({self.definition.qualified}/{suffix})"
         return f"Shape({self.definition.qualified})"
 
@@ -88,6 +99,7 @@ class FieldDef:
         shape: (ShapeDef | TagDef | None) Shape constraint
         default: (Value | None) Default value
     """
+
     __slots__ = ("name", "shape", "default")
 
     def __init__(self, name=None, shape=None, default=None):

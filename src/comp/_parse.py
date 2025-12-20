@@ -30,7 +30,6 @@ import lark
 import comp
 
 
-
 def parse(source):
     """Parse source into cop structures."""
     parser = _lark_parser("comp")
@@ -140,7 +139,7 @@ def resolve(cop, namespace):
 
     if not changed:
         return cop
-    
+
     copied = dict(cop.data)
     if kids:
         copied[comp.Value("kids")] = comp.Value.from_python(kids)
@@ -176,7 +175,7 @@ def _resolved(tag, original, **fields):
         return original
 
     # need to merge positions from original
-    #fields["pos"] = pos
+    # fields["pos"] = pos
     cop = create_cop(tag, [], **fields)
     return cop
 
@@ -214,44 +213,38 @@ def _get_simple_identifier(cop):
 
 
 COP_TAGS = [
-    "shape.identifier", # (identifier, checks, array, default)
-    "shape.union", # (shapes, checks, array, default)
-    "shape.define", # (fields, checks, array)
-    "shape.field", # (kids) 3 kids (name, shape, default)
-
-    "struct.define", # (kids)
-    "struct.posfield", # (kids) 1 kid
-    "struct.namefield", # (op, kids) 2 kids (name value)
-    "struct.decorator", # (op, kids) 1 kid (name/identifier/ref)
-
-    "mod.define", # (kids)
-    "mod.namefield", # (op, kids) 2 kids (name value)
-
-    "value.identassign", # (kids)  same as identifier, but in an assignment
-    "value.identifier", # (kids)
-    "ident.token", # (value)
-    "ident.index", # (value)
-    "ident.indexpr", # (value)
-    "ident.expr", # (value)
-    "ident.text", # (value)
-
-    "value.number", # (value)
-    "value.text", # (value)
-    "value.block", # (kids)  kids; signature, body
-    "value.math.unary", # (op, kids)  1 kid
-    "value.math.binary", # (op, kids)  2 kids
-    "value.compare", # (op, kids)  2 kids
-    "value.logic.binary", # (op, kids)  2 kids
-    "value.logic.unary", # (op, kids)  1 kids
-    "value.call", # (kids)  kids; callable, args
-    "value.pipe", # (kids)
-    "value.fallback", # (kids)
-    "value.postfix", # (left, kids)
-
-    "value.transact", # (kids)
-    "value.handle", # (op, kids) grab/drop/pull/etc
-
-    "value.constant", # (value) precompiled constant value
+    "shape.identifier",  # (identifier, checks, array, default)
+    "shape.union",  # (shapes, checks, array, default)
+    "shape.define",  # (fields, checks, array)
+    "shape.field",  # (kids) 3 kids (name, shape, default)
+    "struct.define",  # (kids)
+    "struct.posfield",  # (kids) 1 kid
+    "struct.namefield",  # (op, kids) 2 kids (name value)
+    "struct.decorator",  # (op, kids) 1 kid (name/identifier/ref)
+    "mod.define",  # (kids)
+    "mod.namefield",  # (op, kids) 2 kids (name value)
+    "value.identassign",  # (kids)  same as identifier, but in an assignment
+    "value.identifier",  # (kids)
+    "ident.token",  # (value)
+    "ident.index",  # (value)
+    "ident.indexpr",  # (value)
+    "ident.expr",  # (value)
+    "ident.text",  # (value)
+    "value.number",  # (value)
+    "value.text",  # (value)
+    "value.block",  # (kids)  kids; signature, body
+    "value.math.unary",  # (op, kids)  1 kid
+    "value.math.binary",  # (op, kids)  2 kids
+    "value.compare",  # (op, kids)  2 kids
+    "value.logic.binary",  # (op, kids)  2 kids
+    "value.logic.unary",  # (op, kids)  1 kids
+    "value.call",  # (kids)  kids; callable, args
+    "value.pipe",  # (kids)
+    "value.fallback",  # (kids)
+    "value.postfix",  # (left, kids)
+    "value.transact",  # (kids)
+    "value.handle",  # (op, kids) grab/drop/pull/etc
+    "value.constant",  # (value) precompiled constant value
 ]
 
 
@@ -263,11 +256,11 @@ def cop_module():
     """Create and populate the cop module"""
     global _astmodule
     if _astmodule is None:
-        _astmodule = comp.Module('cop')
+        _astmodule = comp.Module("cop")
         for name in COP_TAGS:
             tag = comp.TagDef(name, False)
             _astmodule.publicdefs.append(tag)
-            ref = comp.Tag(tag.qualified, 'cop', _astmodule)
+            ref = comp.Tag(tag.qualified, "cop", _astmodule)
             _tagnames[name] = ref
             # Eventually want real shapes to go with each of these,
             # but for now we freestyle it.
@@ -307,9 +300,10 @@ def pos_from_lark(treetoken):
             meta.end_column or meta.column,
         )
 
+
 def _merge_pos(pos1, pos2):
     """Merge two positions to span both.
-    
+
     Returns position from start of pos1 to end of pos2.
     """
     return (pos1[0], pos1[1], pos2[2], pos2[3])
@@ -344,10 +338,12 @@ def _convert_tree(tree):
     """Convert a single Lark tree/token to a cop node.
 
     This will often recurse into child nodes of the tree.
+
     Args:
-        tree: Lark Tree or Token to convert
+        tree: (lark.Tree | lark.Token) Lark Tree or Token to convert
+
     Returns:
-        cop node
+        (Value) cop node
     """
     # Handle tokens (terminals)
     if isinstance(tree, lark.Token):
@@ -368,30 +364,32 @@ def _convert_tree(tree):
     assert isinstance(tree, lark.Tree)
     kids = tree.children
     match tree.data:
-        case 'paren_expr':
+        case "paren_expr":
             # LPAREN expression RPAREN - return the expression
             return _convert_tree(kids[1])
 
         # Literals
-        case 'number':
+        case "number":
             return _parsed(tree, "value.number", [], value=kids[0].value)
-        case 'text':
+        case "text":
             return _parsed(tree, "value.text", [], value=kids[1].value)
 
         # Operators
-        case 'binary_op':
+        case "binary_op":
             left = _convert_tree(kids[0])
             right = _convert_tree(kids[2])
             op = kids[1].value
             if op in ("==", "!=", "<", "<=", ">", ">="):
-                return _parsed(tree, "value.compare", {"l":left, "r":right}, op=op)
+                return _parsed(tree, "value.compare", {"l": left, "r": right}, op=op)
             if op in ("||", "&&"):
-                return _parsed(tree, "value.logical.binary", {"l":left, "r":right}, op=op)
+                return _parsed(
+                    tree, "value.logical.binary", {"l": left, "r": right}, op=op
+                )
             if op == "??":
-                return _parsed(tree, "value.fallback", {"l":left, "r":right}, op=op)
-            return _parsed(tree, "value.math.binary", {"l":left, "r":right}, op=op)
+                return _parsed(tree, "value.fallback", {"l": left, "r": right}, op=op)
+            return _parsed(tree, "value.math.binary", {"l": left, "r": right}, op=op)
 
-        case 'unary_op':
+        case "unary_op":
             right = _convert_tree(kids[1])
             op = kids[0].value
             if op == "!!":
@@ -399,42 +397,42 @@ def _convert_tree(tree):
             return _parsed(tree, "value.math.unary", {"r": right}, op=op)
 
         # Identifier and fields
-        case 'identifier':
+        case "identifier":
             fields = [_convert_tree(k) for k in kids[::2]]
             return _parsed(tree, "value.identifier", fields)
-        
-        case 'tokenfield':
+
+        case "tokenfield":
             return _parsed(tree, "ident.token", [], value=kids[0].value)
-        case 'textfield':
+        case "textfield":
             text = kids[0].children[1]
             return _parsed(tree, "ident.text", [], value=text.value)
-        case 'indexfield':
+        case "indexfield":
             return _parsed(tree, "ident.index", [], value=kids[1].value)
-        case 'indexprfield':
+        case "indexprfield":
             expr = _convert_tree(kids[2])
             return _parsed(tree, "ident.indexpr", [expr])
-        case 'exprfield':
+        case "exprfield":
             expr = _convert_tree(kids[1])
             return _parsed(tree, "ident.expr", [expr])
 
-        case 'structure':
+        case "structure":
             fields = [_convert_tree(kid) for kid in kids[1:-1]]
             return _parsed(tree, "struct.define", fields)
 
-        case 'struct_field':
+        case "struct_field":
             if len(kids) == 1:
                 value = _convert_tree(kids[0])
                 return _parsed(tree, "struct.posfield", [value])
             name = _convert_tree(kids[0])
             op = kids[1].value
             value = _convert_tree(kids[2])
-            return _parsed(tree, "struct.namefield", {"n":name, "v":value}, op=op)
+            return _parsed(tree, "struct.namefield", {"n": name, "v": value}, op=op)
 
-        case 'struct_decorator':
+        case "struct_decorator":
             name = _convert_tree(kids[1])
             return _parsed(tree, "struct.decorator", [name])
 
-        case 'block':
+        case "block":
             # COLON shape_field* structure
             # Signature is shape_fields (all kids except first COLON and last structure)
             sig_fields = [_convert_tree(kid) for kid in kids[1:-1]]
@@ -443,58 +441,62 @@ def _convert_tree(tree):
             return _parsed(tree, "value.block", {"s": signature, "b": body})
 
         # Module-level field assignment
-        case 'mod_field':
+        case "mod_field":
             name = _convert_tree(kids[0])
             op = kids[1].value
             value = _convert_tree(kids[2])
             return _parsed(tree, "mod.namefield", {"n": name, "v": value}, op=op)
 
         # Shape definitions
-        case 'shape':
+        case "shape":
             # TILDE shape_spec
             spec = _convert_tree(kids[1])
             return spec
 
-        case 'shape_spec':
+        case "shape_spec":
             # (identifier | paren_shape) guard_suffix? array_suffix?
             base = _convert_tree(kids[0])
             # TODO: handle guard_suffix and array_suffix
             return base
 
-        case 'paren_shape':
+        case "paren_shape":
             # PAREN_OPEN shape_content PAREN_CLOSE
             content = _convert_tree(kids[1])
             return content
 
-        case 'shape_content':
+        case "shape_content":
             # shape_union | shape_field*
             fields = [_convert_tree(kid) for kid in kids]
             return _parsed(tree, "shape.define", fields)
 
-        case 'shape_union':
+        case "shape_union":
             # shape_spec (PIPE shape_spec)+
             # Kids alternate: shape_spec, PIPE, shape_spec, PIPE, ...
             specs = [_convert_tree(kid) for kid in kids[::2]]  # Skip PIPE tokens
             return _parsed(tree, "shape.union", specs)
 
-        case 'shape_field':
+        case "shape_field":
             # (TOKENFIELD | shape | TOKENFIELD shape) (ASSIGN field_default_value)?
             if len(kids) == 1:
                 # Just a field name
-                name = kids[0].value if hasattr(kids[0], 'value') else _convert_tree(kids[0])
+                name = (
+                    kids[0].value
+                    if hasattr(kids[0], "value")
+                    else _convert_tree(kids[0])
+                )
                 return _parsed(tree, "shape.field", [], name=name)
-            elif len(kids) == 3 and kids[1].type == 'ASSIGN':
+            elif len(kids) == 3 and kids[1].type == "ASSIGN":
                 # name = default_value
                 name = kids[0].value
                 value = _convert_tree(kids[2])
                 return _parsed(tree, "shape.field", [value], name=name)
             else:
                 # More complex cases (TOKENFIELD shape, etc.)
-                name = kids[0].value if hasattr(kids[0], 'value') else None
+                name = kids[0].value if hasattr(kids[0], "value") else None
                 return _parsed(tree, "shape.field", [], name=name)
 
         # Pass-through rules (no node created, just process children)
-        case 'start':
+        case "start":
             cops = []
             for kid in kids:
                 cop = _convert_tree(kid)
@@ -504,24 +506,25 @@ def _convert_tree(tree):
             raise ValueError(f"Unhandled grammar rule: {tree.data}")
 
 
-
 _parsers = {}
 
 
 def _lark_parser(name):
     """Get globally shared lark parser.
+
     Args:
-        name (str): name of the grammar file (without .lark)
+        name: (str) name of the grammar file (without .lark)
+
     Returns:
-        lark.Parser
+        (lark.Lark) Parser instance
     """
     parser = _parsers.get(name)
     if parser is not None:
         return parser
-        
+
     path = f"lark/{name}.lark"
-    parser = lark.Lark.open(path, rel_to=__file__, parser="lalr", 
-                propagate_positions=True)
+    parser = lark.Lark.open(
+        path, rel_to=__file__, parser="lalr", propagate_positions=True
+    )
     _parsers[name] = parser
     return parser
-

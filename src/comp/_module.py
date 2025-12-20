@@ -1,7 +1,6 @@
 """Module represents a module's namespace at runtime"""
 
 import os
-from typing import Any
 
 import comp
 
@@ -20,14 +19,15 @@ class Module:
 
     Args:
         token: (str) Somewhat internal identifier for module
-    
+
     """
-    _token_counter = os.getpid() & 0xffff
+
+    _token_counter = os.getpid() & 0xFFFF
 
     def __init__(self, token):
         # Module token is not attempting to be a secure id,
         # Just to help distinguish conflicting tokens with a non repeating id
-        count = hash(token) & 0xffff ^ Module._token_counter
+        count = hash(token) & 0xFFFF ^ Module._token_counter
         Module._token_counter += 1
         self.token = f"{token}#{count:04x}"
 
@@ -37,14 +37,14 @@ class Module:
         self.imports = {}  # defined imports
         self.privatedefs = []  # The 'my' namespace
         self.publicdefs = []  # All defined/exported values
-        
+
         # Populated by finalize()
         self.namespace = None  # Finally resolved namespace dict
         self._finalized = False
-        
+
         # Slot mappings for compilation (populated during finalize)
-        self._const_slots: dict[str, int] = {}  # name -> slot index
-        self._const_values: list[Any] = []  # slot index -> Value
+        self._const_slots = {}  # name -> slot index
+        self._const_values = []  # slot index -> Value
 
     def __repr__(self):
         return f"Module<{self.token}>"
@@ -53,30 +53,52 @@ class Module:
         return id(self.token)
 
     @property
-    def is_finalized(self) -> bool:
+    def is_finalized(self):
+        """(bool) Whether the module has been finalized."""
         return self._finalized
 
-    def add_constant(self, name: str, value: Any) -> int:
+    def add_constant(self, name, value):
         """Add a module constant and return its slot index.
-        
+
         Must be called before finalize().
+
+        Args:
+            name: (str) Name of the constant
+            value: Value to store
+
+        Returns:
+            (int) Slot index for the constant
         """
         if self._finalized:
             raise RuntimeError("Cannot add constants to finalized module")
         if name in self._const_slots:
             raise ValueError(f"Constant '{name}' already defined")
-        
+
         slot = len(self._const_values)
         self._const_slots[name] = slot
         self._const_values.append(value)
         return slot
 
-    def get_const_slot(self, name: str) -> int | None:
-        """Get the slot index for a module constant, or None if not found."""
+    def get_const_slot(self, name):
+        """Get the slot index for a module constant, or None if not found.
+
+        Args:
+            name: (str) Name of the constant
+
+        Returns:
+            (int | None) Slot index or None if not found
+        """
         return self._const_slots.get(name)
 
-    def get_const_value(self, slot: int) -> Any:
-        """Get a constant value by slot index."""
+    def get_const_value(self, slot):
+        """Get a constant value by slot index.
+
+        Args:
+            slot: (int) Slot index
+
+        Returns:
+            Value at the given slot
+        """
         return self._const_values[slot]
 
     def finalize(self):
@@ -90,6 +112,7 @@ class Module:
 
 class SystemModule(Module):
     """System module singleton with several builtin attributes"""
+
     _singleton = None
 
     def __init__(self):
@@ -121,6 +144,7 @@ class SystemModule(Module):
 
 class NameConflict:
     """Used in namespaces where conflicts exist"""
+
     # This is used to help error messages later on
     def __init__(self, *references):
         self.references = references
@@ -157,7 +181,7 @@ def add_name_permutations(dictionary, ns, qualified, definition):
     for ref in variations:
         conflict = conflicts.get(ref)
         if conflict:
-            conflict.references += (full, )
+            conflict.references += (full,)
             dictionary[ref] = conflict
         else:
             conflicts[ref] = NameConflict(full)
