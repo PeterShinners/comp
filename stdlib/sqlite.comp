@@ -1,98 +1,129 @@
-!doc module "Simple SQLite interface for Comp"
+--- Simple SQLite interface for Comp
+Provides basic database operations using Python's sqlite3 module.
+---
 
-!import /py = stdlib "python"
+import.py = ("python" stdlib)
 
-!doc "Connection to open database resource"
-!handle @db
 
-!tag #isolation = {#deferred #exclusive #immediate #none}
+-- Connection handle for open database resource
 
-; Extend builtin #fail with SQLite-specific error categories
-!tag #fail extends #fail/builtin = {
-    #interface      ; Connection/cursor management errors
-    #database       ; Database file/format errors
-    #data           ; Data type conversion errors
-    #operation      ; SQL operation errors
-    #integrity      ; Constraint violations
-    #internal       ; Internal SQLite errors
-    #programming    ; API misuse errors
-    #notsupported   ; Feature not supported
-}
+handle.db = ~()
 
-!shape ~connect-args = {
-    timeout ~num = 5
-    isolation-level #isolation = #deferred
-}
 
-; Map Python sqlite3 exception types to Comp fail tags
-$mod.exception-tags = {
-    InterfaceError = #fail.interface
-    DatabaseError = #fail.database
-    DataError = #fail.data
-    OperationalError = #fail.operation
-    IntegrityError = #fail.integrity
-    InternalError = #fail.internal
-    ProgrammingError = #fail.programming
-    NotSupportedError = #fail.notsupported
-}
+-- Tags for database operations
 
-!doc "Test function to verify #fail.database is treated as a real failure"
-!func |test-fail ~{} = {
-    {#fail.database message="The database has failed"}
-}
+tag.isolation = ~(deferred exclusive immediate none)
 
-!doc "Test function that raises a Python sqlite exception"
-!func |test-sqlite-error ~{} = {
-    ; Try to connect to a database with an invalid path
-    [{database="/invalid/path/that/does/not/exist/test.db"} |call-func/py "sqlite3.connect"]
-}
+-- Extend builtin fail with SQLite-specific error categories
 
-!doc "Result of execute calls"
-!shape ~execute = {
-    rows ~any
-    columns ~any
-    row-id ~any
-    row-count ~num
-}
+tag.fail = ~(
+	interface      -- Connection/cursor management errors
+	database       -- Database file/format errors
+	data           -- Data type conversion errors
+	operation      -- SQL operation errors
+	integrity      -- Constraint violations
+	internal       -- Internal SQLite errors
+	programming    -- API misuse errors
+	notsupported   -- Feature not supported
+)
 
-!doc "Open database connection"
-!func |database-file ~str arg ~connect-args = {
-    $var.pydb = [{database=$in} |call-func/py "sqlite3.connect"]
-    $var.db = !grab @db
-    $var.db&py = $var.pydb
-    $var.db
-}
 
-!func |database-url ~str arg ~connect-args = {
-    $var.pydb = [{database=$in url=#true} |call-func "sqlite3.connect"]
-    $var.db = !grab @db
-    $var.db&py = $var.pydb
-    $var.db
-}
+-- Connection arguments shape
 
-!func |database-memory ~{} arg ~connect-args = {
-    $var.pydb = [{database=":memory:"} |call-func "sqlite3.connect"]
-    $var.db = !grab @db
-    $var.db&py = $var.pydb
-    $var.db
-}
+connect-args = ~(
+	timeout~num = 5
+	isolation-level~isolation = isolation.deferred
+)
 
-!doc "Execute SQL statement and return ~execute"
-!func |execute ~{db @db} arg ~{sql ~str} = {
-    $var.cursor = [{self=$in.db&py} |call "cursor"]
-    $var.exec = [{self=$var.cursor $arg.sql} |call "execute"]
-    $var.cursor-vars = [{self=$var.cursor} |vars]
-    
-    
 
-    ; TODO: Convert row tuples to structs with column names from description
-    rows = [{self=$var.cursor} |call "fetchall" |pull]
-    columns = $var.cursor-vars.description
-    row-id = $var.cursor-vars.lastrowid
-    row-count = $var.cursor-vars.rowcount
-}
+-- Map Python sqlite3 exception types to Comp fail tags
 
-; called automatically as handle is dropped
-!func |drop-handle& ~{db@db} = {
-    [$in.db&py |call "close"]
-}
+mod.exception-tags = (
+	InterfaceError = fail.interface
+	DatabaseError = fail.database
+	DataError = fail.data
+	OperationalError = fail.operation
+	IntegrityError = fail.integrity
+	InternalError = fail.internal
+	ProgrammingError = fail.programming
+	NotSupportedError = fail.notsupported
+)
+
+
+-- Test function to verify fail.database is treated as a real failure
+
+test-fail = :_ (
+	fail("The database has failed" tag=fail.database)
+)
+
+
+-- Test function that raises a Python sqlite exception
+
+test-sqlite-error = :_ (
+	(database="/invalid/path/that/does/not/exist/test.db")
+	|py.call-func(name="sqlite3.connect")
+)
+
+
+-- Result of execute calls
+
+execute-result = ~(
+	rows~struct
+	columns~struct
+	row-id~num
+	row-count~num
+)
+
+
+-- Open database connection from file path
+
+database-file = :in~text arg~connect-args (|val
+	var.pydb = (database=in) |py.call-func(name="sqlite3.connect")
+	var.db = grab-handle(handle.db)
+	var.db.private.py = var.pydb
+	var.db
+)
+
+
+-- Open database connection from URL
+
+database-url = :in~text arg~connect-args (|val
+	var.pydb = (database=in url=true) |py.call-func(name="sqlite3.connect")
+	var.db = grab-handle(handle.db)
+	var.db.private.py = var.pydb
+	var.db
+)
+
+
+-- Open in-memory database
+
+database-memory = :_ arg~connect-args (|val
+	var.pydb = (database=":memory:") |py.call-func(name="sqlite3.connect")
+	var.db = grab-handle(handle.db)
+	var.db.private.py = var.pydb
+	var.db
+)
+
+
+-- Execute SQL statement and return results
+
+execute = :in~(db~handle.db) arg~(sql~text) (|val
+	var.cursor = (self=in.db.private.py) |py.call(method="cursor")
+	var.exec = (self=var.cursor sql=arg.sql) |py.call(method="execute")
+	var.cursor-vars = (self=var.cursor) |py.call(method="vars")
+
+	-- TODO: Convert row tuples to structs with column names from description
+	execute-result(
+		rows = (self=var.cursor) |py.call(method="fetchall") |py.pull()
+		columns = var.cursor-vars.description
+		row-id = var.cursor-vars.lastrowid
+		row-count = var.cursor-vars.rowcount
+	)
+)
+
+
+-- Called automatically as handle is dropped
+
+drop-handle = :in~(db~handle.db) (
+	(self=in.db.private.py) |py.call(method="close")
+)

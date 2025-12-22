@@ -21,25 +21,25 @@ main = :(
         ("Banana" price=0.50 quantity=2)
         ("Apple" price=1.00 quantity=2)  -- Will replace the first item
     )
-    |reduce(initial=cart () add-item)  -- Add each item to an initial cart
-    |merge(discount=0.2)
-    |set-discount(amount=0.2)
-    |total() 
-    |print("Shopping cart: $(in)")
+    | reduce(initial=cart() add-item)  -- Add each item to an initial cart
+    | merge(discount=0.2)
+    | set-discount(amount=0.2)
+    | total()
+    | print("Shopping cart: $(in)")
 )
 
 
 -- Calculate total price with discounts applied.
 
-total = :cart~cart pure (|val
-    cart.items |sum:item(item.price * item.quantity) * (1 - cart.discount)
+total = :~cart pure (|val
+    cart.items | sum:item(item.price * item.quantity) * (1 - cart.discount)
 )
 
 
 -- Add or update an item. Replaces if name matches.
 
-add-item = :cart~cart item~item pure (|val
+add-item = :~cart ~item pure (|val
     cart | merge(
-        items = cart.items |upsert(item match= :i (i.name == new.name))
+        items = cart.items | upsert(item match= :i (i.name == new.name))
     )
 )

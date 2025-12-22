@@ -2,16 +2,16 @@
 A simple URL shortener using Redis for storage.
 ---
 
-import.http = ("http-server" stdlib)
-import.redis = ("redis" stdlib)
-import.url = ("core/url" stdlib)
-import.template = ("core/template" stdlib)
+!import http ("http-server" stdlib)
+!import redis ("redis" stdlib)
+!import url ("core/url" stdlib)
+!import template ("core/template" stdlib)
 
 pkg.name = "shortly"
 pkg.version = "1.0.0"
 
 
---- mod values are constant 
+--- mod values are constant
 these can only ever be seen by the current module, private data
 can be overridden at startup (.env files, args, whatever)
 ---
@@ -29,53 +29,54 @@ mod.keys = (
 
 -- Context functions bootstrap values before startup
 
-startup.server = : (
-    db = redis.connect(|val mod.redis)
+context.startup = :(
+    !var.connection = redis.connect(mod.redis)
+    db = var.connection
 )
 
 
 -- Primary entry for handling http server requests
 
 server = :request~http.request (|val
-    request |dispatch()
-    |post("/") :req (post-url)
-    |get("/" forward-url)
-    |get("/") : (response-template("newurl.html"))
-    |get("/{id}" link-redirect)
-    |get("/{id}.json" link-details)
-    |missing : (response-template("404.html" status=404))
+    request | dispatch()
+    | post("/") :req (post-url)
+    | get("/" forward-url)
+    | get("/") :(response-template("newurl.html"))
+    | get("/{id}" link-redirect)
+    | get("/{id}.json" link-details)
+    | missing :(response-template("404.html" status=404))
 )
 
 
 -- Handle form submission to create new short URL
 
 post-url = :request~http.request (
-    request.form.url 
-    |assert (parse(url).scheme |in("http" "https") : (
+    request.form.url
+    | assert (parse(url).scheme | in("http" "https") :(
         (error="Please enter a valid URL" url=var.url)
-        |respond-template("newurl.html")
+        | respond-template("newurl.html")
     ))
-    |insert-url()
-    |format("/$(id).json")
-    |http.redirect()
+    | insert-url()
+    | format("/$(id).json")
+    | http.redirect()
 )
 
 
 link-redirect = :request~http.request(
-    request.params.id 
-    |details()
-    |increment()
-    |(in.target)  -- this needs some language definition
-    |http.redirect()
-    |?respond-missing()
+    request.params.id
+    | details()
+    | increment()
+    | (in.target)  -- this needs some language definition
+    | http.redirect()
+    | ?respond-missing()
 )
 
 
 link-details = :request~http.request (
-    request.params.id 
-    |details()
-    |render("details.html")
-    |?respond-missing()
+    request.params.id
+    | details()
+    | render("details.html")
+    | ?respond-missing()
 )
 
 
@@ -89,49 +90,49 @@ details = ~(
 details = :id~text db~redis.connection (|mix
     id = id
     (
-        target = id |format(mod.keys.target)
-        clicks = id |format(mod.keys.counter)
+        target = id | format(mod.keys.target)
+        clicks = id | format(mod.keys.counter)
     )
-    |redis.mget(db)
-    |defaults(clicks=0)
+    | redis.mget(db)
+    | defaults(clicks=0)
 )
 
 
 -- Increment click count for given short id.
 
-increment = :details~details db~redis.connection (|val
-    redis.incr(db details.id |format(mod.keys.counter))
+increment = :~details db~redis.connection (|val
+    redis.incr(db details.id | format(mod.keys.counter))
 )
 
 
 -- Inserts URL and returns short ID, reusing existing if present.
 insert-url = :url~text db~redis.connection (|val
-    url 
-    |format(mod.keys.reverse)
-    |redis.get(db)
-    |if-empty : (|val
-        var.id = redis.incr(db mod.keys.total) | base36-encode()
+    url
+    | format(mod.keys.reverse)
+    | redis.get(db)
+    | if-empty :(|val
+        !var.id = redis.incr(db mod.keys.total) | base36-encode()
         (
             'var.id |format(mod.keys.target)' = url
             'var.id |format(mod.keys.counter)' = 1
             'url |format(mod.keys.reverse)' = var.id
         )
-        |redis.mset(db)
+        | redis.mset(db)
         var.id
     )
 )
 
 
 -- Encodes positive integer to base36 string.
-base36-encode = :num~num pure (
-    var.charset = "0123456789abcdefghijklmnopqrstuvwxyz"
-    var.result = ""
-    var.n = num
+base36-encode = :~num pure (
+    !var.charset = "0123456789abcdefghijklmnopqrstuvwxyz"
+    !var.result = ""
+    !var.n = num
     while(var.n > 0) :(
-        var.div = var.n | divmod(36)
-        var.letter = var.charset | char(var.div.remainder)
-        var.result = join(var.letter var.result)
-        var.n = var.div.division
+        !var.div = var.n | divmod(36)
+        !var.letter = var.charset | char(var.div.remainder)
+        !var.result = join(var.letter var.result)
+        !var.n = var.div.division
     )
-    var.result |if-empty("0")
+    var.result | if-empty("0")
 )

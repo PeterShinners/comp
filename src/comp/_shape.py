@@ -63,7 +63,7 @@ class Shape:
     for floating vs anchored comparisons.
 
     Args:
-        definition: (ShapeDef | TagDef | HandleDef) Definition for this shape reference
+        definition: (ShapeDef | TagDef) Definition for this shape reference
 
     """
 

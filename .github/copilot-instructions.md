@@ -1,5 +1,8 @@
 # Comp Project - AI Assistant Instructions
 
+This file contains code style guidelines for AI assistants working on the Comp project.
+Both GitHub Copilot and Claude Code reference these instructions.
+
 ## Code Style Rules
 
 ### Python Style
@@ -70,8 +73,22 @@ src/comp/
   run/             # (deprecated - ignore)
 ```
 
+## Project Philosophy
+
+- **Clarity over performance** - Optimize for understandability, not speed. Design for future efficiency but don't implement optimizations yet.
+- **Experimentation-friendly** - Add debugging/inspection tools (flags, output modes) that make the system easy to explore and understand.
+- **Minimal scope** - Don't add documentation files, extra features, or "nice to haves" unless explicitly requested.
+- **Ask, don't assume** - When multiple valid approaches exist, ask for direction rather than making architectural decisions.
+
 ## Testing
 
-- Tests are in `tests/` directory
-- Use pytest for running tests
-- Test files follow pattern `test_*.py`
+- **IMPORTANT**: The `tests/` directory is from 2 implementations ago and is completely broken
+- Do not try to import, run, or fix anything in `tests/`
+- For testing new features, create temporary test scripts in the project root (like `test_interp.py`)
+
+## Running Tools
+
+- Use `uv run` to execute Python scripts and tools:
+  - `uv run tools/parsecomp.py <file.comp> --cop`
+  - `uv run test_interp.py`
+- This ensures the correct Python environment and dependencies are used

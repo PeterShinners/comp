@@ -36,6 +36,10 @@ def math_binary(op, left, right):
         TypeError: If operands are not numeric
         ZeroDivisionError: If dividing by zero
     """
+    # Unwrap single-field structs (e.g., from parenthesized expressions)
+    left = left.as_scalar()
+    right = right.as_scalar()
+
     if left.shape != comp.shape_num:
         raise TypeError(f"Left operand is not a number: {left.format()}")
     if right.shape != comp.shape_num:
@@ -78,6 +82,9 @@ def math_unary(op, right):
     Raises:
         TypeError: If operand is not numeric
     """
+    # Unwrap single-field structs (e.g., from parenthesized expressions)
+    right = right.as_scalar()
+
     if right.shape != comp.shape_num:
         raise TypeError(f"Right operand is not a number: {right.format()}")
 

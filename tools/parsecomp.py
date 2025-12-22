@@ -121,6 +121,48 @@ def parse_source(source, use_scanner=False, show_positions=False):
     printer.print(tree)
 
 
+def format_instruction(idx, instr):
+    """Format a single instruction for display."""
+    # Get instruction type name
+    instr_type = instr.__class__.__name__
+
+    # Build a compact representation
+    parts = [f"{instr_type}"]
+
+    # Add key attributes based on instruction type
+    if hasattr(instr, 'value') and instr.value is not None:
+        # Const instruction
+        parts.append(f"value={instr.value.format()}")
+    if hasattr(instr, 'op') and instr.op is not None:
+        # Binary/Unary op
+        parts.append(f"op='{instr.op}'")
+    if hasattr(instr, 'name') and instr.name is not None:
+        # LoadVar/StoreVar
+        parts.append(f"name='{instr.name}'")
+    if hasattr(instr, 'left') and instr.left is not None:
+        # BinOp
+        left_str = instr.left.format() if hasattr(instr.left, 'format') else instr.left
+        parts.append(f"left={left_str}")
+    if hasattr(instr, 'right') and instr.right is not None:
+        # BinOp
+        right_str = instr.right.format() if hasattr(instr.right, 'format') else instr.right
+        parts.append(f"right={right_str}")
+    if hasattr(instr, 'operand') and instr.operand is not None:
+        # UnOp
+        operand_str = instr.operand.format() if hasattr(instr.operand, 'format') else instr.operand
+        parts.append(f"operand={operand_str}")
+    if hasattr(instr, 'source') and instr.source is not None:
+        # StoreVar, Return
+        source_str = instr.source.format() if hasattr(instr.source, 'format') else instr.source
+        parts.append(f"source={source_str}")
+
+    # Always show dest if present
+    if hasattr(instr, 'dest') and instr.dest is not None:
+        parts.append(f"-> {instr.dest}")
+
+    return f"  {idx:3d}  {' '.join(parts)}"
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Parse and display Comp language files.")
@@ -128,17 +170,27 @@ def main():
         help="Comp source to parse")
     parser.add_argument("--text", action="store_true",
         help="Treat source as direct expression to be parsed")
+    parser.add_argument("--lark", action="store_true",
+        help="Show Lark parse tree")
     parser.add_argument("--cop", action="store_true",
         help="Report parsed cop structure")
     parser.add_argument("--resolve", action="store_true",
         help="Report resolved cop structure")
+    parser.add_argument("--code", action="store_true",
+        help="Build and show instruction code")
+    parser.add_argument("--eval", action="store_true",
+        help="Evaluate the expression and show the result")
+    parser.add_argument("--trace", action="store_true",
+        help="Show each instruction as it executes with its result")
+    parser.add_argument("--no-fold", action="store_true",
+        help="Disable constant folding during resolve (use with --code or --eval)")
     parser.add_argument("--scan", action="store_true",
         help="Use the scanner grammar (scan.lark) instead of full grammar")
     parser.add_argument( "--raw", action="store_true",
         help="Show raw Lark tree output (built-in pretty)")
     parser.add_argument("--pos", action="store_true",
         help="Show line:column positions for nodes")
-    
+
     argv = None
     try:
         import debugpy
@@ -160,14 +212,45 @@ def main():
             filepath = Path.cwd() / filepath
         source = filepath.read_text()
 
-    if args.cop or args.resolve:
-        cop = comp.parse(source)
-        if args.resolve:
-            namespace = None
-            cop = comp.resolve(cop, namespace)
-        prettycop(cop, show_pos=args.pos)
-    else:
+    # Check if any output mode was specified
+    if not any([args.lark, args.cop, args.resolve, args.code, args.eval, args.trace]):
+        parser.error("No output mode specified. Use --lark, --cop, --resolve, --code, --eval, or --trace")
+
+    if args.lark:
+        # Show Lark parse tree
         parse_source(source, use_scanner=args.scan, show_positions=args.pos)
+    elif args.cop or args.resolve or args.code or args.eval or args.trace:
+        cop = comp.parse(source)
+        if args.resolve or args.code or args.eval or args.trace:
+            namespace = None
+            cop = comp.resolve(cop, namespace, no_fold=args.no_fold)
+        if args.code:
+            # Build instructions and display them
+            instructions = comp.build(cop)
+            print(f"Instructions ({len(instructions)}):")
+            for i, instr in enumerate(instructions):
+                print(format_instruction(i, instr))
+        elif args.eval:
+            # Build and execute instructions
+            instructions = comp.build(cop)
+            interp = comp.Interp()
+            result = interp.execute(instructions)
+            print(f"Result: {result.format()}")
+        elif args.trace:
+            # Build and execute with tracing
+            instructions = comp.build(cop)
+            interp = comp.Interp()
+            frame = comp._interp.ExecutionFrame()
+
+            print(f"Trace ({len(instructions)} instructions):")
+            for i, instr in enumerate(instructions):
+                result = instr.execute(frame)
+                print(format_instruction(i, instr))
+                print(f"       => {result.format()}")
+
+            print(f"\nFinal result: {result.format()}")
+        else:
+            prettycop(cop, show_pos=args.pos)
 
 
 if __name__ == "__main__":

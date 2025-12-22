@@ -28,19 +28,19 @@ core-team = (
 -- Main entry point
 main = :(
     var.next-call = "2021-08-31 15:00:21.290597200 -05:00"
-    var.people = mod.core-team |with-local-time(var.next-call |parse-datetime())
+    var.people = mod.core-team | with-local-time(var.next-call | parse-datetime())
 
     print("for the next event on $(var.next-call).. ")
-    var.people |each :it (it |print("$(name)'s: $(time) (timezone $(tz))"))
+    var.people | each :it (it | print("$(name)'s: $(time) (timezone $(tz))"))
 )
 
 
 with-local-time = :people event~datetime pure (|val
-    people |map :person (|mix
+    people | map :person (|mix
         person 
         (
-            name = person.name |capitalize()
-            time = arg |to-timezone(person.tz) |format("%c")
+            name = person.name | capitalize()
+            time = arg | to-timezone(person.tz) | format("%c")
         )
 	)
 )

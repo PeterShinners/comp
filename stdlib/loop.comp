@@ -1,173 +1,239 @@
-!doc module "Iteration and looping functions"
-; !import /struct = comp "struct"  ; Commented out - has parse errors, using builtin |length instead
+--- Iteration and looping functions
+Functions for generating sequences, mapping, filtering, and reducing collections.
+---
 
 
-; !doc "Infinite counter stream"  
-!func |infinite ~{} arg ~{start~num=0 step~num=1} = {
-    $var.count = $arg.start
-    :{
-        $var.result = $var.count
-        $var.count = $var.count + $arg.step
-        $var.result
-    }~any-block
-}
+-- Generate infinite counter stream starting at a value with step increments
+
+infinite = :arg~(start~num=0 step~num=1) (
+	!var.count = arg.start
+	:(
+		var.count
+		!var.count = var.count + arg.step
+	)
+)
 
 
-; !doc "Generate range of numbers from start to end (exclusive) with optional step"
-!func |range ~any arg ~{start~num=0 end~num step~num=1} = {
-    $var.check = [|if ($arg.step == 0) :{#fail "range step cannot be zero"}]
-    $var.current = $arg.start
-    ..[|loop :{
-        [|if ($var.current >= $arg.end) :{#break} :{
-            $var.current
-            $var.current = $var.current + $arg.step
-        }]
-    }]
-}
+-- Generate range of numbers from start to end (exclusive) with optional step
+
+range = :arg~(start~num=0 end~num step~num=1) pure (
+	if(arg.step == 0) :(fail("range step cannot be zero"))
+	!var.current = arg.start
+	|flat |loop :(
+		if(var.current >= arg.end) :(break)
+		|else :(
+			var.current
+			!var.current = var.current + arg.step
+		)
+	)
+)
 
 
-; !doc "Generate indices for input collection (0 to length-1)"
-!func |indices ~struct = {
-    ..[|range end=[$in |length]]
-}
+-- Generate indices for input collection (0 to length-1)
+
+indices = :in~struct pure (|flat
+	range(end=(in |length()))
+)
 
 
+-- Execute operation on each element of collection
 
-!func |iter ~struct arg ~{~any ~any-block} = {
-    $var.collection-item = [$arg |subscript index=0]
-    $var.collection = $var.collection-item.value
-    $var.op-item = [$arg |subscript index=1]
-    $var.op = $var.op-item.value
-    $var.length = [$var.collection |length]
-    $var.index = 0
-    
-    ..[|loop :{
-        [|if ($var.index >= $var.length) :{#break} :{
-            $var.item = [$var.collection |subscript index=$var.index]
-            $var.index = ($var.index + 1)
-            $var.data = {
-                value = $var.item.value
-                field = $var.item.field
-                index = ($var.index - 1)
-            }
-            $var.tmp = [$var.data |:$var.op]
-            $var.last = [$var.tmp |subscript index=-1]
-            $var.last.value
-        }]
-    }]
-}
+each = :in~struct arg~(op~:()) (|flat
+	in |loop :(
+		if(it.index >= in |length()) :(break)
+		|else :(
+			!var.item = in |at(index=it.index)
+			var.item |:arg.op()
+			!var.index = it.index + 1
+		)
+	)
+)
 
 
-!func |map ~struct arg ~{op ~:{}} = {
-    ..[$in |iter :{
-        [$in.value |:$arg.op]
-    }]
-}
+-- Map operation over collection elements
+
+map = :in~struct arg~(op~:()) pure (|flat
+	in |loop :(
+		if(it.index >= in |length()) :(break)
+		|else :(
+			!var.item = in |at(index=it.index)
+			var.item |:arg.op()
+			!var.index = it.index + 1
+		)
+	)
+)
 
 
-; !doc "Test if any element matches condition"
-!func |any? ~struct arg ~{if ~:{}} = {
-    ???
-}
+-- Test if any element matches condition
+
+any? = :in~struct arg~(test~:()) pure (|val
+	!var.found = false
+	in |loop :(
+		if(it.index >= in |length()) :(break)
+		|else :(
+			!var.item = in |at(index=it.index)
+			if(var.item |:arg.test()) :(
+				!var.found = true
+				break
+			)
+			!var.index = it.index + 1
+		)
+	)
+	var.found
+)
 
 
-; !doc "Test if all elements match condition"
-!func |all? ~struct arg ~{if ~:{}} = {
-    ???
-}
+-- Test if all elements match condition
+
+all? = :in~struct arg~(test~:()) pure (|val
+	!var.all-match = true
+	in |loop :(
+		if(it.index >= in |length()) :(break)
+		|else :(
+			!var.item = in |at(index=it.index)
+			if(!!(var.item |:arg.test())) :(
+				!var.all-match = false
+				break
+			)
+			!var.index = it.index + 1
+		)
+	)
+	var.all-match
+)
 
 
-; !doc "Test if no elements match condition"
-!func |none? ~struct arg ~{if ~:{}} = {
-    ???
-}
+-- Test if no elements match condition
+
+none? = :in~struct arg~(test~:()) pure (|val
+	!!(in |any?(test=arg.test))
+)
 
 
-; !doc "Count elements matching condition (defaults to non-fail values)"
-!func |count ~struct arg ~{if ~:{}={}} = {
-    ???
-}
+-- Count elements matching condition
+
+count = :in~struct arg~(test~:()=:(_)(true)) pure (|val
+	!var.count = 0
+	in |loop :(
+		if(it.index >= in |length()) :(break)
+		|else :(
+			!var.item = in |at(index=it.index)
+			if(var.item |:arg.test()) :(
+				!var.count = var.count + 1
+			)
+			!var.index = it.index + 1
+		)
+	)
+	var.count
+)
 
 
-; !doc "Filter elements matching condition"
-!func |filter ~struct arg ~{if ~:{}} = {
-    ???
-}
+-- Filter elements matching condition
+
+filter = :in~struct arg~(test~:()) pure (|flat
+	in |loop :(
+		if(it.index >= in |length()) :(break)
+		|else :(
+			!var.item = in |at(index=it.index)
+			if(var.item |:arg.test()) :(var.item)
+			!var.index = it.index + 1
+		)
+	)
+)
 
 
-; !doc "Group consecutive elements into fixed-size chunks"
-!func |chunk ~struct arg ~{size ~num} = {
-    ???
-}
+-- Group consecutive elements into fixed-size chunks
+
+chunk = :in~struct arg~(size~num) pure (|flat
+	!var.index = 0
+	!var.len = in |length()
+	loop :(
+		if(var.index >= var.len) :(break)
+		|else :(
+			!var.end = var.index + arg.size
+			if(var.end > var.len) :(!var.end = var.len)
+			in |slice(start=var.index end=var.end)
+			!var.index = var.end
+		)
+	)
+)
 
 
-; !doc "Group elements by key function result"
-!func |group ~struct arg ~{key ~:{}} = {
-    ???
-}
+-- Reduce sequence to single value using fold function
+
+reduce = :in~struct arg~(initial~any fold~:()) (|val
+	!var.result = arg.initial
+	in |loop :(
+		if(it.index >= in |length()) :(break)
+		|else :(
+			!var.item = in |at(index=it.index)
+			!var.result = (accumulator=var.result value=var.item) |:arg.fold()
+			!var.index = it.index + 1
+		)
+	)
+	var.result
+)
 
 
-; !doc "Flatten nested structures into single sequence"
-; TODO: Needs recursion support - stubbed for now
-!func |flat ~struct arg ~{depth ~num = 1} = {
-    ???
-}
+-- Find first element matching condition
+
+find = :in~struct arg~(test~:()) pure (|val
+	!var.found = nil
+	in |loop :(
+		if(it.index >= in |length()) :(break)
+		|else :(
+			!var.item = in |at(index=it.index)
+			if(var.item |:arg.test()) :(
+				!var.found = var.item
+				break
+			)
+			!var.index = it.index + 1
+		)
+	)
+	var.found
+)
 
 
-; !doc "Reduce sequence to single value using fold function"
-!func |reduce ~struct arg ~{initial ~any fold ~:{accumulator value}} = {
-    $var.result = $arg.initial
-    [$in |iter :{
-        $var.result = [{accumulator=$var.result value=$in.value} |:$arg.fold]
-    }]
-    $var.result
-}
+-- Take first n elements from collection
+
+take = :in~struct arg~(count~num) pure (
+	in |slice(start=0 end=arg.count)
+)
 
 
-; !doc "Split sequence at index position"
-!func |split ~struct arg ~{index ~num} = {
-    ???
-}
+-- Drop first n elements from collection
+
+drop = :in~struct arg~(count~num) pure (
+	in |slice(start=arg.count end=(in |length()))
+)
 
 
-; !doc "Partition elements into two groups based on condition"
-!func |partition ~struct arg ~{if ~:{}} = {
-    ???
-}
+-- Flatten nested structures into single sequence
+
+flat = :in~struct pure (|flat
+	in |loop :(
+		if(it.index >= in |length()) :(break)
+		|else :(
+			!var.item = in |at(index=it.index)
+			-- Simple flatten - if item is struct, expand it
+			if(var.item ~struct) :(|flat var.item)
+			|else :(var.item)
+			!var.index = it.index + 1
+		)
+	)
+)
 
 
-; !doc "Remove duplicate elements (optionally by key)"
-!func |unique ~struct arg ~{key ~:{}={}} = {
-    ???
-}
+-- Zip multiple sequences together
 
+zip = :in~struct arg~(lists~struct) pure (|flat
+	!var.min-len = in |length()
+	arg.lists |each :lst (
+		!var.len = lst |length()
+		if(var.len < var.min-len) :(!var.min-len = var.len)
+	)
 
-; !doc "Repeat sequence n times or element infinitely"
-!func |repeat ~struct arg ~{times ~num={}} = {
-    ???
-}
-
-
-; !doc "Duplicate stream for multiple independent consumers"
-!func |tee ~struct arg ~{count ~num = 2} = {
-    ???
-}
-
-
-; !doc "Convert pairs of {field value} into structure"
-!func |from-pairs ~struct = {
-    ???
-}
-
-
-; !doc "Find insertion index for value in sorted sequence (optionally by key)"
-!func |bisect ~struct arg ~{value ~any key ~:{}={}} = {
-    ???
-}
-
-
-; !doc "Concatenate sequence of sequences into single sequence"
-!func |join ~struct = {
-    ???
-}
-
+	range(end=var.min-len) |map :idx (|flat
+		in |at(index=idx)
+		arg.lists |map :lst (lst |at(index=idx))
+	)
+)

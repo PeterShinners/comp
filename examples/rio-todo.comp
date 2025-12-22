@@ -29,7 +29,7 @@ tag.visibility = ~(all active complete)
 
 
 -- Build app window component declaratively
-todo-app = :state~state (
+todo-app = :~state (
 	component.column spacing=2 (|mix
 		-- Input field  
 		component.row(  
@@ -37,26 +37,26 @@ todo-app = :state~state (
 			text = state.input 
 			placeholder = "What needs doing?"
 			flex = 1
-			on-change = :it (it |merge (input=value))
+			on-change = :it (it | merge (input=value))
 			on-submit = add-todo
 			
 			component.button 
 			text = "Add" 
-			disabled = (state.input |trim() == "")
+			disabled = (state.input | trim() == "")
 			on-click = add-todo
 		)
 		
 		-- Todo list
 		state.todos
-		|filter : (todo-visible(state.filter))
-		|map : (todo-item (state it))
+		| filter : (todo-visible(state.filter))
+		| map : (todo-item (state it))
 		
 		-- Filter radios
-		component.row(all active complete) |map :it (|flat
+		component.row(all active complete) | map :it (|flat
 			component.button
 			text = it.filter ~text
 			variant = pick(it == state.filter "primary" "outline")
-			on-click = :it (state |merge(filter=it))
+			on-click = :it (state | merge(filter=it))
 		)
 	)
 )
@@ -84,19 +84,17 @@ todo-item = :args~(state~state todo~todo)(
 
 -- Create new todo from current applications state
 
-add-todo = :state~state (|mix
-	var.title = state.input |trim() |if-empty("<no name>")
+add-todo = :~state (|mix
+	var.title = state.input | trim() | if-empty("<no name>")
 	state 
-	todos = state.todos |extend(var.title ~todo)
+	todos = state.todos | extend(var.title ~todo)
 )
 
 
 -- Toggle todo complete status
 
-toggle-todo = :state~state id~id (|mix
-	state
-	todos = state.todos |map :it (|mix
-		it 
+toggle-todo = :~state ~id (|update
+	todos = state.todos | map :it (|update
 		complete = pick (|val it.id == args.id !!it.complete it.complete)
 	)
 )
@@ -104,16 +102,15 @@ toggle-todo = :state~state id~id (|mix
 
 -- Remove item from applicate state
 
-delete-todo = :state~state id~id (|mix
-	state
+delete-todo = :~state ~id (|update
 	todos = state.todos |filter :it (it.id != args.id)
 )
 
 
 -- Determine if an item should be visible based on filter
 
-todo-visible = :todo~todo filter~filter (|val
-	filter |case(
+todo-visible = :~todo ~filter (|val
+	filter | case(
 		'all' = true
 		'active' = !!todo.complete
 		'complete' = todo.complete

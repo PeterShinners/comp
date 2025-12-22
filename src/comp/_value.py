@@ -139,6 +139,30 @@ class Value:
 
         return str(self.data)
 
+    def as_scalar(self):
+        """Unwrap single-element structs to their scalar value.
+
+        If this value is a struct with exactly one field (named or unnamed),
+        returns that field's value. Otherwise returns self unchanged.
+
+        This is used by operators to automatically unwrap parenthesized
+        expressions like (5+20) which parse as single-field structs.
+
+        Returns:
+            (Value) The unwrapped value, or self if not unwrappable
+        """
+        # Only unwrap struct values
+        if not isinstance(self.data, dict):
+            return self
+
+        # Must have exactly one field
+        if len(self.data) != 1:
+            return self
+
+        # Extract the single value
+        value = next(iter(self.data.values()))
+        return value
+
     def to_python(self, field=None, rich_numbers=False):
         """Convert this value to a Python equivalent.
 

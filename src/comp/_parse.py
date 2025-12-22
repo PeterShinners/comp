@@ -43,7 +43,7 @@ def parse(source):
     return cop
 
 
-def resolve(cop, namespace):
+def resolve(cop, namespace, no_fold=False):
     """Resolve cop structures into final form.
 
     Generate a new cop structure with references and literals resolved.
@@ -53,6 +53,7 @@ def resolve(cop, namespace):
     Args:
         cop: (Value) Cop structure to resolve
         namespace: (Value) Namespace to use for resolving identifiers
+        no_fold: (bool) If True, only convert literals to constants, skip folding operations
     Returns:
         (Value) Modified cop structure
     """
@@ -61,7 +62,7 @@ def resolve(cop, namespace):
     kids = []
     changed = False
     for kid in _cop_kids(cop):
-        res = resolve(kid, namespace)
+        res = resolve(kid, namespace, no_fold=no_fold)
         if res is not kid:
             kids.append(res)
             changed = True
@@ -79,20 +80,28 @@ def resolve(cop, namespace):
             constant = comp.Value.from_python(value)
             return _make_constant(cop, constant)
         case "value.math.unary":
-            op = cop.to_python("op")
-            if op == "+":
-                return kids[0]
-            value = _get_constant(kids[0])
-            if value is not None:
-                modified = comp.math_unary(op, value)
-                return _make_constant(cop, modified)
+            if no_fold:
+                # Skip constant folding
+                pass
+            else:
+                op = cop.to_python("op")
+                if op == "+":
+                    return kids[0]
+                value = _get_constant(kids[0])
+                if value is not None:
+                    modified = comp.math_unary(op, value)
+                    return _make_constant(cop, modified)
         case "value.math.binary":
-            op = cop.to_python("op")
-            left = _get_constant(kids[0])
-            right = _get_constant(kids[1])
-            if left is not None and right is not None:
-                modified = comp.math_binary(op, left, right)
-                return _make_constant(cop, modified)
+            if no_fold:
+                # Skip constant folding
+                pass
+            else:
+                op = cop.to_python("op")
+                left = _get_constant(kids[0])
+                right = _get_constant(kids[1])
+                if left is not None and right is not None:
+                    modified = comp.math_binary(op, left, right)
+                    return _make_constant(cop, modified)
         case "struct.define":
             struct = {}
             for field_cop in kids:
@@ -111,8 +120,10 @@ def resolve(cop, namespace):
                     struct = None
                     break
                 struct[key] = value
-            value = comp.Value(struct)
-            return _make_constant(cop, value)
+            if struct is not None:
+                value = comp.Value(struct)
+                return _make_constant(cop, value)
+            # Can't fold - has non-constant fields, leave unchanged
         case "shape.define":
             # Build a ShapeDef with FieldDefs from shape.field children
             shape_def = comp.ShapeDef("", False)  # Anonymous inline shape
@@ -245,6 +256,7 @@ COP_TAGS = [
     "value.transact",  # (kids)
     "value.handle",  # (op, kids) grab/drop/pull/etc
     "value.constant",  # (value) precompiled constant value
+    "stmt.assign",  # (kids) 2 kids (lvalue, rvalue)
 ]
 
 
@@ -431,6 +443,12 @@ def _convert_tree(tree):
         case "struct_decorator":
             name = _convert_tree(kids[1])
             return _parsed(tree, "struct.decorator", [name])
+
+        case "scope_assign":
+            # BANG identifier ASSIGN value
+            lvalue = _convert_tree(kids[1])
+            rvalue = _convert_tree(kids[3])
+            return _parsed(tree, "stmt.assign", {"l": lvalue, "r": rvalue})
 
         case "block":
             # COLON shape_field* structure

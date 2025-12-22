@@ -1,184 +1,227 @@
-!doc module "Text operations"
+--- Text operations
+Functions for manipulating and analyzing text strings.
+---
 
-!import /py = stdlib "python"
-
-
-!tag #trim = {#whitespace}
-!tag #target = {#both #start #end}
-!tag #case = {#insensitive #sensitive}
+import.py = ("python" stdlib)
 
 
-!doc "Transform text to uppercase"
-!func pure |uppercase ~{text ~str} = {
-    [{self=$in.text} |call-str "upper"]
-}
+-- Tags for text operations
 
-!doc "Transform text to lowercase"
-!func pure |lowercase ~{text ~str} = {
-    [{self=$in.text} |call-str "lower"]
-}
+tag.trim = ~(whitespace chars)
+tag.target = ~(both start end)
+tag.case = ~(sensitive insensitive)
 
-!shape ~trim = {
-    trim #trim|~str = #whitespace 
-    target #target = #both
-}
-!doc "Remove whitespace or characters from text ends"
-!func pure |trim ~{text ~str} arg ~trim= {
-    $var.strip = [|if $arg.target == #start :{
-        "lstrip"
-        } :{  ; else
-            [|if $arg.target == #end :{
-                "rstrip"
-            } :{  ; else
-                "strip"
-            }]
-    }]
-    [|if $arg.trim == #whitespace :{
-        [{self=$in.text} |call-str $var.strip]
-    } :{  ; else
-        $var.arg = [$arg.trim |push]
-        [{self=$in.text $arg.trim} |call-str $var.strip]
-    }]
-}
 
-!doc "Test if text is empty and length is 0"
-!func pure |empty? ~{text ~str} = {
-    [{self=$in.text} |call-str "__len__"] == 0
-}
+-- Transform text to uppercase
 
-!doc "Test if text contains only whitespace or is empty"
-!func pure |blank? ~{text ~str} = {
-    [{self=$in.text} |call-str "strip" |call-str "__len__"] == 0
-}
+uppercase = :in~text pure (
+	(text=in) |py.call(module="str" method="upper")
+)
 
-!doc "Test if text contains only numeric characters"
-!func pure |numeric? ~{text ~str} = {
-    [{self=$in.text} |call-str "isnumeric"]
-}
 
-!doc "Test if text contains only alphabetic characters"
-!func pure |alpha? ~{text ~str} = {
-    [{self=$in.text} |call-str "isalpha"]
-}
+-- Transform text to lowercase
 
-!doc "Test if text contains only alphanumeric characters"
-!func pure |alphanumeric? ~{text ~str} = {
-    [{self=$in.text} |call-str "isalnum"]
-}
+lowercase = :in~text pure (
+	(text=in) |py.call(module="str" method="lower")
+)
 
-!doc "Test if text contains only lowercase characters"
-!func pure |lowercase? ~{text ~str} = {
-    [{self=$in.text} |call-str "islower"]
-}
 
-!doc "Test if text contains only uppercase characters"
-!func pure |uppercase? ~{text ~str} = {
-    [{self=$in.text} |call-str "isupper"]
-}
+-- Remove whitespace or characters from text ends
 
-!doc "Test if text contains a substring"
-!func pure |contains? ~{text ~str} arg ~{substring ~str case #case = #sensitive} = {
-    $var.self = $in.text
-    $var.key = $arg.substring
-    $var.lowers = [|if $arg.case == #insensitive :{
-        $var.self = [{self=$var.self} |call-str "lower"]
-        $var.key = [{self=$arg.substring} |call-str "lower"]
-    }]
-    [{self=$var.self $var.key} |call-str "__contains__"]
-}
+trim = :in~text arg~(what~trim=trim.whitespace target~target=target.both) pure (
+	var.method = if(arg.target == target.start) :("lstrip")
+		|elif(arg.target == target.end) :("rstrip")
+		|else :("strip")
 
-; !doc "Test if text starts with a prefix"
-; !func pure |starts-with? ~{text ~str prefix ~str} = {
-;     [{self=$in.text prefix=$in.prefix} |call-str "startswith"]
-; }
+	if(arg.what == trim.whitespace) :(
+		(text=in) |py.call(module="str" method=var.method)
+	)
+	|else :(
+		(text=in chars=arg.what) |py.call(module="str" method=var.method)
+	)
+)
 
-; !doc "Test if text ends with a suffix"
-; !func pure |ends-with? ~{text ~str suffix ~str} = {
-;     [{self=$in.text suffix=$in.suffix} |call-str "endswith"]
-; }
 
-; !doc "Find first occurrence of substring, return index or -1"
-; !func pure |find ~{text ~str substring ~str} = {
-;     [{self=$in.text sub=$in.substring} |call-str "find"]
-; }
+-- Test if text is empty (length 0)
 
-; !doc "Count occurrences of substring"
-; !func pure |count ~{text ~str substring ~str} = {
-;     [{self=$in.text sub=$in.substring} |call-str "count"]
-; }
+empty? = :in~text pure (|val
+	(text=in) |py.call(module="str" method="__len__") == 0
+)
 
-; !doc "Replace all occurrences of old with new"
-; !func pure |replace ~{text ~str old ~str new ~str} = {
-;     [{self=$in.text old=$in.old new=$in.new} |call-str "replace"]
-; }
 
-; !doc "Split text by separator into list of substrings"
-; !func pure |split ~{text ~str separator ~str=" "} = {
-;     [{self=$in.text sep=$in.separator} |call-str "split"]
-; }
+-- Test if text contains only whitespace or is empty
 
-; !doc "Split text into lines"
-; !func pure |lines ~{text ~str} = {
-;     [{self=$in.text} |call-str "splitlines"]
-; }
+blank? = :in~text pure (|val
+	(text=in) |py.call(module="str" method="strip") |py.call(module="str" method="__len__") == 0
+)
 
-; !doc "Join list of strings with separator"
-; !func pure |join ~{items ~struct separator ~str=""} = {
-;     [
-;         $in.items 
-;         |push 
-;         |call-str {name="list" exception-tags={}}
-;         |call-str {name="str.join" args={0=$in.separator 1=$_}}
-;     ]
-; }
 
-; !doc "Reverse text character order"
-; !func pure |reverse ~{text ~str} = {
-;     [{self=$in.text} |push |call-str-func {name="operator.getitem" args={0=$_ 1={} |push |call-str-func {name="slice" args={2=-1}}}}]
-; }
+-- Test if text contains only numeric characters
 
-; !doc "Repeat text n times"
-; !func pure |repeat ~{text ~str times ~num} = {
-;     [$in.times |push |call-str-func {name="operator.mul" args={0=$in.text 1=$_}}]
-; }
+numeric? = :in~text pure (|val
+	(text=in) |py.call(module="str" method="isnumeric")
+)
 
-; !doc "Get substring from start (inclusive) to end (exclusive)"
-; !func pure |slice ~{text ~str start ~num=0 end ~num={}} = {
-;     [
-;         {} 
-;         |push 
-;         |call-str-func {name="slice" args={0=$in.start 1=$in.end}}
-;         |call-str-func {name="operator.getitem" args={0=$in.text 1=$_}}
-;     ]
-; }
 
-!doc "Get text length in characters"
-!func pure |length ~{text ~str} = {
-    [{self=$in.text} |call-str "__len__"]
-}
+-- Test if text contains only alphabetic characters
 
-; !doc "Pad text on left to total width with fill character"
-; !func pure |pad-left ~{text ~str width ~num fill ~str=" "} = {
-;     [{self=$in.text width=$in.width fillchar=$in.fill} |call-str "rjust"]
-; }
+alpha? = :in~text pure (|val
+	(text=in) |py.call(module="str" method="isalpha")
+)
 
-; !doc "Pad text on right to total width with fill character"
-; !func pure |pad-right ~{text ~str width ~num fill ~str=" "} = {
-;     [{self=$in.text width=$in.width fillchar=$in.fill} |call-str "ljust"]
-; }
 
-; !doc "Center text within total width with fill character"
-; !func pure |center ~{text ~str width ~num fill ~str=" "} = {
-;     [{self=$in.text width=$in.width fillchar=$in.fill} |call-str "center"]
-; }
+-- Test if text contains only alphanumeric characters
 
-; !doc "Capitalize first character"
-; !func pure |capitalize ~{text ~str} = {
-;     [{self=$in.text} |call-str "capitalize"]
-; }
+alphanumeric? = :in~text pure (|val
+	(text=in) |py.call(module="str" method="isalnum")
+)
 
-; !doc "Convert to title case (capitalize each word)"
-; !func pure |title ~{text ~str} = {
-;     [{self=$in.text} |call-str "title"]
-; }
 
+-- Test if text contains only lowercase characters
+
+lowercase? = :in~text pure (|val
+	(text=in) |py.call(module="str" method="islower")
+)
+
+
+-- Test if text contains only uppercase characters
+
+uppercase? = :in~text pure (|val
+	(text=in) |py.call(module="str" method="isupper")
+)
+
+
+-- Test if text contains a substring
+
+contains? = :in~text arg~(substring~text case~case=case.sensitive) pure (|val
+	var.text = in
+	var.key = arg.substring
+
+	if(arg.case == case.insensitive) :(
+		var.text = (text=var.text) |py.call(module="str" method="lower")
+		var.key = (text=arg.substring) |py.call(module="str" method="lower")
+	)
+
+	(text=var.text substring=var.key) |py.call(module="str" method="__contains__")
+)
+
+
+-- Test if text starts with a prefix
+
+starts-with? = :in~text arg~(prefix~text) pure (|val
+	(text=in prefix=arg.prefix) |py.call(module="str" method="startswith")
+)
+
+
+-- Test if text ends with a suffix
+
+ends-with? = :in~text arg~(suffix~text) pure (|val
+	(text=in suffix=arg.suffix) |py.call(module="str" method="endswith")
+)
+
+
+-- Find first occurrence of substring, return index or nil
+
+find = :in~text arg~(substring~text) pure (|val
+	var.result = (text=in sub=arg.substring) |py.call(module="str" method="find")
+	if(var.result == -1) :(nil)
+	|else :(var.result)
+)
+
+
+-- Count occurrences of substring
+
+count = :in~text arg~(substring~text) pure (|val
+	(text=in sub=arg.substring) |py.call(module="str" method="count")
+)
+
+
+-- Replace all occurrences of old with new
+
+replace = :in~text arg~(old~text new~text) pure (
+	(text=in old=arg.old new=arg.new) |py.call(module="str" method="replace")
+)
+
+
+-- Split text by separator into list of substrings
+
+split = :in~text arg~(separator~text=" ") pure (
+	(text=in sep=arg.separator) |py.call(module="str" method="split")
+)
+
+
+-- Split text into lines
+
+lines = :in~text pure (
+	(text=in) |py.call(module="str" method="splitlines")
+)
+
+
+-- Join collection of strings with separator
+
+join = :in~struct arg~(separator~text="") pure (
+	(separator=arg.separator items=in) |py.call-func(name="str.join")
+)
+
+
+-- Reverse text character order
+
+reverse = :in~text pure (
+	(text=in) |py.call-func(name="reversed") |join()
+)
+
+
+-- Repeat text n times
+
+repeat = :in~text arg~(times~num) pure (
+	(text=in times=arg.times) |py.call-func(name="operator.mul")
+)
+
+
+-- Get substring from start (inclusive) to end (exclusive)
+
+slice = :in~text arg~(start~num=0 end~(num | nil)=nil) pure (
+	(text=in start=arg.start end=arg.end) |py.call-func(name="operator.getitem")
+)
+
+
+-- Get text length in characters
+
+length = :in~text pure (|val
+	(text=in) |py.call(module="str" method="__len__")
+)
+
+
+-- Pad text on left to total width with fill character
+
+pad-left = :in~text arg~(width~num fill~text=" ") pure (
+	(text=in width=arg.width fillchar=arg.fill) |py.call(module="str" method="rjust")
+)
+
+
+-- Pad text on right to total width with fill character
+
+pad-right = :in~text arg~(width~num fill~text=" ") pure (
+	(text=in width=arg.width fillchar=arg.fill) |py.call(module="str" method="ljust")
+)
+
+
+-- Center text within total width with fill character
+
+center = :in~text arg~(width~num fill~text=" ") pure (
+	(text=in width=arg.width fillchar=arg.fill) |py.call(module="str" method="center")
+)
+
+
+-- Capitalize first character
+
+capitalize = :in~text pure (
+	(text=in) |py.call(module="str" method="capitalize")
+)
+
+
+-- Convert to title case (capitalize each word)
+
+title = :in~text pure (
+	(text=in) |py.call(module="str" method="title")
+)

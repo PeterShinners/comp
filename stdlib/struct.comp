@@ -1,315 +1,337 @@
-; Struct operations for finite collections
-; Focus on field manipulation and indexed access
-
-
-; === Query/Test Operations ===
-
-; !doc "Filter only fields with defined names"
-!func |named ~struct = {
-    ???
-}
-
-
-; !doc "Filter only fields without defined names"
-!func |unnamed ~struct = {
-    ???
-}
-
-
-; !doc "Check if struct is empty (short-circuits on first element)"
-!func |empty? ~struct = {
-    ???
-}
-
-
-; !doc "Count total fields"
-!func |length ~struct = {
-    $var.count = 0
-    [$in |iter :{
-        $var.count = [$var.count + 1]
-    }]
-    $var.count
-}
-
-
-; !doc "Get index position of named field (returns num or fail)"
-!func |field-index ~struct arg ~{field ~str} = {
-    ???
-}
-
-
-; === Access Operations ===
-
-; !doc "Get first element (or first N elements if count given)"
-!func |first ~struct arg ~{count ~num=1} = {
-    [$arg.count == 1
-        |if then: {[$in |at index: 0]}
-            else: {[$in |slice start: 0 end: $arg.count]}
-    ]
-}
-
-
-; !doc "Get last element (or last N elements if count given)"
-!func |last ~struct arg ~{count ~num=1} = {
-    [$arg.count == 1
-        |if then: {[$in |at index: -1]}
-            else: {
-                $var.len = [$in |length]
-                $var.start = [$var.len - $arg.count]
-                [$in |slice start: $var.start end: $var.len]
-            }
-    ]
-}
-
-
-; !doc "Get range of elements"
-!func |slice ~struct arg ~{start ~num end ~num} = {
-    $var.result = []
-    $var.idx = 0
-    [$in |iter :{
-        [[$var.idx >= $arg.start] && [$var.idx < $arg.end]
-            |if then: {
-                $var.result = [$var.result !append $in.value]
-            }
-        ]
-        $var.idx = [$var.idx + 1]
-    }]
-    $var.result
-}
-
-
-; !doc "Get element at index (supports negative indexing, -1 for last)"
-!func |at ~struct arg ~{index ~num} = {
-    $var.target = [$arg.index < 0
-        |if then: {[[$in |length] + $arg.index]}
-            else: {$arg.index}
-    ]
-    $var.idx = 0
-    $var.found = !fail "index out of bounds"
-    [$in |iter :{
-        [$var.idx == $var.target
-            |if then: {$var.found = $in.value}
-        ]
-        $var.idx = [$var.idx + 1]
-    }]
-    $var.found
-}
-
-
-; !doc "Find first element matching condition"
-!func |find ~struct arg ~{if ~:{}} = {
-    $var.result = !fail "not found"
-    [$in |iter :{
-        [$in.value |:$arg.if
-            |if then: {
-                $var.result = $in.value
-                !break
-            }
-        ]
-    }]
-    $var.result
-}
-
-
-; !doc "Check if struct contains value"
-!func |contains? ~struct arg ~{value ~any} = {
-    $var.found = false
-    [$in |iter :{
-        [$in.value == $arg.value
-            |if then: {
-                $var.found = true
-                !break
-            }
-        ]
-    }]
-    $var.found
-}
-
-
-; !doc "Get all items as list of {field value} pairs"
-!func |items ~struct = {
-    ???
-}
-
-
-; === Transform Operations ===
+--- Struct operations for finite collections
+Functions for field manipulation, indexed access, and transformations.
+---
 
-; !doc "Reverse field order"
-!func |reverse ~struct = {
-    $var.result = []
-    [$in |iter :{
-        $var.result = [$in.value $var.result]
-    }]
-    $var.result
-}
 
-
-; !doc "Sort by value (optionally by key function)"
-!func |sort ~struct arg ~{key ~:{}={}} = {
-    ???
-}
+-- Filter only fields with defined names
 
+named = :in~struct pure (|flat
+	in |each :item (
+		if(item.field != nil) :(item)
+	)
+)
 
-; !doc "Sort by field names"
-!func |sort-fields ~struct = {
-    ???
-}
 
+-- Filter only fields without defined names
 
-; !doc "Rotate fields left (negative) or right (positive)"
-!func |rotate ~struct arg ~{by ~num} = {
-    ???
-}
+unnamed = :in~struct pure (|flat
+	in |each :item (
+		if(item.field == nil) :(item.value)
+	)
+)
 
 
-; === Field Manipulation ===
+-- Check if struct is empty
 
-; !doc "Rename fields (takes mapping struct or from/to args)"
-!func |rename ~struct arg ~{from ~str to ~str} = {
-    ???
-}
+empty? = :in~struct pure (|val
+	in |length() == 0
+)
 
 
-; !doc "Remove specified fields"
-!func |drop ~struct arg ~{fields ~[str]} = {
-    $var.result = {}
-    [$in |iter :{
-        [$arg.fields |contains? value: $in.field
-            |if else: {
-                $var.result = {$var.result $in.field: $in.value}
-            }
-        ]
-    }]
-    $var.result
-}
+-- Count total fields
 
+length = :in~struct pure (|val
+	var.count = 0
+	in |each :_ (
+		var.count = var.count + 1
+	)
+	var.count
+)
 
-; !doc "Keep only specified fields"
-!func |select ~struct arg ~{fields ~[str]} = {
-    $var.result = {}
-    [$arg.fields |iter :{
-        $var.result = {$var.result $in.value: $in.field.$in.value}
-    }]
-    $var.result
-}
 
+-- Get index position of named field (returns num or nil)
 
-; !doc "Reorder fields to match list"
-!func |reorder ~struct arg ~{fields ~[str]} = {
-    ???
-}
+field-index = :in~struct arg~(field~text) pure (|val
+	var.result = nil
+	var.index = 0
+	in |each :item (
+		if(item.field == arg.field) :(
+			var.result = var.index
+			break
+		)
+		var.index = var.index + 1
+	)
+	var.result
+)
 
 
-; !doc "Copy field structure from another struct"
-!func |apply-fields ~struct arg ~{template ~struct} = {
-    ???
-}
+-- Get first element (or first N elements if count given)
 
-!doc "Assign field names from one structure values to another structure values"
-!func |apply-names ~struct arg ~{names~any} = {
-    ..[{$arg.names $in} |zip |iter :{
-        '$in.#0' = $in.#1
-    }]
-}
+first = :in~struct arg~(count~num=1) pure (
+	if(arg.count == 1) :(in |at(index=0))
+	|else :(in |slice(start=0 end=arg.count))
+)
 
 
-; === Content Manipulation ===
+-- Get last element (or last N elements if count given)
 
-; !doc "Insert value at position"
-!func |insert ~struct arg ~{at ~num value ~any} = {
-    ???
-}
+last = :in~struct arg~(count~num=1) pure (
+	var.len = in |length()
+	if(arg.count == 1) :(in |at(index=-1))
+	|else :(
+		var.start = var.len - arg.count
+		in |slice(start=var.start end=var.len)
+	)
+)
 
 
-; !doc "Remove element at position (or range if count given)"
-!func |remove ~struct arg ~{at ~num count ~num=1} = {
-    ???
-}
+-- Get range of elements
 
+slice = :in~struct arg~(start~num end~num) pure (|flat
+	var.index = 0
+	in |each :item (
+		if((var.index >= arg.start) && (var.index < arg.end)) :(item)
+		var.index = var.index + 1
+	)
+)
 
-; !doc "Replace range with new values"
-!func |replace ~struct arg ~{at ~num count ~num values ~[]} = {
-    ???
-}
 
+-- Get element at index (supports negative indexing)
 
-; !doc "Extract fields by indices or names"
-!func |take ~struct arg ~{fields ~[]} = {
-    ???
-}
-
-
-; !doc "Fill struct with value repeated count times"
-!func |fill ~struct arg ~{value ~any count ~num} = {
-    ???
-}
-
-
-; !doc "Pad struct to length with value"
-!func |pad ~struct arg ~{length ~num value ~any} = {
-    ???
-}
-
-
-; === Combination/Conversion ===
-
-; !doc "Combine multiple lists into list of structs"
-!func |zip ~struct arg ~{lists ~[]} = {
-    ???
-}
-
-
-; !doc "Split struct-of-lists into list-of-structs"
-!func |unzip ~struct = {
-    ???
-}
-
-
-; !doc "Extract just values (ignoring field names)"
-!func |values ~struct = {
-    $var.result = []
-    [$in |iter :{
-        $var.result = [$var.result !append $in.value]
-    }]
-    $var.result
-}
-
-
-; !doc "Extract just field names"
-!func |fields ~struct = {
-    ???
-}
-
-
-; !doc "Convert list of {field value} pairs to struct"
-!func |from-pairs ~struct = {
-    ???
-}
-
-
-; === Shape Operations ===
-
-; !doc "Morph to match another struct's field structure"
-!func |field-morph ~struct arg ~{template ~struct} = {
-    ???
-}
-
-
-; !doc "Mask to intersection of fields with another struct"
-!func |field-mask ~struct arg ~{template ~struct} = {
-    ???
-}
-
-
-; === Test Operations with Patterns ===
-
-; !doc "Test if struct starts with prefix"
-!func |starts-with? ~struct arg ~{prefix ~[]} = {
-    ???
-}
-
-
-; !doc "Test if struct ends with suffix"
-!func |ends-with? ~struct arg ~{suffix ~[]} = {
-    ???
-}
+at = :in~struct arg~(index~num) pure (|val
+	var.len = in |length()
+	var.target = if(arg.index < 0) :(var.len + arg.index)
+		|else :(arg.index)
+
+	if((var.target < 0) || (var.target >= var.len)) :(
+		fail("index out of bounds")
+	)
+
+	var.result = nil
+	var.index = 0
+	in |each :item (
+		if(var.index == var.target) :(
+			var.result = item
+			break
+		)
+		var.index = var.index + 1
+	)
+	var.result
+)
+
+
+-- Find first element matching condition
+
+find = :in~struct arg~(test~:()) pure (|val
+	var.result = nil
+	in |each :item (
+		if(item |:arg.test()) :(
+			var.result = item
+			break
+		)
+	)
+	if(var.result == nil) :(fail("not found"))
+	|else :(var.result)
+)
+
+
+-- Check if struct contains value
+
+contains? = :in~struct arg~(value~any) pure (|val
+	var.found = false
+	in |each :item (
+		if(item == arg.value) :(
+			var.found = true
+			break
+		)
+	)
+	var.found
+)
+
+
+-- Get all items as list of (field value) pairs
+
+items = :in~struct pure (|flat
+	in |each :item (
+		(field=item.field value=item.value)
+	)
+)
+
+
+-- Reverse field order
+
+reverse = :in~struct pure (|flat
+	var.len = in |length()
+	var.index = var.len - 1
+	loop :(
+		if(var.index < 0) :(break)
+		var.item = in |at(index=var.index)
+		var.item
+		var.index = var.index - 1
+	)
+)
+
+
+-- Sort by value (optionally by key function)
+
+sort = :in~struct arg~(key~:()=:(_)(_) reverse~bool=false) pure (|flat
+	-- Simple bubble sort (not efficient, but works for demonstration)
+	var.arr = in
+	var.len = var.arr |length()
+	var.changed = true
+
+	loop :(
+		if(!!var.changed) :(break)
+		var.changed = false
+		var.i = 0
+
+		loop :(
+			if(var.i >= var.len - 1) :(break)
+			var.a = var.arr |at(index=var.i)
+			var.b = var.arr |at(index=var.i + 1)
+			var.key-a = var.a |:arg.key()
+			var.key-b = var.b |:arg.key()
+
+			var.should-swap = if(arg.reverse) :(var.key-a < var.key-b)
+				|else :(var.key-a > var.key-b)
+
+			if(var.should-swap) :(
+				-- Swap elements
+				var.temp = var.a
+				var.arr = var.arr |update(index=var.i value=var.b)
+				var.arr = var.arr |update(index=var.i + 1 value=var.temp)
+				var.changed = true
+			)
+			var.i = var.i + 1
+		)
+	)
+	var.arr
+)
+
+
+-- Remove specified fields
+
+drop = :in~struct arg~(fields~struct) pure (|flat
+	in |each :item (
+		if(!!(arg.fields |contains?(value=item.field))) :(item)
+	)
+)
+
+
+-- Keep only specified fields
+
+select = :in~struct arg~(fields~struct) pure (|flat
+	arg.fields |each :field-name (
+		in.(field-name)
+	)
+)
+
+
+-- Extract just values (ignoring field names)
+
+values = :in~struct pure (|flat
+	in |each :item (item.value)
+)
+
+
+-- Extract just field names
+
+fields = :in~struct pure (|flat
+	in |each :item (
+		if(item.field != nil) :(item.field)
+	)
+)
+
+
+-- Combine multiple collections element-wise
+
+zip = :in~struct arg~(others~struct) pure (|flat
+	var.min-len = in |length()
+	arg.others |each :other (
+		var.len = other |length()
+		if(var.len < var.min-len) :(var.min-len = var.len)
+	)
+
+	var.index = 0
+	loop :(
+		if(var.index >= var.min-len) :(break)
+		|flat (
+			in |at(index=var.index)
+			arg.others |each :other (
+				other |at(index=var.index)
+			)
+		)
+		var.index = var.index + 1
+	)
+)
+
+
+-- Merge multiple structs together (right-biased)
+
+merge = :in~struct arg~(updates~struct) pure (|update
+	arg.updates
+)
+
+
+-- Insert value at position
+
+insert = :in~struct arg~(at~num value~any) pure (|flat
+	var.index = 0
+	var.inserted = false
+
+	in |each :item (
+		if(var.index == arg.at && !!var.inserted) :(
+			arg.value
+			var.inserted = true
+		)
+		item
+		var.index = var.index + 1
+	)
+
+	if(var.index == arg.at && !!var.inserted) :(arg.value)
+)
+
+
+-- Test if struct starts with prefix sequence
+
+starts-with? = :in~struct arg~(prefix~struct) pure (|val
+	var.prefix-len = arg.prefix |length()
+	var.in-len = in |length()
+
+	if(var.in-len < var.prefix-len) :(false)
+	|else :(
+		var.matches = true
+		var.index = 0
+
+		loop :(
+			if(var.index >= var.prefix-len) :(break)
+			var.in-item = in |at(index=var.index)
+			var.prefix-item = arg.prefix |at(index=var.index)
+
+			if(var.in-item != var.prefix-item) :(
+				var.matches = false
+				break
+			)
+			var.index = var.index + 1
+		)
+		var.matches
+	)
+)
+
+
+-- Test if struct ends with suffix sequence
+
+ends-with? = :in~struct arg~(suffix~struct) pure (|val
+	var.suffix-len = arg.suffix |length()
+	var.in-len = in |length()
+
+	if(var.in-len < var.suffix-len) :(false)
+	|else :(
+		var.matches = true
+		var.offset = var.in-len - var.suffix-len
+		var.index = 0
+
+		loop :(
+			if(var.index >= var.suffix-len) :(break)
+			var.in-item = in |at(index=var.offset + var.index)
+			var.suffix-item = arg.suffix |at(index=var.index)
+
+			if(var.in-item != var.suffix-item) :(
+				var.matches = false
+				break
+			)
+			var.index = var.index + 1
+		)
+		var.matches
+	)
+)

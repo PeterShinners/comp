@@ -21,8 +21,7 @@ main = :(
 
     gh.list-issues(repo="nushell/nushell" fields=var.fields)
     |filter :issue (issue.created-at >= var.after)
-    |map :repo (|mix 
-        repo
+    |map :repo (|update
         num-thumbs = repo.reactions |count :react (react.content == thumbs-up)
     )
     |sort(reverse) :repo (repo.num-thumbs)

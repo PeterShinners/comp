@@ -9,6 +9,7 @@
      | braces
      | doc_comment
      | line_comment
+     | import_stmt
      | assignment
      | text
      | number
@@ -41,6 +42,10 @@ LINE_CONTENT.5: /[^\r\n]+/
 _line_comment: LINE_OPEN LINE_CONTENT?
 line_comment: _line_comment
 
+
+// Import statement - special operator syntax
+IMPORT_KEY.5: "!import"
+import_stmt: IMPORT_KEY TOKENFIELD struct
 
 // Assignment - the key structure we need
 ASSIGN.5: "="

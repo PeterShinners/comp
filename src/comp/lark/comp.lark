@@ -2,10 +2,15 @@
 
 ?start: module*
 
-?module: mod_field
+?module: import_stmt
+       | mod_field
+       | scope_assign
        | expression
 
+import_stmt: KEY_IMPORT simple_name structure
+simple_name: TOKENFIELD
 mod_field: identifier ASSIGN expression
+scope_assign: BANG identifier ASSIGN expression
 
 
 PAREN_OPEN.6: "("
@@ -33,11 +38,13 @@ shape_field: (TOKENFIELD | shape | TOKENFIELD shape) (ASSIGN field_default_value
 
 
 // Keywords (having custom syntaxes)
-KEY_TRANSACT.5: "!transact"
-KEY_GRAB.5: "!grab"
-KEY_DROP.5: "!drop"
-KEY_PUSH.5: "!push"
-KEY_PULL.5: "!pull"
+// Priority 8 to be higher than BANG (7)
+KEY_IMPORT.8: "!import"
+KEY_TRANSACT.8: "!transact"
+KEY_GRAB.8: "!grab"
+KEY_DROP.8: "!drop"
+KEY_PUSH.8: "!push"
+KEY_PULL.8: "!pull"
 transaction: KEY_TRANSACT PAREN_OPEN identifier+ PAREN_CLOSE
 
 ?expression: comparison
@@ -55,6 +62,7 @@ GE.6: ">="
 PIPE.4: "|"
 PIPEFALLBACK.4: "|?"
 
+BANG.7: "!"
 LNOT.5: "!!"
 LAND.5: "&&"
 LOR.5: "||"
@@ -100,7 +108,7 @@ SLASH.3: "/"
 block: COLON shape_field* structure
 structure: PAREN_OPEN struct_decorator* struct_field* PAREN_CLOSE
 struct_decorator: PIPE identifier
-struct_field: (identifier ASSIGN)? expression
+struct_field: scope_assign | (identifier ASSIGN)? expression
 
 
 DOT.6: "."
