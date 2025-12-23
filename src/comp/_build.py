@@ -153,7 +153,15 @@ class Builder:
                 if not kids:
                     raise ValueError("Empty identifier")
 
-                # Check if it's a scoped variable reference (var.x)
+                # Single identifier - simple variable reference
+                if len(kids) == 1:
+                    name = kids[0].to_python("value")
+                    dest = self.gen_register()
+                    instr = comp._interp.LoadVar(cop=cop, name=name, dest=dest)
+                    self.instructions.append(instr)
+                    return dest
+
+                # Multi-part identifier - check if it's a scoped variable reference
                 if len(kids) >= 2:
                     scope = kids[0].to_python("value")
                     if scope == "var":
@@ -170,12 +178,7 @@ class Builder:
                     else:
                         raise ValueError(f"Unknown scope in identifier: {scope}")
 
-                # Simple identifier (legacy support or other uses)
-                name = kids[0].to_python("value")
-                dest = self.gen_register()
-                instr = comp._interp.LoadVar(cop=cop, name=name, dest=dest)
-                self.instructions.append(instr)
-                return dest
+                raise ValueError(f"Cannot handle identifier with {len(kids)} parts")
 
             case "struct.define":
                 # Build struct - handle as sequence of statements/expressions
@@ -207,6 +210,15 @@ class Builder:
                         else:
                             # Build as expression
                             result = self._build_value(value_cop)
+                    elif field_tag == "struct.letassign":
+                        # !let variable assignment
+                        self.build_stmt(field_cop)
+                        result = None  # Statements don't have values
+                    elif field_tag == "struct.namefield":
+                        # Named field: name = value
+                        # For now, just build the value expression
+                        # TODO: Handle field name binding in struct construction
+                        result = self._build_value(field_kids[1])
                     else:
                         raise ValueError(f"Cannot build struct field type: {field_tag}")
 
@@ -227,18 +239,43 @@ class Builder:
         tag = cop.positional(0).data.qualified
 
         match tag:
+            case "struct.letassign":
+                # !let variable assignment
+                # COP structure: struct.letassign with kids being a positional struct (n, v)
+                kids_struct = cop.data[comp.Value.from_python("kids")]
+                # Kids are positional - first is name, second is value
+                name_cop = kids_struct.positional(0)
+                value_cop = kids_struct.positional(1)
+
+                # Extract variable name from identifier
+                name_tag = name_cop.positional(0).data.qualified
+                if name_tag == "value.identifier":
+                    name_kids = _cop_kids(name_cop)
+                    if len(name_kids) != 1:
+                        raise ValueError("!let variable name must be a simple identifier")
+                    name = name_kids[0].to_python("value")
+                else:
+                    raise ValueError(f"!let variable name must be identifier, got: {name_tag}")
+
+                # Build the rvalue expression
+                source = self._build_value(value_cop)
+
+                # Store to variable
+                instr = comp._interp.StoreVar(cop=cop, name=name, source=source)
+                self.instructions.append(instr)
+
             case "stmt.assign":
                 kids = _cop_kids(cop)
                 lvalue = kids[0]
                 rvalue = kids[1]
 
                 # Extract scope and variable name from lvalue
-                # Must be dotted identifier like var.x or var.foo.bar
+                # Must be dotted identifier like mod.x or mod.foo.bar
                 lvalue_tag = lvalue.positional(0).data.qualified
                 if lvalue_tag == "value.identifier":
                     lvalue_kids = _cop_kids(lvalue)
                     if len(lvalue_kids) < 2:
-                        raise ValueError("Scope assignment requires dotted identifier (e.g., var.x)")
+                        raise ValueError("Scope assignment requires dotted identifier (e.g., mod.x)")
 
                     # First field is the scope (var, ctx, mod, pkg, tag, startup)
                     scope = lvalue_kids[0].to_python("value")
@@ -251,7 +288,7 @@ class Builder:
 
                     # Rest of the identifier is the variable name (just second field for now)
                     if len(lvalue_kids) > 2:
-                        raise ValueError("Cannot assign to multi-field variable yet (e.g., var.x.y)")
+                        raise ValueError("Cannot assign to multi-field variable yet (e.g., mod.x.y)")
 
                     name = lvalue_kids[1].to_python("value")
                 else:

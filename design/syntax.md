@@ -26,8 +26,8 @@ readable and editable for your current project.
 tight=:("oneline")  -- No spacing
 spacey       = :arg ~num  -- Wild spacing
      ( prose and docs___
-            var.first = 
-    1 var.second =arg
+            !let first =
+    1 !let second =arg
 )
 ```
 
@@ -86,7 +86,7 @@ nested fields can use this. Like `"Full Name"`.
 These types of field names can be combined in a single identifier.
 
 ```comp
-records.#0."Owners".'var.owner-name'.active?
+records.#0."Owners".'$owner-name'.active?
 ```
 
 ## Struct literals
@@ -263,14 +263,14 @@ scope is shared with any blocks defined inside the same function.
 
 ```comp
 process-request = :in~(request) arg~(timeout ~num) (
-    var.start = time()  -- Function-local variable
-    var.user = in.user  -- Another local variable
+    !let start = time()  -- Function-local variable
+    !let user = in.user  -- Another local variable
     (
         response = in |validate() |process()  -- Struct field
         duration = now() - start  -- Field computed from local
     )
 
-    var.ctx.server.timeout = arg.timeout  -- Copy argument value to context scope
-    var.config = mod.settings  -- Module-level constants
+    ctx.server.timeout = arg.timeout  -- Copy argument value to context scope
+    !let config = mod.settings  -- Module-level constants
 )
 ```

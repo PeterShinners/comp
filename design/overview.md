@@ -16,11 +16,11 @@ import.gh = ("github-api" comp)
 import.time = ("core/time" stdlib)
 
 main = :(
-    var.after = time.now() - 1(week)
-    var.fields = (created-at title url reactions)
+    !let after = time.now() - 1(week)
+    !let fields = (created-at title url reactions)
 
-    gh.list-issues(repo="nushell/nushell" fields=var.fields)
-    |filter :issue (issue.created-at >= var.after)
+    gh.list-issues(repo="nushell/nushell" fields=fields)
+    |filter :issue (issue.created-at >= after)
     |map :repo (|update
         num-thumbs = repo.reactions |count :react (react.content == thumbs-up)
     )
@@ -140,8 +140,8 @@ dispatch, input and argument management, and runtime scopes.
 ```comp
 welcome-new-users :users~user[] (
     -- Act on all recently registered user entries
-    var.recent = now () - 1~week
-    users 
+    !let recent = now () - 1~week
+    users
     |filter :u (u.member_since > recent)
     |each :u (send-welcome-email(u))
     |-|progressbar()  # Wrench to inject progress tracking

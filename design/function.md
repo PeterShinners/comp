@@ -105,11 +105,11 @@ Most functions will use a shape structure to allow multiple arguments.
 double = :val~num(val + val)
 bigger = :args~(a~num b~num)(a > b)
 
-var.eight = double(4)
-var.six = 3 |double()
+!let eight = double(4)
+!let six = 3 |double()
 
-var yes = bigger(1 2)
-var no = (11 4) |bigger()
+!let yes = bigger(1 2)
+!let no = (11 4) |bigger()
 
 ```
 
@@ -174,15 +174,15 @@ process = :args~(x ~num timeout ~num = 30) (
 
 example-process-calls :(
 (
-    var.as-arg1 = process (2)  ; (2 30)
-    var.as-arg2 = process (3 4)  ; (3 4)
-    var.as-arg3 = process (timeout=5 6)  ; (6 5)
+    !let as-arg1 = process (2)  ; (2 30)
+    !let as-arg2 = process (3 4)  ; (3 4)
+    !let as-arg3 = process (timeout=5 6)  ; (6 5)
 
     ctx.timeout = 8
-    var.as-ctx1 = process (7)  ; (7 8)
+    !let as-ctx1 = process (7)  ; (7 8)
 
     ctx.x = 9
-    var.as-ctx2 = process ()  ; (9 8)
+    !let as-ctx2 = process ()  ; (9 8)
 )
 ```
 
@@ -206,9 +206,9 @@ expensive-analysis = :~(data)(
 
 ; So far, none of the functions have been evaluated
 ; Only computes what's needed
-var.analysis = data |expensive-analysis()
-var.quick-view = analysis.summary()  ; Only computes summary
-var.full = analysis(summary statistics)  ; Computes two fields
+!let analysis = data |expensive-analysis()
+!let quick-view = analysis.summary()  ; Only computes summary
+!let full = analysis(summary statistics)  ; Computes two fields
 ```
 
 As fields are computed, their results are cached and the structure eventually
@@ -353,8 +353,8 @@ Blocks capture the scope of the functions they are defined in. This allows them
 to acces and modify local variables shared with the function they come from.
 
 ```comp
-var.first-five-block = :(trim (head size=5))
-var.start = "Alphabets" |first-five-block ()  # "Alpha"
+!let first-five-block = :(trim (head size=5))
+!let start = "Alphabets" |first-five-block ()  # "Alpha"
 ```
 
 ### Function Arguments
@@ -369,12 +369,12 @@ This is commonly used for conditionals and iteration functions that allow a body
 of operations to be passed as an argument.
 
 ```comp
-var.path = arg.path
+!let path = arg.path
 if(path == nil) : (
-    var.path = "placeholder.txt"
+    !let path = "placeholder.txt"
 )
 read-values (path) |sum : (
-    var.distance = line-length(it)
+    !let distance = line-length(it)
     distance * distance
 )
 ```

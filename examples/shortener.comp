@@ -110,28 +110,28 @@ insert-url = :url~text db~redis.connection (|val
     | format(mod.keys.reverse)
     | redis.get(db)
     | if-empty :(|val
-        $id = redis.incr(db mod.keys.total) | base36-encode()
+        !let id = redis.incr(db mod.keys.total) | base36-encode()
         (
-            '$id |format(mod.keys.target)' = url
-            '$id |format(mod.keys.counter)' = 1
-            'url |format(mod.keys.reverse)' = $id
+            'id |format(mod.keys.target)' = url
+            'id |format(mod.keys.counter)' = 1
+            'url |format(mod.keys.reverse)' = id
         )
         | redis.mset(db)
-        $id
+        id
     )
 )
 
 
 -- Encodes positive integer to base36 string.
 base36-encode = :~num pure (
-    $charset = "0123456789abcdefghijklmnopqrstuvwxyz"
-    $result = ""
-    $n = num
-    while($n > 0) :(
-        $div = $n | divmod(36)
-        $letter = $charset | char($div.remainder)
-        $result = join($letter $result)
-        $n = $div.division
+    !let charset = "0123456789abcdefghijklmnopqrstuvwxyz"
+    !let result = ""
+    !let n = num
+    while(n > 0) :(
+        !let div = n | divmod(36)
+        !let letter = charset | char(div.remainder)
+        !let result = join(letter result)
+        !let n = div.division
     )
-    $result | if-empty("0")
+    result | if-empty("0")
 )

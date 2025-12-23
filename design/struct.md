@@ -133,7 +133,7 @@ config = (
 **Assignment targets:**
 
 - `field = value` - Creates field in output struct
-- `var.local = value` - Function-local variable
+- `!let local = value` - Function-local variable
 - `ctx.name = value` - Context variable
 
 ## Destructured Assignment

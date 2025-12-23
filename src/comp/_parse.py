@@ -43,7 +43,7 @@ def parse(source):
     return cop
 
 
-def resolve(cop, namespace, locals=None, no_fold=False):
+def resolve(cop, namespace, no_fold=False):
     """Resolve cop structures into final form.
 
     Generate a new cop structure with references and literals resolved.
@@ -53,14 +53,11 @@ def resolve(cop, namespace, locals=None, no_fold=False):
     Args:
         cop: (Value) Cop structure to resolve
         namespace: (Value) Namespace to use for resolving identifiers
-        locals: (dict) Container for locally assigned constants
         no_fold: (bool) If True, only convert literals to constants, skip folding operations
     Returns:
         (Value) Modified cop structure
     """
     tag = cop.positional(0).data.qualified
-    if locals is None:
-        locals = {}
 
     kids = []
     changed = False
@@ -234,14 +231,12 @@ COP_TAGS = [
     "struct.define",  # (kids)
     "struct.posfield",  # (kids) 1 kid
     "struct.namefield",  # (op, kids) 2 kids (name value)
-    "struct.localassign", # (op, kids) 2 kids (name value)
-    "struct.scopeassign", # (ops, kids) 2 kids (name, value)
+    "struct.letassign",  # (name, kids) 1 kid (value)
     "struct.decorator",  # (op, kids) 1 kid (name/identifier/ref)
     "mod.define",  # (kids)
     "mod.namefield",  # (op, kids) 2 kids (name value)
     "value.identassign",  # (kids)  same as identifier, but in an assignment
     "value.identifier",  # (kids)
-    "ident.local",  # (value)
     "ident.token",  # (value)
     "ident.index",  # (value)
     "ident.indexpr",  # (value)
@@ -423,11 +418,6 @@ def _convert_tree(tree):
             fields = [_convert_tree(k) for k in kids[::2]]
             return _parsed(tree, "value.identifier", fields)
 
-        case "localfield":
-            # consider returning two cop nodes for this, perhaps that is overkill
-            # also, the design doesn't seem to allow multiple node, the arch
-            # enforces a "one cop (with kids) per one lark tree". maybe that is fine
-            return _parsed(tree, "ident.local", [], value=kids[1].value)
         case "tokenfield":
             return _parsed(tree, "ident.token", [], value=kids[0].value)
         case "textfield":
@@ -453,23 +443,19 @@ def _convert_tree(tree):
             name = _convert_tree(kids[0])
             op = kids[1].value
             value = _convert_tree(kids[2])
-            cop_type = "struct.namefield"
-            first_field = name.kids[0]
-            print("FIRSTFIELD:", first_field)
-            return _parsed(tree, cop_type, {"n": name, "v": value}, op=op)
+            return _parsed(tree, "struct.namefield", {"n": name, "v": value}, op=op)
 
         case "struct_decorator":
             name = _convert_tree(kids[1])
             return _parsed(tree, "struct.decorator", [name])
 
-        case "scope_assign":
-            # BANG identifier ASSIGN value
-            lvalue = _convert_tree(kids[1])
-            rvalue = _convert_tree(kids[3])
-            return _parsed(tree, "stmt.assign", {"l": lvalue, "r": rvalue})
+        case "let_assign":
+            name = _convert_tree(kids[1])
+            op = kids[2].value
+            value = _convert_tree(kids[3])
+            return _parsed(tree, "struct.letassign", {"n": name, "v": value}, op=op)
 
         case "block":
-            # COLON shape_field* structure
             # Signature is shape_fields (all kids except first COLON and last structure)
             sig_fields = [_convert_tree(kid) for kid in kids[1:-1]]
             signature = _parsed(tree, "shape.define", sig_fields)

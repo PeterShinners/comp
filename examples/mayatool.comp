@@ -24,20 +24,20 @@ create-inbetween = :arg~layer-config (|val
 
     maya.selection ()
     |map :obj (
-        $parent = obj |maya.get-parent()
+        !let parent = obj |maya.get-parent()
 
-        $transform = $parent
+        !let transform = parent
         |maya.create-node(arg.layer-type name=format("$(obj.name)$(arg.suffix)"))
         |maya.set-attr(useOutlinerColor true)
         |maya.set-attr(outlinerColor arg.outliner-color)
-        |maya.parent($parent)
+        |maya.parent(parent)
 
-        $target = if(arg.parent-type == parent):($parent) |else:(obj)
-        if($target |maya.exists()) : (
-            $target |maya.constrain($transform)
+        !let target = if(arg.parent-type == parent):(parent) |else:(obj)
+        if(target |maya.exists()) : (
+            target |maya.constrain(transform)
         )
 
-        obj |maya.parent($transform)
+        obj |maya.parent(transform)
     )
 )
 
@@ -58,16 +58,16 @@ bubble-args = ~(
 create-bubbles = :parent arg~bubble-args (|val
     !transact(maya.scene)
 
-    $group = parent 
-    | maya.create-node(group name="bubbles") 
+    !let group = parent
+    | maya.create-node(group name="bubbles")
     | maya.select(replace)
 
     !transact(maya.preserve-selection)
 
     range(arg.count) | map :i (
-        $position = repeat(3) : (random(arg.position-range))
-        $group
+        !let position = repeat(3) : (random(arg.position-range))
+        group
         | maya.poly-sphere(name=format("bubble-$(i)") radius=random(arg.radius-range))
-        | maya.xform(position=$position)
+        | maya.xform(position=position)
     )
 )

@@ -27,11 +27,11 @@ core-team = (
 
 -- Main entry point
 main = :(
-    $next-call = "2021-08-31 15:00:21.290597200 -05:00"
-    $people = mod.core-team | with-local-time($next-call | parse-datetime())
+    !let next-call = "2021-08-31 15:00:21.290597200 -05:00"
+    !let people = mod.core-team | with-local-time(next-call | parse-datetime())
 
-    print("for the next event on $($next-call).. ")
-    $people | each :it (it | print("$(name)'s: $(time) (timezone $(tz))"))
+    print("for the next event on $(next-call).. ")
+    people | each :it (it | print("$(name)'s: $(time) (timezone $(tz))"))
 )
 
 

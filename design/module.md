@@ -242,24 +242,24 @@ Modules attach private metadata invisible to other modules:
 ```comp
 -- Cache module
 with-cache = :key~text (
-    var.result = (key value=(key |fetch()))
-    
+    !let result = (key value=(key |fetch()))
+
     -- Attach private data
-    var.result&.cached-at = time.now
-    var.result&.cache-key = key
+    result&.cached-at = time.now
+    result&.cache-key = key
     result
 )
 
 -- Session module
 with-session = :user-data~in (
-    var.result = (..user-data)
-    var.result&.session-id = new-session
-    var.result&.session-start = time.now
+    !let result = (..user-data)
+    result&.session-id = new-session
+    result&.session-start = time.now
     result
 )
 
 -- Usage - both attach private data to same structure
-var.user = (name="alice" email="alice@example.com")
+!let user = (name="alice" email="alice@example.com")
 |with-cache()
 |with-session()
 

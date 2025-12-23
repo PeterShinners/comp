@@ -85,9 +85,9 @@ todo-item = :args~(state~state todo~todo)(
 -- Create new todo from current applications state
 
 add-todo = :~state (|mix
-	$title = state.input | trim() | if-empty("<no name>")
-	state 
-	todos = state.todos | extend($title ~todo)
+	!let title = state.input | trim() | if-empty("<no name>")
+	state
+	todos = state.todos | extend(title ~todo)
 )
 
 

@@ -40,6 +40,6 @@ total = :~cart pure (|val
 
 add-item = :~cart ~item pure (|val
     cart | merge(
-        items = cart.items | upsert(item match= :i (i.name == new.name))
+        items = cart.items | upsert(item match = :i (i.name == new.name))
     )
 )
