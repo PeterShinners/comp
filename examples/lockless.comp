@@ -18,14 +18,14 @@ stack = ~(
 
 main = :(
 	-- Push some items
-	var.stack = ()
+	$stack = ()
 	| atomic-push("first")
 	| atomic-push("second")
 	| atomic-push("third")
 	
 	-- Pop them back
 	forever :(
-		var.stack = atomic-pop(var.stack)
+		$stack = atomic-pop($stack)
 		| print("Popped: $(head.data)")
 		|? field.fail break  -- Stop gracefully when empty
 	)

@@ -1,83 +1,133 @@
-# Comp Language
+# Comp
 
-Comp is born from an excercise to improve the state of developing in high level
-languages like Python. This requires new ideas and behaviors to avoid the ruts
-and common errors these languages encourage. The goal is a lightweight and
-readable language that prioritizes the developer experience.
+Comp is an experiment: what if a language had Python's ease of use but made different foundational choices? Immutable data by default. Pipelines instead of method chains. Shapes instead of classes. No whitespace significance.
 
-This requires some opinionated departures from traditional high level languages.
-All data is immutable and stored in structures that operate both positionally
-and by field names. Data from any source becomes interchangeable with anything
-loaded, generated, or defined with source. Namespaces and imports and
-definitions are declarative, leading to greater analysis and improving build
-time errors and reports. The result looks like a functional style language,
-where there are no classes and function calls chain together into a pipeline.
+It's not trying to replace Python—it's designed to run alongside it, sharing the same ecosystem and interpreter. The question isn't "is Python bad?" (it isn't). The question is "what would feel better?"
 
-The language tries to be minimal, while still presenting high level
-functionality. Flow control and iteration are implemented as regular functions.
-Implement your own or enhance the existing calls and they are interchangeable
-with any part of the language.
+**This is early-stage, experimental software.** The syntax is still evolving, the interpreter is incomplete, and you shouldn't build anything serious on it yet. But if language design interests you, or if you've ever thought "I wish Python did X differently," you might find something interesting here.
 
-Comp is design to run alongside a Python interpreter. Anywhere Python goes, Comp
-should be a viable alternative, ideally even preferred.
+## A Taste
 
-Start with the [Overview Document](design/overview.md) for a summary of features
-and highlights.
-
-## Example
+Here's a pygame example. In Python, you'd write an event loop, manually track state, handle each event type with if/elif chains, and sprinkle mutation throughout. In Comp:
 
 ```comp
---- Hello World example in Comp language.
-Try to personalize the greeting with a series of fallback environment
-variable lookups.
+--- Pygame chimp tutorial (React-style)
+Punch a monkey to win prizes
 ---
 
 main = :(
-  ("USERNAME" "USER" "LOGNAME")
-  |map :in (getenv(in) ? skip)
-  |first(else="World")
-  |print("Hello, ${}!")
+    !ctx.window = pg.display
+    | window(1280 480 scaled=true)
+    | caption("Monkey Fever")
+
+    pg.loop(ctx.window quit-on=(event.quit key.escape)) :~frame (
+        frame.events | each :e (e | handle(frame.state))
+        frame.draw
+        | clear(.7 .9 .7)
+        | card(state.chimp)
+        | card(state.fist)
+    )
+)
+
+handle = :~event[type==mouse.down] ~state (|update
+    fist = state.fist | move(10 90)
+    if (intersect(state.fist state.chimp)) :(
+        chimp.rotate = spin(360 0.5 ease-out)
+        play(res.punch)
+    ) | else :(
+        play(res.whiff)
+    )
+)
+
+handle = :~event[type==mouse.move] ~state (|update
+    fist = state.fist | position(event.position)
 )
 ```
 
+The event handlers dispatch based on shape—`event[type==mouse.down]` matches mouse clicks, `event[type==mouse.move]` matches movement. No switch statement, no event type constants. The data's shape determines which function runs.
+
+## Core Ideas
+
+**Everything is a structure.** Data lives in ordered, optionally-named containers. Function definitions use the same syntax as data literals. There's one way to represent things.
+
+```comp
+point = (x=10 y=20)              -- data
+player = ~(name~text score~num)  -- shape (schema)
+greet = :(print("hello"))        -- function
+```
+
+**Shapes replace classes.** Define what data looks like, not what it "is." Functions dispatch based on whether data matches their declared shapes. The same function name can have multiple implementations for different shapes.
+
+```comp
+tree-insert = :tree~nil value~num (tree(value))
+tree-insert = :tree~branch value~num (
+    if (value < tree.value)
+        :(tree | merge(left = tree-insert(tree.left value)))
+    |else
+        :(tree | merge(right = tree-insert(tree.right value)))
+)
+```
+
+**Pipelines over method chains.** Data flows left-to-right through transformations. No `self`, no mutation, no wondering what `.sort()` returns.
+
+```comp
+users
+| filter :u (u.active)
+| sort :u (u.joined)
+| first(10)
+| each :u (send-welcome(u))
+```
+
+**Control flow is just functions.** `if`, `map`, `reduce`—these aren't special syntax, they're regular functions. You can write your own. The standard library is written in Comp.
+
+**Declarative namespaces.** Everything in a module is known before execution. Imports, definitions, references—all resolved at build time. A whole category of runtime errors becomes build errors.
+
+## Python Interop
+
+Comp runs on Python and talks to Python. Import Python modules, call Python functions, or expose Comp code back to Python.
+
+```python
+import comp
+coolcsv = comp.import_module("coolcsv", "contrib")
+data = coolcsv.load("source.csv")
+filtered = coolcsv.filter(data, filter=comp.parse("~num[min=35]"))
+```
+
+The goal is zero-friction coexistence. Use Comp where its model fits better; use Python where it doesn't. They share an interpreter and can share data.
+
+## Status
+
+Comp is in active development. The parser handles most of the syntax. The interpreter is coming together. The language design is still shifting—this is the fourth major syntax revision. The implementation is co-developed with AI assistants (primarily Claude)—both the code and the design exploration.
+
+What exists today:
+- A [collection of examples](examples/) showing current syntax
+- [Design documents](design/) tracking decisions and rationale
+- A minimal [VS Code extension](vscode/) for highlighting
+- The beginnings of an interpreter in [src/](src/)
+
+What doesn't exist yet:
+- A stable language you can rely on
+- Complete Python interop
+- Package management
+- Most of the standard library
+
+If you're interested in following along or contributing ideas, the repo is open. If you're looking for a production-ready tool, check back later.
+
 ## Quick Start
 
-Install and run Comp programs with `uv` (recommended). With a checkout of this
-repository;
+With [uv](https://github.com/astral-sh/uv):
 
 ```bash
+git clone <repo>
+cd comp
 uv pip install -e .
 uv run comp examples/tree.comp
 ```
 
-The barrier to entry is minimal. An entire project with metadata, dependencies,
-code, and documentation all comes from a single `.comp` file. Of course, that
-can eventually be structured into a helpful hierarchy of files, modules, and
-dependencies as desired.
+## Why "Comp"?
 
-## Where Comp Shines
+No deep meaning. It sits at the intersection of "compositing" (node graphs of operations), "composable" (the design philosophy), and "computing" (the obvious one). It's short and it wasn't taken.
 
-Comp is designed for:
+## License
 
-- **Tool scripting** Maya, Blender, Houdini automation
-- **Data pipelines** ETL, transformation, analysis
-- **API integration** Clean composition of web services
-- **Configuration** Type-safe, validated config files
-- **Prototyping** Quick iteration with strong guarantees
-
-## Development Status
-
-The languge is in volatile design mode. Things are moving fast, and breaking.
-The syntax is on its fourth reworking with more on the way. Nothing is nailed
-down and everything slides. Many of the concepts show signs of solidifying and
-are tracked in the [Design Documents](design/). The primary sandbox for
-development comes from the directory of [Examples](/examples/), which are always
-kept up to date with the syntax.
-
-The [Source](src/) is written in Python (yes, an interepreted language inside an
-interpreted language) but currently mostly empty after restarting with the
-recent design updates.
-
-The minimal [Vscode Extension](vscode/) does an basic job of highlighting.
-
-The project is open source under the [MIT license](LICENSE).
+MIT [LICENSE](LICENSE)

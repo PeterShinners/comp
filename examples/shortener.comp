@@ -30,8 +30,7 @@ mod.keys = (
 -- Context functions bootstrap values before startup
 
 context.startup = :(
-    !var.connection = redis.connect(mod.redis)
-    db = var.connection
+    db = redis.connect(mod.redis)
 )
 
 
@@ -53,7 +52,7 @@ server = :request~http.request (|val
 post-url = :request~http.request (
     request.form.url
     | assert (parse(url).scheme | in("http" "https") :(
-        (error="Please enter a valid URL" url=var.url)
+        (error="Please enter a valid URL" url=$url)
         | respond-template("newurl.html")
     ))
     | insert-url()
@@ -111,28 +110,28 @@ insert-url = :url~text db~redis.connection (|val
     | format(mod.keys.reverse)
     | redis.get(db)
     | if-empty :(|val
-        !var.id = redis.incr(db mod.keys.total) | base36-encode()
+        $id = redis.incr(db mod.keys.total) | base36-encode()
         (
-            'var.id |format(mod.keys.target)' = url
-            'var.id |format(mod.keys.counter)' = 1
-            'url |format(mod.keys.reverse)' = var.id
+            '$id |format(mod.keys.target)' = url
+            '$id |format(mod.keys.counter)' = 1
+            'url |format(mod.keys.reverse)' = $id
         )
         | redis.mset(db)
-        var.id
+        $id
     )
 )
 
 
 -- Encodes positive integer to base36 string.
 base36-encode = :~num pure (
-    !var.charset = "0123456789abcdefghijklmnopqrstuvwxyz"
-    !var.result = ""
-    !var.n = num
-    while(var.n > 0) :(
-        !var.div = var.n | divmod(36)
-        !var.letter = var.charset | char(var.div.remainder)
-        !var.result = join(var.letter var.result)
-        !var.n = var.div.division
+    $charset = "0123456789abcdefghijklmnopqrstuvwxyz"
+    $result = ""
+    $n = num
+    while($n > 0) :(
+        $div = $n | divmod(36)
+        $letter = $charset | char($div.remainder)
+        $result = join($letter $result)
+        $n = $div.division
     )
-    var.result | if-empty("0")
+    $result | if-empty("0")
 )

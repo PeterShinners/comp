@@ -12,7 +12,7 @@ main = :(
     | caption("Monkey Fever")
     | mouse-visible(false)
 
-    !var.state = (
+    $state = (
 		bgd = card(window.size)
 		| fill(.7 .9 .7)
 		| text("Pummel the chimp and win $$$" 0(center) 10 (.1 .1 .1))
@@ -24,8 +24,8 @@ main = :(
         )
     )
 
-	!var.quit-events = (event.quit key.escape)
-    pg.loop(ctx.window quit-on=var.quit-events) :~frame(
+	$quit-events = (event.quit key.escape)
+    pg.loop(ctx.window quit-on=$quit-events) :~frame(
         frame.events | each :e(e|handle(frame.state))
         frame.draw
         | clear(.7 .9 .7)
@@ -38,9 +38,9 @@ main = :(
 
 handle = :~event[type==mouse.down] ~state (|update
     fist = state.fist | move(10 90)
-    !var.hit = intersect(state.fist|shrink(5) state.chimp)
+    $hit = intersect(state.fist|shrink(5) state.chimp)
 
-    if(var.hit):(
+    if($hit):(
         chimp.rotate spin(360 0.5 ease-out) -- setting "pause" was easier but I wanted to see what the using "after" felt like. It does seem like both have value...
 		chimp.translate.x = state.chimp.translate.x | update (after=out.chimp.rotate)
         play(res.punch)

@@ -4,18 +4,16 @@
 
 ?module: import_stmt
        | mod_field
-       | scope_assign
        | expression
 
 import_stmt: KEY_IMPORT simple_name structure
 simple_name: TOKENFIELD
 mod_field: identifier ASSIGN expression
-scope_assign: BANG identifier ASSIGN expression
 
 
 PAREN_OPEN.6: "("
 PAREN_CLOSE.6: ")"
-ASSIGN.5: "="
+ASSIGN.7: "="
 COLON.4: ":"
 
 // Shape
@@ -74,12 +72,12 @@ STAR.3: "*"
 SLASH.3: "/"
 
 ?comparison: arithmetic
-           | comparison EQ arithmetic -> binary_op
-           | comparison NE arithmetic -> binary_op
-           | comparison LT arithmetic -> binary_op
-           | comparison GT arithmetic -> binary_op
-           | comparison LE arithmetic -> binary_op
-           | comparison GE arithmetic -> binary_op
+           | comparison EQ arithmetic -> compare_op
+           | comparison NE arithmetic -> compare_op
+           | comparison LT arithmetic -> compare_op
+           | comparison GT arithmetic -> compare_op
+           | comparison LE arithmetic -> compare_op
+           | comparison GE arithmetic -> compare_op
 
 ?arithmetic: term
            | arithmetic (PLUS | MINUS | KEBAB_MINUS) term -> binary_op
@@ -108,17 +106,18 @@ SLASH.3: "/"
 block: COLON shape_field* structure
 structure: PAREN_OPEN struct_decorator* struct_field* PAREN_CLOSE
 struct_decorator: PIPE identifier
-struct_field: scope_assign | (identifier ASSIGN)? expression
+struct_field: (identifier ASSIGN)? expression
 
 
 DOT.6: "."
 HASH: "#"
+DOLLAR: "$"
 ONEQUOTE.7: "'"
 TOKENFIELD.4: /[a-zA-Z_][\w-]*(?!\.\d)/  //negative lookahead prevents matching sibling numbers without space
 indexfield: HASH INTEGER
 indexprfield: HASH PAREN_OPEN simple_expr PAREN_CLOSE
 exprfield: ONEQUOTE expression ONEQUOTE
-?firstfield: TOKENFIELD -> tokenfield | exprfield
+?firstfield: (DOLLAR TOKENFIELD) -> localfield | TOKENFIELD -> tokenfield | exprfield
 ?nextfield: firstfield | indexfield | indexprfield | text -> textfield
 identifier: firstfield (DOT nextfield)*
 
