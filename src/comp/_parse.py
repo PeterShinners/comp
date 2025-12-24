@@ -103,27 +103,30 @@ def resolve(cop, namespace, no_fold=False):
                     modified = comp.math_binary(op, left, right)
                     return _make_constant(cop, modified)
         case "struct.define":
-            struct = {}
-            for field_cop in kids:
-                field_tag = field_cop.positional(0).data.qualified
-                field_kids = _cop_kids(field_cop)
-                if field_tag == "struct.posfield":
-                    key = comp.Unnamed()
-                    value = _get_constant(field_kids[0])
-                elif field_tag == "struct.namedfield":
-                    key = _get_simple_identifier(field_kids[0])
-                    value = _get_constant(field_kids[1])
-                else:
-                    key = value = None
-                # else struct.decorators, no constant folding for now
-                if value is None:
-                    struct = None
-                    break
-                struct[key] = value
-            if struct is not None:
-                value = comp.Value(struct)
-                return _make_constant(cop, value)
-            # Can't fold - has non-constant fields, leave unchanged
+            if no_fold:
+                pass
+            else:
+                struct = {}
+                for field_cop in kids:
+                    field_tag = field_cop.positional(0).data.qualified
+                    field_kids = _cop_kids(field_cop)
+                    if field_tag == "struct.posfield":
+                        key = comp.Unnamed()
+                        value = _get_constant(field_kids[0])
+                    elif field_tag == "struct.namedfield":
+                        key = _get_simple_identifier(field_kids[0])
+                        value = _get_constant(field_kids[1])
+                    else:
+                        key = value = None
+                    # else struct.decorators, no constant folding for now
+                    if value is None:
+                        struct = None
+                        break
+                    struct[key] = value
+                if struct is not None:
+                    value = comp.Value(struct)
+                    return _make_constant(cop, value)
+                # Can't fold - has non-constant fields, leave unchanged
         case "shape.define":
             # Build a ShapeDef with FieldDefs from shape.field children
             shape_def = comp.ShapeDef("", False)  # Anonymous inline shape
@@ -250,7 +253,7 @@ COP_TAGS = [
     "value.compare",  # (op, kids)  2 kids
     "value.logic.binary",  # (op, kids)  2 kids
     "value.logic.unary",  # (op, kids)  1 kids
-    "value.call",  # (kids)  kids; callable, args
+    "value.invoke",  # (kids)  kids 2+ kids; callable, argsandblocks
     "value.pipe",  # (kids)
     "value.fallback",  # (kids)
     "value.postfix",  # (left, kids)
@@ -375,7 +378,7 @@ def _convert_tree(tree):
 
     # Handle trees (non-terminals)
     assert isinstance(tree, lark.Tree)
-    kids = tree.children
+    kids = tree.children  # type : [lark.Tree | lark.Token]
     match tree.data:
         case "paren_expr":
             # LPAREN expression RPAREN - return the expression
@@ -412,6 +415,32 @@ def _convert_tree(tree):
             if op == "!!":
                 return _parsed(tree, "value.logic.unary", {"r": right}, op=op)
             return _parsed(tree, "value.math.unary", {"r": right}, op=op)
+
+        case "invoke":
+            fields = [_convert_tree(kid) for kid in kids]
+            return _parsed(tree, "value.invoke", fields)
+
+
+        # # Postfix operations (calls and field access)
+        # case "postfix":
+        #     # postfix: atom call_suffix*
+        #     # Build left-to-right: atom, then apply each suffix
+        #     result = _convert_tree(kids[0])  # Start with the atom
+        #     for suffix in kids[1:]:
+        #         result = _apply_postfix_suffix(tree, result, suffix)
+        #     return result
+
+        # case "field_access":
+        #     # Handled by _apply_postfix_suffix
+        #     raise ValueError("field_access should be handled in postfix context")
+
+        # case "call_struct":
+        #     # Handled by _apply_postfix_suffix
+        #     raise ValueError("call_struct should be handled in postfix context")
+
+        # case "call_block":
+        #     # Handled by _apply_postfix_suffix
+        #     raise ValueError("call_block should be handled in postfix context")
 
         # Identifier and fields
         case "identifier":

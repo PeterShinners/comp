@@ -13,7 +13,7 @@ Performance optimizations can happen later - clarity first.
 
 import comp
 
-__all__ = ["Interp", "Instruction", "Const", "BinOp", "UnOp", "LoadVar", "StoreVar"]
+__all__ = ["Interp", "Instruction", "Const", "BinOp", "UnOp", "LoadVar", "StoreVar", "Invoke", "BuildStruct", "BuildBlock"]
 
 
 class Instruction:
@@ -171,6 +171,124 @@ class StoreVar(Instruction):
         return f"StoreVar(name={self.name!r}, source={source_str}, dest={self.dest!r})"
 
 
+class Invoke(Instruction):
+    """Invoke a function (block value) with arguments.
+
+    Attributes:
+        cop: COP node that generated this instruction
+        callable: (str or Value) Register name or Value containing the function
+        args: (str or Value) Register name or Value containing the argument struct
+        dest: (str or None) Optional destination register
+    """
+
+    def __init__(self, cop, callable, args, dest=None):
+        self.cop = cop
+        self.callable = callable
+        self.args = args
+        self.dest = dest
+
+    def execute(self, frame):
+        func = frame.get_value(self.callable)
+        args = frame.get_value(self.args)
+        result = frame.call_function(func, args)
+        if self.dest:
+            frame.registers[self.dest] = result
+        return result
+
+    def __repr__(self):
+        callable_str = self.callable.format() if hasattr(self.callable, "format") else self.callable
+        args_str = self.args.format() if hasattr(self.args, "format") else self.args
+        return f"Call(callable={callable_str}, args={args_str}, dest={self.dest!r})"
+
+
+class BuildStruct(Instruction):
+    """Build a struct value from fields.
+
+    Attributes:
+        cop: COP node that generated this instruction
+        fields: List of (key, value) pairs where:
+            - key is either comp.Unnamed() for positional or a string/Value for named
+            - value is either a register name (str) or a Value
+        dest: (str or None) Destination register
+    """
+
+    def __init__(self, cop, fields, dest=None):
+        self.cop = cop
+        self.fields = fields  # [(key, value_or_register), ...]
+        self.dest = dest
+
+    def execute(self, frame):
+        # Build the struct dictionary
+        struct_dict = {}
+        for key, value_source in self.fields:
+            value = frame.get_value(value_source)
+            # Ensure keys are proper types (Unnamed or Value, not plain strings)
+            if isinstance(key, str):
+                key = comp.Value(key)
+            struct_dict[key] = value
+
+        result = comp.Value(struct_dict)
+        if self.dest:
+            frame.registers[self.dest] = result
+        return result
+
+    def __repr__(self):
+        fields_str = []
+        for key, val in self.fields:
+            key_str = "#" if isinstance(key, comp.Unnamed) else repr(key)
+            val_str = val.format() if hasattr(val, "format") else val
+            fields_str.append(f"{key_str}={val_str}")
+        return f"BuildStruct([{', '.join(fields_str)}], dest={self.dest!r})"
+
+
+class BuildBlock(Instruction):
+    """Create a block (function/closure) value.
+
+    Attributes:
+        cop: COP node that generated this instruction
+        signature_cop: COP node for the signature (shape.define)
+        body_instructions: List of pre-compiled instructions for the body
+        dest: (str or None) Destination register
+    """
+
+    def __init__(self, cop, signature_cop, body_instructions, dest=None):
+        self.cop = cop
+        self.signature_cop = signature_cop
+        self.body_instructions = body_instructions
+        self.dest = dest
+
+    def execute(self, frame):
+        # Create a block value that contains the compiled instructions
+        # Store as a special block type (we'll need a Block class)
+        block = Block(self.signature_cop, self.body_instructions, frame.env.copy())
+        result = comp.Value(block)
+        result.cop = self.cop
+        if self.dest:
+            frame.registers[self.dest] = result
+        return result
+
+    def __repr__(self):
+        return f"BuildBlock(sig=..., body={len(self.body_instructions)} instrs, dest={self.dest!r})"
+
+
+class Block:
+    """Runtime block value (compiled function/closure).
+
+    Attributes:
+        signature_cop: COP node for the signature
+        body_instructions: Pre-compiled instructions
+        closure_env: Captured environment (for closures)
+    """
+
+    def __init__(self, signature_cop, body_instructions, closure_env):
+        self.signature_cop = signature_cop
+        self.body_instructions = body_instructions
+        self.closure_env = closure_env
+
+    def __repr__(self):
+        return f"Block({len(self.body_instructions)} instrs)"
+
+
 class ExecutionFrame:
     """Runtime execution frame.
 
@@ -180,11 +298,13 @@ class ExecutionFrame:
     Attributes:
         registers: Dict mapping register names to Values
         env: Dict mapping variable names to Values
+        interp: The interpreter instance (for nested calls)
     """
 
-    def __init__(self, env=None):
+    def __init__(self, env=None, interp=None):
         self.registers = {}
         self.env = env if env is not None else {}
+        self.interp = interp
 
     def get_value(self, source):
         """Get a value from either a register or directly.
@@ -200,6 +320,37 @@ class ExecutionFrame:
                 raise ValueError(f"Undefined register: {source}")
             return self.registers[source]
         return source
+
+    def call_function(self, func, args):
+        """Call a function with the given arguments.
+
+        Args:
+            func: Value containing a Block
+            args: Value containing the argument struct
+
+        Returns:
+            Value result of the function call
+        """
+        # Check if func contains a Block
+        if not isinstance(func.data, Block):
+            raise TypeError(f"Cannot call non-block value (got {type(func.data).__name__})")
+
+        block = func.data
+
+        # Create a new environment for the function
+        # Start with the closure environment (captured at block definition)
+        # TODO: Handle signature/parameters properly - bind args to param names
+        new_env = dict(block.closure_env)
+
+        # Execute the pre-compiled body instructions
+        new_frame = ExecutionFrame(env=new_env, interp=self.interp)
+        result = None
+
+        for instr in block.body_instructions:
+            result = instr.execute(new_frame)
+
+        # Return the final result
+        return result if result is not None else comp.Value.from_python(None)
 
 
 class Interp:
@@ -228,7 +379,7 @@ class Interp:
         Returns:
             Final result Value (from last instruction)
         """
-        frame = ExecutionFrame(env)
+        frame = ExecutionFrame(env, interp=self)
         result = None
 
         for instr in instructions:

@@ -121,10 +121,13 @@ def parse_source(source, use_scanner=False, show_positions=False):
     printer.print(tree)
 
 
-def format_instruction(idx, instr):
+def format_instruction(idx, instr, indent=0):
     """Format a single instruction for display."""
     # Get instruction type name
     instr_type = instr.__class__.__name__
+
+    # Indentation prefix
+    ind = "  " * indent
 
     # Build a compact representation
     parts = [f"{instr_type}"]
@@ -155,12 +158,39 @@ def format_instruction(idx, instr):
         # StoreVar, Return
         source_str = instr.source.format() if hasattr(instr.source, 'format') else instr.source
         parts.append(f"source={source_str}")
+    if hasattr(instr, 'callable') and instr.callable is not None:
+        # Invoke
+        callable_str = instr.callable.format() if hasattr(instr.callable, 'format') else instr.callable
+        parts.append(f"callable={callable_str}")
+    if hasattr(instr, 'args') and instr.args is not None:
+        # Invoke
+        args_str = instr.args.format() if hasattr(instr.args, 'format') else instr.args
+        parts.append(f"args={args_str}")
+    if hasattr(instr, 'fields') and instr.fields is not None:
+        # BuildStruct - show the field values
+        field_strs = []
+        for key, val in instr.fields:
+            if isinstance(key, comp.Unnamed):
+                key_str = "#"
+            else:
+                key_str = repr(key) if isinstance(key, str) else key.format() if hasattr(key, 'format') else str(key)
+            val_str = val.format() if hasattr(val, 'format') else val
+            field_strs.append(f"{key_str}={val_str}")
+        parts.append(f"[{', '.join(field_strs)}]")
 
     # Always show dest if present
     if hasattr(instr, 'dest') and instr.dest is not None:
         parts.append(f"-> {instr.dest}")
 
-    return f"  {idx:3d}  {' '.join(parts)}"
+    result = f"{ind}  {idx:3d}  {' '.join(parts)}"
+
+    # If this is a BuildBlock, show nested body instructions
+    if hasattr(instr, 'body_instructions') and instr.body_instructions:
+        result += f"\n{ind}       Body ({len(instr.body_instructions)} instructions):"
+        for i, body_instr in enumerate(instr.body_instructions):
+            result += "\n" + format_instruction(i, body_instr, indent + 2)
+
+    return result
 
 
 def main():

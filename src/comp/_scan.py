@@ -9,11 +9,9 @@ It's designed to be error-resilient: syntax errors in one part of
 the file don't prevent extraction from other parts.
 """
 
-import pathlib
 import lark
+import comp
 
-# Grammar file location
-GRAMMAR_PATH = pathlib.Path(__file__).parent / "lark" / "scan.lark"
 
 class ImportDef:
     """An import declaration.
@@ -79,7 +77,6 @@ class ModuleMetadata:
 
 def get_parser():
     """Load the grammar using the parser function from _parse.py."""
-    import comp._parse
     return comp._parse._lark_parser("scan")
 
 class ModuleScanner:

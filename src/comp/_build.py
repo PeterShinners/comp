@@ -21,7 +21,6 @@ __all__ = [
 ]
 
 import comp
-import comp._interp
 
 
 def build(cop, namespace=None):
@@ -147,6 +146,58 @@ class Builder:
                 self.instructions.append(instr)
                 return dest
 
+            case "value.invoke":
+                # invoke: callable (struct block* | block+)
+                # This creates potentially multiple nested calls
+                kids = _cop_kids(cop)
+                callable_cop = kids[0]
+
+                # Build the callable
+                result = self._build_value(callable_cop)
+
+                # Process each argument (struct or block) as a separate call
+                for arg_cop in kids[1:]:
+                    # For invoke arguments, we need to preserve struct structure
+                    # Don't let struct.define unwrap single-field structs
+                    arg_tag = arg_cop.positional(0).data.qualified
+
+                    if arg_tag == "struct.define":
+                        # Force struct building without unwrapping
+                        arg_val = self._build_struct(arg_cop)
+                    else:
+                        # Block or other value
+                        arg_val = self._build_value(arg_cop)
+
+                    # Emit Invoke instruction for this call
+                    dest = self.gen_register()
+                    instr = comp._interp.Invoke(cop=cop, callable=result, args=arg_val, dest=dest)
+                    self.instructions.append(instr)
+                    result = dest
+
+                return result
+
+            case "value.block":
+                # Block value (anonymous function) - compile it now
+                kids = _cop_kids(cop)
+                signature_cop = kids[0]  # "s"
+                body_cop = kids[1]       # "b"
+
+                # Build the body into instructions (in a separate builder to keep instructions separate)
+                body_builder = Builder(namespace=self.namespace)
+                # Use build_expr to ensure we get an instruction even for constants
+                body_builder.build_expr(body_cop)
+
+                # Emit BuildBlock instruction
+                dest = self.gen_register()
+                instr = comp._interp.BuildBlock(
+                    cop=cop,
+                    signature_cop=signature_cop,
+                    body_instructions=body_builder.instructions,
+                    dest=dest
+                )
+                self.instructions.append(instr)
+                return dest
+
             case "value.identifier":
                 # Variable reference
                 kids = _cop_kids(cop)
@@ -180,53 +231,170 @@ class Builder:
 
                 raise ValueError(f"Cannot handle identifier with {len(kids)} parts")
 
+            case "mod.define":
+                # Module with multiple top-level expressions/statements
+                # Build each and return the last one
+                kids = _cop_kids(cop)
+                result = None
+                for kid in kids:
+                    kid_tag = kid.positional(0).data.qualified
+                    if kid_tag in ("stmt.assign", "struct.letassign"):
+                        self.build_stmt(kid)
+                    else:
+                        result = self._build_value(kid)
+                return result if result is not None else comp.Value.from_python(None)
+
             case "struct.define":
-                # Build struct - handle as sequence of statements/expressions
+                # Build struct value
                 kids = _cop_kids(cop)
 
-                # Single field case - just unwrap (parenthesized expressions)
-                if len(kids) == 1:
-                    field_cop = kids[0]
+                # Check if this is a statement block (has let assigns or stmt.assign)
+                # vs a data struct
+                has_statements = False
+                for field_cop in kids:
                     field_tag = field_cop.positional(0).data.qualified
+                    if field_tag == "struct.letassign":
+                        has_statements = True
+                        break
                     if field_tag == "struct.posfield":
                         field_kids = _cop_kids(field_cop)
-                        return self._build_value(field_kids[0])
+                        if field_kids:
+                            value_tag = field_kids[0].positional(0).data.qualified
+                            if value_tag == "stmt.assign":
+                                has_statements = True
+                                break
 
-                # Multi-field case - build each field, return last one's value
-                result = None
+                # If it's a statement block, execute statements and wrap result in struct
+                if has_statements:
+                    result = None
+                    result_key = None
+                    for field_cop in kids:
+                        field_tag = field_cop.positional(0).data.qualified
+                        field_kids = _cop_kids(field_cop)
+
+                        if field_tag == "struct.posfield":
+                            value_cop = field_kids[0]
+                            value_tag = value_cop.positional(0).data.qualified
+
+                            if value_tag == "stmt.assign":
+                                self.build_stmt(value_cop)
+                                result = None
+                                result_key = None
+                            else:
+                                result = self._build_value(value_cop)
+                                result_key = comp.Unnamed()
+                        elif field_tag == "struct.letassign":
+                            self.build_stmt(field_cop)
+                            result = None
+                            result_key = None
+                        elif field_tag == "struct.namefield":
+                            result = self._build_value(field_kids[1])
+                            name_cop = field_kids[0]
+                            result_key = _get_simple_field_name(name_cop)
+                        else:
+                            raise ValueError(f"Cannot build struct field type: {field_tag}")
+
+                    # Wrap the final result in a struct (if there is one)
+                    if result is not None:
+                        dest = self.gen_register()
+                        instr = comp._interp.BuildStruct(cop=cop, fields=[(result_key, result)], dest=dest)
+                        self.instructions.append(instr)
+                        return dest
+                    else:
+                        # No result - return empty struct
+                        dest = self.gen_register()
+                        instr = comp._interp.BuildStruct(cop=cop, fields=[], dest=dest)
+                        self.instructions.append(instr)
+                        return dest
+
+                # Otherwise, build a struct value
+                fields = []
                 for field_cop in kids:
                     field_tag = field_cop.positional(0).data.qualified
                     field_kids = _cop_kids(field_cop)
 
                     if field_tag == "struct.posfield":
-                        # Check if it's a statement or expression
-                        value_cop = field_kids[0]
-                        value_tag = value_cop.positional(0).data.qualified
-
-                        if value_tag == "stmt.assign":
-                            # Build as statement (no return value needed)
-                            self.build_stmt(value_cop)
-                            result = None  # Statements don't have values
-                        else:
-                            # Build as expression
-                            result = self._build_value(value_cop)
-                    elif field_tag == "struct.letassign":
-                        # !let variable assignment
-                        self.build_stmt(field_cop)
-                        result = None  # Statements don't have values
+                        # Positional field
+                        value = self._build_value(field_kids[0])
+                        fields.append((comp.Unnamed(), value))
                     elif field_tag == "struct.namefield":
                         # Named field: name = value
-                        # For now, just build the value expression
-                        # TODO: Handle field name binding in struct construction
-                        result = self._build_value(field_kids[1])
+                        name_cop = field_kids[0]
+                        value_cop = field_kids[1]
+                        # Extract name - for now assume simple identifier
+                        name = _get_simple_field_name(name_cop)
+                        value = self._build_value(value_cop)
+                        fields.append((name, value))
                     else:
                         raise ValueError(f"Cannot build struct field type: {field_tag}")
 
-                # Return the last expression's result (or None if last was statement)
-                return result if result is not None else comp.Value.from_python(None)
+                # Emit BuildStruct instruction
+                dest = self.gen_register()
+                instr = comp._interp.BuildStruct(cop=cop, fields=fields, dest=dest)
+                self.instructions.append(instr)
+                return dest
 
             case _:
                 raise ValueError(f"Cannot build code for: {tag}")
+
+    def _build_struct(self, cop):
+        """Build a struct without unwrapping single-field structs.
+
+        This is used for function arguments where we need to preserve
+        the struct structure even for single fields like (0).
+
+        Args:
+            cop: struct.define COP node
+
+        Returns:
+            (str) Register name containing the struct
+        """
+        kids = _cop_kids(cop)
+
+        # Check if this is a statement block vs data struct
+        has_statements = False
+        for field_cop in kids:
+            field_tag = field_cop.positional(0).data.qualified
+            if field_tag == "struct.letassign":
+                has_statements = True
+                break
+            if field_tag == "struct.posfield":
+                field_kids = _cop_kids(field_cop)
+                if field_kids:
+                    value_tag = field_kids[0].positional(0).data.qualified
+                    if value_tag == "stmt.assign":
+                        has_statements = True
+                        break
+
+        # Statement blocks shouldn't be used as invoke arguments
+        if has_statements:
+            raise ValueError("Cannot use statement block as function argument")
+
+        # Build a data struct
+        fields = []
+        for field_cop in kids:
+            field_tag = field_cop.positional(0).data.qualified
+            field_kids = _cop_kids(field_cop)
+
+            if field_tag == "struct.posfield":
+                # Positional field
+                value = self._build_value(field_kids[0])
+                fields.append((comp.Unnamed(), value))
+            elif field_tag == "struct.namefield":
+                # Named field: name = value
+                name_cop = field_kids[0]
+                value_cop = field_kids[1]
+                name = _get_simple_field_name(name_cop)
+                value = self._build_value(value_cop)
+                fields.append((name, value))
+            else:
+                raise ValueError(f"Cannot build struct field type: {field_tag}")
+
+        # Emit BuildStruct instruction
+        dest = self.gen_register()
+        instr = comp._interp.BuildStruct(cop=cop, fields=fields, dest=dest)
+        self.instructions.append(instr)
+        return dest
 
     def build_stmt(self, cop):
         """Build a statement COP into instructions.
@@ -304,6 +472,31 @@ class Builder:
             case _:
                 # Try as expression statement
                 self.build_expr(cop)
+
+
+def _get_simple_field_name(name_cop):
+    """Extract a simple field name from a name COP.
+
+    Args:
+        name_cop: COP node representing the field name (identifier, text, etc.)
+
+    Returns:
+        (str) The field name as a string
+    """
+    tag = name_cop.positional(0).data.qualified
+
+    if tag == "value.identifier":
+        # Simple identifier like "foo"
+        kids = _cop_kids(name_cop)
+        if len(kids) == 1:
+            return kids[0].to_python("value")
+        # Multi-part identifier - not supported for field names
+        raise ValueError(f"Complex identifiers not supported as field names")
+    elif tag == "value.text" or tag == "value.constant":
+        # Text literal or constant
+        return name_cop.to_python("value")
+    else:
+        raise ValueError(f"Cannot extract field name from: {tag}")
 
 
 def _cop_kids(cop):

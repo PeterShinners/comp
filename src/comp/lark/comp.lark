@@ -91,7 +91,8 @@ SLASH.3: "/"
 ?unary: postfix
       | (PLUS | MINUS | LNOT) unary -> unary_op
 
-?postfix: atom (DOT TOKENFIELD)*
+?postfix: atom
+        | atom DOT identifier -> postidentifier
 
 // Simplified expressions, for default values  (avoids ambiguity) 
 ?simple_expr: simple_term
@@ -103,23 +104,27 @@ SLASH.3: "/"
 
 
 // Structures and Blocks
+KEY_LET.8: "!let"
 block: COLON shape_field* structure
-structure: PAREN_OPEN struct_decorator* struct_field* PAREN_CLOSE
+structure: PAREN_OPEN struct_decorator* (let_assign|struct_field)* PAREN_CLOSE
 struct_decorator: PIPE identifier
+let_assign: KEY_LET identifier ASSIGN expression
 struct_field: (identifier ASSIGN)? expression
 
 
+// Identifiers and atoms
 DOT.6: "."
 HASH: "#"
-DOLLAR: "$"
 ONEQUOTE.7: "'"
 TOKENFIELD.4: /[a-zA-Z_][\w-]*(?!\.\d)/  //negative lookahead prevents matching sibling numbers without space
 indexfield: HASH INTEGER
 indexprfield: HASH PAREN_OPEN simple_expr PAREN_CLOSE
 exprfield: ONEQUOTE expression ONEQUOTE
-?firstfield: (DOLLAR TOKENFIELD) -> localfield | TOKENFIELD -> tokenfield | exprfield
+?firstfield: TOKENFIELD -> tokenfield | exprfield
 ?nextfield: firstfield | indexfield | indexprfield | text -> textfield
 identifier: firstfield (DOT nextfield)*
+
+invoke: (text | identifier | number | block | invoke) (structure block* | block+)
 
 
 ?atom: number
@@ -128,6 +133,8 @@ identifier: firstfield (DOT nextfield)*
      | structure
      | block
      | shape
+     | invoke
+     // | atom (structure block* | block+) -> invokex
 
 
 // Comments completely ignored in the full grammar parse. They are
