@@ -125,13 +125,11 @@ insert-url = :url~text db~redis.connection (|val
 -- Encodes positive integer to base36 string.
 base36-encode = :~num pure (
     !let charset = "0123456789abcdefghijklmnopqrstuvwxyz"
-    !let result = ""
-    !let n = num
-    while(n > 0) :(
-        !let div = n | divmod(36)
-        !let letter = charset | char(div.remainder)
-        !let result = join(letter result)
-        !let n = div.division
-    )
-    result | if-empty("0")
+
+    num
+    | digits(base=36)
+    | reverse()
+    | map :idx (charset | char(idx))
+    | join()
+    | if-empty("0")
 )

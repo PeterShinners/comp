@@ -1,76 +1,57 @@
 #!/usr/bin/env python3
-"""
-Comp Parser Tool - Parse and display Comp language files.
+"""Comp CLI - Command-line interface for the Comp language.
 
 Usage:
-    python -m tools.parse_comp <file.comp>
-    python -m tools.parse_comp <file.comp> --scan    # Use scanner grammar
-    python -m tools.parse_comp <file.comp> --raw     # Show raw lark tree
+    comp <file.comp> --cop              # Show COP structure
+    comp <file.comp> --code             # Show instruction code
+    comp <file.comp> --eval             # Evaluate and show result
+    comp <file.comp> --scan             # Scan module metadata
+    comp <file.comp> --lark             # Show Lark parse tree
 """
 
 import argparse
 import pathlib
 import sys
 from pathlib import Path
-from typing import Optional
 import comp
-from lark import Lark, Token, Tree
+from lark import Token, Tree
 
 
-class TreePrinter:
-    """
-    Pretty printer for Lark parse trees.
-    
+def prettylark(node, indent=0, show_positions=False):
+    """Pretty-print a Lark parse tree.
+
     More readable than Lark's built-in pretty() for the Comp language.
     Shows tree structure with clear indentation and token values.
     """
-    
-    def __init__(self, indent: str = "  ", show_positions: bool = False):
-        self.indent = indent
-        self.show_positions = show_positions
-    
-    def print(self, tree: Tree, file=None) -> None:
-        """Print the tree to stdout or a file."""
-        output = self.format(tree)
-        print(output, file=file or sys.stdout)
-    
-    def format(self, tree: Tree) -> str:
-        """Format the tree as a string."""
-        lines = []
-        self._format_node(tree, lines, 0)
-        return "\n".join(lines)
-    
-    def _format_node(self, node, lines: list, depth: int) -> None:
-        """Recursively format a node and its children."""
-        prefix = self.indent * depth
-        
-        if isinstance(node, Token):
-            # Token: show type and value
-            pos = f" @{node.line}:{node.column}" if self.show_positions else ""
-            value = repr(node.value) if len(node.value) < 60 else repr(node.value[:57] + "...")
-            lines.append(f"{prefix}{node.type}: {value}{pos}")
-        
-        elif isinstance(node, Tree):
-            # Tree: show rule name and recurse into children
-            pos = ""
-            if self.show_positions and node.meta and node.meta.line:
-                pos = f" @{node.meta.line}:{node.meta.column}"
-            
-            if len(node.children) == 0:
-                lines.append(f"{prefix}{node.data}(){pos}")
-            elif len(node.children) == 1 and isinstance(node.children[0], Token):
-                # Compact single-token nodes
-                child = node.children[0]
-                value = repr(child.value)
-                lines.append(f"{prefix}{node.data}: {value}{pos}")
-            else:
-                lines.append(f"{prefix}{node.data}:{pos}")
-                for child in node.children:
-                    self._format_node(child, lines, depth + 1)
-        
+    prefix = "  " * indent
+
+    if isinstance(node, Token):
+        # Token: show type and value
+        pos = f" @{node.line}:{node.column}" if show_positions else ""
+        value = repr(node.value) if len(node.value) < 60 else repr(node.value[:57] + "...")
+        print(f"{prefix}{node.type}: {value}{pos}")
+
+    elif isinstance(node, Tree):
+        # Tree: show rule name and recurse into children
+        pos = ""
+        if show_positions and node.meta and node.meta.line:
+            pos = f" @{node.meta.line}:{node.meta.column}"
+
+        if len(node.children) == 0:
+            print(f"{prefix}{node.data}(){pos}")
+        elif len(node.children) == 1 and isinstance(node.children[0], Token):
+            # Compact single-token nodes
+            child = node.children[0]
+            value = repr(child.value)
+            print(f"{prefix}{node.data}: {value}{pos}")
         else:
-            # Unknown node type
-            lines.append(f"{prefix}??? {type(node).__name__}: {node!r}")
+            print(f"{prefix}{node.data}:{pos}")
+            for child in node.children:
+                prettylark(child, indent + 1, show_positions)
+
+    else:
+        # Unknown node type
+        print(f"{prefix}??? {type(node).__name__}: {node!r}")
 
 
 def prettycop(cop, field=None, indent=0, show_pos=False):
@@ -111,14 +92,121 @@ def prettycop(cop, field=None, indent=0, show_pos=False):
 
 def parse_source(source, use_scanner=False, show_positions=False):
     """Parse a file and display the results.
-    
+
     Returns 0 on success, 1 on parse error.
     """
     grammar = "scan" if use_scanner else "comp"
     parser = comp._parse._lark_parser(grammar)
     tree = parser.parse(source)
-    printer = TreePrinter(show_positions=show_positions)
-    printer.print(tree)
+    prettylark(tree, show_positions=show_positions)
+
+
+def scan_module(source):
+    """Scan a module and display metadata.
+
+    Reports:
+    - All pkg assignments in the module
+    - All discovered imports
+    """
+    result = comp.scan(source)
+
+    # Access via Value keys
+    pkg_key = None
+    imports_key = None
+    docs_key = None
+    for key in result.data.keys():
+        if key.data == "pkg":
+            pkg_key = key
+        elif key.data == "imports":
+            imports_key = key
+        elif key.data == "docs":
+            docs_key = key
+
+    # Display package metadata
+    if pkg_key:
+        pkg_list = result.data[pkg_key]
+        if pkg_list.data:
+            print("Package metadata:")
+            for pkg_item in pkg_list.data.values():
+                # Find keys by matching string values
+                name = None
+                value = None
+                pos = None
+                for k, v in pkg_item.data.items():
+                    if k.data == "name":
+                        name = v
+                    elif k.data == "value":
+                        value = v
+                    elif k.data == "pos":
+                        pos = v
+
+                if pos and pos.data:
+                    pos_vals = list(pos.data.values())
+                    pos_str = f" @ {pos_vals[0].data}:{pos_vals[1].data}"
+                else:
+                    pos_str = ""
+                print(f"  {name.data} = {value.data!r}{pos_str}")
+            print()
+
+    # Display imports
+    if imports_key:
+        import_list = result.data[imports_key]
+        if import_list.data:
+            print("Imports:")
+            for imp_item in import_list.data.values():
+                # Find keys by matching string values
+                name = None
+                source = None
+                compiler = None
+                pos = None
+                for k, v in imp_item.data.items():
+                    if k.data == "name":
+                        name = v
+                    elif k.data == "source":
+                        source = v
+                    elif k.data == "compiler":
+                        compiler = v
+                    elif k.data == "pos":
+                        pos = v
+
+                compiler_str = f" ({compiler.data})" if compiler else ""
+                if pos and pos.data:
+                    pos_vals = list(pos.data.values())
+                    pos_str = f" @ {pos_vals[0].data}:{pos_vals[1].data}"
+                else:
+                    pos_str = ""
+                print(f"  {name.data}: {source.data!r}{compiler_str}{pos_str}")
+            print()
+
+    # Display docs
+    if docs_key:
+        doc_list = result.data[docs_key]
+        if doc_list.data:
+            print("Documentation:")
+            for doc_item in doc_list.data.values():
+                # Find keys by matching string values
+                content = None
+                pos = None
+                for k, v in doc_item.data.items():
+                    if k.data == "content":
+                        content = v
+                    elif k.data == "pos":
+                        pos = v
+
+                if pos and pos.data:
+                    pos_vals = list(pos.data.values())
+                    pos_str = f" @ {pos_vals[0].data}:{pos_vals[1].data}"
+                else:
+                    pos_str = ""
+
+                # Show first line as preview
+                if content and content.data:
+                    lines = content.data.split('\n')
+                    preview = lines[0][:60]
+                    if len(lines) > 1 or len(lines[0]) > 60:
+                        preview += "..."
+                    print(f"  {preview!r}{pos_str}")
+            print()
 
 
 def format_instruction(idx, instr, indent=0):
@@ -195,7 +283,8 @@ def format_instruction(idx, instr, indent=0):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Parse and display Comp language files.")
+        prog="comp",
+        description="Comp language command-line interface")
     parser.add_argument("source",
         help="Comp source to parse")
     parser.add_argument("--text", action="store_true",
@@ -215,7 +304,7 @@ def main():
     parser.add_argument("--no-fold", action="store_true",
         help="Disable constant folding during resolve (use with --code or --eval)")
     parser.add_argument("--scan", action="store_true",
-        help="Use the scanner grammar (scan.lark) instead of full grammar")
+        help="Scan module metadata (pkg assignments, imports, docstrings). Use with --lark to show scan grammar tree.")
     parser.add_argument( "--raw", action="store_true",
         help="Show raw Lark tree output (built-in pretty)")
     parser.add_argument("--pos", action="store_true",
@@ -231,8 +320,6 @@ def main():
         pass
 
     args = parser.parse_args(argv)
-    if args.scan and args.cop:
-        raise SystemExit("Can't mix --scan and --cop flags")
 
     if args.text:
         source = args.source
@@ -242,9 +329,21 @@ def main():
             filepath = Path.cwd() / filepath
         source = filepath.read_text()
 
+    # Handle --scan mode separately (it's its own output mode)
+    if args.scan:
+        if any([args.cop, args.resolve, args.code, args.eval, args.trace]):
+            parser.error("--scan cannot be combined with other output modes")
+        if args.lark:
+            # Show lark tree with scan grammar
+            parse_source(source, use_scanner=True, show_positions=args.pos)
+        else:
+            # Perform module scanning and display metadata
+            scan_module(source)
+        return
+
     # Check if any output mode was specified
     if not any([args.lark, args.cop, args.resolve, args.code, args.eval, args.trace]):
-        parser.error("No output mode specified. Use --lark, --cop, --resolve, --code, --eval, or --trace")
+        parser.error("No output mode specified. Use --lark, --cop, --resolve, --code, --eval, --trace, or --scan")
 
     if args.lark:
         # Show Lark parse tree

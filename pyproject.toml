@@ -25,8 +25,8 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/PeterShinners/comp"
 
-# [project.scripts]
-# comp = "comp.cli:main"
+[project.scripts]
+comp = "comp.__main__:main"
 
 [build-system]
 requires = ["hatchling"]
