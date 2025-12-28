@@ -18,25 +18,46 @@ class Module:
     before any code from the module can be compiled or executed.
 
     Args:
-        token: (str) Somewhat internal identifier for module
+        source: ModuleSource containing the module's location and content
+                If None, creates a module without a source (e.g., system module)
 
     """
 
     _token_counter = os.getpid() & 0xFFFF
 
-    def __init__(self, token):
+    def __init__(self, source=None):
         # Module token is not attempting to be a secure id,
         # Just to help distinguish conflicting tokens with a non repeating id
+
+        # Handle backward compatibility: source can be a string (legacy) or ModuleSource
+        if isinstance(source, str):
+            # Legacy API: source is just a token string
+            token = source
+            self.source = None
+        elif source is None:
+            token = "anonymous"
+            self.source = None
+        else:
+            # New API: source is a ModuleSource
+            token = source.resource
+            self.source = source
+
         count = hash(token) & 0xFFFF ^ Module._token_counter
         Module._token_counter += 1
         self.token = f"{token}#{count:04x}"
 
         self.package = {}  # statically defined constants (pkg.name, etc)
         self.scope = {}  # module-level constants (mod.x assignments)
-        self.contexts = {}  # defined context startups for this module
+        self.startups = {}  # defined context startups for this module
         self.imports = {}  # defined imports
         self.privatedefs = []  # The 'my' namespace
         self.publicdefs = []  # All defined/exported values
+
+        # COP tree and transformation tracking
+        self.cop_tree = None  # Current COP nodes (gets progressively transformed)
+        self._cop_parsed = False  # Has initial parse been done?
+        self._cop_resolved = False  # Have references been resolved?
+        self._cop_optimized = False  # Have optimizations been applied?
 
         # Populated by finalize()
         self.namespace = None  # Finally resolved namespace dict
@@ -56,6 +77,79 @@ class Module:
     def is_finalized(self):
         """(bool) Whether the module has been finalized."""
         return self._finalized
+
+    @property
+    def is_parsed(self):
+        """(bool) Whether the module has been parsed (cop_tree populated)."""
+        return self._cop_parsed
+
+    @property
+    def is_resolved(self):
+        """(bool) Whether references have been resolved."""
+        return self._cop_resolved
+
+    @property
+    def is_optimized(self):
+        """(bool) Whether optimizations have been applied."""
+        return self._cop_optimized
+
+    def get_cop(self):
+        """Get the module's COP tree, parsing from source if needed.
+
+        This method lazily parses the module's source into COP nodes on first call.
+        Subsequent calls return the cached cop_tree.
+
+        Returns:
+            Value containing COP nodes for this module
+
+        Raises:
+            ValueError: If module has no source to parse
+            ParseError: If source cannot be parsed
+        """
+        if self._cop_parsed:
+            return self.cop_tree
+
+        if self.source is None:
+            raise ValueError("Cannot parse module without source")
+
+        # Parse the source content into COP nodes
+        # Directly call comp.parse() - no interpreter needed
+        self.cop_tree = comp.parse(self.source.content)
+        self._cop_parsed = True
+
+        return self.cop_tree
+
+    def get_imports(self):
+        """Get list of immediate import dependencies from scan metadata.
+
+        Returns:
+            List of (name, resource) tuples, where:
+                name: The import binding name (e.g., 'cart')
+                resource: The module resource string (e.g., './examples/cart')
+
+        Returns empty list if no scan metadata or no imports.
+        """
+        if not hasattr(self, '_scan_metadata') or self._scan_metadata is None:
+            return []
+
+        try:
+            imports_val = self._scan_metadata.field('imports')
+        except (KeyError, AttributeError):
+            return []
+
+        if not hasattr(imports_val, 'data') or not isinstance(imports_val.data, dict):
+            return []
+
+        result = []
+        for import_item in imports_val.data.values():
+            try:
+                name = import_item.field('name').data
+                resource = import_item.field('source').data
+                result.append((name, resource))
+            except (KeyError, AttributeError):
+                continue
+
+        return result
 
     def add_constant(self, name, value):
         """Add a module constant and return its slot index.
@@ -116,7 +210,7 @@ class SystemModule(Module):
     _singleton = None
 
     def __init__(self):
-        super().__init__("system")
+        super().__init__(source=None)  # System module has no source file
         self.token = "system#0000"
 
         # Builtin tags

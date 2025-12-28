@@ -101,14 +101,51 @@ def parse_source(source, use_scanner=False, show_positions=False):
     prettylark(tree, show_positions=show_positions)
 
 
-def scan_module(source):
-    """Scan a module and display metadata.
+def scan_module(filepath):
+    """Scan a module and display metadata using the interpreter.
+
+    Uses the interpreter's import system to:
+    1. Locate the module (creating ModuleSource)
+    2. Run scan() on the source content
+    3. Display the scan results
 
     Reports:
+    - Module location and metadata
     - All pkg assignments in the module
     - All discovered imports
+    - All documentation strings
+
+    Args:
+        filepath: Path to the module file to scan
     """
-    result = comp.scan(source)
+    # Create interpreter to use the import system
+    interp = comp.Interp()
+
+    # Convert filepath to absolute path
+    filepath = pathlib.Path(filepath)
+    if not filepath.is_absolute():
+        filepath = pathlib.Path.cwd() / filepath
+
+    # Determine resource identifier and from_dir
+    # For simplicity, use relative import from the file's parent directory
+    from_dir = filepath.parent
+    resource = f"./{filepath.stem}"  # e.g., "./cart" for "cart.comp"
+
+    try:
+        # Locate the module source using the interpreter
+        module_source = interp.import_locate(resource, from_dir=from_dir)
+
+        # Display source metadata
+        print(f"Module: {module_source.resource}")
+        print(f"Location: {module_source.location}")
+        print(f"Type: {module_source.source_type}")
+        print()
+
+        # Scan the source content
+        result = comp.scan(module_source.content)
+    except comp._import.ModuleNotFoundError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
     # Access via Value keys
     pkg_key = None
@@ -209,6 +246,229 @@ def scan_module(source):
             print()
 
 
+def build_dependency_tree(filepath, interp, visited=None, depth=0):
+    """Recursively build import dependency tree for a module.
+
+    Args:
+        filepath: Path to the module file
+        interp: Interpreter instance (for caching)
+        visited: Set of resource identifiers already visited (for cycle detection)
+        depth: Current recursion depth
+
+    Returns:
+        dict with keys:
+            'resource': Module resource identifier
+            'location': Full file path
+            'doc_summary': First line of module documentation (or None)
+            'imports': List of (name, import_dict or error_str)
+            'cyclic': True if this module was already visited
+    """
+    if visited is None:
+        visited = set()
+
+    # Convert filepath to absolute path and determine resource
+    filepath = pathlib.Path(filepath)
+    if not filepath.is_absolute():
+        filepath = pathlib.Path.cwd() / filepath
+
+    from_dir = filepath.parent
+    resource = f"./{filepath.stem}"
+
+    # Check for cycles
+    if resource in visited:
+        return {
+            'resource': resource,
+            'location': str(filepath),
+            'doc_summary': None,
+            'imports': [],
+            'cyclic': True
+        }
+
+    # Try to locate and scan the module
+    try:
+        module_source = interp.import_locate(resource, from_dir=from_dir)
+        scan_result = comp.scan(module_source.content)
+    except comp._import.ModuleNotFoundError as e:
+        return {
+            'resource': resource,
+            'location': 'NOT FOUND',
+            'doc_summary': None,
+            'imports': [],
+            'error': str(e).split('\n')[0]
+        }
+
+    # Mark as visited
+    visited.add(resource)
+
+    # Extract doc summary (first doc comment first line)
+    doc_summary = None
+    docs_key = None
+    for k in scan_result.data.keys():
+        if k.data == "docs":
+            docs_key = k
+            break
+
+    if docs_key:
+        doc_list = scan_result.data[docs_key]
+        if doc_list.data:
+            # Get first doc item
+            first_doc = next(iter(doc_list.data.values()), None)
+            if first_doc:
+                for k, v in first_doc.data.items():
+                    if k.data == "content":
+                        content = v.data
+                        # Get first line
+                        lines = content.split('\n')
+                        doc_summary = lines[0].strip()[:70]
+                        if len(lines) > 1 or len(lines[0]) > 70:
+                            doc_summary += "..."
+                        break
+
+    # Process imports
+    imports_list = []
+    imports_key = None
+    for k in scan_result.data.keys():
+        if k.data == "imports":
+            imports_key = k
+            break
+
+    if imports_key:
+        import_data = scan_result.data[imports_key]
+        if import_data.data:
+            for imp_item in import_data.data.values():
+                # Extract import fields
+                import_name = None
+                import_source = None
+                import_compiler = None
+
+                for k, v in imp_item.data.items():
+                    if k.data == "name":
+                        import_name = v.data
+                    elif k.data == "source":
+                        import_source = v.data
+                    elif k.data == "compiler":
+                        import_compiler = v.data
+
+                if import_name and import_source:
+                    # Recursively build tree for imported module
+                    # Use module_source.anchor as from_dir for the import
+                    try:
+                        # Try to locate the imported module
+                        imported_source = interp.import_locate(import_source, from_dir=module_source.anchor)
+
+                        # Build subtree
+                        import_tree = build_dependency_tree(
+                            imported_source.location,
+                            interp,
+                            visited,
+                            depth + 1
+                        )
+                        imports_list.append((import_name, import_tree))
+                    except comp._import.ModuleNotFoundError as e:
+                        # Import not found
+                        imports_list.append((import_name, {
+                            'resource': import_source,
+                            'location': 'NOT FOUND',
+                            'doc_summary': None,
+                            'imports': [],
+                            'error': f"Module '{import_source}' not found"
+                        }))
+
+    return {
+        'resource': resource,
+        'location': module_source.location,
+        'doc_summary': doc_summary,
+        'imports': imports_list,
+        'cyclic': False
+    }
+
+
+def display_dependency_tree(tree, indent=0, is_last=True, prefix=""):
+    """Display a dependency tree in a nice format.
+
+    Args:
+        tree: Tree dict from build_dependency_tree
+        indent: Current indentation level
+        is_last: Whether this is the last item in parent's children
+        prefix: Prefix for the current line (tree drawing characters)
+    """
+    # Prepare the tree characters (ASCII-safe for Windows)
+    if indent == 0:
+        connector = ""
+        new_prefix = ""
+    else:
+        connector = "`-- " if is_last else "|-- "
+        new_prefix = prefix + ("    " if is_last else "|   ")
+
+    # Build the main line
+    parts = []
+
+    # Resource/location
+    if tree.get('error'):
+        parts.append(f"{tree['resource']} (NOT FOUND)")
+    elif tree.get('cyclic'):
+        parts.append(f"{tree['resource']} (CYCLIC)")
+    else:
+        parts.append(tree['resource'])
+
+    # Location (if different from resource)
+    if tree.get('location') and tree['location'] != 'NOT FOUND':
+        # Show relative path for brevity
+        location = pathlib.Path(tree['location'])
+        try:
+            rel_loc = location.relative_to(pathlib.Path.cwd())
+            parts.append(f"[{rel_loc}]")
+        except ValueError:
+            parts.append(f"[{location}]")
+
+    # Doc summary
+    if tree.get('doc_summary'):
+        parts.append(f'"{tree["doc_summary"]}"')
+
+    # Print the line
+    print(f"{prefix}{connector}{' '.join(parts)}")
+
+    # Display error if present
+    if tree.get('error') and indent > 0:
+        error_prefix = new_prefix + "    "
+        print(f"{error_prefix}Error: {tree['error']}")
+
+    # Don't recurse if cyclic or error
+    if tree.get('cyclic') or tree.get('error'):
+        return
+
+    # Display imports
+    imports = tree.get('imports', [])
+    for i, (import_name, import_tree) in enumerate(imports):
+        is_last_import = (i == len(imports) - 1)
+
+        # Print import name (ASCII-safe)
+        import_connector = "`-- " if is_last_import else "|-- "
+        print(f"{new_prefix}{import_connector}{import_name}:")
+
+        # Display imported module tree
+        import_prefix = new_prefix + ("    " if is_last_import else "|   ")
+        display_dependency_tree(import_tree, indent + 2, True, import_prefix)
+
+
+def show_dependency_tree(filepath):
+    """Show import dependency tree for a module.
+
+    Args:
+        filepath: Path to the module file to analyze
+    """
+    # Create interpreter for caching
+    interp = comp.Interp()
+
+    # Build the tree
+    tree = build_dependency_tree(filepath, interp)
+
+    # Display the tree
+    print("Module Dependency Tree:")
+    print()
+    display_dependency_tree(tree)
+
+
 def format_instruction(idx, instr, indent=0):
     """Format a single instruction for display."""
     # Get instruction type name
@@ -305,6 +565,8 @@ def main():
         help="Disable constant folding during resolve (use with --code or --eval)")
     parser.add_argument("--scan", action="store_true",
         help="Scan module metadata (pkg assignments, imports, docstrings). Use with --lark to show scan grammar tree.")
+    parser.add_argument("--tree", action="store_true",
+        help="Show import dependency tree with module documentation")
     parser.add_argument( "--raw", action="store_true",
         help="Show raw Lark tree output (built-in pretty)")
     parser.add_argument("--pos", action="store_true",
@@ -331,19 +593,32 @@ def main():
 
     # Handle --scan mode separately (it's its own output mode)
     if args.scan:
-        if any([args.cop, args.resolve, args.code, args.eval, args.trace]):
+        if any([args.cop, args.resolve, args.code, args.eval, args.trace, args.tree]):
             parser.error("--scan cannot be combined with other output modes")
+        if args.text:
+            parser.error("--scan requires a file path, not --text")
         if args.lark:
-            # Show lark tree with scan grammar
+            # Show lark tree with scan grammar (still needs source text)
             parse_source(source, use_scanner=True, show_positions=args.pos)
         else:
-            # Perform module scanning and display metadata
-            scan_module(source)
+            # Perform module scanning using ModuleSource
+            # Pass the original args.source (file path) not the loaded source text
+            scan_module(args.source)
+        return
+
+    # Handle --tree mode separately (it's its own output mode)
+    if args.tree:
+        if any([args.cop, args.resolve, args.code, args.eval, args.trace, args.scan]):
+            parser.error("--tree cannot be combined with other output modes")
+        if args.text:
+            parser.error("--tree requires a file path, not --text")
+        # Show dependency tree
+        show_dependency_tree(args.source)
         return
 
     # Check if any output mode was specified
     if not any([args.lark, args.cop, args.resolve, args.code, args.eval, args.trace]):
-        parser.error("No output mode specified. Use --lark, --cop, --resolve, --code, --eval, --trace, or --scan")
+        parser.error("No output mode specified. Use --lark, --cop, --resolve, --code, --eval, --trace, --scan, or --tree")
 
     if args.lark:
         # Show Lark parse tree

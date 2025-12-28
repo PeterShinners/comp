@@ -11,282 +11,279 @@ The instruction stream is linear and easy to march through.
 Performance optimizations can happen later - clarity first.
 """
 
+import os
+from pathlib import Path
+
 import comp
 
-__all__ = ["Interp", "Instruction", "Const", "BinOp", "UnOp", "LoadVar", "StoreVar", "Invoke", "BuildStruct", "BuildBlock"]
+__all__ = ["Interp"]
 
+class Interp:
+    """Interpreter and state for Comp.
 
-class Instruction:
-    """Base class for all instructions.
-
-    All instruction subclasses should have:
-    - cop: Reference to the COP node that generated this instruction
-    - dest: Name of register to store result (None for no result)
+    An interpreter must be created to do most anything with comp objects
+    or the language.
     """
 
-    def execute(self, frame):
-        """Execute this instruction in the given frame.
+    def __init__(self):
+        self.system = comp._module.SystemModule.get()
+        # Import-related state (was ImportContext)
+        comp_root = str(Path(__file__).parent)
+        working_dir = str(Path.cwd())
+        self.comp_root = comp_root
+        self.working_dir = working_dir
+        self.search_paths = [
+            os.path.join(self.comp_root, "stdlib"),  # Built-in stdlib
+            os.path.join(self.working_dir, "stdlib"),  # Project stdlib
+            self.working_dir,  # Project root
+        ]
+        # Open directory file descriptors for efficient searching
+        # On Windows, directory fds work differently, so we test if it's supported
+        self.search_fds = []
+        for path in self.search_paths:
+            if not os.path.isdir(path):
+                self.search_fds.append(-1)
+                continue
+            try:
+                # Try to open directory - works on Unix, may fail on Windows
+                fd = os.open(path, os.O_RDONLY)
+                self.search_fds.append(fd)
+            except (FileNotFoundError, OSError, PermissionError):
+                # Directory exists but can't be opened as fd (Windows)
+                # Use -1 to indicate fallback to path-based search
+                self.search_fds.append(-1)
+
+        # Module source cache: resource -> ModuleSource
+        # Stores previously located module sources for etag validation and reuse
+        self.module_cache = {}
+
+        # Module cache: resource -> Module
+        # Stores Module objects that have been created (may or may not be finalized)
+        self.modules = {}
+
+    def __del__(self):
+        for fd in getattr(self, 'search_fds', []):
+            if fd >= 0:
+                try:
+                    os.close(fd)
+                except OSError:
+                    pass
+
+    def __repr__(self):
+        return "Interp<>"
+
+    def __hash__(self):
+        return id(self)
+
+    def import_locate(self, resource, from_dir=None):
+        """Locate a module using the interpreter's import search paths.
+
+        Manages module caching: if the module has been located before, sends
+        the cached etag to locate(). If locate() returns None (etag match),
+        returns the cached ModuleSource. Otherwise caches and returns the new one.
 
         Args:
-            frame: ExecutionFrame with registers and environment
+            resource: Module resource identifier to locate
+            from_dir: Directory of the module doing the import (for relative imports)
 
         Returns:
-            Value result (or None)
+            ModuleSource with location, content, and etag
+
+        Raises:
+            ModuleNotFoundError: Module not found in search paths
+            NotImplementedError: For git://, http://, etc. URLs
         """
-        raise NotImplementedError(f"{self.__class__.__name__}.execute")
+        # Check if we have a cached version and get its etag
+        cached = self.module_cache.get(resource)
+        etag = cached.etag if cached else None
 
+        # Locate the module, passing the etag if we have one
+        result = comp._import.locate(
+            resource=resource,
+            from_dir=from_dir,
+            etag=etag,
+            search_paths=self.search_paths,
+            search_fds=self.search_fds,
+        )
 
-class Const(Instruction):
-    """Load a constant value.
-
-    Attributes:
-        cop: COP node that generated this instruction
-        value: The constant Value to load
-        dest: (str or None) Optional destination register
-    """
-
-    def __init__(self, cop, value, dest=None):
-        self.cop = cop
-        self.value = value
-        self.dest = dest
-
-    def execute(self, frame):
-        if self.dest:
-            frame.registers[self.dest] = self.value
-        return self.value
-
-    def __repr__(self):
-        return f"Const(value={self.value.format()}, dest={self.dest!r})"
-
-
-class BinOp(Instruction):
-    """Binary operation (add, subtract, multiply, etc).
-
-    Attributes:
-        cop: COP node that generated this instruction
-        op: (str) Operator string ("+", "-", "*", "/", etc)
-        left: (str or Value) Register name or Value
-        right: (str or Value) Register name or Value
-        dest: (str or None) Optional destination register
-    """
-
-    def __init__(self, cop, op, left, right, dest=None):
-        self.cop = cop
-        self.op = op
-        self.left = left
-        self.right = right
-        self.dest = dest
-
-    def execute(self, frame):
-        left_val = frame.get_value(self.left)
-        right_val = frame.get_value(self.right)
-        result = comp.math_binary(self.op, left_val, right_val)
-        if self.dest:
-            frame.registers[self.dest] = result
-        return result
-
-    def __repr__(self):
-        left_str = self.left.format() if hasattr(self.left, "format") else self.left
-        right_str = self.right.format() if hasattr(self.right, "format") else self.right
-        return f"BinOp(op={self.op!r}, left={left_str}, right={right_str}, dest={self.dest!r})"
-
-
-class UnOp(Instruction):
-    """Unary operation (negate, not, etc).
-
-    Attributes:
-        cop: COP node that generated this instruction
-        op: (str) Operator string ("-", "not", etc)
-        operand: (str or Value) Register name or Value
-        dest: (str or None) Optional destination register
-    """
-
-    def __init__(self, cop, op, operand, dest=None):
-        self.cop = cop
-        self.op = op
-        self.operand = operand
-        self.dest = dest
-
-    def execute(self, frame):
-        operand_val = frame.get_value(self.operand)
-        result = comp.math_unary(self.op, operand_val)
-        if self.dest:
-            frame.registers[self.dest] = result
-        return result
-
-    def __repr__(self):
-        operand_str = self.operand.format() if hasattr(self.operand, "format") else self.operand
-        return f"UnOp(op={self.op!r}, operand={operand_str}, dest={self.dest!r})"
-
-
-class LoadVar(Instruction):
-    """Load a variable from the environment.
-
-    Attributes:
-        cop: COP node that generated this instruction
-        name: (str) Variable name to load
-        dest: (str or None) Optional destination register
-    """
-
-    def __init__(self, cop, name, dest=None):
-        self.cop = cop
-        self.name = name
-        self.dest = dest
-
-    def execute(self, frame):
-        result = frame.env.get(self.name)
+        # If result is None, the etag matched - return cached version
         if result is None:
-            raise NameError(f"Undefined variable: {self.name}")
-        if self.dest:
-            frame.registers[self.dest] = result
+            return cached
+
+        # Otherwise, cache the new result and return it
+        self.module_cache[resource] = result
         return result
 
-    def __repr__(self):
-        return f"LoadVar(name={self.name!r}, dest={self.dest!r})"
+    def import_discover(self, module_source):
+        """Discover all dependencies recursively from a starting ModuleSource.
 
+        This method:
+        1. Scans the starting module to find its imports
+        2. Recursively locates and scans each import
+        3. Handles circular dependencies (stops recursion at cycles)
+        4. Returns complete dependency graph as dict
 
-class StoreVar(Instruction):
-    """Store a value to a variable in the environment.
+        Args:
+            module_source: Starting ModuleSource to discover dependencies from
 
-    Attributes:
-        cop: COP node that generated this instruction
-        name: (str) Variable name to store to
-        source: (str or Value) Register name or Value to store
-        dest: (str or None) Optional destination register (usually None)
-    """
+        Returns:
+            Dict mapping resource -> ModuleSource for entire dependency graph,
+            including the starting module itself
 
-    def __init__(self, cop, name, source, dest=None):
-        self.cop = cop
-        self.name = name
-        self.source = source
-        self.dest = dest
+        Raises:
+            ModuleNotFoundError: If any imported module cannot be located
+        """
+        discovered = {}  # resource -> ModuleSource
+        visited = set()  # resource names to detect cycles
 
-    def execute(self, frame):
-        value = frame.get_value(self.source)
-        frame.env[self.name] = value
-        return value
+        def discover_recursive(source):
+            """Recursively discover dependencies from a ModuleSource."""
+            resource = source.resource
 
-    def __repr__(self):
-        source_str = self.source.format() if hasattr(self.source, "format") else self.source
-        return f"StoreVar(name={self.name!r}, source={source_str}, dest={self.dest!r})"
+            # Add to discovered dict
+            discovered[resource] = source
 
+            # Check for cycle
+            if resource in visited:
+                return
+            visited.add(resource)
 
-class Invoke(Instruction):
-    """Invoke a function (block value) with arguments.
+            # Scan to find imports
+            try:
+                metadata = comp.scan(source.content)
+            except Exception:
+                # If scan fails, can't discover dependencies
+                return
 
-    Attributes:
-        cop: COP node that generated this instruction
-        callable: (str or Value) Register name or Value containing the function
-        args: (str or Value) Register name or Value containing the argument struct
-        dest: (str or None) Optional destination register
-    """
+            # Extract import list from metadata using .field() method
+            # metadata is a Value struct with 'imports' field
+            try:
+                imports_val = metadata.field('imports')
+            except (KeyError, AttributeError):
+                # No imports field
+                return
 
-    def __init__(self, cop, callable, args, dest=None):
-        self.cop = cop
-        self.callable = callable
-        self.args = args
-        self.dest = dest
+            # imports_val.data is a dict with Unnamed (_) keys for positional items
+            if not hasattr(imports_val, 'data') or not isinstance(imports_val.data, dict):
+                return
 
-    def execute(self, frame):
-        func = frame.get_value(self.callable)
-        args = frame.get_value(self.args)
-        result = frame.call_function(func, args)
-        if self.dest:
-            frame.registers[self.dest] = result
+            # Process each import (iterate over dict values)
+            for import_item in imports_val.data.values():
+                # Each import has fields: name, source, compiler
+                try:
+                    # Extract 'source' field (not 'resource')
+                    import_resource = import_item.field('source').data
+                except (KeyError, AttributeError):
+                    continue
+
+                if not isinstance(import_resource, str):
+                    continue
+
+                # Skip if already discovered
+                if import_resource in discovered:
+                    continue
+
+                # Locate the imported module
+                try:
+                    imported_source = self.import_locate(
+                        import_resource,
+                        from_dir=source.anchor
+                    )
+                    # Recursively discover from this module
+                    discover_recursive(imported_source)
+                except Exception:
+                    # Module not found or other error - skip it
+                    # The caller can decide how to handle missing modules
+                    continue
+
+        # Start recursive discovery from the initial module
+        discover_recursive(module_source)
+
+        return discovered
+
+    def import_parse(self, module):
+        """Parse a Module's source into COP tree.
+
+        This is a convenience method that delegates to module.get_cop().
+        You can call module.get_cop() directly instead.
+
+        Args:
+            module: Module object to parse (must have source attribute)
+
+        Returns:
+            The same Module object (for chaining)
+
+        Raises:
+            ValueError: If module has no source
+            ParseError: If source cannot be parsed
+        """
+        module.get_cop()
+        return module
+
+    def import_module(self, resource, from_dir=None):
+        """Get or create a Module for the given resource.
+
+        This method manages the full module loading pipeline:
+        1. Checks if Module already exists in cache → return it
+        2. Otherwise:
+           a. Calls import_locate() to get ModuleSource (with caching)
+           b. Calls scan() on the source content to extract metadata
+           c. Creates a new Module with the ModuleSource reference
+           d. Populates Module with scan metadata (pkg, imports, etc)
+           e. Caches the Module
+           f. Returns the Module (NOT finalized - imports not yet resolved)
+
+        Args:
+            resource: Module resource identifier to load
+            from_dir: Directory for relative imports (or None)
+
+        Returns:
+            Module object (may or may not be finalized)
+
+        Raises:
+            ModuleNotFoundError: Module source not found
+            NotImplementedError: For git://, http://, etc. URLs
+        """
+        # Check if module already loaded
+        if resource in self.modules:
+            return self.modules[resource]
+
+        # Locate the module source (uses cache)
+        source = self.import_locate(resource, from_dir=from_dir)
+
+        # Scan the source to extract metadata
+        metadata = comp.scan(source.content)
+
+        # Create a new Module with the source
+        module = comp.Module(source)
+
+        # Populate module with scan metadata
+        # Note: metadata is a Value struct with fields: pkg, imports, docs
+        # TODO: Process pkg assignments and imports into the module
+        # For now, just store the raw metadata
+        module._scan_metadata = metadata
+
+        # Cache and return the module
+        self.modules[resource] = module
+        return module
+
+    def execute(self, instructions, env=None):
+        """Execute a sequence of instructions.
+
+        Args:
+            instructions: List of Instruction objects
+            env: Initial environment (variable bindings)
+
+        Returns:
+            Final result Value (from last instruction)
+        """
+        frame = ExecutionFrame(env, interp=self)
+        result = None
+
+        for instr in instructions:
+            result = instr.execute(frame)
+
         return result
-
-    def __repr__(self):
-        callable_str = self.callable.format() if hasattr(self.callable, "format") else self.callable
-        args_str = self.args.format() if hasattr(self.args, "format") else self.args
-        return f"Call(callable={callable_str}, args={args_str}, dest={self.dest!r})"
-
-
-class BuildStruct(Instruction):
-    """Build a struct value from fields.
-
-    Attributes:
-        cop: COP node that generated this instruction
-        fields: List of (key, value) pairs where:
-            - key is either comp.Unnamed() for positional or a string/Value for named
-            - value is either a register name (str) or a Value
-        dest: (str or None) Destination register
-    """
-
-    def __init__(self, cop, fields, dest=None):
-        self.cop = cop
-        self.fields = fields  # [(key, value_or_register), ...]
-        self.dest = dest
-
-    def execute(self, frame):
-        # Build the struct dictionary
-        struct_dict = {}
-        for key, value_source in self.fields:
-            value = frame.get_value(value_source)
-            # Ensure keys are proper types (Unnamed or Value, not plain strings)
-            if isinstance(key, str):
-                key = comp.Value(key)
-            struct_dict[key] = value
-
-        result = comp.Value(struct_dict)
-        if self.dest:
-            frame.registers[self.dest] = result
-        return result
-
-    def __repr__(self):
-        fields_str = []
-        for key, val in self.fields:
-            key_str = "#" if isinstance(key, comp.Unnamed) else repr(key)
-            val_str = val.format() if hasattr(val, "format") else val
-            fields_str.append(f"{key_str}={val_str}")
-        return f"BuildStruct([{', '.join(fields_str)}], dest={self.dest!r})"
-
-
-class BuildBlock(Instruction):
-    """Create a block (function/closure) value.
-
-    Attributes:
-        cop: COP node that generated this instruction
-        signature_cop: COP node for the signature (shape.define)
-        body_instructions: List of pre-compiled instructions for the body
-        dest: (str or None) Destination register
-    """
-
-    def __init__(self, cop, signature_cop, body_instructions, dest=None):
-        self.cop = cop
-        self.signature_cop = signature_cop
-        self.body_instructions = body_instructions
-        self.dest = dest
-
-    def execute(self, frame):
-        # Create a block value that contains the compiled instructions
-        # Store as a special block type (we'll need a Block class)
-        block = Block(self.signature_cop, self.body_instructions, frame.env.copy())
-        result = comp.Value(block)
-        result.cop = self.cop
-        if self.dest:
-            frame.registers[self.dest] = result
-        return result
-
-    def __repr__(self):
-        return f"BuildBlock(sig=..., body={len(self.body_instructions)} instrs, dest={self.dest!r})"
-
-
-class Block:
-    """Runtime block value (compiled function/closure).
-
-    Attributes:
-        signature_cop: COP node for the signature
-        body_instructions: Pre-compiled instructions
-        closure_env: Captured environment (for closures)
-    """
-
-    def __init__(self, signature_cop, body_instructions, closure_env):
-        self.signature_cop = signature_cop
-        self.body_instructions = body_instructions
-        self.closure_env = closure_env
-
-    def __repr__(self):
-        return f"Block({len(self.body_instructions)} instrs)"
 
 
 class ExecutionFrame:
@@ -352,37 +349,3 @@ class ExecutionFrame:
         # Return the final result
         return result if result is not None else comp.Value.from_python(None)
 
-
-class Interp:
-    """Interpreter and state for Comp.
-
-    An interpreter must be created to do most anything with comp objects
-    or the language.
-    """
-
-    def __init__(self):
-        self.system = comp._module.SystemModule.get()
-
-    def __repr__(self):
-        return "Interp<>"
-
-    def __hash__(self):
-        return id(self)
-
-    def execute(self, instructions, env=None):
-        """Execute a sequence of instructions.
-
-        Args:
-            instructions: List of Instruction objects
-            env: Initial environment (variable bindings)
-
-        Returns:
-            Final result Value (from last instruction)
-        """
-        frame = ExecutionFrame(env, interp=self)
-        result = None
-
-        for instr in instructions:
-            result = instr.execute(frame)
-
-        return result
