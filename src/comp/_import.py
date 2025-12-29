@@ -44,8 +44,6 @@ class ModuleSource:
     anchor: str
 
 
-
-
 def locate(
     resource: str,
     from_dir: str | Path | None = None,

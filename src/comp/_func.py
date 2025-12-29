@@ -3,10 +3,10 @@
 import comp
 
 
-__all__ = ["FuncDef", "Func", "Block"]
+__all__ = ["Func", "Block", "create_funcdef"]
 
 
-class FuncDef:
+class Func:
     """A function definition.
 
     Functions are the primary unit of computation in comp. They transform
@@ -53,32 +53,10 @@ class FuncDef:
         self.body = None
 
     def __repr__(self):
-        return f"FuncDef<{self.qualified}>"
+        return f"Func<{self.qualified}>"
 
     def __hash__(self):
         return hash((self.qualified, self.module))
-
-
-class Func:
-    """Reference to a Function definition.
-
-    To use a function as a value there must be a reference to its definition.
-    The reference stores additional information about where it came from
-    and how it was named.
-
-    Args:
-        qualified: (str) Fully qualified name of the function
-        namespace: (str) The name of the namespace used to reference this function
-    """
-
-    __slots__ = ("definition",)
-
-    def __init__(self, definition):
-        self.definition = definition
-
-    def __repr__(self):
-        suffix = self.definition.module.token if self.definition.module.token else ""
-        return f"Func({self.definition.qualified}/{suffix})"
 
 
 class Block:
@@ -108,3 +86,43 @@ class Block:
 
     def __repr__(self):
         return f"Block<{self.identifier}>"
+
+
+def create_funcdef(qualified_name, private, cop_node):
+    """Create a Func from a value.block COP node and wrap in a Value.
+
+    This is a pure initialization function that doesn't depend on Module or Interp.
+
+    Args:
+        qualified_name: (str) Fully qualified function name (e.g., "add.i001")
+        private: (bool) Whether function is private
+        cop_node: (Struct) The value.block COP node
+
+    Returns:
+        Value: Initialized function definition wrapped in a Value with cop attribute set
+
+    Raises:
+        CodeError: If cop_node is not a value.block node
+    """
+    # Validate node type
+    tag_value = cop_node.positional(0)
+    tag = tag_value.data if hasattr(tag_value, 'data') else tag_value
+
+    if not isinstance(tag, comp.Tag) or tag.qualified != "value.block":
+        raise comp.CodeError(
+            f"Expected value.block node, got {tag.qualified if isinstance(tag, comp.Tag) else type(tag)}",
+            cop_node
+        )
+
+    # Create Func
+    func_def = Func(qualified_name, private)
+
+    # TODO: Parse block signature and body from cop_node
+    # For now, store the COP node for later processing
+    func_def.body = cop_node
+
+    # Wrap in Value and set cop attribute
+    value = comp.Value.from_python(func_def)
+    value.cop = cop_node
+
+    return value

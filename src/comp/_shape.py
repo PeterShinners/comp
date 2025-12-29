@@ -4,7 +4,6 @@ import comp
 
 
 __all__ = [
-    "ShapeDef",
     "Shape",
     "FieldDef",
     "shape_num",
@@ -13,10 +12,11 @@ __all__ = [
     "shape_any",
     "shape_func",
     "shape_tag",
+    "create_shapedef",
 ]
 
 
-class ShapeDef:
+class Shape:
     """A shape definition.
 
     Shapes define the structure and types of values in the comp language.
@@ -49,38 +49,6 @@ class ShapeDef:
         return hash((self.qualified, self.module))
 
 
-class Shape:
-    """Reference to a Shape definition.
-
-    To use a shape as a type constraint there must be a reference to its
-    definition. The reference stores additional information about where
-    it came from and how it was named.
-
-    Shape references can point to either a ShapeDef or a TagDef, since
-    tags are valid shape constraints in the language.
-
-    Unlike tags, shapes are not serializable and don't need anchor logic
-    for floating vs anchored comparisons.
-
-    Args:
-        definition: (ShapeDef | TagDef) Definition for this shape reference
-
-    """
-
-    __slots__ = ("definition",)
-
-    def __init__(self, definition):
-        self.definition = definition
-
-    def __repr__(self):
-        if self.definition.module:
-            suffix = (
-                self.definition.module.token if self.definition.module.token else ""
-            )
-            return f"Shape({self.definition.qualified}/{suffix})"
-        return f"Shape({self.definition.qualified})"
-
-
 class FieldDef:
     """Internal field definition within a shape.
 
@@ -91,12 +59,12 @@ class FieldDef:
 
     Args:
         name: (str | None) Field name, None for positional/unnamed fields
-        shape: (ShapeDef | TagDef | None) Shape constraint for the field
+        shape: (Shape | Tag | None) Shape constraint for the field
         default: (Value | None) Default value if field is omitted
 
     Attributes:
         name: (str | None) Field name
-        shape: (ShapeDef | TagDef | None) Shape constraint
+        shape: (Shape | Tag | None) Shape constraint
         default: (Value | None) Default value
     """
 
@@ -119,11 +87,50 @@ class FieldDef:
 
 
 # Builtin shapes for primitive types
-shape_num = ShapeDef("num", False)
-shape_text = ShapeDef("text", False)
-shape_struct = ShapeDef("struct", False)
-shape_any = ShapeDef("any", False)
-shape_func = ShapeDef("func", False)
+shape_num = Shape("num", False)
+shape_text = Shape("text", False)
+shape_struct = Shape("struct", False)
+shape_any = Shape("any", False)
+shape_func = Shape("func", False)
 
 # Internal shapes - used by implementation, not exposed to comp language
-shape_tag = ShapeDef("tag", True)
+shape_tag = Shape("tag", True)
+
+
+def create_shapedef(qualified_name, private, cop_node):
+    """Create a Shape from a value.shape COP node and wrap in a Value.
+
+    This is a pure initialization function that doesn't depend on Module or Interp.
+
+    Args:
+        qualified_name: (str) Fully qualified shape name (e.g., "Point")
+        private: (bool) Whether shape is private
+        cop_node: (Struct) The value.shape COP node
+
+    Returns:
+        Value: Initialized shape definition wrapped in a Value with cop attribute set
+
+    Raises:
+        CodeError: If cop_node is not a value.shape node
+    """
+    # Validate node type
+    tag_value = cop_node.positional(0)
+    tag = tag_value.data if hasattr(tag_value, 'data') else tag_value
+
+    if not isinstance(tag, comp.Tag) or tag.qualified != "value.shape":
+        raise comp.CodeError(
+            f"Expected value.shape node, got {tag.qualified if isinstance(tag, comp.Tag) else type(tag)}",
+            cop_node
+        )
+
+    # Create Shape
+    shape_def = Shape(qualified_name, private)
+
+    # TODO: Parse field definitions from cop_node
+    # For now, just create the basic definition
+
+    # Wrap in Value and set cop attribute
+    value = comp.Value.from_python(shape_def)
+    value.cop = cop_node
+
+    return value

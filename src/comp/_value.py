@@ -86,7 +86,7 @@ class Value:
 
     @property
     def shape(self):
-        """(ShapeDef | TagDef) Shape reference for this value's data type."""
+        """(Shape | Tag) Shape reference for this value's data type."""
         shape = Value._shapemap.get(type(self.data))  # type: ignore
         if shape is None and isinstance(self.data, Value._shapetypes):  # type: ignore
             shape = self.data  # tag
@@ -287,10 +287,8 @@ class Value:
                 struct[Unnamed()] = cls.from_python(item)
             return cls(struct)
 
-        if isinstance(value, comp.Tag):
-            return cls(value)
-
-        if isinstance(value, comp.Shape):
+        # Allow Tag, Shape, Func objects to be wrapped in Values
+        if isinstance(value, (comp.Tag, comp.Shape, comp.Func)):
             return cls(value)
 
         raise TypeError(

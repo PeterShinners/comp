@@ -5,7 +5,7 @@ import os
 import comp
 
 
-__all__ = ["Module"]
+__all__ = ["Module", "OverloadSet", "Ambiguous"]
 
 
 class Module:
@@ -25,47 +25,52 @@ class Module:
 
     _token_counter = os.getpid() & 0xFFFF
 
-    def __init__(self, source=None):
+    def __init__(self, source):
+        """Initialize a module from a ModuleSource.
+
+        Args:
+            source: ModuleSource containing the module's location and content
+
+        Raises:
+            TypeError: If source is not a ModuleSource
+        """
+        if not hasattr(source, 'resource'):
+            raise TypeError(f"Module requires a ModuleSource, got {type(source)}")
+
+        self.source = source
+        token = source.resource
+
         # Module token is not attempting to be a secure id,
         # Just to help distinguish conflicting tokens with a non repeating id
-
-        # Handle backward compatibility: source can be a string (legacy) or ModuleSource
-        if isinstance(source, str):
-            # Legacy API: source is just a token string
-            token = source
-            self.source = None
-        elif source is None:
-            token = "anonymous"
-            self.source = None
-        else:
-            # New API: source is a ModuleSource
-            token = source.resource
-            self.source = source
-
         count = hash(token) & 0xFFFF ^ Module._token_counter
         Module._token_counter += 1
         self.token = f"{token}#{count:04x}"
 
-        self.package = {}  # statically defined constants (pkg.name, etc)
-        self.scope = {}  # module-level constants (mod.x assignments)
-        self.startups = {}  # defined context startups for this module
-        self.imports = {}  # defined imports
-        self.privatedefs = []  # The 'my' namespace
-        self.publicdefs = []  # All defined/exported values
-
-        # COP tree and transformation tracking
-        self.cop_tree = None  # Current COP nodes (gets progressively transformed)
-        self._cop_parsed = False  # Has initial parse been done?
-        self._cop_resolved = False  # Have references been resolved?
-        self._cop_optimized = False  # Have optimizations been applied?
+        self.definitions = {}  # All module definitions {qualified_name: Value}
 
         # Populated by finalize()
-        self.namespace = None  # Finally resolved namespace dict
+        self.namespace = None  # Resolved namespace dict for lookups
         self._finalized = False
 
-        # Slot mappings for compilation (populated during finalize)
-        self._const_slots = {}  # name -> slot index
-        self._const_values = []  # slot index -> Value
+    @classmethod
+    def from_source(cls, source):
+        """Create a Module from a ModuleSource.
+
+        The provided Module is not prepared or finalized. It will need the
+        `load_definitions()` and `finalize()` to prepare its contents for use.
+        
+        Args:
+            source: (str) raw text for module
+        """
+        modsrc = comp._import.ModuleSource(
+            resource="source",
+            location="source",
+            source_type="from_source",
+            etag="str",
+            content=source,
+            anchor="",
+        )
+        return cls(modsrc)
 
     def __repr__(self):
         return f"Module<{self.token}>"
@@ -78,46 +83,41 @@ class Module:
         """(bool) Whether the module has been finalized."""
         return self._finalized
 
-    @property
-    def is_parsed(self):
-        """(bool) Whether the module has been parsed (cop_tree populated)."""
-        return self._cop_parsed
+    def load_definitions(self):
+        """Parse source and extract definitions into module.definitions dict.
 
-    @property
-    def is_resolved(self):
-        """(bool) Whether references have been resolved."""
-        return self._cop_resolved
-
-    @property
-    def is_optimized(self):
-        """(bool) Whether optimizations have been applied."""
-        return self._cop_optimized
-
-    def get_cop(self):
-        """Get the module's COP tree, parsing from source if needed.
-
-        This method lazily parses the module's source into COP nodes on first call.
-        Subsequent calls return the cached cop_tree.
+        This method lazily parses and extracts definitions on first call.
+        Subsequent calls are no-ops if definitions already populated.
 
         Returns:
-            Value containing COP nodes for this module
+            self (for chaining)
 
         Raises:
             ValueError: If module has no source to parse
             ParseError: If source cannot be parsed
+            CodeError: If definitions extraction fails
         """
-        if self._cop_parsed:
-            return self.cop_tree
+        # Skip if already loaded
+        if self.definitions:
+            return self
 
         if self.source is None:
-            raise ValueError("Cannot parse module without source")
+            raise ValueError("Cannot load module without source")
 
         # Parse the source content into COP nodes
-        # Directly call comp.parse() - no interpreter needed
-        self.cop_tree = comp.parse(self.source.content)
-        self._cop_parsed = True
+        cop_tree = comp.parse(self.source.content)
 
-        return self.cop_tree
+        # Temporarily store cop_tree for extract_definitions to use
+        self._temp_cop_tree = cop_tree
+
+        # Extract definitions - this populates self.definitions and self.package
+        # We don't keep cop_tree stored - it's preserved in each Value's .cop attribute
+        comp.extract_definitions(self)
+
+        # Clean up temporary tree
+        del self._temp_cop_tree
+
+        return self
 
     def get_imports(self):
         """Get list of immediate import dependencies from scan metadata.
@@ -151,57 +151,81 @@ class Module:
 
         return result
 
-    def add_constant(self, name, value):
-        """Add a module constant and return its slot index.
-
-        Must be called before finalize().
-
-        Args:
-            name: (str) Name of the constant
-            value: Value to store
+    def get_package(self):
+        """Extract package metadata (pkg.* assignments) from definitions.
 
         Returns:
-            (int) Slot index for the constant
+            dict: {pkg_name: value} for all pkg.* definitions
+        """
+        package = {}
+        for name, value in self.definitions.items():
+            if name.startswith('pkg.'):
+                # Extract the actual data from the Value
+                package[name] = value.data if hasattr(value, 'data') else value
+        return package
+
+    def finalize(self, imports=None):
+        """Finalize module and build namespace.
+
+        This populates the namespace dictionary for fast lookup based on
+        local definitions and imported module definitions. Then resolves
+        all identifier references in COP trees to namespace values.
+
+        Args:
+            imports: Dict {import_name: Module} of resolved imports.
+                     The Interpreter/loader is responsible for resolving
+                     import resource strings to actual Module instances.
+
+        The namespace contains (priority, value) tuples where:
+        - priority: 0=imported, 1=local (for shadowing)
+        - value: Value, OverloadSet, or Ambiguous
+
+        Returns:
+            self (for chaining)
         """
         if self._finalized:
-            raise RuntimeError("Cannot add constants to finalized module")
-        if name in self._const_slots:
-            raise ValueError(f"Constant '{name}' already defined")
+            return self
 
-        slot = len(self._const_values)
-        self._const_slots[name] = slot
-        self._const_values.append(value)
-        return slot
+        imports = imports or {}
 
-    def get_const_slot(self, name):
-        """Get the slot index for a module constant, or None if not found.
+        # Initialize empty namespace
+        self.namespace = {}
 
-        Args:
-            name: (str) Name of the constant
+        # First, add all imported module definitions with priority=0
+        for import_name, imported_module in imports.items():
+            # Add all definitions from the imported module
+            for qualified_name, value in imported_module.definitions.items():
+                # Skip pkg.* definitions from imports
+                if qualified_name.startswith('pkg.'):
+                    continue
 
-        Returns:
-            (int | None) Slot index or None if not found
-        """
-        return self._const_slots.get(name)
+                _add_definition_to_namespace(
+                    self.namespace,
+                    qualified_name,
+                    value,
+                    import_prefix=import_name,
+                    is_local=False
+                )
 
-    def get_const_value(self, slot):
-        """Get a constant value by slot index.
+        # Then, add local definitions with priority=1 (can shadow imports)
+        for qualified_name, value in self.definitions.items():
+            # Skip pkg.* definitions (not part of namespace)
+            if qualified_name.startswith('pkg.'):
+                continue
 
-        Args:
-            slot: (int) Slot index
+            _add_definition_to_namespace(
+                self.namespace,
+                qualified_name,
+                value,
+                import_prefix=None,
+                is_local=True
+            )
 
-        Returns:
-            Value at the given slot
-        """
-        return self._const_values[slot]
+        # Finally, resolve all identifier references in COP trees
+        _resolve_identifier_references(self)
 
-    def finalize(self):
-        """Finalize module after all imports and definitions are added.
-
-        This populates the namespace dictionaries for fast lookup.
-        All imports must be complete at this point.
-        """
-        pass
+        self._finalized = True
+        return self
 
 
 class SystemModule(Module):
@@ -210,7 +234,9 @@ class SystemModule(Module):
     _singleton = None
 
     def __init__(self):
-        super().__init__(source=None)  # System module has no source file
+        # Create a minimal ModuleSource for system module
+        source = type('obj', (object,), {'resource': 'system', 'content': ''})()
+        super().__init__(source)
         self.token = "system#0000"
 
         # Builtin tags
@@ -236,47 +262,406 @@ class SystemModule(Module):
         return SystemModule._singleton
 
 
-class NameConflict:
-    """Used in namespaces where conflicts exist"""
+class OverloadSet:
+    """Collection of overloaded callables sharing the same name.
 
-    # This is used to help error messages later on
-    def __init__(self, *references):
-        self.references = references
+    Used when a name has multiple definitions (function overloads,
+    or a shape + factory functions, etc.). Separates shape definitions
+    from callable definitions to handle both ~Shape and Shape() contexts.
+    """
+
+    def __init__(self):
+        self.shape = None       # Shape Value if one exists
+        self.callables = []     # List of callable Values (Func, may include shape)
+
+    def add_shape(self, shape_value):
+        """Add a shape definition. Also adds to callables (shapes are callable)."""
+        self.shape = shape_value
+        if shape_value not in self.callables:
+            self.callables.append(shape_value)
+
+    def add_callable(self, func_value):
+        """Add a callable (function) definition."""
+        self.callables.append(func_value)
+
+    def get_for_shape_context(self):
+        """Get the value for ~name lookup."""
+        if self.shape is None:
+            raise TypeError("Name is not a shape")
+        return self.shape
+
+    def get_for_call_context(self):
+        """Get candidates for name() call dispatch."""
+        return self.callables
+
+    def get_single(self):
+        """Get single value if unambiguous, else return self for dispatch."""
+        if len(self.callables) == 1:
+            return self.callables[0]
+        return self
 
     def __repr__(self):
-        return f"NameConflict{self.references}"
+        parts = []
+        if self.shape:
+            parts.append(f"shape={self.shape.data.qualified if hasattr(self.shape.data, 'qualified') else 'shape'}")
+        parts.append(f"{len(self.callables)} callable(s)")
+        return f"OverloadSet({', '.join(parts)})"
 
 
-def add_name_permutations(dictionary, ns, qualified, definition):
-    """Generate possible qualified names for a given namespace and qualified name.
+class Ambiguous:
+    """Represents a name conflict in the namespace.
+
+    Created when multiple non-overloadable definitions share the same
+    unqualified name. This is an error condition that gets caught at
+    build time when the name is referenced.
+    """
+
+    def __init__(self, qualified_names):
+        self.qualified_names = list(qualified_names)
+
+    def add_conflict(self, qualified_name):
+        """Add another conflicting name."""
+        if qualified_name not in self.qualified_names:
+            self.qualified_names.append(qualified_name)
+
+    def __repr__(self):
+        return f"Ambiguous({', '.join(self.qualified_names)})"
+
+
+def _strip_overload_suffix(qualified_name):
+    """Strip .iXXX overload suffix from qualified name if present.
 
     Args:
-        dictionary: (dict) Dictionary to add names to
-        ns: (str) Namespace prefix
-        qualified: (str) Qualified name
+        qualified_name: e.g., 'add.i001' or 'display.set_mode.i123'
+
     Returns:
-        (list[str]) valid reference names
+        Base name without overload suffix, e.g., 'add' or 'display.set_mode'
     """
-    variations = []
-    # Generate all forms of named variations
-    while True:
-        if not qualified:
-            break
-        if ns:
-            variations.extend((f"{qualified}/{ns}", qualified))
-        else:
-            variations.append(qualified)
-        qualified = qualified.partition(".")[2]
+    if '.' not in qualified_name:
+        return qualified_name
 
-    full = variations[0]
-    conflicts = {}  # track conflicts so we can reference full names
+    parts = qualified_name.split('.')
+    last_part = parts[-1]
 
-    # Add to dictionary, potentially with conflicts
-    for ref in variations:
-        conflict = conflicts.get(ref)
-        if conflict:
-            conflict.references += (full,)
-            dictionary[ref] = conflict
+    # Check if last part is .iXXX format
+    if last_part.startswith('i') and len(last_part) > 1 and last_part[1:].isdigit():
+        return '.'.join(parts[:-1])
+
+    return qualified_name
+
+
+def _generate_name_permutations(qualified_name, import_prefix=None):
+    """Generate all valid lookup names for a qualified name.
+
+    Args:
+        qualified_name: e.g., 'display.set_mode.i001'
+        import_prefix: e.g., 'pg' if imported, None if local
+
+    Returns:
+        List of lookup names to insert into namespace
+
+    Examples:
+        _generate_name_permutations('display.set_mode.i001')
+        → ['display.set_mode', 'set_mode']
+
+        _generate_name_permutations('display.set_mode', 'pg')
+        → ['pg.display.set_mode', 'display.set_mode', 'set_mode']
+    """
+    # Strip .iXXX suffix (don't expose in namespace)
+    base_name = _strip_overload_suffix(qualified_name)
+
+    # Generate permutations from the base name
+    permutations = []
+    parts = base_name.split('.')
+
+    # Add import-prefixed version if this is an imported definition
+    if import_prefix:
+        permutations.append(f"{import_prefix}.{base_name}")
+
+    # Add all partial suffixes (e.g., 'display.set_mode', 'set_mode')
+    for i in range(len(parts)):
+        permutations.append('.'.join(parts[i:]))
+
+    return permutations
+
+
+def _insert_into_namespace(namespace, lookup_name, qualified_name, value, priority):
+    """Insert a value into namespace with proper conflict/overload handling.
+
+    Args:
+        namespace: Dict to insert into (key → (priority, value/OverloadSet/Ambiguous))
+        lookup_name: The exact name to insert at (e.g., 'set_mode', 'pg.display.set_mode')
+        qualified_name: Full qualified name for error messages
+        value: The Value to insert
+        priority: 0=imported, 1=local (for shadowing)
+    """
+    existing = namespace.get(lookup_name)
+
+    # Case 1: No existing entry - insert directly
+    if existing is None:
+        namespace[lookup_name] = (priority, value)
+        return
+
+    existing_priority, existing_value = existing
+
+    # Case 2: Lower priority - don't insert (shadowed by local definition)
+    if priority < existing_priority:
+        return
+
+    # Case 3: Higher priority - replace (local shadows import)
+    if priority > existing_priority:
+        namespace[lookup_name] = (priority, value)
+        return
+
+    # Case 4: Same priority - need to merge or create Ambiguous
+    # Extract qualified name for error reporting
+    def get_qualified_name(val):
+        if isinstance(val, Ambiguous):
+            return None  # Already ambiguous
+        if isinstance(val, OverloadSet):
+            # Get qualified name from first callable
+            if val.callables:
+                return val.callables[0].data.qualified if hasattr(val.callables[0].data, 'qualified') else None
+        if hasattr(val, 'data') and hasattr(val.data, 'qualified'):
+            return val.data.qualified
+        return None
+
+    # Handle Ambiguous existing value
+    if isinstance(existing_value, Ambiguous):
+        existing_value.add_conflict(qualified_name)
+        return
+
+    # Handle OverloadSet existing value
+    if isinstance(existing_value, OverloadSet):
+        if isinstance(value.data, comp.Shape):
+            if existing_value.shape is not None:
+                # Two shapes with same name = ambiguous
+                namespace[lookup_name] = (priority, Ambiguous([
+                    existing_value.shape.data.qualified,
+                    qualified_name
+                ]))
+            else:
+                existing_value.add_shape(value)
+        elif isinstance(value.data, comp.Func):
+            existing_value.add_callable(value)
         else:
-            conflicts[ref] = NameConflict(full)
-            dictionary[ref] = definition
+            # Non-callable conflicts with OverloadSet
+            existing_qualified = get_qualified_name(existing_value)
+            if existing_qualified:
+                namespace[lookup_name] = (priority, Ambiguous([existing_qualified, qualified_name]))
+        return
+
+    # Both are single Values - determine if we can create OverloadSet
+    existing_is_callable = isinstance(existing_value.data, (comp.Func, comp.Shape))
+    new_is_callable = isinstance(value.data, (comp.Func, comp.Shape))
+
+    if existing_is_callable and new_is_callable:
+        # Both callable - create OverloadSet
+        overloads = OverloadSet()
+
+        # Add existing
+        if isinstance(existing_value.data, comp.Shape):
+            overloads.add_shape(existing_value)
+        else:
+            overloads.add_callable(existing_value)
+
+        # Add new
+        if isinstance(value.data, comp.Shape):
+            overloads.add_shape(value)
+        else:
+            overloads.add_callable(value)
+
+        namespace[lookup_name] = (priority, overloads)
+    else:
+        # Incompatible types - create Ambiguous
+        existing_qualified = get_qualified_name(existing_value) or lookup_name
+        namespace[lookup_name] = (priority, Ambiguous([existing_qualified, qualified_name]))
+
+
+def _add_definition_to_namespace(namespace, qualified_name, value, import_prefix=None, is_local=True):
+    """Add a definition to namespace with all its permutations.
+
+    Args:
+        namespace: The namespace dict
+        qualified_name: e.g., 'display.set_mode' or 'display.set_mode.i001'
+        value: The Value
+        import_prefix: e.g., 'pg' if imported, None if local
+        is_local: True for module's own defs, False for imported
+    """
+    priority = 1 if is_local else 0
+    permutations = _generate_name_permutations(qualified_name, import_prefix)
+
+    for perm in permutations:
+        _insert_into_namespace(namespace, perm, qualified_name, value, priority)
+
+
+def _get_identifier_name(id_cop):
+    """Extract the qualified name from a value.identifier COP node.
+
+    Args:
+        id_cop: A value.identifier COP node
+
+    Returns:
+        String like "add" or "server.host" or None if not a valid identifier
+    """
+    try:
+        tag = id_cop.positional(0).data.qualified
+        if tag != "value.identifier":
+            return None
+
+        kids = id_cop.field("kids")
+        parts = []
+        for kid in kids.data.values():
+            kid_token = kid.positional(0).data.qualified
+            if kid_token in ("ident.token", "ident.text"):
+                part = kid.field("value").data
+                parts.append(part)
+            else:
+                # Complex identifier (expr, index, etc.) - can't resolve at finalize time
+                return None
+        return '.'.join(parts) if parts else None
+    except (AttributeError, KeyError):
+        return None
+
+
+def _walk_and_resolve_cop(cop, namespace, param_names=None):
+    """Walk a COP tree and resolve identifier references to namespace values.
+
+    Replaces value.identifier nodes with value.constant nodes containing the
+    resolved Value from the namespace.
+
+    Args:
+        cop: The COP node to walk
+        namespace: Module namespace dict {name: (priority, value)}
+        param_names: Set of parameter names to skip (handled by codegen)
+
+    Returns:
+        Potentially modified COP node
+    """
+    if cop is None:
+        return cop
+
+    param_names = param_names or set()
+
+    try:
+        tag = cop.positional(0).data.qualified
+    except (AttributeError, KeyError):
+        return cop
+
+    # Handle value.identifier - try to resolve it
+    if tag == "value.identifier":
+        name = _get_identifier_name(cop)
+
+        # Skip if we couldn't extract a name
+        if name is None:
+            return cop
+
+        # Skip $ references (local scope, handled by codegen)
+        if name == '$' or name.startswith('$.'):
+            return cop
+
+        # Skip parameter names (handled by codegen)
+        if name in param_names:
+            return cop
+
+        # Try to resolve from namespace
+        namespace_entry = namespace.get(name)
+        if namespace_entry is not None:
+            _, resolved_value = namespace_entry
+
+            # Handle special namespace types
+            if isinstance(resolved_value, (Ambiguous, OverloadSet)):
+                # Can't resolve to constant - these will need special handling
+                # For now, leave as identifier (will be handled at build/call time)
+                return cop
+
+            # Create a value.constant node with the resolved value
+            const_cop = comp.create_cop("value.constant", [], value=resolved_value)
+            return const_cop
+
+        # Unresolved - leave as-is for now (will error at build time)
+        return cop
+
+    # Handle value.block - extract parameter names from signature
+    elif tag == "value.block":
+        # Get signature to extract param names
+        kids = cop.field("kids")
+        kids_list = list(kids.data.values())
+        if len(kids_list) >= 2:
+            signature_cop = kids_list[0]
+            body_cop = kids_list[1]
+
+            # Extract parameter names from signature
+            new_param_names = param_names.copy()
+            # TODO: Parse signature to get actual param names
+            # For now, assume 'input' and 'args' are standard
+            new_param_names.add('input')
+            new_param_names.add('args')
+
+            # Recursively walk the body with updated param names
+            new_body = _walk_and_resolve_cop(body_cop, namespace, new_param_names)
+
+            # If body changed, create new block cop
+            if new_body is not body_cop:
+                new_kids_dict = kids.data.copy()
+                keys = list(new_kids_dict.keys())
+                if len(keys) >= 2:
+                    new_kids_dict[keys[1]] = new_body
+                    new_kids = comp.Value.from_python(new_kids_dict)
+                    return comp.create_cop("value.block", [], kids=new_kids)
+
+        return cop
+
+    # For all other nodes, recursively walk kids
+    else:
+        try:
+            kids = cop.field("kids")
+            if not isinstance(kids.data, dict):
+                return cop
+
+            # Walk each kid
+            modified = False
+            new_kids_dict = {}
+            for key, kid in kids.data.items():
+                new_kid = _walk_and_resolve_cop(kid, namespace, param_names)
+                new_kids_dict[key] = new_kid
+                if new_kid is not kid:
+                    modified = True
+
+            # If any kids changed, create new cop with updated kids
+            if modified:
+                new_kids = comp.Value.from_python(new_kids_dict)
+                # Try to preserve other fields
+                new_cop = comp.create_cop(tag, [], kids=new_kids)
+                return new_cop
+
+        except (KeyError, AttributeError):
+            # No kids field, nothing to walk
+            pass
+
+    return cop
+
+
+def _resolve_identifier_references(module):
+    """Resolve all identifier references in module definitions to namespace values.
+
+    Walks all COP trees in module.definitions and replaces value.identifier nodes
+    with value.constant nodes containing the resolved Values.
+
+    Args:
+        module: Module with populated namespace
+
+    Side effects:
+        Modifies the .cop attribute on Values in module.definitions
+    """
+    for qualified_name, value in module.definitions.items():
+        # Only process values that have COP trees
+        if not hasattr(value, 'cop') or value.cop is None:
+            continue
+
+        # Walk and resolve the COP tree
+        resolved_cop = _walk_and_resolve_cop(value.cop, module.namespace)
+
+        # Update the cop if it changed
+        if resolved_cop is not value.cop:
+            value.cop = resolved_cop

@@ -324,8 +324,8 @@ def resolve(cop, namespace, no_fold=False):
                     return _make_constant(cop, value)
                 # Can't fold - has non-constant fields, leave unchanged
         case "shape.define":
-            # Build a ShapeDef with FieldDefs from shape.field children
-            shape_def = comp.ShapeDef("", False)  # Anonymous inline shape
+            # Build a Shape with FieldDefs from shape.field children
+            shape_def = comp.Shape("", False)  # Anonymous inline shape
             for field_cop in kids:
                 field_tag = field_cop.positional(0).data.qualified
                 if field_tag == "shape.field":
@@ -468,12 +468,17 @@ def cop_module():
     """Create and populate the cop module"""
     global _astmodule
     if _astmodule is None:
-        _astmodule = comp.Module("cop")
+        # Create a minimal ModuleSource for cop module
+        source = type('obj', (object,), {'resource': 'cop', 'content': ''})()
+        _astmodule = comp.Module(source)
         for name in COP_TAGS:
-            tag = comp.TagDef(name, False)
-            _astmodule.publicdefs.append(tag)
-            ref = comp.Tag(tag.qualified, "cop", _astmodule)
-            _tagnames[name] = ref
+            tag_def = comp.Tag(name, False)
+            tag_def.module = _astmodule
+            # Wrap in Value and store in definitions
+            value = comp.Value.from_python(tag_def)
+            _astmodule.definitions[name] = value
+            # Store Tag for cop node construction
+            _tagnames[name] = tag_def
             # Eventually want real shapes to go with each of these,
             # but for now we freestyle it.
 

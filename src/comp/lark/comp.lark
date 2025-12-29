@@ -1,6 +1,6 @@
 // Comp Language Grammar
 
-?start: module*
+start: module*
 
 ?module: import_stmt
        | mod_field
