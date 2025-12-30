@@ -325,6 +325,7 @@ def resolve(cop, namespace, no_fold=False):
                 # Can't fold - has non-constant fields, leave unchanged
         case "shape.define":
             # Build a Shape with FieldDefs from shape.field children
+            # Skip folding if shape contains unions or other non-field constructs
             shape_def = comp.Shape("", False)  # Anonymous inline shape
             for field_cop in kids:
                 field_tag = field_cop.positional(0).data.qualified
@@ -340,11 +341,17 @@ def resolve(cop, namespace, no_fold=False):
                             break
                     field_def = comp.FieldDef(name=field_name, default=default)
                     shape_def.fields.append(field_def)
+                elif field_tag == "shape.union":
+                    # Union types - can't fold to Shape constant yet
+                    shape_def = None
+                    break
                 else:
-                    raise ValueError(f"Unexpected cop in shape.define {field_tag}")
+                    # Unknown shape construct - skip folding
+                    shape_def = None
+                    break
             if shape_def is not None:
-                shape_ref = comp.Shape(shape_def)
-                value = comp.Value.from_python(shape_ref)
+                # Wrap the shape definition in a Value
+                value = comp.Value.from_python(shape_def)
                 return _make_constant(cop, value)
 
     if not changed:
@@ -730,20 +737,33 @@ def _convert_tree(tree):
         case "shape_field":
             # (TOKENFIELD | shape | TOKENFIELD shape) (ASSIGN field_default_value)?
             if len(kids) == 1:
-                # Just a field name
-                name = (
-                    kids[0].value
-                    if hasattr(kids[0], "value")
-                    else _convert_tree(kids[0])
-                )
-                return _parsed(tree, "shape.field", [], name=name)
+                # Just a field name or just a shape
+                if hasattr(kids[0], "value"):
+                    # Just a field name
+                    name = kids[0].value
+                    return _parsed(tree, "shape.field", [], name=name)
+                else:
+                    # Just a shape (anonymous field)
+                    shape_cop = _convert_tree(kids[0])
+                    return _parsed(tree, "shape.field", [shape_cop], name=None)
+            elif len(kids) == 2:
+                # TOKENFIELD shape (name with type constraint)
+                name = kids[0].value if hasattr(kids[0], "value") else None
+                shape_cop = _convert_tree(kids[1])
+                return _parsed(tree, "shape.field", [shape_cop], name=name)
             elif len(kids) == 3 and kids[1].type == "ASSIGN":
-                # name = default_value
+                # name = default_value (just name and default, no type)
                 name = kids[0].value
-                value = _convert_tree(kids[2])
-                return _parsed(tree, "shape.field", [value], name=name)
+                default_cop = _convert_tree(kids[2])
+                return _parsed(tree, "shape.field", [None, default_cop], name=name)
+            elif len(kids) == 4 and kids[2].type == "ASSIGN":
+                # TOKENFIELD shape ASSIGN default (name, type, and default)
+                name = kids[0].value if hasattr(kids[0], "value") else None
+                shape_cop = _convert_tree(kids[1])
+                default_cop = _convert_tree(kids[3])
+                return _parsed(tree, "shape.field", [shape_cop, default_cop], name=name)
             else:
-                # More complex cases (TOKENFIELD shape, etc.)
+                # Fallback for unexpected cases
                 name = kids[0].value if hasattr(kids[0], "value") else None
                 return _parsed(tree, "shape.field", [], name=name)
 

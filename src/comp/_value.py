@@ -98,6 +98,17 @@ class Value:
         Returns:
             (str) String representation suitable for display
         """
+        # Check if we have a finalized constant in self.cop
+        if hasattr(self, 'cop') and self.cop is not None:
+            try:
+                cop_tag = self.cop.positional(0).data.qualified
+                if cop_tag == "value.constant":
+                    # Extract the constant value and format it
+                    constant_value = self.cop.field("value")
+                    return constant_value.format()
+            except (AttributeError, KeyError):
+                pass
+
         shape = self.shape
         if shape is comp.shape_num:
             return str(self.data)
@@ -115,7 +126,17 @@ class Value:
         if isinstance(self.data, comp.Tag):
             return f"{self.data.qualified}"
         if isinstance(self.data, comp.Func):
-            return f"{self.data.definition.qualified}()"
+            return self._format_function()
+
+        # Handle shape definitions (stored as structs tagged with shape.define)
+        if shape is comp.shape_struct and isinstance(self.data, dict):
+            first_key = next(iter(self.data.keys()), None)
+            if (first_key and isinstance(first_key, Unnamed) and
+                hasattr(self.data[first_key], 'data') and
+                hasattr(self.data[first_key].data, 'qualified') and
+                self.data[first_key].data.qualified == 'shape.define'):
+                # This is a shape definition
+                return self._format_shape_definition()
 
         if shape is comp.shape_struct:
             fields = []
@@ -138,6 +159,207 @@ class Value:
             return "(" + " ".join(fields) + ")"
 
         return str(self.data)
+
+    def _format_shape_definition(self):
+        """Format a shape definition value as a shape literal.
+
+        Shape definitions are stored as structs with a shape.define tag and kids containing shape.field nodes.
+        Each shape.field has a name and potentially type constraints and default values.
+
+        After Module.finalize(), identifier references in type constraints are resolved to value.constant nodes.
+        We read from self.cop (if available) to get the finalized version, otherwise fall back to self.data.
+
+        Returns:
+            str: Formatted shape literal like "~(x y)" or "~(x~num y~text)"
+        """
+        try:
+            # Prefer reading from self.cop if available (has finalized identifiers)
+            # Otherwise fall back to self.data
+            source_cop = self.cop if hasattr(self, 'cop') and self.cop is not None else None
+
+            if source_cop:
+                # Read from the COP
+                kids = source_cop.field("kids")
+            else:
+                # Read from self.data (pre-finalize)
+                kids_key = None
+                for k in self.data.keys():
+                    if isinstance(k, Value) and k.data == "kids":
+                        kids_key = k
+                        break
+
+                if not kids_key or not self.data[kids_key].data:
+                    return "~()"
+
+                kids = self.data[kids_key]
+
+            if not kids.data:
+                return "~()"
+
+            field_parts = []
+
+            for kid_key, kid_val in kids.data.items():
+                # Each kid should be a shape.field
+                kid_tag = kid_val.positional(0).data.qualified
+                if kid_tag != "shape.field":
+                    continue
+
+                # Extract field name
+                field_name = None
+                name_key = None
+                for k in kid_val.data.keys():
+                    if isinstance(k, Value) and k.data == "name":
+                        name_key = k
+                        break
+
+                if name_key:
+                    field_name = kid_val.data[name_key].data
+
+                # Get the kids (type constraint and/or default value)
+                field_kids_key = None
+                for k in kid_val.data.keys():
+                    if isinstance(k, Value) and k.data == "kids":
+                        field_kids_key = k
+                        break
+
+                # Build the field string
+                field_str = field_name if field_name else ""
+
+                if field_kids_key and kid_val.data[field_kids_key].data:
+                    field_kids = list(kid_val.data[field_kids_key].data.values())
+
+                    # First kid is the type constraint (if not None)
+                    if len(field_kids) >= 1 and field_kids[0] is not None:
+                        type_cop = field_kids[0]
+
+                        try:
+                            cop_tag = type_cop.positional(0).data.qualified
+                        except (AttributeError, KeyError):
+                            # Can't get tag, skip type annotation
+                            cop_tag = None
+
+                        # Handle unresolved identifiers (before finalize)
+                        if cop_tag == "value.identifier":
+                            # Extract identifier name
+                            type_kids = type_cop.field("kids").data
+                            for tk, tv in type_kids.items():
+                                if tv.positional(0).data.qualified == "ident.token":
+                                    type_name = tv.field("value").data
+                                    field_str += f"~{type_name}"
+                                    break
+
+                        # Handle resolved constants (after finalize)
+                        elif cop_tag == "value.constant":
+                            # The type has been resolved to a constant value (e.g., a shape)
+                            # Show a preview of the shape instead of the full definition
+                            try:
+                                resolved_value = type_cop.field("value")
+                                # Format the resolved value, but limit length
+                                resolved_str = resolved_value.format()
+                                # For shapes, show a compact form
+                                if resolved_str.startswith("~(") and len(resolved_str) > 15:
+                                    # Show just the shape literal (already has ~)
+                                    field_str += "(...)"
+                                elif resolved_str.startswith("~("):
+                                    # Short shape - show it fully without adding extra ~
+                                    field_str += resolved_str
+                                elif len(resolved_str) > 15:
+                                    # Truncate other long values
+                                    field_str += f"~{resolved_str[:12]}..."
+                                else:
+                                    # Show short non-shape values with ~
+                                    field_str += f"~{resolved_str}"
+                            except (KeyError, AttributeError):
+                                pass
+
+                    # Second kid is the default value (if present)
+                    if len(field_kids) >= 2:
+                        default_cop = field_kids[1]
+                        # Extract and format the default value from the COP
+                        try:
+                            cop_tag = default_cop.positional(0).data.qualified
+                            if cop_tag == "value.number":
+                                default_str = str(default_cop.field("value").data)
+                            elif cop_tag == "value.text":
+                                text_val = default_cop.field("value").data
+                                default_str = f'"{text_val}"'
+                            else:
+                                # For other types, try to format the COP
+                                default_str = default_cop.format()
+                                if len(default_str) > 20:
+                                    default_str = None
+                            if default_str and len(default_str) < 20:
+                                field_str += f"={default_str}"
+                        except (KeyError, AttributeError):
+                            pass
+
+                if field_str:
+                    field_parts.append(field_str)
+
+            if field_parts:
+                return "~(" + " ".join(field_parts) + ")"
+            else:
+                return "~()"
+
+        except (KeyError, AttributeError):
+            # If we can't parse the structure, fall back to basic representation
+            return "~(...)"
+
+    def _format_function(self):
+        """Format a function value as a function literal.
+
+        Functions are stored as Func objects with a cop attribute containing the value.block COP node.
+        The block has two kids: 's' (signature as shape.define) and 'b' (body).
+
+        We format the signature as field names without the ~() wrapper.
+
+        Returns:
+            str: Formatted function literal like ":(a b)" or ":()" if no signature
+        """
+        try:
+            if not hasattr(self, 'cop') or self.cop is None:
+                return ":(...)"
+
+            # Get the signature from the block's 's' kid
+            kids_dict = self.cop.field("kids").data
+            s_key = None
+            for k in kids_dict.keys():
+                if isinstance(k, Value) and k.data == 's':
+                    s_key = k
+                    break
+
+            if not s_key:
+                return ":(...)"
+
+            signature = kids_dict[s_key]
+
+            # Check if signature is a shape.define
+            if signature.positional(0).data.qualified != "shape.define":
+                return ":(...)"
+
+            # Format the signature as a shape, then remove the ~( ) wrapper
+            # Create a temporary struct with the shape.define structure
+            temp_data = {}
+            temp_data[Unnamed()] = signature.positional(0)
+
+            # Copy over kids and pos fields
+            for k, v in signature.data.items():
+                if isinstance(k, Value) and k.data in ("kids", "pos"):
+                    temp_data[k] = v
+
+            temp_val = Value.from_python(temp_data)
+            shape_format = temp_val._format_shape_definition()
+
+            # Remove ~( and ) to get just the field list
+            if shape_format.startswith("~(") and shape_format.endswith(")"):
+                fields = shape_format[2:-1]
+                return f":({fields})"
+            else:
+                return ":(...)"
+
+        except (KeyError, AttributeError):
+            # If we can't parse the structure, fall back
+            return ":(...)"
 
     def as_scalar(self):
         """Unwrap single-element structs to their scalar value.

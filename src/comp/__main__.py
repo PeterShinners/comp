@@ -469,6 +469,144 @@ def show_dependency_tree(filepath):
     display_dependency_tree(tree)
 
 
+def show_namespace(filepath_or_source, is_text=False):
+    """Show the finalized namespace for a module.
+
+    Args:
+        filepath_or_source: Path to the module file or source text
+        is_text: If True, treat first arg as source text instead of filepath
+    """
+    try:
+        if is_text:
+            # Create module directly from source text
+            module = comp.Module.from_source(filepath_or_source)
+            module.load_definitions()
+            module.finalize()
+            print(f"Namespace for: <text>")
+            print()
+        else:
+            # Create interpreter to use the import system
+            interp = comp.Interp()
+
+            # Convert filepath to absolute path
+            filepath = pathlib.Path(filepath_or_source)
+            if not filepath.is_absolute():
+                filepath = pathlib.Path.cwd() / filepath
+
+            # Determine resource identifier and from_dir
+            from_dir = filepath.parent
+            resource = f"./{filepath.stem}"
+
+            # Locate the module source
+            module_source = interp.import_locate(resource, from_dir=from_dir)
+
+            # Create module and load definitions
+            module = comp.Module(module_source)
+            module.load_definitions()
+
+            # Finalize to build namespace (for now without imports)
+            # TODO: In future, load and finalize with imports
+            module.finalize()
+
+            print(f"Namespace for: {module_source.location}")
+            print()
+
+        # Collect all namespace entries grouped by lookup name
+        entries = []
+        for lookup_name, (priority, value) in module.namespace.items():
+            entries.append((lookup_name, priority, value))
+
+        # Sort by lookup name
+        entries.sort(key=lambda x: x[0])
+
+        # Display each entry
+        for lookup_name, priority, value in entries:
+            # Determine the qualified name and module info
+            qualified_name = lookup_name
+            module_info = ""
+            value_preview = ""
+
+            # Handle different value types
+            if isinstance(value, comp.Ambiguous):
+                # Multiple conflicting definitions
+                modules = set()
+                for qname in value.qualified_names:
+                    # Extract module info from definitions if available
+                    if qname in module.definitions:
+                        # It's from this module
+                        pass
+                    else:
+                        modules.add("imported")
+
+                module_str = f" from modules {', '.join(modules)}" if modules else ""
+                value_preview = f"{len(value.qualified_names)} values{module_str} ({', '.join(value.qualified_names[:3])}{'...' if len(value.qualified_names) > 3 else ''})"
+
+            elif isinstance(value, comp.OverloadSet):
+                # Multiple overloaded callables
+                count = len(value.callables)
+                names = []
+                for callable_val in value.callables[:3]:
+                    if hasattr(callable_val.data, 'qualified'):
+                        names.append(callable_val.data.qualified)
+                names_str = ', '.join(names)
+                if count > 3:
+                    names_str += '...'
+                value_preview = f"{count} overloads ({names_str})"
+
+            else:
+                # Single value
+                # Determine qualified name from the value
+                if hasattr(value.data, 'qualified'):
+                    qualified_name = value.data.qualified
+
+                    # Check if it's from a different module (has import prefix in lookup_name)
+                    parts = lookup_name.split('.')
+                    if len(parts) > 1:
+                        # Could be an import prefix
+                        # Check if the first part matches any qualified name parts
+                        qname_parts = qualified_name.split('.')
+                        if parts[0] not in qname_parts:
+                            # First part is likely an import prefix
+                            module_info = f" (from {parts[0]})"
+
+                # Get value preview (first 40 chars)
+                try:
+                    # Use format() for all values
+                    full_format = value.format()
+                    if len(full_format) > 40:
+                        value_preview = full_format[:40] + "..."
+                    else:
+                        value_preview = full_format
+                except Exception:
+                    value_preview = str(value.data)[:40]
+
+            # Format the output line
+            # Determine if we should show qualified name in brackets
+            show_qualified = (qualified_name != lookup_name and
+                            hasattr(value, 'data') and
+                            hasattr(value.data, 'qualified'))
+
+            if module_info:
+                # Imported value
+                qname_part = f"[{qualified_name}]" if show_qualified else ""
+                print(f"{lookup_name:30s} {qname_part:20s} {value_preview}")
+            elif show_qualified:
+                # Local value with different qualified name
+                print(f"{lookup_name:30s} [{qualified_name}]{' ' * max(0, 20 - len(qualified_name) - 2)} {value_preview}")
+            else:
+                # Simple local value
+                print(f"{lookup_name:30s} {' ' * 20} {value_preview}")
+
+    except comp._import.ModuleNotFoundError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error loading module: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
 def format_instruction(idx, instr, indent=0):
     """Format a single instruction for display."""
     # Get instruction type name
@@ -567,6 +705,8 @@ def main():
         help="Scan module metadata (pkg assignments, imports, docstrings). Use with --lark to show scan grammar tree.")
     parser.add_argument("--tree", action="store_true",
         help="Show import dependency tree with module documentation")
+    parser.add_argument("--namespace", action="store_true",
+        help="Show the module's finalized namespace with all definitions")
     parser.add_argument( "--raw", action="store_true",
         help="Show raw Lark tree output (built-in pretty)")
     parser.add_argument("--pos", action="store_true",
@@ -608,7 +748,7 @@ def main():
 
     # Handle --tree mode separately (it's its own output mode)
     if args.tree:
-        if any([args.cop, args.resolve, args.code, args.eval, args.trace, args.scan]):
+        if any([args.cop, args.resolve, args.code, args.eval, args.trace, args.scan, args.namespace]):
             parser.error("--tree cannot be combined with other output modes")
         if args.text:
             parser.error("--tree requires a file path, not --text")
@@ -616,9 +756,17 @@ def main():
         show_dependency_tree(args.source)
         return
 
+    # Handle --namespace mode separately (it's its own output mode)
+    if args.namespace:
+        if any([args.cop, args.resolve, args.code, args.eval, args.trace, args.scan, args.tree]):
+            parser.error("--namespace cannot be combined with other output modes")
+        # Show namespace
+        show_namespace(args.source if not args.text else source, is_text=args.text)
+        return
+
     # Check if any output mode was specified
     if not any([args.lark, args.cop, args.resolve, args.code, args.eval, args.trace]):
-        parser.error("No output mode specified. Use --lark, --cop, --resolve, --code, --eval, --trace, --scan, or --tree")
+        parser.error("No output mode specified. Use --lark, --cop, --resolve, --code, --eval, --trace, --scan, --tree, or --namespace")
 
     if args.lark:
         # Show Lark parse tree

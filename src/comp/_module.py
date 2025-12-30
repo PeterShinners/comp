@@ -191,7 +191,16 @@ class Module:
         # Initialize empty namespace
         self.namespace = {}
 
-        # First, add all imported module definitions with priority=0
+        # First, add system module builtins with priority=-1 (lowest)
+        # Skip this for SystemModule itself to avoid infinite recursion
+        if not isinstance(self, SystemModule):
+            system_module = SystemModule.get()
+            for lookup_name, (_, value) in system_module.namespace.items():
+                # Add with priority -1 (lower than imports which are 0)
+                if lookup_name not in self.namespace:
+                    self.namespace[lookup_name] = (-1, value)
+
+        # Then, add all imported module definitions with priority=0
         for import_name, imported_module in imports.items():
             # Add all definitions from the imported module
             for qualified_name, value in imported_module.definitions.items():
@@ -213,6 +222,11 @@ class Module:
             if qualified_name.startswith('pkg.'):
                 continue
 
+            # Skip tag.* definitions (they define tag unions, not namespace entries)
+            # The individual tag values will be added by _populate_tag_union_values
+            if qualified_name.startswith('tag.'):
+                continue
+
             _add_definition_to_namespace(
                 self.namespace,
                 qualified_name,
@@ -220,6 +234,10 @@ class Module:
                 import_prefix=None,
                 is_local=True
             )
+
+        # Create Tag values for tag union definitions
+        # Tag unions are Shapes with qualified names starting with "tag."
+        _populate_tag_union_values(self)
 
         # Finally, resolve all identifier references in COP trees
         _resolve_identifier_references(self)
@@ -239,18 +257,38 @@ class SystemModule(Module):
         super().__init__(source)
         self.token = "system#0000"
 
-        # Builtin tags
+        # Populate definitions dict with builtin tags and shapes as Value objects
+        # These will be finalized and added to namespace
+
+        # Builtin tags - wrap in Value objects
+        self.definitions['nil'] = comp.Value.from_python(comp.tag_nil)
+        self.definitions['bool'] = comp.Value.from_python(comp.tag_bool)
+        self.definitions['bool.true'] = comp.Value.from_python(comp.tag_true)
+        self.definitions['bool.false'] = comp.Value.from_python(comp.tag_false)
+        self.definitions['true'] = comp.Value.from_python(comp.tag_true)
+        self.definitions['false'] = comp.Value.from_python(comp.tag_false)
+        self.definitions['fail'] = comp.Value.from_python(comp.tag_fail)
+
+        # Builtin shapes - wrap in Value objects
+        self.definitions['num'] = comp.Value.from_python(comp.shape_num)
+        self.definitions['text'] = comp.Value.from_python(comp.shape_text)
+        self.definitions['struct'] = comp.Value.from_python(comp.shape_struct)
+        self.definitions['any'] = comp.Value.from_python(comp.shape_any)
+        self.definitions['func'] = comp.Value.from_python(comp.shape_func)
+
+        # Set convenience attributes for direct access
         self.bool = comp.tag_bool
         self.true = comp.tag_true
         self.false = comp.tag_false
         self.fail = comp.tag_fail
-
-        # Builtin shapes
         self.num = comp.shape_num
         self.text = comp.shape_text
         self.struct = comp.shape_struct
         self.any = comp.shape_any
         self.func = comp.shape_func
+
+        # Finalize to build namespace from definitions
+        self.finalize()
 
     @classmethod
     def get(cls):
@@ -495,6 +533,82 @@ def _add_definition_to_namespace(namespace, qualified_name, value, import_prefix
         _insert_into_namespace(namespace, perm, qualified_name, value, priority)
 
 
+def _populate_tag_union_values(module):
+    """Populate namespace with Tag values for tag union definitions.
+
+    Tag unions are Shape definitions with qualified names starting with "tag.".
+    For example, "tag.binary" with fields (zero one) creates:
+    - binary (parent tag)
+    - binary.zero and binary.one (leaf tags)
+
+    For hierarchical tags like "tag.binary.quantum", creates:
+    - binary (parent tag)
+    - binary.quantum (hierarchical tag)
+
+    Args:
+        module: Module with namespace to populate
+    """
+    # Collect all tag union definitions
+    # Tag unions must be Shape definitions: tag.binary = ~(zero one)
+    # Use ~() for empty tag unions (not plain ())
+    tag_unions = []
+    for qualified_name, value in module.definitions.items():
+        if not qualified_name.startswith('tag.'):
+            continue
+
+        # Only accept Shape definitions
+        if isinstance(value.data, comp.Shape):
+            tag_unions.append((qualified_name, value))
+
+    # Track which tag names we've already created to avoid duplicates
+    created_tags = set()
+
+    for qualified_name, value in tag_unions:
+        # Extract the tag union name (remove "tag." prefix)
+        union_name = qualified_name[4:]  # Remove "tag." prefix
+
+        # Get the shape
+        shape = value.data
+        private = shape.private
+
+        # Create parent tag (e.g., "binary" for "tag.binary")
+        # This allows using just the parent name as a tag
+        if union_name and union_name not in created_tags:
+            parent_tag = comp.Tag(union_name, private)
+            parent_tag.module = module
+            parent_tag_value = comp.Value.from_python(parent_tag)
+            _add_definition_to_namespace(
+                module.namespace,
+                union_name,
+                parent_tag_value,
+                import_prefix=None,
+                is_local=True
+            )
+            created_tags.add(union_name)
+
+        # For each field in the shape, create a tag value
+        for field_def in shape.fields:
+            if not field_def.name:
+                continue
+
+            field_name = field_def.name
+            tag_qualified = f"{union_name}.{field_name}"
+            if tag_qualified not in created_tags:
+                tag = comp.Tag(tag_qualified, private)
+                tag.module = module
+                tag_value = comp.Value.from_python(tag)
+
+                # Add to namespace with all permutations
+                _add_definition_to_namespace(
+                    module.namespace,
+                    tag_qualified,
+                    tag_value,
+                    import_prefix=None,
+                    is_local=True
+                )
+                created_tags.add(tag_qualified)
+
+
 def _get_identifier_name(id_cop):
     """Extract the qualified name from a value.identifier COP node.
 
@@ -575,6 +689,17 @@ def _walk_and_resolve_cop(cop, namespace, param_names=None):
                 # For now, leave as identifier (will be handled at build/call time)
                 return cop
 
+            # If the resolved value has a finalized .cop that is a constant, use that COP directly
+            # This ensures we get the folded constant value instead of the original COP structure
+            if hasattr(resolved_value, 'cop') and resolved_value.cop is not None:
+                try:
+                    cop_tag = resolved_value.cop.positional(0).data.qualified
+                    if cop_tag == "value.constant":
+                        # The resolved value is already a finalized constant - use its COP directly
+                        return resolved_value.cop
+                except (AttributeError, KeyError):
+                    pass
+
             # Create a value.constant node with the resolved value
             const_cop = comp.create_cop("value.constant", [], value=resolved_value)
             return const_cop
@@ -607,8 +732,18 @@ def _walk_and_resolve_cop(cop, namespace, param_names=None):
                 keys = list(new_kids_dict.keys())
                 if len(keys) >= 2:
                     new_kids_dict[keys[1]] = new_body
-                    new_kids = comp.Value.from_python(new_kids_dict)
-                    return comp.create_cop("value.block", [], kids=new_kids)
+
+                    # Reconstruct the cop by copying all fields and updating kids
+                    new_data = {}
+                    for key, value in cop.data.items():
+                        if isinstance(key, comp.Value) and key.data == "kids":
+                            # Replace kids with the modified version
+                            new_data[key] = comp.Value.from_python(new_kids_dict)
+                        else:
+                            # Keep other fields as-is
+                            new_data[key] = value
+
+                    return comp.Value.from_python(new_data)
 
         return cop
 
@@ -630,9 +765,17 @@ def _walk_and_resolve_cop(cop, namespace, param_names=None):
 
             # If any kids changed, create new cop with updated kids
             if modified:
-                new_kids = comp.Value.from_python(new_kids_dict)
-                # Try to preserve other fields
-                new_cop = comp.create_cop(tag, [], kids=new_kids)
+                # Reconstruct the cop by copying all fields and updating kids
+                new_data = {}
+                for key, value in cop.data.items():
+                    if isinstance(key, comp.Value) and key.data == "kids":
+                        # Replace kids with the modified version
+                        new_data[key] = comp.Value.from_python(new_kids_dict)
+                    else:
+                        # Keep other fields as-is
+                        new_data[key] = value
+
+                new_cop = comp.Value.from_python(new_data)
                 return new_cop
 
         except (KeyError, AttributeError):
@@ -646,22 +789,63 @@ def _resolve_identifier_references(module):
     """Resolve all identifier references in module definitions to namespace values.
 
     Walks all COP trees in module.definitions and replaces value.identifier nodes
-    with value.constant nodes containing the resolved Values.
+    with value.constant nodes containing the resolved Values. Then performs constant
+    folding to evaluate constant expressions.
 
     Args:
         module: Module with populated namespace
 
     Side effects:
         Modifies the .cop attribute on Values in module.definitions
+        For simple identifier-only values, replaces the entire Value with the resolved constant
+        Updates namespace entries when definitions are replaced
     """
-    for qualified_name, value in module.definitions.items():
+    # Track which definitions were replaced so we can update the namespace
+    replaced_definitions = {}
+
+    for qualified_name, value in list(module.definitions.items()):
         # Only process values that have COP trees
         if not hasattr(value, 'cop') or value.cop is None:
             continue
 
-        # Walk and resolve the COP tree
+        # Step 1: Walk and resolve identifier references
         resolved_cop = _walk_and_resolve_cop(value.cop, module.namespace)
 
+        # Step 2: Perform constant folding on the resolved tree
+        # Create an empty namespace for resolve() since identifiers are already resolved
+        empty_namespace = comp.Value.from_python({})
+        folded_cop = comp.resolve(resolved_cop, empty_namespace, no_fold=False)
+
         # Update the cop if it changed
-        if resolved_cop is not value.cop:
-            value.cop = resolved_cop
+        if folded_cop is not value.cop:
+            # Special case: if the original value was just an identifier (value.identifier)
+            # and it resolved to a constant, replace the entire definition with the resolved value
+            try:
+                # Check the original cop (before we modify it)
+                orig_tag = value.cop.positional(0).data.qualified
+                folded_tag = folded_cop.positional(0).data.qualified
+                if orig_tag == "value.identifier" and folded_tag == "value.constant":
+                    # Extract the resolved value from the constant
+                    resolved_value = folded_cop.field("value")
+                    # Preserve the original cop for debugging
+                    resolved_value.cop = folded_cop
+                    # Replace in definitions
+                    module.definitions[qualified_name] = resolved_value
+                    replaced_definitions[qualified_name] = resolved_value
+                    # Skip the cop update since we're replacing the entire value
+                    continue
+            except (AttributeError, KeyError):
+                pass
+
+            # Update the cop on the existing value
+            value.cop = folded_cop
+
+    # Update namespace entries for replaced definitions
+    for qualified_name, new_value in replaced_definitions.items():
+        # Regenerate namespace entries for this definition
+        permutations = _generate_name_permutations(qualified_name, import_prefix=None)
+        for perm in permutations:
+            # Update the namespace entry if it exists
+            if perm in module.namespace:
+                priority, _ = module.namespace[perm]
+                module.namespace[perm] = (priority, new_value)
