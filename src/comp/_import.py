@@ -12,18 +12,12 @@ __all__ = []
 
 
 import os
-from dataclasses import dataclass
-from pathlib import Path
+import dataclasses
 
 import comp
 
 
-class ModuleNotFoundError(Exception):
-    """Raised when a module cannot be located."""
-    pass
-
-
-@dataclass
+@dataclasses.dataclass
 class ModuleSource:
     """Result of locating a module.
 
@@ -32,21 +26,31 @@ class ModuleSource:
         location: Where it came from (file path, URL, etc.)
         source_type: Type of source - "file", "git", "http", "builtin"
         etag: Version identifier for cache validation (mtime_ns for files)
-        content: Source text
         anchor: Directory path for relative imports from this module
+        content: Source text
     """
-
     resource: str
     location: str
     source_type: str
     etag: str
-    content: str
     anchor: str
+    content: str = dataclasses.field(repr=False)
 
 
-def locate(
+def anchor_resource(resource, anchor):
+    """Attach a potentially relative resource to an anchor.
+    
+    This can create an absolute path resource from a relative one.
+    """
+    if not anchor:
+        return resource
+    if resource.startswith("."):
+        return os.path.normpath(os.path.join(anchor, resource))
+    return resource
+
+
+def locate_resource(
     resource: str,
-    from_dir: str | Path | None = None,
     etag: str | None = None,
     search_paths: list[str] | None = None,
     search_fds: list[int] | None = None,
@@ -64,7 +68,7 @@ def locate(
 
     Args:
         resource: Module resource identifier to locate
-        from_dir: Directory of the module doing the import (for relative imports)
+        anchor: Directory of the module doing the import (for relative imports)
                   Can be Path, string path, or None
         etag: Optional etag for cache validation. If provided and matches,
               returns None (caller already has all the data)
@@ -103,12 +107,11 @@ def locate(
         )
 
     # Find and load the module using fd-based approach
-    return _locate_file(resource, from_dir, etag, search_paths, search_fds)
+    return _locate_file(resource, etag, search_paths, search_fds)
 
 
 def _locate_file(
     resource: str,
-    from_dir: str | Path | None,
     etag: str | None,
     search_paths: list[str],
     search_fds: list[int],
@@ -129,7 +132,6 @@ def _locate_file(
 
     Args:
         resource: Module resource identifier to locate
-        from_dir: Directory for relative imports (or None)
         etag: Optional etag for cache validation
         search_paths: List of search directory paths (for error messages and fallback)
         search_fds: List of open directory file descriptors (for efficient search on Unix)
@@ -144,36 +146,15 @@ def _locate_file(
     # Maximum file size (10MB - sanity check)
     MAX_FILE_SIZE = 10 * 1024 * 1024
 
-    # Normalize from_dir to string
-    if isinstance(from_dir, Path):
-        from_dir = str(from_dir)
-
     # Build list of candidates: (full_path, dir_fd, relative_path)
     # dir_fd is used with openat(), relative_path is relative to that fd
     candidates = []
 
-    # Handle relative imports (./foo or ../bar)
-    if resource.startswith("."):
-        if from_dir is None:
-            raise ModuleNotFoundError(
-                f"Relative import '{resource}' requires from_dir to be specified"
-            )
-        # Resolve relative path
-        base_path = os.path.abspath(from_dir)
-        rel_path = os.path.normpath(os.path.join(base_path, resource))
-
-        # Try with .comp extension (use absolute path, no dir_fd)
-        if not rel_path.endswith(".comp"):
-            candidates.append((rel_path + ".comp", None, None))
-        candidates.append((rel_path, None, None))
-
-    # Handle absolute paths
-    elif os.path.isabs(resource):
-        if not resource.endswith(".comp"):
-            candidates.append((resource + ".comp", None, None))
+    if not resource.endswith(".comp"):
+        resource += ".comp"
+    
+    if os.path.isabs(resource):
         candidates.append((resource, None, None))
-
-    # Search in configured search paths using directory fds
     else:
         for search_path, dir_fd in zip(search_paths, search_fds):
             # Try as direct file (e.g., "stdlib/loop" -> "stdlib/loop.comp")

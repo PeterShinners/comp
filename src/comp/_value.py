@@ -24,15 +24,43 @@ class Value:
     reporting and tracking.
 
     Many builtin types like "nil" and "true" in comp are represented as
-    tags. Use the `frompython` and `topython` methods to convert between
+    tags. Use the `from_python()` and `to_python()` methods to convert between
     more native data types.
 
     The contents of the value are considered immutable, even when
     represented by structures with dicts.
 
+    ## Examples
+
+    Creating values:
+        >>> v = Value.from_python(42)
+        >>> v.data
+        42
+        >>> v = Value.from_python({"name": "Alice"})
+        >>> v.data[Value.from_python("name")].data
+        'Alice'
+
+    Using helper methods:
+        >>> v = Value.from_python({"x": 1, "y": 2})
+        >>> v.has_field("x")
+        True
+        >>> v.get_field("x").data
+        1
+        >>> for name, value in v.fields():
+        ...     print(f"{name}: {value.data}")
+        x: 1
+        y: 2
+
+    Type checking:
+        >>> v = Value.from_python({"a": 1})
+        >>> v.is_struct()
+        True
+        >>> v.is_tag("nil")
+        False
+
     Args:
         data: The underlying data.
-        token: Optional source token
+
     Attributes:
         data: The underlying data (primitives, tags, structs, etc.)
         shape: (ShapeRef) Definition of represented data, or unit for basic types
@@ -81,8 +109,10 @@ class Value:
                 str: comp.shape_text,
                 dict: comp.shape_struct,
                 comp.Func: comp.shape_func,
+                comp.Shape: comp.shape_shape,
+                comp.ShapeUnion: comp.shape_union,
             }
-            Value._shapetypes = (comp.Tag, comp.Shape)
+            Value._shapetypes = (comp.Tag, comp.Shape, comp.ShapeUnion)
 
     @property
     def shape(self):
@@ -99,15 +129,6 @@ class Value:
             (str) String representation suitable for display
         """
         # Check if we have a finalized constant in self.cop
-        if hasattr(self, 'cop') and self.cop is not None:
-            try:
-                cop_tag = self.cop.positional(0).data.qualified
-                if cop_tag == "value.constant":
-                    # Extract the constant value and format it
-                    constant_value = self.cop.field("value")
-                    return constant_value.format()
-            except (AttributeError, KeyError):
-                pass
 
         shape = self.shape
         if shape is comp.shape_num:
@@ -126,7 +147,11 @@ class Value:
         if isinstance(self.data, comp.Tag):
             return f"{self.data.qualified}"
         if isinstance(self.data, comp.Func):
-            return self._format_function()
+            return self.data.format()
+        if isinstance(self.data, comp.Shape):
+            return self.data.format()
+        if isinstance(self.data, comp.ShapeUnion):
+            return self.data.format()
 
         # Handle shape definitions (stored as structs tagged with shape.define)
         if shape is comp.shape_struct and isinstance(self.data, dict):
@@ -305,61 +330,6 @@ class Value:
             # If we can't parse the structure, fall back to basic representation
             return "~(...)"
 
-    def _format_function(self):
-        """Format a function value as a function literal.
-
-        Functions are stored as Func objects with a cop attribute containing the value.block COP node.
-        The block has two kids: 's' (signature as shape.define) and 'b' (body).
-
-        We format the signature as field names without the ~() wrapper.
-
-        Returns:
-            str: Formatted function literal like ":(a b)" or ":()" if no signature
-        """
-        try:
-            if not hasattr(self, 'cop') or self.cop is None:
-                return ":(...)"
-
-            # Get the signature from the block's 's' kid
-            kids_dict = self.cop.field("kids").data
-            s_key = None
-            for k in kids_dict.keys():
-                if isinstance(k, Value) and k.data == 's':
-                    s_key = k
-                    break
-
-            if not s_key:
-                return ":(...)"
-
-            signature = kids_dict[s_key]
-
-            # Check if signature is a shape.define
-            if signature.positional(0).data.qualified != "shape.define":
-                return ":(...)"
-
-            # Format the signature as a shape, then remove the ~( ) wrapper
-            # Create a temporary struct with the shape.define structure
-            temp_data = {}
-            temp_data[Unnamed()] = signature.positional(0)
-
-            # Copy over kids and pos fields
-            for k, v in signature.data.items():
-                if isinstance(k, Value) and k.data in ("kids", "pos"):
-                    temp_data[k] = v
-
-            temp_val = Value.from_python(temp_data)
-            shape_format = temp_val._format_shape_definition()
-
-            # Remove ~( and ) to get just the field list
-            if shape_format.startswith("~(") and shape_format.endswith(")"):
-                fields = shape_format[2:-1]
-                return f":({fields})"
-            else:
-                return ":(...)"
-
-        except (KeyError, AttributeError):
-            # If we can't parse the structure, fall back
-            return ":(...)"
 
     def as_scalar(self):
         """Unwrap single-element structs to their scalar value.
@@ -509,8 +479,8 @@ class Value:
                 struct[Unnamed()] = cls.from_python(item)
             return cls(struct)
 
-        # Allow Tag, Shape, Func objects to be wrapped in Values
-        if isinstance(value, (comp.Tag, comp.Shape, comp.Func)):
+        # Allow Tag, Shape, ShapeUnion, Func objects to be wrapped in Values
+        if isinstance(value, (comp.Tag, comp.Shape, comp.ShapeUnion, comp.Func)):
             return cls(value)
 
         raise TypeError(

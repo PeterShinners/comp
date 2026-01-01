@@ -20,3 +20,4 @@ from ._build import *
 from ._ops import *
 from ._import import *
 from ._code import *
+from ._scan import *

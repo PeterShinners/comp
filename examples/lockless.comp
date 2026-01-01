@@ -2,7 +2,7 @@
 Uses atomic swaps to retry while contested
 ---
 
-import.atomic = ("@systems/atomic@1.0.1/lib" comp)
+!import atomic ("@systems/atomic@1.0.1/lib" comp)
 
 
 node = ~(

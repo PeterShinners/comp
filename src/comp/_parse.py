@@ -17,13 +17,12 @@ should have full Value types as values.
 """
 
 __all__ = [
-    "parse",
-    "scan",
-    "resolve",
     "COP_TAGS",
-    "cop_module",
     "create_cop",
-    "pos_from_lark",
+    "cop_module",
+    "cop_tag",
+    "cop_kids",
+    "cop_unparse",
 ]
 
 import decimal
@@ -31,9 +30,68 @@ import lark
 import comp
 
 
+COP_TAGS = [
+    "shape.identifier",  # (identifier, checks, array, default)
+    "shape.union",  # (shapes, checks, array, default)
+    "shape.define",  # (fields, checks, array)
+    "shape.field",  # (kids) 1 or 2 kids, shape and optional default
+    "struct.define",  # (kids)
+    "struct.posfield",  # (kids) 1 kid
+    "struct.namefield",  # (op, kids) 2 kids (name value)
+    "struct.letassign",  # (name, kids) 1 kid (value)
+    "struct.decorator",  # (op, kids) 1 kid (name/identifier/ref)
+    "mod.define",  # (kids)
+    "mod.namefield",  # (op, kids) 2 kids (name value)
+    "value.identassign",  # (kids)  same as identifier, but in an assignment
+    "value.identifier",  # (kids)
+    "ident.token",  # (value)
+    "ident.index",  # (value)
+    "ident.indexpr",  # (value)
+    "ident.expr",  # (value)
+    "ident.text",  # (value)
+    "value.number",  # (value)
+    "value.text",  # (value)
+    "value.block",  # (kids)  kids; signature, body
+    "value.math.unary",  # (op, kids)  1 kid
+    "value.math.binary",  # (op, kids)  2 kids
+    "value.compare",  # (op, kids)  2 kids
+    "value.logic.binary",  # (op, kids)  2 kids
+    "value.logic.unary",  # (op, kids)  1 kids
+    "value.invoke",  # (kids)  kids 2+ kids; callable, argsandblocks
+    "value.pipe",  # (kids)
+    "value.fallback",  # (kids)
+    "value.postfix",  # (left, kids)
+    "value.transact",  # (kids)
+    "value.handle",  # (op, kids) grab/drop/pull/etc
+    "value.constant",  # (value) precompiled constant value
+    "stmt.assign",  # (kids) 2 kids (lvalue, rvalue)
+]
+
+
+def lark_parser(name):
+    """Get globally shared lark parser.
+
+    Args:
+        name: (str) name of the grammar file (without .lark)
+
+    Returns:
+        (lark.Lark) Parser instance
+    """
+    parser = _parsers.get(name)
+    if parser is not None:
+        return parser
+
+    path = f"lark/{name}.lark"
+    parser = lark.Lark.open(
+        path, rel_to=__file__, parser="lalr", propagate_positions=True
+    )
+    _parsers[name] = parser
+    return parser
+
+
 def parse(source):
     """Parse source into cop structures."""
-    parser = _lark_parser("comp")
+    parser = lark_parser("comp")
 
     # The intermediate lark tree is not really exposed to the api, although
     # if there are parse errors we'll need to interpret them and make sure
@@ -44,212 +102,15 @@ def parse(source):
     return cop
 
 
-def scan(source):
-    """Scan source and extract module metadata as a Value.
+def cop_fold(cop):
+    """Fold cop constants
 
-    Returns a Value struct containing:
-    - pkg: list of (name, value, pos) cop nodes for pkg.* assignments
-    - imports: list of (name, source, compiler, pos) cop nodes for !import statements
-    - docs: list of (content, pos) cop nodes for --- blocks and -- line comments
-
-    Uses the scan.lark grammar which is error-resilient.
-    """
-    parser = _lark_parser("scan")
-    tree = parser.parse(source)
-
-    pkg_list = []
-    import_list = []
-    doc_list = []
-
-    for item in tree.children:
-        if not isinstance(item, lark.Tree):
-            continue
-
-        if item.data == "import_stmt":
-            # !import name (source type)
-            imp = _scan_import(item)
-            if imp:
-                import_list.append(imp)
-        elif item.data == "assignment":
-            # Check if it's a pkg.* assignment
-            pkg = _scan_pkg_assignment(item)
-            if pkg:
-                pkg_list.append(pkg)
-        elif item.data == "doc_comment":
-            # --- doc block ---
-            doc = _scan_doc_comment(item)
-            if doc:
-                doc_list.append(doc)
-        elif item.data == "line_comment":
-            # -- line comment
-            doc = _scan_line_comment(item)
-            if doc:
-                doc_list.append(doc)
-
-    # Create Value struct with the results
-    result = {
-        "pkg": comp.Value.from_python(pkg_list),
-        "imports": comp.Value.from_python(import_list),
-        "docs": comp.Value.from_python(doc_list),
-    }
-    return comp.Value.from_python(result)
-
-
-def _scan_import(node):
-    """Extract import info from import_stmt node.
-
-    Returns cop node or None: (name~str source~str compiler~str pos~(num num num num))
-    """
-    name_token = None
-    struct_node = None
-
-    for child in node.children:
-        if isinstance(child, lark.Token) and child.type == "TOKENFIELD":
-            name_token = child
-        elif isinstance(child, lark.Tree) and child.data == "struct":
-            struct_node = child
-
-    if not name_token or not struct_node:
-        return None
-
-    # Extract source and compiler from struct
-    source_val = ""
-    compiler_val = ""
-
-    for child in struct_node.children:
-        if isinstance(child, lark.Tree):
-            if child.data == "text":
-                for tok in child.children:
-                    if isinstance(tok, lark.Token) and "TEXT_CONTENT" in tok.type:
-                        source_val = tok.value
-            elif child.data == "identifier":
-                for tok in child.children:
-                    if isinstance(tok, lark.Token) and tok.type == "TOKENFIELD":
-                        compiler_val = tok.value
-                        break
-        elif isinstance(child, lark.Token) and child.type == "TOKENFIELD":
-            if not compiler_val:
-                compiler_val = child.value
-
-    # Create cop node with position
-    pos = pos_from_lark(name_token)
-    return {
-        "name": name_token.value,
-        "source": source_val,
-        "compiler": compiler_val,
-        "pos": pos,
-    }
-
-
-def _scan_pkg_assignment(node):
-    """Extract pkg assignment from assignment node.
-
-    Returns cop node or None: (name~str value~str pos~(num num num num))
-    """
-    if len(node.children) < 3:
-        return None
-
-    id_node = node.children[0]
-    value_node = node.children[2]
-
-    if not isinstance(id_node, lark.Tree) or id_node.data != "identifier":
-        return None
-
-    # Get identifier parts
-    parts = []
-    for child in id_node.children:
-        if isinstance(child, lark.Token) and child.type == "TOKENFIELD":
-            parts.append(child.value)
-
-    if not parts or parts[0] != "pkg":
-        return None
-
-    name = ".".join(parts)
-
-    # Extract simple value
-    value = _scan_simple_value(value_node)
-    if value is None:
-        return None
-
-    pos = pos_from_lark(id_node)
-    return {
-        "name": name,
-        "value": value,
-        "pos": pos,
-    }
-
-
-def _scan_simple_value(node):
-    """Extract simple value from node (text, number, or identifier)."""
-    if isinstance(node, lark.Token):
-        if node.type == "BLOB":
-            return node.value
-        return None
-
-    if isinstance(node, lark.Tree):
-        if node.data == "text":
-            for child in node.children:
-                if isinstance(child, lark.Token):
-                    # Token types are namespaced when imported from common.lark
-                    if "TEXT_CONTENT" in child.type:
-                        return child.value
-        elif node.data == "number":
-            for child in node.children:
-                if isinstance(child, lark.Token):
-                    return child.value
-        elif node.data == "identifier":
-            parts = []
-            for child in node.children:
-                if isinstance(child, lark.Token) and child.type == "TOKENFIELD":
-                    parts.append(child.value)
-            return ".".join(parts) if parts else None
-
-    return None
-
-
-def _scan_doc_comment(node):
-    """Extract doc comment from doc_comment node (--- block ---).
-
-    Returns dict or None: (content~str pos~(num num num num))
-    """
-    for child in node.children:
-        if isinstance(child, lark.Token) and child.type == "DOC_CONTENT":
-            content = child.value.strip()
-            pos = pos_from_lark(child)
-            return {
-                "content": content,
-                "pos": pos,
-            }
-    return None
-
-
-def _scan_line_comment(node):
-    """Extract line comment from line_comment node (-- line).
-
-    Returns dict or None: (content~str pos~(num num num num))
-    """
-    for child in node.children:
-        if isinstance(child, lark.Token) and child.type == "LINE_CONTENT":
-            content = child.value.strip()
-            pos = pos_from_lark(child)
-            return {
-                "content": content,
-                "pos": pos,
-            }
-    return None
-
-
-def resolve(cop, namespace, no_fold=False):
-    """Resolve cop structures into final form.
-
-    Generate a new cop structure with references and literals resolved.
-    This can also do lightweight optimizations, but those are intended to
-    be done by separate cop transforms.
+    This is a lightweight optimizations that removes computations on constants.
+    This will not modify any existing nodes, only edit copies. If there are
+    no changes the original will be returned.
 
     Args:
         cop: (Value) Cop structure to resolve
-        namespace: (Value) Namespace to use for resolving identifiers
-        no_fold: (bool) If True, only convert literals to constants, skip folding operations
     Returns:
         (Value) Modified cop structure
     """
@@ -257,8 +118,8 @@ def resolve(cop, namespace, no_fold=False):
 
     kids = []
     changed = False
-    for kid in _cop_kids(cop):
-        res = resolve(kid, namespace, no_fold=no_fold)
+    for kid in cop_kids(cop):
+        res = cop_fold(kid)
         if res is not kid:
             kids.append(res)
             changed = True
@@ -276,82 +137,74 @@ def resolve(cop, namespace, no_fold=False):
             constant = comp.Value.from_python(value)
             return _make_constant(cop, constant)
         case "value.math.unary":
-            if no_fold:
-                # Skip constant folding
-                pass
-            else:
-                op = cop.to_python("op")
-                if op == "+":
-                    return kids[0]
-                value = _get_constant(kids[0])
-                if value is not None:
-                    modified = comp.math_unary(op, value)
-                    return _make_constant(cop, modified)
+            op = cop.to_python("op")
+            if op == "+":
+                return kids[0]
+            value = _get_constant(kids[0])
+            if value is not None:
+                modified = comp.math_unary(op, value)
+                return _make_constant(cop, modified)
         case "value.math.binary":
-            if no_fold:
-                # Skip constant folding
-                pass
-            else:
-                op = cop.to_python("op")
-                left = _get_constant(kids[0])
-                right = _get_constant(kids[1])
-                if left is not None and right is not None:
-                    modified = comp.math_binary(op, left, right)
-                    return _make_constant(cop, modified)
+            op = cop.to_python("op")
+            left = _get_constant(kids[0])
+            right = _get_constant(kids[1])
+            if left is not None and right is not None:
+                modified = comp.math_binary(op, left, right)
+                return _make_constant(cop, modified)
         case "struct.define":
-            if no_fold:
-                pass
-            else:
-                struct = {}
-                for field_cop in kids:
-                    field_tag = field_cop.positional(0).data.qualified
-                    field_kids = _cop_kids(field_cop)
-                    if field_tag == "struct.posfield":
-                        key = comp.Unnamed()
-                        value = _get_constant(field_kids[0])
-                    elif field_tag == "struct.namedfield":
-                        key = _get_simple_identifier(field_kids[0])
-                        value = _get_constant(field_kids[1])
-                    else:
-                        key = value = None
-                    # else struct.decorators, no constant folding for now
-                    if value is None:
-                        struct = None
-                        break
-                    struct[key] = value
-                if struct is not None:
-                    value = comp.Value(struct)
-                    return _make_constant(cop, value)
-                # Can't fold - has non-constant fields, leave unchanged
-        case "shape.define":
-            # Build a Shape with FieldDefs from shape.field children
-            # Skip folding if shape contains unions or other non-field constructs
-            shape_def = comp.Shape("", False)  # Anonymous inline shape
+            struct = {}
             for field_cop in kids:
                 field_tag = field_cop.positional(0).data.qualified
+                field_kids = cop_kids(field_cop)
+                if field_tag == "struct.posfield":
+                    key = comp.Unnamed()
+                    value = _get_constant(field_kids[0])
+                elif field_tag == "struct.namedfield":
+                    key = _get_simple_identifier(field_kids[0])
+                    value = _get_constant(field_kids[1])
+                else:
+                    key = value = None
+                # else struct.decorators, no constant folding for now
+                if value is None:
+                    struct = None
+                    break
+                struct[key] = value
+            if struct is not None:
+                value = comp.Value(struct)
+                return _make_constant(cop, value)
+            # Can't fold - has non-constant fields, leave unchanged
+        case "shape.define":
+            # Build a Shape with FieldDefs from shape.field children
+            # Or a ShapeUnion if it contains a single shape.union child
+            if len(kids) == 1 and cop_tag(kids[0]) == "shape.union":
+                # This is a union definition like ~(tree | nil)
+                union_kids = cop_kids(kids[0])
+                shape_union = comp.ShapeUnion(union_kids)
+                value = comp.Value.from_python(shape_union)
+                return _make_constant(cop, value)
+
+            # Otherwise try to build a Shape struct
+            shape = comp.Shape("", False)  # Anonymous inline shape
+            for field_cop in kids:
+                field_tag = cop_tag(field_cop)
                 if field_tag == "shape.field":
                     field_name = field_cop.to_python("name")
-                    field_kids = _cop_kids(field_cop)
-                    default = None
-                    if field_kids:
-                        default = _get_constant(field_kids[0])
-                        if default is None:
-                            # Can't resolve - default isn't constant
-                            shape_def = None
-                            break
-                    field_def = comp.FieldDef(name=field_name, default=default)
-                    shape_def.fields.append(field_def)
+                    field_kids = cop_kids(field_cop)
+                    field_shape = field_kids[0]
+                    field_default = field_kids[1] if len(field_kids) > 1 else None
+                    field = comp._shape.ShapeField(name=field_name, shape=field_shape, default=field_default)
+                    shape.fields.append(field)
                 elif field_tag == "shape.union":
-                    # Union types - can't fold to Shape constant yet
-                    shape_def = None
+                    # Union types inside struct fields - can't fold yet
+                    shape = None
                     break
                 else:
                     # Unknown shape construct - skip folding
-                    shape_def = None
+                    shape = None
                     break
-            if shape_def is not None:
+            if shape is not None:
                 # Wrap the shape definition in a Value
-                value = comp.Value.from_python(shape_def)
+                value = comp.Value.from_python(shape)
                 return _make_constant(cop, value)
 
     if not changed:
@@ -363,13 +216,42 @@ def resolve(cop, namespace, no_fold=False):
     return comp.Value(copied)
 
 
-def _cop_kids(cop):
-    """Get kids of a cop node."""
-    try:
-        kids = list(cop.field("kids").data.values())
-        return kids
-    except KeyError:
-        return []
+def cop_resolve(cop, namespace):
+    """Resolve cop structures into final form.
+
+    Generate a new cop structure with references and literals resolved.
+    This will not modify any existing nodes, only edit copies. If there are
+    no changes the original will be returned.
+
+    Args:
+        cop: (Value) Cop structure to resolve
+        namespace: (Value) Namespace to use for resolving identifiers
+    Returns:
+        (Value) Modified cop structure
+    """
+    tag = cop.positional(0).data.qualified
+
+    kids = []
+    changed = False
+    for kid in cop_kids(cop):
+        res = cop_resolve(kid, namespace)
+        if res is not kid:
+            kids.append(res)
+            changed = True
+        else:
+            kids.append(kid)
+
+    match tag:
+        case "value.identifier":
+            pass
+
+    if not changed:
+        return cop
+
+    copied = dict(cop.data)
+    if kids:
+        copied[comp.Value("kids")] = comp.Value.from_python(kids)
+    return comp.Value(copied)
 
 
 def _make_constant(original, value):
@@ -422,49 +304,11 @@ def _get_simple_identifier(cop):
             name = name_cop.field("value")
             return name
         case "ident.text" | "ident.expr":
-            name_kids = _cop_kids(name_cop)
+            name_kids = cop_kids(name_cop)
             name = _get_constant(name_kids[0])
             if name is not None:
                 return name
     return None
-
-
-COP_TAGS = [
-    "shape.identifier",  # (identifier, checks, array, default)
-    "shape.union",  # (shapes, checks, array, default)
-    "shape.define",  # (fields, checks, array)
-    "shape.field",  # (kids) 3 kids (name, shape, default)
-    "struct.define",  # (kids)
-    "struct.posfield",  # (kids) 1 kid
-    "struct.namefield",  # (op, kids) 2 kids (name value)
-    "struct.letassign",  # (name, kids) 1 kid (value)
-    "struct.decorator",  # (op, kids) 1 kid (name/identifier/ref)
-    "mod.define",  # (kids)
-    "mod.namefield",  # (op, kids) 2 kids (name value)
-    "value.identassign",  # (kids)  same as identifier, but in an assignment
-    "value.identifier",  # (kids)
-    "ident.token",  # (value)
-    "ident.index",  # (value)
-    "ident.indexpr",  # (value)
-    "ident.expr",  # (value)
-    "ident.text",  # (value)
-    "value.number",  # (value)
-    "value.text",  # (value)
-    "value.block",  # (kids)  kids; signature, body
-    "value.math.unary",  # (op, kids)  1 kid
-    "value.math.binary",  # (op, kids)  2 kids
-    "value.compare",  # (op, kids)  2 kids
-    "value.logic.binary",  # (op, kids)  2 kids
-    "value.logic.unary",  # (op, kids)  1 kids
-    "value.invoke",  # (kids)  kids 2+ kids; callable, argsandblocks
-    "value.pipe",  # (kids)
-    "value.fallback",  # (kids)
-    "value.postfix",  # (left, kids)
-    "value.transact",  # (kids)
-    "value.handle",  # (op, kids) grab/drop/pull/etc
-    "value.constant",  # (value) precompiled constant value
-    "stmt.assign",  # (kids) 2 kids (lvalue, rvalue)
-]
 
 
 _astmodule = None
@@ -478,12 +322,13 @@ def cop_module():
         # Create a minimal ModuleSource for cop module
         source = type('obj', (object,), {'resource': 'cop', 'content': ''})()
         _astmodule = comp.Module(source)
+        _astmodule._definitions = {}
         for name in COP_TAGS:
             tag_def = comp.Tag(name, False)
             tag_def.module = _astmodule
             # Wrap in Value and store in definitions
             value = comp.Value.from_python(tag_def)
-            _astmodule.definitions[name] = value
+            _astmodule._definitions[name] = value
             # Store Tag for cop node construction
             _tagnames[name] = tag_def
             # Eventually want real shapes to go with each of these,
@@ -505,34 +350,6 @@ def create_cop(tag_name, kids, **fields):
     return value
 
 
-def pos_from_lark(treetoken):
-    """Create the position tuple from a lark Tree or Token value."""
-    if isinstance(treetoken, lark.Token):
-        token = treetoken
-        return (
-            token.line,
-            token.column,
-            token.end_line or token.line,
-            token.end_column or token.column,
-        )
-    elif isinstance(treetoken, lark.Tree):
-        meta = treetoken.meta
-        return (
-            meta.line,
-            meta.column,
-            meta.end_line or meta.line,
-            meta.end_column or meta.column,
-        )
-
-
-def _merge_pos(pos1, pos2):
-    """Merge two positions to span both.
-
-    Returns position from start of pos1 to end of pos2.
-    """
-    return (pos1[0], pos1[1], pos2[2], pos2[3])
-
-
 def _parsed(treetoken, tag, kids, **fields):
     """Create a cop node with position from tree/token."""
 
@@ -544,6 +361,7 @@ def _parsed(treetoken, tag, kids, **fields):
             token.end_line or token.line,
             token.end_column or token.column,
         )
+        fields["pos"] = pos
     elif isinstance(treetoken, lark.Tree):
         meta = treetoken.meta
         pos = (
@@ -552,8 +370,8 @@ def _parsed(treetoken, tag, kids, **fields):
             meta.end_line or meta.line,
             meta.end_column or meta.column,
         )
+        fields["pos"] = pos
 
-    fields["pos"] = pos
     cop = create_cop(tag, kids, **fields)
     return cop
 
@@ -735,37 +553,35 @@ def _convert_tree(tree):
             return _parsed(tree, "shape.union", specs)
 
         case "shape_field":
+            if isinstance(kids[0], lark.Token) and kids[0].type == "TOKENFIELD":
+                field_name = kids[0].value
+            else:
+                field_name = None
+            shape_cop = None
+            default_cop = None
             # (TOKENFIELD | shape | TOKENFIELD shape) (ASSIGN field_default_value)?
-            if len(kids) == 1:
-                # Just a field name or just a shape
-                if hasattr(kids[0], "value"):
-                    # Just a field name
-                    name = kids[0].value
-                    return _parsed(tree, "shape.field", [], name=name)
-                else:
-                    # Just a shape (anonymous field)
+            if len(kids) == 1:  # just name or shape
+                if field_name is None:
                     shape_cop = _convert_tree(kids[0])
-                    return _parsed(tree, "shape.field", [shape_cop], name=None)
-            elif len(kids) == 2:
-                # TOKENFIELD shape (name with type constraint)
-                name = kids[0].value if hasattr(kids[0], "value") else None
+            elif len(kids) == 2:  # name and shape
                 shape_cop = _convert_tree(kids[1])
-                return _parsed(tree, "shape.field", [shape_cop], name=name)
-            elif len(kids) == 3 and kids[1].type == "ASSIGN":
-                # name = default_value (just name and default, no type)
-                name = kids[0].value
+            elif len(kids) == 3:  # name and default value
+                if field_name is None:
+                    shape_cop = _convert_tree(kids[0])
                 default_cop = _convert_tree(kids[2])
-                return _parsed(tree, "shape.field", [None, default_cop], name=name)
-            elif len(kids) == 4 and kids[2].type == "ASSIGN":
-                # TOKENFIELD shape ASSIGN default (name, type, and default)
-                name = kids[0].value if hasattr(kids[0], "value") else None
+            elif len(kids) == 4:  # name and shape and default# TOKENFIELD shape ASSIGN default (name, type, and default)
                 shape_cop = _convert_tree(kids[1])
                 default_cop = _convert_tree(kids[3])
-                return _parsed(tree, "shape.field", [shape_cop, default_cop], name=name)
             else:
-                # Fallback for unexpected cases
-                name = kids[0].value if hasattr(kids[0], "value") else None
-                return _parsed(tree, "shape.field", [], name=name)
+                pass  # Maybe an exception better?
+            if shape_cop is None:
+                shape_cop = _parsed(None, "value.constant", [], value=comp.shape_any)
+                #shape_cop = _make_constant(None, comp.shape_any)
+            field_kids = [shape_cop]
+            if default_cop:
+                field_kids.append(default_cop)
+            return _parsed(tree, "shape.field", field_kids, name=field_name)
+
 
         # Pass-through rules (no node created, just process children)
         case "start":
@@ -781,22 +597,189 @@ def _convert_tree(tree):
 _parsers = {}
 
 
-def _lark_parser(name):
-    """Get globally shared lark parser.
+def cop_tag(cop_node):
+    """Get the qualified tag name from a COP node.
 
     Args:
-        name: (str) name of the grammar file (without .lark)
+        cop_node: Value representing a COP node
 
     Returns:
-        (lark.Lark) Parser instance
+        str: Qualified tag name like "mod.define", or None if invalid
     """
-    parser = _parsers.get(name)
-    if parser is not None:
-        return parser
+    try:
+        tag = cop_node.positional(0)
+        return tag.data.qualified
+    except (AttributeError, KeyError, TypeError):
+        return None
 
-    path = f"lark/{name}.lark"
-    parser = lark.Lark.open(
-        path, rel_to=__file__, parser="lalr", propagate_positions=True
-    )
-    _parsers[name] = parser
-    return parser
+
+def cop_kids(cop_node):
+    """Get the kids dict from a COP node.
+
+    Args:
+        cop_node: Value representing a COP node
+
+    Returns:
+        list: Cop node kids or empty list
+    """
+    try:
+        kids = cop_node.field("kids")
+        return list(kids.data.values())
+    except (KeyError, AttributeError, TypeError):
+        return []
+
+
+def cop_unparse(cop):
+    """Convert COP node back to source text.
+
+    Args:
+        cop: COP node
+
+    Returns:
+        str: Source text representation
+    """
+    tag = cop_tag(cop)
+    if not tag:
+        return str(cop)
+    match tag:
+        case "mod.define":
+            parts = []
+            for kid in cop_kids(cop):
+                parts.append(cop_unparse(kid))
+            return '\n'.join(parts)
+
+        case "mod.namefield":
+            kids = cop_kids(cop)
+            name = cop_unparse(kids[0])
+            value = cop_unparse(kids[1])
+            return f"{name} = {value}"
+
+        case "value.identifier":
+            parts = []
+            for kid in cop_kids(cop):
+                parts.append(cop_unparse(kid))
+            return '.'.join(parts)
+
+        case "ident.token" | "ident.text":
+            return cop.field("value").data
+
+        case "value.number":
+            return str(cop.field("value").data)
+
+        case "value.text":
+            text = cop.field("value").data
+            if '\n' in text:
+                return f'"""{text}"""'
+            return f'"{text}"'
+
+        case "value.constant":
+            value = cop.field("value")
+            return value.format()
+
+        case "value.block":
+            kids = cop_kids(cop)
+            if len(kids) == 2:
+                sig = cop_unparse(kids[0])
+                body = cop_unparse(kids[1])
+                return f":{sig} ({body})"
+            return ":(...x)"
+
+        case "shape.define":
+            kids = cop_kids(cop)
+            if not kids:
+                return "~()"
+            parts = []
+            for kid in kids:
+                parts.append(cop_unparse(kid))
+            return f"~({' '.join(parts)})"
+
+        case "shape.field":
+            name = cop.to_python("name") or ""
+            kids = cop_kids(cop)
+            if cop_tag(kids[0]) != "value.constant" or kids[0].field("value").data is not comp.shape_any:
+                shape = "~" + cop_unparse(kids[0])
+            else:
+                shape = ""
+            if len(kids) > 1:
+                default = cop_unparse(kids[1])
+                return f"{name}{shape}={default}"
+            return f"{name}{shape}"
+
+        case "shape.identifier":
+            kids = cop_kids(cop)
+            return cop_unparse(kids[0]) if kids else ""
+
+        case "struct.define":
+            kids = cop_kids(cop)
+            if not kids:
+                return "()"
+            parts = []
+            for kid in kids:
+                parts.append(cop_unparse(kid))
+            return f"({' '.join(parts)})"
+
+        case "struct.posfield":
+            kids = cop_kids(cop)
+            return cop_unparse(kids[0]) if kids else ""
+
+        case "struct.namefield":
+            kids = cop_kids(cop)
+            name = cop_unparse(kids[0])
+            value = cop_unparse(kids[1])
+            return f"{name}={value}"
+
+        case "struct.decorator":
+            kids = cop_kids(cop)
+            name = cop_unparse(kids[0])
+            return f"|{name}"
+
+        case "value.math.binary":
+            op = cop.field("op").data
+            kids = cop_kids(cop)
+            left = cop_unparse(kids[0])
+            right = cop_unparse(kids[1])
+            return f"{left}{op}{right}"
+
+        case "value.math.unary":
+            op = cop.field("op").data
+            kids = cop_kids(cop)
+            return f"{op}{cop_unparse(kids[0])}"
+
+        case "value.compare":
+            op = cop.field("op").data
+            kids = cop_kids(cop)
+            left = cop_unparse(kids[0])
+            right = cop_unparse(kids[1])
+            return f"{left} {op} {right}"
+
+        case "value.logic.binary":
+            op = cop.field("op").data
+            kids = cop_kids(cop)
+            left = cop_unparse(kids[0])
+            right = cop_unparse(kids[1])
+            return f"{left} {op} {right}"
+
+        case "value.logic.unary":
+            op = cop.field("op").data
+            kids = cop_kids(cop)
+            return f"{op} {cop_unparse(kids[0])}"
+
+        case "value.invoke":
+            kids = cop_kids(cop)
+            callable_part = cop_unparse(kids[0])
+            args = ' '.join(cop_unparse(k) for k in kids[1:])
+            return f"{callable_part}({args})" if args else f"{callable_part}()"
+
+        case "value.pipe":
+            kids = cop_kids(cop)
+            parts = [cop_unparse(k) for k in kids]
+            return ' | '.join(parts)
+
+        case "stmt.assign":
+            kids = cop_kids(cop)
+            lvalue = cop_unparse(kids[0])
+            rvalue = cop_unparse(kids[1])
+            return f"{lvalue} = {rvalue}"
+
+        case _:
+            return f"<{tag}>"

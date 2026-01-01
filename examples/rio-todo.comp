@@ -2,7 +2,7 @@
 Based on migration from Rio library for Python
 ---
 
-import.rio = ("@gh/rio-dev/rio-comp" comp)
+!import rio ("@gh/rio-dev/rio-comp" comp)
 
 
 startup.rio = (

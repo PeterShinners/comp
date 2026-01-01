@@ -1,6 +1,6 @@
 """Error classes and helpers"""
 
-__all__ = ["EvalError", "ModuleError", "ParseError", "CodeError"]
+__all__ = ["EvalError", "ModuleError", "ParseError", "CodeError", "ModuleNotFoundError"]
 
 
 class EvalError(Exception):
@@ -46,4 +46,8 @@ class CodeError(Exception):
         self.cop_node = cop_node
         super().__init__(message)
 
+
+class ModuleNotFoundError(Exception):
+    """Raised when a module cannot be located."""
+    pass
 

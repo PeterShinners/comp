@@ -1,6 +1,6 @@
 -- Two examples of working with Maya
 
-import.maya = ("maya-comp-spectacular@1.0.3" comp)
+!import maya ("maya-comp-spectacular@1.0.3" comp)
 
 
 --- Maya tool to create offset transforms
