@@ -19,10 +19,13 @@ should have full Value types as values.
 __all__ = [
     "COP_TAGS",
     "create_cop",
+    "create_reference_cop",
     "cop_module",
     "cop_tag",
     "cop_kids",
     "cop_unparse",
+    "cop_unparse_reference",
+    "lark_parser",
 ]
 
 import decimal
@@ -44,6 +47,8 @@ COP_TAGS = [
     "mod.namefield",  # (op, kids) 2 kids (name value)
     "value.identassign",  # (kids)  same as identifier, but in an assignment
     "value.identifier",  # (kids)
+    "value.reference",  # (definition, identifier, namespace, pos) Reference to a Definition
+    "value.constant",  # (value) Constant value
     "ident.token",  # (value)
     "ident.index",  # (value)
     "ident.indexpr",  # (value)
@@ -89,20 +94,7 @@ def lark_parser(name):
     return parser
 
 
-def parse(source):
-    """Parse source into cop structures."""
-    parser = lark_parser("comp")
-
-    # The intermediate lark tree is not really exposed to the api, although
-    # if there are parse errors we'll need to interpret them and make sure
-    # they are well reported (probably needs a filename arg for messages)
-    # The lark tree is considered too unstable
-    tree = parser.parse(source)
-    cop = _convert_tree(tree)
-    return cop
-
-
-def cop_fold(cop):
+def cop_fold(cop, namespace=None):
     """Fold cop constants
 
     This is a lightweight optimizations that removes computations on constants.
@@ -111,6 +103,7 @@ def cop_fold(cop):
 
     Args:
         cop: (Value) Cop structure to resolve
+        namespace: (dict) Optional namespace dict {name: DefinitionSet} for resolving references
     Returns:
         (Value) Modified cop structure
     """
@@ -119,7 +112,7 @@ def cop_fold(cop):
     kids = []
     changed = False
     for kid in cop_kids(cop):
-        res = cop_fold(kid)
+        res = cop_fold(kid, namespace)
         if res is not kid:
             kids.append(res)
             changed = True
@@ -127,6 +120,22 @@ def cop_fold(cop):
             kids.append(kid)
 
     match tag:
+        case "value.reference":
+            # Try to fold reference to constant if definition has a value
+            if namespace is not None:
+                try:
+                    qualified = cop.field("qualified").data
+                    definition_set = namespace.get(qualified)
+                    if definition_set is not None:
+                        # Get scalar definition (unambiguous single definition)
+                        defn = definition_set.scalar()
+                        if defn is not None and defn.value is not None:
+                            # Substitute with constant
+                            return _make_constant(cop, defn.value)
+                except (KeyError, AttributeError):
+                    pass
+            # Can't fold, return as-is
+            return cop
         case "value.text":
             literal = cop.to_python("value")
             constant = comp.Value.from_python(literal)
@@ -350,6 +359,39 @@ def create_cop(tag_name, kids, **fields):
     return value
 
 
+def create_reference_cop(definition, identifier_cop=None, import_namespace=None):
+    """Create a value.reference COP node pointing to a Definition.
+
+    Args:
+        definition: Definition object to reference
+        identifier_cop: Optional original identifier COP (for position and name preservation)
+        import_namespace: Optional import namespace name (e.g., "pg" for imports)
+
+    Returns:
+        Value: COP node with tag value.reference
+    """
+    # Store qualified name and module_id as strings (not COP nodes)
+    fields = {
+        "qualified": definition.qualified,
+        "module_id": definition.module_id
+    }
+
+    # Track import namespace if provided
+    if import_namespace is not None:
+        fields["namespace"] = import_namespace
+
+    # Preserve position from original identifier if available
+    if identifier_cop is not None and hasattr(identifier_cop, 'field'):
+        try:
+            pos = identifier_cop.field("pos")
+            if pos is not None:
+                fields["pos"] = pos
+        except (KeyError, AttributeError):
+            pass
+
+    return create_cop("value.reference", [], **fields)
+
+
 def _parsed(treetoken, tag, kids, **fields):
     """Create a cop node with position from tree/token."""
 
@@ -376,7 +418,7 @@ def _parsed(treetoken, tag, kids, **fields):
     return cop
 
 
-def _convert_tree(tree):
+def lark_to_cop(tree):
     """Convert a single Lark tree/token to a cop node.
 
     This will often recurse into child nodes of the tree.
@@ -408,7 +450,7 @@ def _convert_tree(tree):
     match tree.data:
         case "paren_expr":
             # LPAREN expression RPAREN - return the expression
-            return _convert_tree(kids[1])
+            return lark_to_cop(kids[1])
 
         # Literals
         case "number":
@@ -418,8 +460,8 @@ def _convert_tree(tree):
 
         # Operators
         case "binary_op":
-            left = _convert_tree(kids[0])
-            right = _convert_tree(kids[2])
+            left = lark_to_cop(kids[0])
+            right = lark_to_cop(kids[2])
             op = kids[1].value
             if op in ("||", "&&"):
                 return _parsed(
@@ -430,20 +472,20 @@ def _convert_tree(tree):
             return _parsed(tree, "value.math.binary", {"l": left, "r": right}, op=op)
 
         case "compare_op":
-            left = _convert_tree(kids[0])
-            right = _convert_tree(kids[2])
+            left = lark_to_cop(kids[0])
+            right = lark_to_cop(kids[2])
             op = kids[1].value
             return _parsed(tree, "value.compare", {"l": left, "r": right}, op=op)
 
         case "unary_op":
-            right = _convert_tree(kids[1])
+            right = lark_to_cop(kids[1])
             op = kids[0].value
             if op == "!!":
                 return _parsed(tree, "value.logic.unary", {"r": right}, op=op)
             return _parsed(tree, "value.math.unary", {"r": right}, op=op)
 
         case "invoke":
-            fields = [_convert_tree(kid) for kid in kids]
+            fields = [lark_to_cop(kid) for kid in kids]
             return _parsed(tree, "value.invoke", fields)
 
 
@@ -451,7 +493,7 @@ def _convert_tree(tree):
         # case "postfix":
         #     # postfix: atom call_suffix*
         #     # Build left-to-right: atom, then apply each suffix
-        #     result = _convert_tree(kids[0])  # Start with the atom
+        #     result = lark_to_cop(kids[0])  # Start with the atom
         #     for suffix in kids[1:]:
         #         result = _apply_postfix_suffix(tree, result, suffix)
         #     return result
@@ -470,7 +512,7 @@ def _convert_tree(tree):
 
         # Identifier and fields
         case "identifier":
-            fields = [_convert_tree(k) for k in kids[::2]]
+            fields = [lark_to_cop(k) for k in kids[::2]]
             return _parsed(tree, "value.identifier", fields)
 
         case "tokenfield":
@@ -481,75 +523,75 @@ def _convert_tree(tree):
         case "indexfield":
             return _parsed(tree, "ident.index", [], value=kids[1].value)
         case "indexprfield":
-            expr = _convert_tree(kids[2])
+            expr = lark_to_cop(kids[2])
             return _parsed(tree, "ident.indexpr", [expr])
         case "exprfield":
-            expr = _convert_tree(kids[1])
+            expr = lark_to_cop(kids[1])
             return _parsed(tree, "ident.expr", [expr])
 
         case "structure":
-            fields = [_convert_tree(kid) for kid in kids[1:-1]]
+            fields = [lark_to_cop(kid) for kid in kids[1:-1]]
             return _parsed(tree, "struct.define", fields)
 
         case "struct_field":
             if len(kids) == 1:
-                value = _convert_tree(kids[0])
+                value = lark_to_cop(kids[0])
                 return _parsed(tree, "struct.posfield", [value])
-            name = _convert_tree(kids[0])
+            name = lark_to_cop(kids[0])
             op = kids[1].value
-            value = _convert_tree(kids[2])
+            value = lark_to_cop(kids[2])
             return _parsed(tree, "struct.namefield", {"n": name, "v": value}, op=op)
 
         case "struct_decorator":
-            name = _convert_tree(kids[1])
+            name = lark_to_cop(kids[1])
             return _parsed(tree, "struct.decorator", [name])
 
         case "let_assign":
-            name = _convert_tree(kids[1])
+            name = lark_to_cop(kids[1])
             op = kids[2].value
-            value = _convert_tree(kids[3])
+            value = lark_to_cop(kids[3])
             return _parsed(tree, "struct.letassign", {"n": name, "v": value}, op=op)
 
         case "block":
             # Signature is shape_fields (all kids except first COLON and last structure)
-            sig_fields = [_convert_tree(kid) for kid in kids[1:-1]]
+            sig_fields = [lark_to_cop(kid) for kid in kids[1:-1]]
             signature = _parsed(tree, "shape.define", sig_fields)
-            body = _convert_tree(kids[-1])
+            body = lark_to_cop(kids[-1])
             return _parsed(tree, "value.block", {"s": signature, "b": body})
 
         # Module-level field assignment
         case "mod_field":
-            name = _convert_tree(kids[0])
+            name = lark_to_cop(kids[0])
             op = kids[1].value
-            value = _convert_tree(kids[2])
+            value = lark_to_cop(kids[2])
             return _parsed(tree, "mod.namefield", {"n": name, "v": value}, op=op)
 
         # Shape definitions
         case "shape":
             # TILDE shape_spec
-            spec = _convert_tree(kids[1])
+            spec = lark_to_cop(kids[1])
             return spec
 
         case "shape_spec":
             # (identifier | paren_shape) guard_suffix? array_suffix?
-            base = _convert_tree(kids[0])
+            base = lark_to_cop(kids[0])
             # TODO: handle guard_suffix and array_suffix
             return base
 
         case "paren_shape":
             # PAREN_OPEN shape_content PAREN_CLOSE
-            content = _convert_tree(kids[1])
+            content = lark_to_cop(kids[1])
             return content
 
         case "shape_content":
             # shape_union | shape_field*
-            fields = [_convert_tree(kid) for kid in kids]
+            fields = [lark_to_cop(kid) for kid in kids]
             return _parsed(tree, "shape.define", fields)
 
         case "shape_union":
             # shape_spec (PIPE shape_spec)+
             # Kids alternate: shape_spec, PIPE, shape_spec, PIPE, ...
-            specs = [_convert_tree(kid) for kid in kids[::2]]  # Skip PIPE tokens
+            specs = [lark_to_cop(kid) for kid in kids[::2]]  # Skip PIPE tokens
             return _parsed(tree, "shape.union", specs)
 
         case "shape_field":
@@ -562,16 +604,16 @@ def _convert_tree(tree):
             # (TOKENFIELD | shape | TOKENFIELD shape) (ASSIGN field_default_value)?
             if len(kids) == 1:  # just name or shape
                 if field_name is None:
-                    shape_cop = _convert_tree(kids[0])
+                    shape_cop = lark_to_cop(kids[0])
             elif len(kids) == 2:  # name and shape
-                shape_cop = _convert_tree(kids[1])
+                shape_cop = lark_to_cop(kids[1])
             elif len(kids) == 3:  # name and default value
                 if field_name is None:
-                    shape_cop = _convert_tree(kids[0])
-                default_cop = _convert_tree(kids[2])
+                    shape_cop = lark_to_cop(kids[0])
+                default_cop = lark_to_cop(kids[2])
             elif len(kids) == 4:  # name and shape and default# TOKENFIELD shape ASSIGN default (name, type, and default)
-                shape_cop = _convert_tree(kids[1])
-                default_cop = _convert_tree(kids[3])
+                shape_cop = lark_to_cop(kids[1])
+                default_cop = lark_to_cop(kids[3])
             else:
                 pass  # Maybe an exception better?
             if shape_cop is None:
@@ -587,7 +629,7 @@ def _convert_tree(tree):
         case "start":
             cops = []
             for kid in kids:
-                cop = _convert_tree(kid)
+                cop = lark_to_cop(kid)
                 cops.append(cop)
             return _parsed(tree, "mod.define", cops)
         case _:
@@ -676,6 +718,9 @@ def cop_unparse(cop):
             value = cop.field("value")
             return value.format()
 
+        case "value.reference":
+            return cop_unparse_reference(cop)
+
         case "value.block":
             kids = cop_kids(cop)
             if len(kids) == 2:
@@ -705,6 +750,11 @@ def cop_unparse(cop):
                 return f"{name}{shape}={default}"
             return f"{name}{shape}"
 
+        case "shape.union":
+            kids = cop_kids(cop)
+            parts = [cop_unparse(kid) for kid in kids]
+            return '|'.join(parts)
+
         case "shape.identifier":
             kids = cop_kids(cop)
             return cop_unparse(kids[0]) if kids else ""
@@ -727,6 +777,12 @@ def cop_unparse(cop):
             name = cop_unparse(kids[0])
             value = cop_unparse(kids[1])
             return f"{name}={value}"
+
+        case "struct.letassign":
+            kids = cop_kids(cop)
+            name = cop_unparse(kids[0])
+            value = cop_unparse(kids[1])
+            return f"!let {name} = {value}"
 
         case "struct.decorator":
             kids = cop_kids(cop)
@@ -783,3 +839,33 @@ def cop_unparse(cop):
 
         case _:
             return f"<{tag}>"
+
+
+def cop_unparse_reference(cop):
+    """Unparse a value.reference COP node to show the referenced definition.
+
+    Args:
+        cop: value.reference COP node
+
+    Returns:
+        str: Formatted reference using qualified name or import namespace
+    """
+    try:
+        # Get qualified name from the reference
+        qualified = cop.field("qualified").data
+
+        # Try to get import namespace first (e.g., "pg.display")
+        try:
+            namespace = cop.field("namespace")
+            if namespace is not None:
+                # Use namespace prefix for the reference
+                return f"{namespace.data}.{qualified}"
+        except (KeyError, AttributeError):
+            pass
+
+        # Otherwise just use qualified name
+        return qualified
+
+    except (KeyError, AttributeError):
+        # Fallback if qualified name not found
+        return "<?>"

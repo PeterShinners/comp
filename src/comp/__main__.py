@@ -147,7 +147,7 @@ def prettyscan(scan):
         pass
 
 
-def show_imports(module, interp, visited=None, prefix=""):
+def prettyimports(module, interp, visited=None, prefix=""):
     """Print import tree for a module.
 
     Args:
@@ -186,30 +186,20 @@ def show_imports(module, interp, visited=None, prefix=""):
         try:
             imported = interp.module(source, anchor=module.source.anchor)
             print(f"{prefix}{connector}{name}:")
-            show_imports(imported, interp, visited, new_prefix)
+            prettyimports(imported, interp, visited, new_prefix)
         except Exception:
             print(f"{prefix}{connector}{name}: {source} (NOT FOUND)")
 
 
-def show_namespace(filepath_or_source, is_text=False):
-    """Show the finalized namespace for a module.
-
-    Args:
-        filepath_or_source: Path to the module file or source text
-        is_text: If True, treat first arg as source text instead of filepath
-    """
-    interp = comp.Interp()
-    module = interp.module_from_text(filepath_or_source) if is_text else interp.module(filepath_or_source)
-    ns = module.namespace()
-    for name, (priority, value) in sorted(ns.items()):
-        if priority < 0:  # Skip system builtins
+def prettynamespace(namespace):
+    """Show the finalized namespace for a module."""
+    for name, defset in sorted(namespace.items()):
+        value = defset.scalar()
+        if value and value.module_id == "system#0000":
             continue
-        if isinstance(value, comp.Ambiguous):
-            print(f"  {name}: <Ambiguous {len(value.qualified_names)} values>")
-        elif isinstance(value, comp.OverloadSet):
-            print(f"  {name}: <Overload {len(value.callables)} callables>")
-        else:
-            print(f"  {name}: {value.format()}")
+        defs = [f"{d.module_id}:{d.qualified}" for d in defset.definitions]
+        defs = " ".join(defs)
+        print(f"{name:16} DSx{len(defset.definitions)} {defs}")
 
 
 def format_instruction(idx, instr, indent=0):
@@ -326,25 +316,40 @@ def main():
         mod = interp.module(args.source, anchor=os.getcwd())
 
     if args.larkscan or args.larkcomp:
-        parser = comp._parse._lark_parser("scan" if args.larkscan else "comp")
+        parser = comp._parse.lark_parser("scan" if args.larkscan else "comp")
         tree = parser.parse(mod.source.content)
         prettylark(tree, show_positions=args.pos)
         return
 
     if args.scan:
-        print()
         scan = mod.scan()
         prettyscan(scan)
         return
 
-    if args.cop or args.unparse:
-        cop_tree = comp._parse.parse(mod.source.content)
+    if args.imports:
+        prettyimports(mod, interp)
+        return
 
+    if args.cop or args.unparse:
+        # The parse tree is normally not exposed directly like this, instead
+        # it gets divvied up into a series of Definitions for the module.
+        parser = comp.lark_parser("comp")
+        lark_tree = parser.parse(mod.source.content)
+        cop_tree = comp._parse.lark_to_cop(lark_tree)
+        namespace = None
         if args.resolve:
-            namespace = {}
-            cop_tree = comp._parse.cop_resolve(cop_tree, namespace)
+            # Build namespace and resolve identifiers
+            defs = mod.definitions()
+            namespace = mod.namespace()
+            # Resolve identifiers in the COP tree
+            cop_tree = comp.cop_resolve(cop_tree, namespace)
+
+            # If we're also folding, fold definitions with dependency tracking
+            if args.fold:
+                comp.fold_definitions(defs, namespace)
         if args.fold:
-            cop_tree = comp._parse.cop_fold(cop_tree)
+            # Pass namespace for reference folding if available
+            cop_tree = comp.cop_fold(cop_tree, namespace)
         if args.cop:
             prettycop(cop_tree, show_pos=args.pos)
         elif args.unparse:
@@ -354,22 +359,18 @@ def main():
 
     if args.definitions:
         defs = mod.definitions()
-        for name in sorted(defs.keys()):
-            value = defs[name]
-            print(f"  {name}: {value.format()}")
-
-    if args.imports:
-        if any([args.cop, args.resolve, args.code, args.eval, args.trace, args.scan, args.namespace]):
-            parser.error("--imports cannot be combined with other output modes")
-        show_imports(mod, interp)
+        for name, definition in sorted(defs.items()):
+            value = comp.cop_unparse(definition.original_cop)
+            if len(value) > 40:
+                value = value[:37] + "..."
+            shape_name = definition.shape.qualified #if hasattr(definition.shape, "qualified") else str(definition.shape)
+            print(f"{name:16}  ({shape_name}) {value}")
         return
 
     # Handle --namespace mode separately (it's its own output mode)
     if args.namespace:
-        if any([args.cop, args.resolve, args.code, args.eval, args.trace, args.scan, args.imports]):
-            parser.error("--namespace cannot be combined with other output modes")
-        # Show namespace
-        show_namespace(args.source if not args.text else source, is_text=args.text)
+        ns = mod.namespace()
+        prettynamespace(ns)
         return
 
     # Check if any output mode was specified

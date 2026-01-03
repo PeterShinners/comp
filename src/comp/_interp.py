@@ -90,7 +90,7 @@ class Interp:
             compiler: Compiler to use for the module (default: "comp")
 
         Returns:
-            Module with location, content, and etag
+            (comp.Module) Module with location, content, and etag
 
         Raises:
             ModuleNotFoundError: Module not found in search paths
@@ -179,22 +179,16 @@ class ExecutionFrame:
             return self.registers[source]
         return source
 
-    def call_function(self, func, args):
+    def invoke_block(self, block, args):
         """Call a function with the given arguments.
 
         Args:
-            func: Value containing a Block
+            block: Value containing a Block
             args: Value containing the argument struct
 
         Returns:
             Value result of the function call
         """
-        # Check if func contains a Block
-        if not isinstance(func.data, Block):
-            raise TypeError(f"Cannot call non-block value (got {type(func.data).__name__})")
-
-        block = func.data
-
         # Create a new environment for the function
         # Start with the closure environment (captured at block definition)
         # TODO: Handle signature/parameters properly - bind args to param names

@@ -108,7 +108,7 @@ class Value:
                 decimal.Decimal: comp.shape_num,
                 str: comp.shape_text,
                 dict: comp.shape_struct,
-                comp.Func: comp.shape_func,
+                comp.Block: comp.shape_block,
                 comp.Shape: comp.shape_shape,
                 comp.ShapeUnion: comp.shape_union,
             }
@@ -135,8 +135,9 @@ class Value:
             return str(self.data)
         if shape is comp.shape_text:
             value = self.data.replace('"', '\\"')
+            escaped = value.replace("\n", "\\n")
             return (
-                f'"""{value.replace("\n", "\\n")}"""' if "\n" in value else f'"{value}"'
+                f'"""{escaped}"""' if "\n" in value else f'"{value}"'
             )
         if shape is comp.tag_nil:
             return "nil"
@@ -146,7 +147,7 @@ class Value:
             return "false"
         if isinstance(self.data, comp.Tag):
             return f"{self.data.qualified}"
-        if isinstance(self.data, comp.Func):
+        if isinstance(self.data, comp.Block):
             return self.data.format()
         if isinstance(self.data, comp.Shape):
             return self.data.format()
@@ -479,8 +480,8 @@ class Value:
                 struct[Unnamed()] = cls.from_python(item)
             return cls(struct)
 
-        # Allow Tag, Shape, ShapeUnion, Func objects to be wrapped in Values
-        if isinstance(value, (comp.Tag, comp.Shape, comp.ShapeUnion, comp.Func)):
+        # Allow Tag, Shape, ShapeUnion, Block objects to be wrapped in Values
+        if isinstance(value, (comp.Tag, comp.Shape, comp.ShapeUnion, comp.Block)):
             return cls(value)
 
         raise TypeError(

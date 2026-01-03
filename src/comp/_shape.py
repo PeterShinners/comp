@@ -11,7 +11,7 @@ __all__ = [
     "shape_text",
     "shape_struct",
     "shape_any",
-    "shape_func",
+    "shape_block",
     "shape_tag",
     "shape_shape",
     "shape_union",
@@ -150,7 +150,7 @@ shape_num = Shape("num", False)
 shape_text = Shape("text", False)
 shape_struct = Shape("struct", False)
 shape_any = Shape("any", False)
-shape_func = Shape("func", False)
+shape_block = Shape("block", False)
 shape_shape = Shape("shape", False)
 shape_union = Shape("union", False)
 

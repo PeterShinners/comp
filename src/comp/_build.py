@@ -108,6 +108,28 @@ class Builder:
                 # Return the constant directly for inlining
                 return cop.field("value")
 
+            case "value.reference":
+                # Handle references to definitions
+                try:
+                    definition = cop.field("definition")
+
+                    # If definition has a folded constant value, use it
+                    if hasattr(definition, 'value') and definition.value is not None:
+                        return definition.value
+
+                    # If definition has resolved_cop, build from that
+                    if hasattr(definition, 'resolved_cop') and definition.resolved_cop is not None:
+                        return self._build_value(definition.resolved_cop)
+
+                    # If definition has original_cop, build from that
+                    if hasattr(definition, 'original_cop') and definition.original_cop is not None:
+                        return self._build_value(definition.original_cop)
+
+                    # Shouldn't reach here - unresolved reference
+                    raise comp.CodeError(f"Unresolved reference to {definition.qualified}", cop)
+                except (AttributeError, KeyError) as e:
+                    raise comp.CodeError(f"Invalid value.reference node: {e}", cop)
+
             case "value.number":
                 # Convert to constant Value
                 import decimal

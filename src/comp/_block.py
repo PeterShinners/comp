@@ -3,10 +3,10 @@
 import comp
 
 
-__all__ = ["Func", "Block", "create_funcdef"]
+__all__ = ["Block", "create_blockdef"]
 
 
-class Func:
+class Block:
     """A function definition.
 
     Functions are the primary unit of computation in comp. They transform
@@ -26,6 +26,8 @@ class Func:
         arg_name: (str | None) Name for the argument
         arg_shape: (Shape) Shape constraint for argument
         body: (object) AST node for function body
+        frame: (ExecutionFrame | None) Closure frame from defining scope
+        decorators: (list) Decorators to apply to evaluation
     """
 
     __slots__ = (
@@ -39,6 +41,7 @@ class Func:
         "arg_name",
         "arg_shape",
         "body",
+        "frame",
         "decorators",
     )
 
@@ -52,10 +55,11 @@ class Func:
         self.arg_name = None
         self.arg_shape = None
         self.body = None
+        self.frame = None
         self.decorators = []
 
     def __repr__(self):
-        return f"Func<{self.qualified}>"
+        return f"Block<{self.qualified}>"
 
     def __hash__(self):
         return hash((self.qualified, self.module))
@@ -106,37 +110,8 @@ class Func:
         return f":{sig_str}({body_str})"
 
 
-class Block:
-    """Executable block value.
-
-    A block is generated in functions and captures the scopes that defined them.
-
-    Args:
-        frame: (Frame) Captured frame of definer
-        shape: (Shape) Shape of block input value
-        identifier: (str) Generated identifier for block
-        body: (object) AST node for block body
-    """
-
-    __slots__ = (
-        "frame",
-        "shape",
-        "identifier",
-        "body",
-    )
-
-    def __init__(self, frame, shape, identifier, body):
-        self.frame = frame
-        self.shape = shape
-        self.identifier = identifier
-        self.body = body
-
-    def __repr__(self):
-        return f"Block<{self.identifier}>"
-
-
-def create_funcdef(qualified_name, private, cop_node):
-    """Create a Func from a value.block COP node and wrap in a Value.
+def create_blockdef(qualified_name, private, cop_node):
+    """Create a Block from a value.block COP node and wrap in a Value.
 
     This is a pure initialization function that doesn't depend on Module or Interp.
 
@@ -161,8 +136,8 @@ def create_funcdef(qualified_name, private, cop_node):
             cop_node
         )
 
-    # Create Func
-    func_def = Func(qualified_name, private)
+    # Create Block
+    block = Block(qualified_name, private)
 
     # Parse signature and body from block
     # value.block has kids: s=shape.define (signature) and b=struct.define (body)
@@ -176,17 +151,17 @@ def create_funcdef(qualified_name, private, cop_node):
         for field in sig_fields:
             field_name = field.to_python("name")
             if field_name == "pure":
-                func_def.pure = True
+                block.pure = True
             # elif field_name == "private":
-            #     func_def.private = True
+            #     block.private = True
             else:
                 field_kids = comp.cop_kids(field)
-                if func_def.input_name is None:
-                    func_def.input_name = field_name
-                    func_def.input_shape = field_kids[0] if field_kids else None
+                if block.input_name is None:
+                    block.input_name = field_name
+                    block.input_shape = field_kids[0] if field_kids else None
                 else:
-                    func_def.arg_name = field_name
-                    func_def.arg_shape = field_kids[0] if field_kids else None
+                    block.arg_name = field_name
+                    block.arg_shape = field_kids[0] if field_kids else None
 
     # Extract decorators from body (leading struct.decorator nodes)
     # and separate them from the actual body
@@ -196,13 +171,13 @@ def create_funcdef(qualified_name, private, cop_node):
             if comp.cop_tag(kid) == "struct.decorator":
                 # Extract decorator identifier
                 dec_kids = comp.cop_kids(kid)
-                func_def.decorators.append(dec_kids[0])
+                block.decorators.append(dec_kids[0])
             else:
                 break
 
         # Create new body without decorators if we found any
         # Ugh, this is miserable and clumsy, needs to be elegent
-        if func_def.decorators:
+        if block.decorators:
             # Reconstruct struct.define with remaining kids
             body_dict = dict(body_cop.data)
             # Remove old kids and create new kids list
@@ -216,14 +191,14 @@ def create_funcdef(qualified_name, private, cop_node):
             else:
                 # Empty body
                 body_dict[comp.Value.from_python("kids")] = comp.Value.from_python({})
-            func_def.body = comp.Value.from_python(body_dict)
+            block.body = comp.Value.from_python(body_dict)
         else:
-            func_def.body = body_cop
+            block.body = body_cop
     else:
-        func_def.body = None
+        block.body = None
 
     # Wrap in Value and set cop attribute
-    value = comp.Value.from_python(func_def)
+    value = comp.Value.from_python(block)
     value.cop = cop_node
 
     return value

@@ -5,14 +5,18 @@ __all__ = ["extract_definitions"]
 import comp
 
 
-def extract_definitions(cop_module):
+def extract_definitions(cop_module, module_id):
     """Extract definitions from a COP tree.
+
+    This is a pure function that creates Definition objects without
+    instantiating Block/Shape/Tag values.
 
     Args:
         cop_module: mod.define COP node
+        module_id: Module token string (e.g., "./cart#a1b2")
 
     Returns:
-        dict: {qualified_name: Value} definitions
+        dict: {qualified_name: Definition} definitions
 
     Raises:
         CodeError: If tree is malformed
@@ -20,73 +24,59 @@ def extract_definitions(cop_module):
     definitions = {}
     overloads = {}
     for kid in comp.cop_kids(cop_module):
-        identifier, value, uniqueify = _module_definition(kid)
+        identifier, definition, uniqueify = _module_definition(kid, module_id)
         if uniqueify:
             counter = overloads.get(identifier, 0) + 1
             overloads[identifier] = counter
             identifier = f"{identifier}.i{counter:03d}"
+            # Update definition with uniquified name
+            definition.qualified = identifier
 
-        definitions[identifier] = value
+        definitions[identifier] = definition
     return definitions
 
 
-def _module_definition(cop):
-    """Generate identifier and value for mod.namefield cop."""
+def _module_definition(cop, module_id):
+    """Generate identifier and Definition for mod.namefield cop.
+
+    Args:
+        cop: mod.namefield COP node
+        module_id: Module token string
+
+    Returns:
+        tuple: (identifier, Definition, uniqueify)
+    """
     kid_tag = comp.cop_tag(cop)
     if kid_tag != "mod.namefield":
         raise comp.CodeError(f"Unexpected cop node in mod.define: {kid_tag}")
 
-    empty_ns = comp.Value.from_python({})
     cop_identifier, cop_value = comp.cop_kids(cop)
     identifier = _assign_identifier(cop_identifier)
-    cop_value = comp._parse.cop_resolve(cop_value, empty_ns)
     value_tag = comp.cop_tag(cop_value)
     _validate_assignment(identifier, value_tag)
-
-    cop_value_folded = comp._parse.cop_fold(cop_value)
-    folded_tag = comp.cop_tag(cop_value_folded)
 
     private = False  # Wait for language to define privacy rules
     uniqueify = False
 
-    # Special def objects
+    # Determine definition shape from COP tag
     match value_tag:
-        case "value.constant":
-            value = cop_value_folded.field("value")
-        case "value.text" | "value.number" | "value.nil":
-            # Literal values - extract from folded constant
-            value = cop_value_folded.field("value")
-        case "value.identifier":
-            # Reference to another value - will be resolved during finalize
-            # Wrap the COP in a Value and mark it for later resolution
-            value = comp.Value.from_python(None)  # Placeholder
-            value.cop = cop_value_folded
         case "value.block":
+            # Blocks (functions)
+            shape = comp.shape_block
             uniqueify = True
-            # Blocks need unfolded cop to parse signature (folding turns it into constant)
-            # Check if folding created a constant (shouldn't happen for blocks currently)
-            # This is a dumb temporary measure. Using the folded "constant" shape
-            # is largely the most common situation and far better.
-            if folded_tag == "value.constant":
-                value = cop_value_folded.field("value")
-            else:
-                value = comp.create_funcdef(identifier, private, cop_value)
         case "shape.define":
-            # Check if folding successfully created a Shape or ShapeUnion constant
-            if folded_tag == "value.constant":
-                # Use the pre-built shape/union from folding
-                value = cop_value_folded.field("value")
-                # Update qualified name and privacy for Shape (ShapeUnion doesn't have these)
-                if isinstance(value.data, comp.Shape):
-                    value.data.qualified = identifier
-                    value.data.private = private
-            else:
-                # Folding failed (has complex constructs), build from unfolded cop
-                value = comp.create_shapedef(identifier, private, cop_value)
+            # Shape definitions
+            shape = comp.shape_shape
         case _:
-            raise comp.CodeError(f"Invalid module value: {value_tag} for {identifier}")
+            #raise comp.CodeError(f"Invalid module value: {value_tag} for {identifier}")
+            # All types are temporarily helpful for quick and minimal testing
+            shape = comp.shape_struct
 
-    return identifier, value, uniqueify
+    # Create Definition with original COP node
+    # No Block/Shape creation here - that happens during constant folding
+    definition = comp.Definition(identifier, module_id, cop_value, shape)
+
+    return identifier, definition, uniqueify
 
 
 def _assign_identifier(identifier_cop):
