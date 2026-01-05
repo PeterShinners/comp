@@ -8,7 +8,7 @@ This module handles:
 - Loading complete modules with dependencies
 """
 
-__all__ = ["anchor_resource", ]
+__all__ = ["ModuleSource", "anchor_resource"]
 
 
 import os

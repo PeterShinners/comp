@@ -97,6 +97,17 @@ class Interp:
             NotImplementedError: For git://, http://, etc. URLs
         """
         anchored = comp._import.anchor_resource(resource, anchor)
+
+        # Check for internal modules first
+        # Ensure cop module is initialized (triggers lazy registration)
+        comp.get_cop_module()
+
+        internal_mod = comp.get_internal_module(anchored)
+        if internal_mod is not None:
+            # Cache and return the internal module
+            self.module_cache[anchored] = internal_mod
+            return internal_mod
+
         cached = self.module_cache.get(anchored)
         etag = cached.source.etag if cached else None
         src = comp._import.locate_resource(

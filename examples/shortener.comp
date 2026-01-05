@@ -52,7 +52,7 @@ server = :request~http.request (|val
 post-url = :request~http.request (
     request.form.url
     | assert (parse(url).scheme | in("http" "https") :(
-        (error="Please enter a valid URL" url=$url)
+        (error="Please enter a valid URL" url=request.form.url)
         | respond-template("newurl.html")
     ))
     | insert-url()
@@ -67,7 +67,7 @@ link-redirect = :request~http.request(
     | increment()
     | (in.target)  -- this needs some language definition
     | http.redirect()
-    | ?respond-missing()
+    -- | ?respond-missing()
 )
 
 
@@ -75,7 +75,7 @@ link-details = :request~http.request (
     request.params.id
     | details()
     | render("details.html")
-    | ?respond-missing()
+    -- | ?respond-missing()
 )
 
 

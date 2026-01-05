@@ -18,7 +18,6 @@ should have full Value types as values.
 
 __all__ = [
     "COP_TAGS",
-    "cop_module",
     "lark_parser",
 ]
 
@@ -91,7 +90,7 @@ _copmodule = None
 _tagnames = {}
 
 
-def cop_module():
+def cop_module_init():
     """Create and populate the cop module"""
     global _copmodule
     if _copmodule is None:
@@ -99,6 +98,12 @@ def cop_module():
         source = type('obj', (object,), {'resource': 'cop', 'content': ''})()
         _copmodule = comp.Module(source)
         _copmodule._definitions = {}
+
+        tag_def = comp.Tag("test", False)
+        tag_def.module = _copmodule
+        value = comp.Value.from_python(tag_def)
+        _copmodule._definitions[name] = value
+
         for name in COP_TAGS:
             tag_def = comp.Tag(name, False)
             tag_def.module = _copmodule

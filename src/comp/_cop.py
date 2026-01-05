@@ -36,8 +36,14 @@ def create_cop(tag_name, kids, **fields):
     Returns:
         Value: The constructed COP node
     """
-    comp._parse._cop_module_init()  # Ensure tags are initialized
-    tag = comp._parse._tagnames[tag_name]
+    # Get the Tag object from the cop internal module
+    cop_module = comp.get_cop_module()
+    tag_definition = cop_module.definitions().get(tag_name)
+    if tag_definition is None:
+        raise ValueError(f"Unknown COP tag: {tag_name}")
+
+    tag = tag_definition.value.data  # Extract the Tag from the Definition
+
     data = {comp.Unnamed(): tag}
     for key, value in fields.items():
         data[key] = value
