@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-"""Comp CLI - Command-line interface for the Comp language.
-"""
+"""Comp CLI - Command-line interface for the Comp language."""
 
 import argparse
-import pathlib
 import os
 import sys
 import io

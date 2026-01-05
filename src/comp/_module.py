@@ -5,7 +5,53 @@ import os
 import comp
 
 
-__all__ = ["Module"]
+__all__ = ["Module", "Definition"]
+
+
+class Definition:
+    """A module-level definition that can be referenced.
+
+    Definitions are created during the extraction phase and progressively
+    enhanced through the compilation pipeline:
+    1. Extract: Create with original_cop and shape
+    2. Resolve: Populate resolved_cop with identifier references resolved
+    3. Fold: Populate value with constant-folded Shape/Block/etc
+
+    Args:
+        qualified: Fully qualified name (e.g., "cart", "add.i001")
+        module_id: Module token string (not reference)
+        original_cop: The original COP node
+        shape: Shape constant (comp.shape_block, comp.shape_shape, etc.)
+    Attributes:
+        qualified: (str) Fully qualified name (e.g., "cart", "add.i001")
+        module_id: (str) Module token that owns this definition (avoids circular refs)
+        original_cop: (Value) The original COP node from parsing
+        resolved_cop: (Value | None) The resolved+folded+optimized COP node
+        shape: (Shape) Shape constant indicating definition type
+        value: (Value | None) The constant-folded value (Shape/Block/etc) if applicable
+
+    """
+    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value")
+
+    def __init__(self, qualified, module_id, original_cop, shape):
+        self.qualified = qualified
+        self.module_id = module_id
+        self.original_cop = original_cop
+        self.shape = shape
+        self.resolved_cop = None  # Filled during identifier resolution
+        self.value = None  # Filled during constant folding
+
+    def __repr__(self):
+        shape_name = self.shape.qualified
+        return f"Definition<{self.qualified}:{shape_name}>"
+
+    def is_resolved(self):
+        """(bool) Whether identifiers have been resolved."""
+        return self.resolved_cop is not None
+
+    def is_folded(self):
+        """(bool) Whether constant folding has been performed."""
+        return self.value is not None
 
 
 class Module:
@@ -140,7 +186,7 @@ class Module:
         """
         # Phase 3: Build namespace and resolve identifiers to references
         namespace = self.namespace(imports=imports)
-        resolve_identifiers(self._definitions, namespace)
+        comp.resolve_identifiers(self._definitions, namespace)
 
         # Phase 4: Constant folding - create Block/Shape values
         for definition in self._definitions.values():
@@ -214,82 +260,6 @@ class SystemModule(Module):
             SystemModule._singleton = cls()
         return SystemModule._singleton
 
-
-def _populate_tag_union_values(module, namespace_builder):
-    """Populate namespace with Tag values for tag union definitions.
-
-    Tag unions are Shape definitions with qualified names starting with "tag.".
-    For example, "tag.binary" with fields (zero one) creates:
-    - binary (parent tag)
-    - binary.zero and binary.one (leaf tags)
-
-    For hierarchical tags like "tag.binary.quantum", creates:
-    - binary (parent tag)
-    - binary.quantum (hierarchical tag)
-
-    Args:
-        module: Module with definitions
-        namespace_builder: NamespaceBuilder to add tag values to
-    """
-    # Collect all tag union definitions
-    # Tag unions must be Shape definitions: tag.binary = ~(zero one)
-    # Use ~() for empty tag unions (not plain ())
-    tag_unions = []
-    for qualified_name, definition in module._definitions.items():
-        if not qualified_name.startswith('tag.'):
-            continue
-
-        # Only accept Shape definitions
-        if definition.shape == "shape" and definition.value and isinstance(definition.value.data, comp.Shape):
-            tag_unions.append((qualified_name, definition))
-
-    # Track which tag names we've already created to avoid duplicates
-    created_tags = set()
-
-    for qualified_name, definition in tag_unions:
-        # Extract the tag union name (remove "tag." prefix)
-        union_name = qualified_name[4:]  # Remove "tag." prefix
-
-        # Get the shape from the folded definition value
-        shape = definition.value.data
-        private = shape.private
-
-        # Create parent tag (e.g., "binary" for "tag.binary")
-        # This allows using just the parent name as a tag
-        if union_name and union_name not in created_tags:
-            parent_tag = comp.Tag(union_name, private)
-            parent_tag.module = module
-            parent_tag_value = comp.Value.from_python(parent_tag)
-            namespace_builder.add_definition(
-                union_name,
-                parent_tag_value,
-                import_prefix=None,
-                is_local=True
-            )
-            created_tags.add(union_name)
-
-        # For each field in the shape, create a tag value
-        for field_def in shape.fields:
-            if not field_def.name:
-                continue
-
-            field_name = field_def.name
-            tag_qualified = f"{union_name}.{field_name}"
-            if tag_qualified not in created_tags:
-                tag = comp.Tag(tag_qualified, private)
-                tag.module = module
-                tag_value = comp.Value.from_python(tag)
-
-                # Add to namespace with all permutations
-                namespace_builder.add_definition(
-                    tag_qualified,
-                    tag_value,
-                    import_prefix=None,
-                    is_local=True
-                )
-                created_tags.add(tag_qualified)
-
-
 def fold_definition(definition):
     """Perform constant folding on a definition to create Shape/Block values.
 
@@ -360,353 +330,4 @@ def fold_definition(definition):
         except (AttributeError, KeyError):
             definition.resolved_cop = folded_cop
 
-
-def resolve_identifiers(definitions, namespace):
-    """Resolve identifiers in definitions to value.reference nodes.
-
-    This function walks all definition COP trees and replaces value.identifier
-    nodes with value.reference nodes pointing to Definition objects.
-
-    Args:
-        definitions: Dict {qualified_name: Definition} to resolve
-        namespace: Namespace dict {name: (priority, value_or_definition)}
-
-    Returns:
-        dict: The namespace dictionary (for chaining)
-
-    Side effects:
-        Populates definition.resolved_cop for each definition in definitions
-    """
-    # Resolve identifiers in each definition
-    for qualified_name, definition in definitions.items():
-        # Skip non-Definition objects (e.g., AST module Tags)
-        if not isinstance(definition, comp.Definition):
-            continue
-
-        if definition.original_cop is None:
-            continue
-
-        # Skip if already resolved (e.g., SystemModule builtins)
-        if definition.resolved_cop is not None:
-            continue
-
-        # Walk the COP tree and replace identifiers with references
-        definition.resolved_cop = _resolve_to_references(
-            definition.original_cop,
-            namespace
-        )
-
-    return namespace
-
-
-def _resolve_to_references(cop, namespace, param_names=None):
-    """Walk a COP tree and replace value.identifier with value.reference nodes.
-
-    Args:
-        cop: The COP node to walk
-        namespace: Module namespace dict {name: (priority, value_or_definition)}
-        param_names: Set of parameter names to skip (handled by codegen)
-
-    Returns:
-        Potentially modified COP node
-    """
-    if cop is None:
-        return cop
-
-    param_names = param_names or set()
-    tag = comp.cop_tag(cop)
-
-    # Handle value.identifier - replace with value.reference
-    if tag == "value.identifier":
-        name = _get_identifier_name(cop)
-
-        # Skip if we couldn't extract a name
-        if name is None:
-            return cop
-
-        # Skip parameter names (handled by codegen)
-        if name in param_names:
-            return cop
-
-        # Try to resolve from namespace
-        definition_set = namespace.get(name)
-        if definition_set is not None:
-            # Extract Definition from DefinitionSet
-            definition = None
-            import_namespace = None
-
-            # Try to get a scalar (unambiguous) definition
-            scalar_def = definition_set.scalar()
-            if scalar_def is not None:
-                # Single unambiguous definition
-                definition = scalar_def
-                # Check if this came from an import
-                if hasattr(definition, '_import_namespace'):
-                    import_namespace = definition._import_namespace
-            else:
-                # Multiple definitions (overloaded) - leave as identifier for build-time resolution
-                return cop
-
-            # Create value.reference node
-            if definition is not None:
-                return comp.create_reference_cop(
-                    definition,
-                    identifier_cop=cop,
-                    import_namespace=import_namespace
-                )
-
-        # Unresolved - leave as-is (will error at build time)
-        return cop
-
-    # Handle value.block - extract parameter names from signature
-    elif tag == "value.block":
-        kids_list = comp.cop_kids(cop)
-        if len(kids_list) >= 2:
-            signature_cop = kids_list[0]
-            body_cop = kids_list[1]
-
-            # Extract parameter names from signature
-            new_param_names = param_names.copy()
-            # TODO: Parse signature to get actual param names
-            # For now, assume 'input' and 'args' are standard
-            new_param_names.add('input')
-            new_param_names.add('args')
-
-            # Recursively walk the body with updated param names
-            new_body = _resolve_to_references(body_cop, namespace, new_param_names)
-
-            # If body changed, create new block cop
-            if new_body is not body_cop:
-                kids_field = cop.field("kids")
-                new_kids_dict = kids_field.data.copy()
-                keys = list(new_kids_dict.keys())
-                if len(keys) >= 2:
-                    new_kids_dict[keys[1]] = new_body
-
-                    # Reconstruct the cop
-                    new_data = {}
-                    for key, value in cop.data.items():
-                        if isinstance(key, comp.Value) and key.data == "kids":
-                            new_data[key] = comp.Value.from_python(new_kids_dict)
-                        else:
-                            new_data[key] = value
-
-                    return comp.Value.from_python(new_data)
-
-        return cop
-
-    # Handle mod.namefield - only resolve the value child, not the name
-    elif tag == "mod.namefield":
-        try:
-            modified = False
-            new_kids_dict = {}
-            for key, kid in cop.field("kids").data.items():
-                # Check if this is the name field (n=) or value field (v=)
-                # The name field should NOT be resolved
-                if key.data == "n":
-                    new_kids_dict[key] = kid
-                else:
-                    new_kid = _resolve_to_references(kid, namespace, param_names)
-                    new_kids_dict[key] = new_kid
-                    if new_kid is not kid:
-                        modified = True
-
-            # If any kids changed, create new cop
-            if modified:
-                new_data = {}
-                for key, value in cop.data.items():
-                    if isinstance(key, comp.Value) and key.data == "kids":
-                        new_data[key] = comp.Value.from_python(new_kids_dict)
-                    else:
-                        new_data[key] = value
-
-                return comp.Value.from_python(new_data)
-        except (KeyError, AttributeError):
-            pass
-
-        return cop
-
-    # For all other nodes, recursively walk kids
-    else:
-        try:
-            modified = False
-            new_kids_dict = {}
-            for key, kid in cop.field("kids").data.items():
-                new_kid = _resolve_to_references(kid, namespace, param_names)
-                new_kids_dict[key] = new_kid
-                if new_kid is not kid:
-                    modified = True
-
-            # If any kids changed, create new cop
-            if modified:
-                new_data = {}
-                for key, value in cop.data.items():
-                    if isinstance(key, comp.Value) and key.data == "kids":
-                        new_data[key] = comp.Value.from_python(new_kids_dict)
-                    else:
-                        new_data[key] = value
-
-                return comp.Value.from_python(new_data)
-        except (KeyError, AttributeError):
-            pass
-
-    return cop
-
-
-def _get_identifier_name(id_cop):
-    """Extract the qualified name from a value.identifier COP node.
-
-    Args:
-        id_cop: A value.identifier COP node
-
-    Returns:
-        String like "add" or "server.host" or None if not a valid identifier
-    """
-    if comp.cop_tag(id_cop) != "value.identifier":
-        return None
-
-    parts = []
-    for kid in comp.cop_kids(id_cop):
-        kid_tag = comp.cop_tag(kid)
-        if kid_tag in ("ident.token", "ident.text"):
-            parts.append(kid.field("value").data)
-        else:
-            return None  # Complex identifier
-    return '.'.join(parts) if parts else None
-
-
-def _walk_and_resolve_cop(cop, namespace, param_names=None):
-    """Walk a COP tree and resolve identifier references to namespace values.
-
-    Replaces value.identifier nodes with value.constant nodes containing the
-    resolved Value from the namespace.
-
-    Args:
-        cop: The COP node to walk
-        namespace: Module namespace dict {name: (priority, value)}
-        param_names: Set of parameter names to skip (handled by codegen)
-
-    Returns:
-        Potentially modified COP node
-    """
-    if cop is None:
-        return cop
-
-    param_names = param_names or set()
-
-    tag = comp.cop_tag(cop)
-
-    # Handle value.identifier - try to resolve it
-    if tag == "value.identifier":
-        name = _get_identifier_name(cop)
-
-        # Skip if we couldn't extract a name
-        if name is None:
-            return cop
-
-        # Skip parameter names (handled by codegen)
-        if name in param_names:
-            return cop
-
-        # Try to resolve from namespace
-        namespace_entry = namespace.get(name)
-        if namespace_entry is not None:
-            _, resolved_value = namespace_entry
-
-            # Handle special namespace types
-            if isinstance(resolved_value, (Ambiguous, Overload)):
-                # Can't resolve to constant - these will need special handling
-                # For now, leave as identifier (will be handled at build/call time)
-                return cop
-
-            # If the resolved value has a finalized .cop that is a constant, use that COP directly
-            # This ensures we get the folded constant value instead of the original COP structure
-            if hasattr(resolved_value, 'cop') and resolved_value.cop is not None:
-                try:
-                    cop_tag = resolved_value.cop.positional(0).data.qualified
-                    if cop_tag == "value.constant":
-                        # The resolved value is already a finalized constant - use its COP directly
-                        return resolved_value.cop
-                except (AttributeError, KeyError):
-                    pass
-
-            # Create a value.constant node with the resolved value
-            const_cop = comp.create_cop("value.constant", [], value=resolved_value)
-            return const_cop
-
-        # Unresolved - leave as-is for now (will error at build time)
-        return cop
-
-    # Handle value.block - extract parameter names from signature
-    elif tag == "value.block":
-        # Get signature to extract param names
-        kids_list = comp.cop_kids(cop)
-        if len(kids_list) >= 2:
-            signature_cop = kids_list[0]
-            body_cop = kids_list[1]
-
-            # Extract parameter names from signature
-            new_param_names = param_names.copy()
-            # TODO: Parse signature to get actual param names
-            # For now, assume 'input' and 'args' are standard
-            new_param_names.add('input')
-            new_param_names.add('args')
-
-            # Recursively walk the body with updated param names
-            new_body = _walk_and_resolve_cop(body_cop, namespace, new_param_names)
-
-            # If body changed, create new block cop
-            if new_body is not body_cop:
-                kids_field = cop.field("kids")
-                new_kids_dict = kids_field.data.copy()
-                keys = list(new_kids_dict.keys())
-                if len(keys) >= 2:
-                    new_kids_dict[keys[1]] = new_body
-
-                    # Reconstruct the cop by copying all fields and updating kids
-                    new_data = {}
-                    for key, value in cop.data.items():
-                        if isinstance(key, comp.Value) and key.data == "kids":
-                            # Replace kids with the modified version
-                            new_data[key] = comp.Value.from_python(new_kids_dict)
-                        else:
-                            # Keep other fields as-is
-                            new_data[key] = value
-
-                    return comp.Value.from_python(new_data)
-
-        return cop
-
-    # For all other nodes, recursively walk kids
-    else:
-        try:
-            # Walk each kid
-            modified = False
-            new_kids_dict = {}
-            for key, kid in cop.field("kids").data.items():
-                new_kid = _walk_and_resolve_cop(kid, namespace, param_names)
-                new_kids_dict[key] = new_kid
-                if new_kid is not kid:
-                    modified = True
-
-            # If any kids changed, create new cop with updated kids
-            if modified:
-                # Reconstruct the cop by copying all fields and updating kids
-                new_data = {}
-                for key, value in cop.data.items():
-                    if isinstance(key, comp.Value) and key.data == "kids":
-                        # Replace kids with the modified version
-                        new_data[key] = comp.Value.from_python(new_kids_dict)
-                    else:
-                        # Keep other fields as-is
-                        new_data[key] = value
-
-                new_cop = comp.Value.from_python(new_data)
-                return new_cop
-
-        except (KeyError, AttributeError):
-            # No kids field, nothing to walk
-            pass
-
-    return cop
 

@@ -68,7 +68,7 @@ class Block:
         """Format function as literal string representation.
 
         Returns:
-            (str) Formatted function like ":a b (|val x)" or ":()"
+            (str) Formatted function like ":a b(|val x)" or ":()"
         """
         sig = []
         if self.input_name:

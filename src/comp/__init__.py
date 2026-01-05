@@ -14,9 +14,9 @@ from ._shape import *
 from ._block import *
 from ._interp import *
 from ._module import *
-from ._definition import *
 from ._parse import *
 from ._cop import *
+from ._fold import *
 from ._build import *
 from ._ops import *
 from ._import import *
