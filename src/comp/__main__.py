@@ -86,9 +86,9 @@ def prettycop(cop, field=None, indent=0, show_pos=False):
         prettycop(child, field=field, indent=indent + 1, show_pos=show_pos)
 
 
-def prettyscan(scan):
+def prettyscan(module):
     """Scan a module and display metadata using the interpreter."""
-    # Display package metadata
+    scan = module.scan()
     pkg_val = scan.field('pkg')
     if pkg_val.data:
         print("Package metadata:")
@@ -145,7 +145,7 @@ def prettyscan(scan):
         pass
 
 
-def prettyimports(module, interp, visited=None, prefix=""):
+def prettyimports(module, visited=None, prefix=""):
     """Print import tree for a module.
 
     Args:
@@ -169,24 +169,24 @@ def prettyimports(module, interp, visited=None, prefix=""):
 
     visited[module.source.location] = module.source.resource
 
-    # Process imports
-    imports = scan.to_python("imports") or []
-    for i, imp in enumerate(imports):
-        name = imp.get("name")
-        source = imp.get("source")
-        if not (name and source):
-            continue
+    # Process imports - now using the enriched imports dictionary
+    module_imports = module.imports()
+    for i, (name, import_info) in enumerate(module_imports.items()):
+        imported_module = import_info["module"]
+        import_error = import_info["error"]
+        import_source = import_info["source"]
 
-        is_last = (i == len(imports) - 1)
+        is_last = (i == len(module_imports) - 1)
         connector = "└── " if is_last else "├── "
         new_prefix = prefix + ("    " if is_last else "│   ")
 
-        try:
-            imported = interp.module(source, anchor=module.source.anchor)
+        if imported_module:
             print(f"{prefix}{connector}{name}:")
-            prettyimports(imported, interp, visited, new_prefix)
-        except Exception:
-            print(f"{prefix}{connector}{name}: {source} (NOT FOUND)")
+            prettyimports(imported_module, visited, new_prefix)
+        elif import_error:
+            print(f"{prefix}{connector}{name}: {import_source} (ERROR: {import_error})")
+        else:
+            print(f"{prefix}{connector}{name}: {import_source} (NOT FOUND)")
 
 
 def prettynamespace(namespace):
@@ -196,8 +196,10 @@ def prettynamespace(namespace):
         if value and value.module_id == "system#0000":
             continue
         defs = [f"{d.module_id}:{d.qualified}" for d in defset.definitions]
+        if len(defset.definitions) > 1:
+            defs.insert(0, f"(x{len(defset.definitions)})")
         defs = " ".join(defs)
-        print(f"{name:16} DSx{len(defset.definitions)} {defs}")
+        print(f"{name:18} {defs}")
 
 
 def format_instruction(idx, instr, indent=0):
@@ -301,7 +303,7 @@ def main():
         import debugpy
         if debugpy.is_client_connected():
             print("Debugger attached.")
-            argv = ['~(one~num=1+1-1 ~num=2+2*1 three=3)', '--text', '--unparse', '--fold']
+            argv = ['examples/tree.comp', '--imports']
     except ImportError:
         pass
 
@@ -320,12 +322,11 @@ def main():
         return
 
     if args.scan:
-        scan = mod.scan()
-        prettyscan(scan)
+        prettyscan(mod)
         return
 
     if args.imports:
-        prettyimports(mod, interp)
+        prettyimports(mod)
         return
 
     if args.cop or args.unparse:

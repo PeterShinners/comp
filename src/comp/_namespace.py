@@ -8,7 +8,7 @@ __all__ = ["DefinitionSet"]
 
 def create_namespace(definitions, prefix):
     """Create namespace from definitions dict.
-    
+
     Create a lookup namespace from definitions.
     If no namespace is given then this will include private definitions.
 
@@ -20,7 +20,7 @@ def create_namespace(definitions, prefix):
     """
     namespace = {}
     for qualified, definition in definitions.items():
-        for name in _identifier_permutations(qualified, prefix):
+        for name in _identifier_permutations(definition, prefix):
             if prefix and definition.private:
                 continue
             defs = namespace.get(name)
@@ -90,12 +90,44 @@ class DefinitionSet:
         return shapes + blocks
 
 
-def _identifier_permutations(qualified, prefix):
-    """Generate lookup name permutations."""
+def _identifier_permutations(definition, prefix):
+    """Generate lookup name permutations from a Definition.
+
+    For auto-suffixed identifiers like "tree-contains.i001":
+    - Generates "tree-contains.i001" (full qualified name)
+    - Generates "tree-contains" (base name without suffix)
+    - Skips the bare suffix "i001"
+
+    This allows both "tree-contains" and "tree-contains.i001" to resolve.
+
+    Args:
+        definition: Definition object with qualified name and auto_suffix flag
+        prefix: Optional namespace prefix to add
+
+    Returns:
+        list: List of permutation strings to add to namespace
+    """
     permutations = []
+    qualified = definition.qualified
     parts = qualified.split('.')
     if prefix:
         parts.insert(0, prefix)
+
+    # Generate all suffix permutations
     for i in range(len(parts)):
-        permutations.append('.'.join(parts[i:]))
+        name = '.'.join(parts[i:])
+        # Skip if this is just the bare auto-generated suffix
+        if definition.auto_suffix and i == len(parts) - 1:
+            continue
+        permutations.append(name)
+
+    # If we have an auto-generated suffix, also add the base name without it
+    # e.g., "tree-contains.i001" also generates "tree-contains"
+    if definition.auto_suffix and len(parts) > 1:
+        base_parts = parts[:-1]
+        for i in range(len(base_parts)):
+            base_name = '.'.join(base_parts[i:])
+            if base_name not in permutations:
+                permutations.append(base_name)
+
     return permutations

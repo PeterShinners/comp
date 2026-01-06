@@ -192,7 +192,7 @@ def _locate_file(
 
             # Check file size
             if stat_result.st_size > MAX_FILE_SIZE:
-                raise ModuleNotFoundError(
+                raise comp.ModuleNotFoundError(
                     f"Module file too large: {candidate_path} "
                     f"({stat_result.st_size} bytes, max {MAX_FILE_SIZE})"
                 )
@@ -228,7 +228,7 @@ def _locate_file(
             raise
 
     # Not found anywhere
-    raise ModuleNotFoundError(
+    raise comp.ModuleNotFoundError(
         f"Module '{resource}' not found\n"
         f"Searched:\n" + "\n".join(f"  - {p[0]}" for p in candidates)
     )

@@ -17,7 +17,6 @@ should have full Value types as values.
 """
 
 __all__ = [
-    "COP_TAGS",
     "lark_parser",
 ]
 
@@ -25,44 +24,56 @@ import lark
 import comp
 
 
-COP_TAGS = [
-    "shape.identifier",  # (identifier, checks, array, default)
-    "shape.union",  # (shapes, checks, array, default)
-    "shape.define",  # (fields, checks, array)
-    "shape.field",  # (kids) 1 or 2 kids, shape and optional default
-    "struct.define",  # (kids)
-    "struct.posfield",  # (kids) 1 kid
-    "struct.namefield",  # (op, kids) 2 kids (name value)
-    "struct.letassign",  # (name, kids) 1 kid (value)
-    "struct.decorator",  # (op, kids) 1 kid (name/identifier/ref)
-    "mod.define",  # (kids)
-    "mod.namefield",  # (op, kids) 2 kids (name value)
-    "value.identassign",  # (kids)  same as identifier, but in an assignment
-    "value.identifier",  # (kids)
-    "value.reference",  # (definition, identifier, namespace, pos) Reference to a Definition
-    "value.constant",  # (value) Constant value
-    "ident.token",  # (value)
-    "ident.index",  # (value)
-    "ident.indexpr",  # (value)
-    "ident.expr",  # (value)
-    "ident.text",  # (value)
-    "value.number",  # (value)
-    "value.text",  # (value)
-    "value.block",  # (kids)  kids; signature, body
-    "value.math.unary",  # (op, kids)  1 kid
-    "value.math.binary",  # (op, kids)  2 kids
-    "value.compare",  # (op, kids)  2 kids
-    "value.logic.binary",  # (op, kids)  2 kids
-    "value.logic.unary",  # (op, kids)  1 kids
-    "value.invoke",  # (kids)  kids 2+ kids; callable, argsandblocks
-    "value.pipe",  # (kids)
-    "value.fallback",  # (kids)
-    "value.postfix",  # (left, kids)
-    "value.transact",  # (kids)
-    "value.handle",  # (op, kids) grab/drop/pull/etc
-    "value.constant",  # (value) precompiled constant value
-    "stmt.assign",  # (kids) 2 kids (lvalue, rvalue)
-]
+
+
+@comp._internal.register_internal_module("cop")
+def create_cop_module(module):
+    """Create the 'cop' internal module with COP-related tags.
+
+    Returns:
+        InternalModule: The cop module
+    """
+    # Add all cop tags
+    cop_tags = (
+        "shape.identifier",  # (identifier, checks, array, default)
+        "shape.union",  # (shapes, checks, array, default)
+        "shape.define",  # (fields, checks, array)
+        "shape.field",  # (kids) 1 or 2 kids, shape and optional default
+        "struct.define",  # (kids)
+        "struct.posfield",  # (kids) 1 kid
+        "struct.namefield",  # (op, kids) 2 kids (name value)
+        "struct.letassign",  # (name, kids) 1 kid (value)
+        "struct.decorator",  # (op, kids) 1 kid (name/identifier/ref)
+        "mod.define",  # (kids)
+        "mod.namefield",  # (op, kids) 2 kids (name value)
+        "value.identassign",  # (kids)  same as identifier, but in an assignment
+        "value.identifier",  # (kids)
+        "value.reference",  # (definition, identifier, namespace, pos) Reference to a Definition
+        "value.constant",  # (value) Constant value
+        "ident.token",  # (value)
+        "ident.index",  # (value)
+        "ident.indexpr",  # (value)
+        "ident.expr",  # (value)
+        "ident.text",  # (value)
+        "value.number",  # (value)
+        "value.text",  # (value)
+        "value.block",  # (kids)  kids; signature, body
+        "value.math.unary",  # (op, kids)  1 kid
+        "value.math.binary",  # (op, kids)  2 kids
+        "value.compare",  # (op, kids)  2 kids
+        "value.logic.binary",  # (op, kids)  2 kids
+        "value.logic.unary",  # (op, kids)  1 kids
+        "value.invoke",  # (kids)  kids 2+ kids; callable, argsandblocks
+        "value.pipe",  # (kids)
+        "value.fallback",  # (kids)
+        "value.postfix",  # (left, kids)
+        "value.transact",  # (kids)
+        "value.handle",  # (op, kids) grab/drop/pull/etc
+        "value.constant",  # (value) precompiled constant value
+        "stmt.assign",  # (kids) 2 kids (lvalue, rvalue)
+    )
+    for tag_name in cop_tags:
+        module.add_tag(tag_name, private=False)
 
 
 def lark_parser(name):
@@ -335,12 +346,19 @@ def lark_to_cop(tree):
                 field_kids.append(default_cop)
             return _parsed(tree, "shape.field", field_kids, name=field_name)
 
+        # Import statements - handled by scan, skip in COP tree
+        case "import_stmt":
+            # Imports are extracted by the scan pass and used to build the namespace
+            # They don't need to be in the COP tree since they're structural/metadata
+            return None
+
         # Pass-through rules (no node created, just process children)
         case "start":
             cops = []
             for kid in kids:
                 cop = lark_to_cop(kid)
-                cops.append(cop)
+                if cop is not None:  # Skip None (e.g., import statements)
+                    cops.append(cop)
             return _parsed(tree, "mod.define", cops)
         case _:
             raise ValueError(f"Unhandled grammar rule: {tree.data}")

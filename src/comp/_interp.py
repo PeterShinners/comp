@@ -19,6 +19,7 @@ import comp
 
 __all__ = ["Interp"]
 
+
 class Interp:
     """Interpreter and state for Comp.
 
@@ -27,7 +28,7 @@ class Interp:
     """
 
     def __init__(self):
-        self.system = comp._module.SystemModule.get()
+        self.system = comp.get_internal_module("system")
         # Import-related state (was ImportContext)
         comp_root = str(Path(__file__).parent)
         working_dir = str(Path.cwd())
@@ -98,14 +99,8 @@ class Interp:
         """
         anchored = comp._import.anchor_resource(resource, anchor)
 
-        # Check for internal modules first
-        # Ensure cop module is initialized (triggers lazy registration)
-        comp.get_cop_module()
-
         internal_mod = comp.get_internal_module(anchored)
         if internal_mod is not None:
-            # Cache and return the internal module
-            self.module_cache[anchored] = internal_mod
             return internal_mod
 
         cached = self.module_cache.get(anchored)
@@ -122,7 +117,7 @@ class Interp:
             return cached
 
         mod = comp.Module(src)
-        self.module_cache[resource] = mod
+        self._new_module(mod)
         return mod
 
     def module_from_text(self, text):
@@ -136,8 +131,9 @@ class Interp:
             anchor="",
         )
         mod = comp.Module(src)
-        self.module_cache[mod.token] = mod
+        self._new_module(mod)
         return mod
+
 
     def execute(self, instructions, env=None):
         """Execute a sequence of instructions.
@@ -156,6 +152,26 @@ class Interp:
             result = instr.execute(frame)
 
         return result
+
+    def _new_module(self, module):
+        """Internally scan and register module."""
+        self.module_cache[module.token] = module
+        scan = module.scan()
+        imports = scan.to_python("imports") or []
+        children = {}
+        for imp in imports:
+            name = imp.get("name")
+            source = imp.get("source")
+            if not (name and source):
+                continue
+            try:
+                child = self.module(source, anchor=module.source.anchor)
+                err = None
+            except (comp.ModuleNotFoundError, comp.ModuleError) as e:
+                child = None
+                err = e
+            children[name] = (child, err)
+        module._register_imports(children, definitions=None, namespace=None)
 
 
 class ExecutionFrame:

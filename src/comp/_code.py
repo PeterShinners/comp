@@ -29,8 +29,9 @@ def extract_definitions(cop_module, module_id):
             counter = overloads.get(identifier, 0) + 1
             overloads[identifier] = counter
             identifier = f"{identifier}.i{counter:03d}"
-            # Update definition with uniquified name
+            # Update definition with uniquified name and mark as auto-suffixed
             definition.qualified = identifier
+            definition.auto_suffix = True
 
         definitions[identifier] = definition
     return definitions

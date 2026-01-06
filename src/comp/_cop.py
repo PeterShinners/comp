@@ -37,7 +37,8 @@ def create_cop(tag_name, kids, **fields):
         Value: The constructed COP node
     """
     # Get the Tag object from the cop internal module
-    cop_module = comp.get_cop_module()
+    cop_module = comp.get_internal_module("cop")
+
     tag_definition = cop_module.definitions().get(tag_name)
     if tag_definition is None:
         raise ValueError(f"Unknown COP tag: {tag_name}")
@@ -348,8 +349,20 @@ def cop_unparse(cop):
                     parts.append(kid.field("value").data)
             return '.'.join(parts) if parts else "<?>"
         case "value.reference":
-            return cop.to_python("identifier")
-            # if not found, could fallback on definition.qualified
+            # Get the qualified name from the reference
+            try:
+                qualified = cop.field("qualified").data
+                # Try to get import namespace first (e.g., "cop.test")
+                try:
+                    namespace = cop.field("namespace")
+                    if namespace is not None:
+                        return f"{namespace.data}.{qualified}"
+                except (KeyError, AttributeError):
+                    pass
+                # Otherwise just use qualified name
+                return qualified
+            except (KeyError, AttributeError):
+                return "<?>"
         case "value.constant":
             try:
                 value = cop.field("value")

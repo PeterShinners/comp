@@ -22,6 +22,8 @@ class Definition:
         module_id: Module token string (not reference)
         original_cop: The original COP node
         shape: Shape constant (comp.shape_block, comp.shape_shape, etc.)
+        private: Whether this definition is private to the module
+        auto_suffix: Whether this definition has an auto-generated suffix
     Attributes:
         qualified: (str) Fully qualified name (e.g., "cart", "add.i001")
         module_id: (str) Module token that owns this definition (avoids circular refs)
@@ -29,15 +31,19 @@ class Definition:
         resolved_cop: (Value | None) The resolved+folded+optimized COP node
         shape: (Shape) Shape constant indicating definition type
         value: (Value | None) The constant-folded value (Shape/Block/etc) if applicable
+        private: (bool) Whether this definition is private to the module
+        auto_suffix: (bool) Whether the qualified name has an auto-generated suffix
 
     """
-    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value")
+    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "private", "auto_suffix")
 
-    def __init__(self, qualified, module_id, original_cop, shape):
+    def __init__(self, qualified, module_id, original_cop, shape, private=False, auto_suffix=False):
         self.qualified = qualified
         self.module_id = module_id
         self.original_cop = original_cop
         self.shape = shape
+        self.private = private  # Whether this definition is private to the module
+        self.auto_suffix = auto_suffix  # Whether qualified name has auto-generated suffix
         self.resolved_cop = None  # Filled during identifier resolution
         self.value = None  # Filled during constant folding
 
@@ -92,6 +98,7 @@ class Module:
 
         # Intermediate cached parse passes
         self._scan = None
+        self._imports = None
         self._definitions = None
         self._namespace = None
         self._finalized = False
@@ -127,6 +134,64 @@ class Module:
             self._scan = comp._scan.scan(self.source.content)
         return self._scan
 
+    def imports(self):
+        """Dictionary of imported modules with metadata.
+
+        Each key is the name the module is imported as. The value is a dictionary
+        containing the module object, possible import error, source location,
+        documentation, and other known data.
+
+        This requires the module belongs to an Interpreter that has already
+        scanned and resolved its imports.
+
+        Returns:
+            dict: {name: {"module": Module|None, "error": Exception|None,
+                          "source": str, "location": str, "docs": str, ...}}
+        """
+        if self._imports is None:
+            raise comp.ModuleError("Module must belong to an interpreter.")
+
+        imports = {}
+        for name, (mod, err) in self._imports.items():
+            import_info = {
+                "module": mod,
+                "error": err,
+                "source": None,
+                "location": None,
+                "docs": None,
+            }
+
+            # Extract metadata from module if available
+            if mod is not None:
+                import_info["source"] = mod.source.resource
+                import_info["location"] = mod.source.location
+                try:
+                    scan = mod.scan()
+                    docs = scan.to_python("docs") or []
+                    if docs:
+                        import_info["docs"] = docs[0].get("content", "")
+                except:
+                    pass
+
+            imports[name] = import_info
+        return imports
+
+    def _register_imports(self, imports, definitions, namespace):
+        """Interpreter call to store registered imports and precached data.
+        
+        These modules are likely not parsed or finalized yet, but the
+        interpreter must do this before the complete namespace can be generated.
+
+        if the interpeter has precached information about the module definitions
+        or namespace it can be passed now.
+
+        """
+        if self._imports is not None:
+            raise comp.ModuleError("Module imports already registered.")
+        self._definitions = definitions
+        self._namespace = namespace
+        self._imports = imports
+
     def definitions(self):
         """Parse source and extract definitions into module.definitions dict.
 
@@ -147,24 +212,28 @@ class Module:
         self._definitions = comp.extract_definitions(cop_tree, self.token)
         return self._definitions
 
-    def namespace(self, imports=None):
+    def namespace(self):
         """(dict) Resolved namespace dict for identifier lookups.
 
         Each value is a DefinitionSet which will contain at least one definition
         and methods to help validate the various types of lookups (shape,
         call, value)
+
+        This requires the module belongs to an Interpreter that has already
+        scanned and resolved its imports.
+
         """
-        if imports is None:
-            imports = {}
         if self._namespace is not None:
             return self._namespace
 
-        # Don't try to get system module if we ARE the system module
-        if isinstance(self, SystemModule):
-            self._namespace = {}
-        else:
-            self._namespace = dict(SystemModule.get().namespace())
-        for import_name, import_module in imports.items():
+        if self._imports is None:
+            raise comp.ModuleError("Cannot build namespace until interpreter registers imports.")
+
+        sys = comp.get_internal_module("system")
+        self._namespace = dict(sys.namespace())
+        for import_name, (import_module, import_err) in self._imports.items():
+            if import_err:
+                raise import_err
             import_definitions = import_module.definitions()
             import_namespace = comp._namespace.create_namespace(import_definitions, import_name)
             self._namespace = comp._namespace.merge_namespace(self._namespace, import_namespace, clobber=False)
@@ -175,90 +244,23 @@ class Module:
 
         return self._namespace
 
-    def finalize(self, imports=None):
+    def finalize(self):
         """Build namespace and resolve identifiers. Auto-calls definitions if needed.
 
         Args:
             imports: Dict {import_name: Module} of resolved imports
-
-        Returns:
-            self (for chaining)
         """
-        # Phase 3: Build namespace and resolve identifiers to references
-        namespace = self.namespace(imports=imports)
+        if self._namespace is None:
+            raise comp.ModuleError("Cannot finalize module until interpreter generates namespace.")
         comp.resolve_identifiers(self._definitions, namespace)
 
-        # Phase 4: Constant folding - create Block/Shape values
         for definition in self._definitions.values():
             # Skip non-Definition objects (e.g., AST module Tags)
             if isinstance(definition, comp.Definition):
                 fold_definition(definition)
 
         self._finalized = True
-        return self
 
-
-class SystemModule(Module):
-    """System module singleton with several builtin attributes"""
-
-    _singleton = None
-
-    def __init__(self):
-        # Create a minimal ModuleSource for system module
-        source = type('obj', (object,), {'resource': 'system', 'content': ''})()
-        super().__init__(source)
-        self.token = "system#0000"
-
-        # Populate definitions dict with builtin tags and shapes as Definition objects
-        # These are pre-folded since they're built-in objects
-
-        self._definitions = {}
-
-        # Helper to create Definition with pre-folded value
-        def _create_builtin_def(name, obj, shape_type):
-            value = comp.Value.from_python(obj)
-            defn = comp.Definition(name, self.token, value, shape_type)
-            defn.resolved_cop = value  # Already resolved
-            defn.value = value  # Already folded
-            return defn
-
-        # Builtin tags - use shape_struct for tag values
-        self._definitions['nil'] = _create_builtin_def('nil', comp.tag_nil, comp.shape_struct)
-        self._definitions['bool'] = _create_builtin_def('bool', comp.tag_bool, comp.shape_struct)
-        self._definitions['bool.true'] = _create_builtin_def('bool.true', comp.tag_true, comp.shape_struct)
-        self._definitions['bool.false'] = _create_builtin_def('bool.false', comp.tag_false, comp.shape_struct)
-        # Note: 'true' and 'false' shortcuts are created via namespace permutations from 'bool.true' and 'bool.false'
-        self._definitions['fail'] = _create_builtin_def('fail', comp.tag_fail, comp.shape_struct)
-
-        # Builtin shapes
-        self._definitions['num'] = _create_builtin_def('num', comp.shape_num, comp.shape_shape)
-        self._definitions['text'] = _create_builtin_def('text', comp.shape_text, comp.shape_shape)
-        self._definitions['struct'] = _create_builtin_def('struct', comp.shape_struct, comp.shape_shape)
-        self._definitions['any'] = _create_builtin_def('any', comp.shape_any, comp.shape_shape)
-        self._definitions['func'] = _create_builtin_def('func', comp.shape_block, comp.shape_shape)
-
-        # Set convenience attributes for direct access
-        self.bool = comp.tag_bool
-        self.true = comp.tag_true
-        self.false = comp.tag_false
-        self.fail = comp.tag_fail
-        self.num = comp.shape_num
-        self.text = comp.shape_text
-        self.struct = comp.shape_struct
-        self.any = comp.shape_any
-        self.func = comp.shape_block
-
-        # Finalize to build namespace from definitions
-        self.finalize()
-
-    @classmethod
-    def get(cls):
-        """Get system module singleton."""
-        # Constructed lazy for first interpreter
-        global _system_module
-        if SystemModule._singleton is None:
-            SystemModule._singleton = cls()
-        return SystemModule._singleton
 
 def fold_definition(definition):
     """Perform constant folding on a definition to create Shape/Block values.
