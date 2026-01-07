@@ -216,18 +216,222 @@ class ExecutionFrame:
         Returns:
             Value result of the function call
         """
+        # Get the function signature from the block
+        signature_cop = block.data['signature_cop']
+        
+        # Parse signature to determine input parameters
+        sig_kids = comp.cop_kids(signature_cop)
+        param_names = []
+        for field_cop in sig_kids:
+            if hasattr(field_cop, 'to_python'):
+                name = field_cop.to_python('name')
+                if name:
+                    param_names.append(name)
+        
         # Create a new environment for the function
         # Start with the closure environment (captured at block definition)
-        # TODO: Handle signature/parameters properly - bind args to param names
-        new_env = dict(block.closure_env)
-
+        new_env = dict(block.data['closure_env'])
+        
+        # For now, treat the args as the argument input (not piped input)
+        # TODO: Distinguish between piped input vs argument input
+        if len(param_names) >= 2:
+            # Two parameters: first is piped input, second is arguments
+            # For dos(2), we don't have piped input, so use nil for first param
+            new_env[param_names[0]] = comp.Value.from_python(None)  # piped input
+            new_env[param_names[1]] = args  # argument input
+        elif len(param_names) == 1:
+            # One parameter: could be either piped or argument
+            # For now, assume it's argument input
+            new_env[param_names[0]] = args
+            
         # Execute the pre-compiled body instructions
         new_frame = ExecutionFrame(env=new_env, interp=self.interp)
         result = None
 
-        for instr in block.body_instructions:
+        for instr in block.data['body_instructions']:
             result = instr.execute(new_frame)
 
         # Return the final result
         return result if result is not None else comp.Value.from_python(None)
+
+
+# Instruction Classes
+# ===================
+
+class Instruction:
+    """Base class for all instructions."""
+    
+    def __init__(self, cop):
+        self.cop = cop  # Source COP node for error reporting
+    
+    def execute(self, frame):
+        """Execute this instruction in the given frame."""
+        raise NotImplementedError()
+
+
+class Const(Instruction):
+    """Load a constant value into a register."""
+    
+    def __init__(self, cop, value, dest):
+        super().__init__(cop)
+        self.value = value
+        self.dest = dest
+    
+    def execute(self, frame):
+        frame.registers[self.dest] = self.value
+        return self.value
+    
+    def __str__(self):
+        return f"const {self.dest} = {self.value.format()}"
+
+
+class LoadVar(Instruction):
+    """Load a variable from the environment into a register."""
+    
+    def __init__(self, cop, name, dest):
+        super().__init__(cop)
+        self.name = name
+        self.dest = dest
+    
+    def execute(self, frame):
+        if self.name not in frame.env:
+            raise NameError(f"Variable '{self.name}' not defined")
+        value = frame.env[self.name]
+        frame.registers[self.dest] = value
+        return value
+    
+    def __str__(self):
+        return f"load {self.dest} = {self.name}"
+
+
+class StoreVar(Instruction):
+    """Store a register value into the environment."""
+    
+    def __init__(self, cop, name, source):
+        super().__init__(cop)
+        self.name = name
+        self.source = source
+    
+    def execute(self, frame):
+        value = frame.get_value(self.source)
+        frame.env[self.name] = value
+        return value
+    
+    def __str__(self):
+        return f"store {self.name} = {self.source}"
+
+
+class BinOp(Instruction):
+    """Binary arithmetic/logical operation."""
+    
+    def __init__(self, cop, op, left, right, dest):
+        super().__init__(cop)
+        self.op = op
+        self.left = left
+        self.right = right
+        self.dest = dest
+    
+    def execute(self, frame):
+        left_val = frame.get_value(self.left)
+        right_val = frame.get_value(self.right)
+        
+        # Use the comp operations system
+        result = comp._ops.binary_op(left_val, self.op, right_val)
+        frame.registers[self.dest] = result
+        return result
+    
+    def __str__(self):
+        return f"binop {self.dest} = {self.left} {self.op} {self.right}"
+
+
+class UnOp(Instruction):
+    """Unary arithmetic/logical operation."""
+    
+    def __init__(self, cop, op, operand, dest):
+        super().__init__(cop)
+        self.op = op
+        self.operand = operand
+        self.dest = dest
+    
+    def execute(self, frame):
+        operand_val = frame.get_value(self.operand)
+        
+        # Use the comp operations system
+        result = comp._ops.unary_op(operand_val, self.op)
+        frame.registers[self.dest] = result
+        return result
+    
+    def __str__(self):
+        return f"unop {self.dest} = {self.op}{self.operand}"
+
+
+class BuildStruct(Instruction):
+    """Build a struct from field values."""
+    
+    def __init__(self, cop, fields, dest):
+        super().__init__(cop)
+        self.fields = fields  # List of (key, value) tuples
+        self.dest = dest
+    
+    def execute(self, frame):
+        # Build the struct data dict
+        struct_data = {}
+        for key, source in self.fields:
+            value = frame.get_value(source)
+            struct_data[key] = value
+        
+        # Create the struct Value
+        result = comp.Value.from_python(struct_data)
+        frame.registers[self.dest] = result
+        return result
+    
+    def __str__(self):
+        field_strs = [f"{k}={v}" for k, v in self.fields]
+        return f"struct {self.dest} = {{{', '.join(field_strs)}}}"
+
+
+class BuildBlock(Instruction):
+    """Build a block/function value."""
+    
+    def __init__(self, cop, signature_cop, body_instructions, dest):
+        super().__init__(cop)
+        self.signature_cop = signature_cop
+        self.body_instructions = body_instructions
+        self.dest = dest
+    
+    def execute(self, frame):
+        # Create a Block Value containing the instructions and signature
+        block_data = {
+            'signature_cop': self.signature_cop,
+            'body_instructions': self.body_instructions,
+            'closure_env': dict(frame.env)  # Capture current environment
+        }
+        result = comp.Value(comp.shape_block, block_data)
+        frame.registers[self.dest] = result
+        return result
+    
+    def __str__(self):
+        return f"block {self.dest} = <{len(self.body_instructions)} instructions>"
+
+
+class Invoke(Instruction):
+    """Invoke a function/block with arguments."""
+    
+    def __init__(self, cop, callable, args, dest):
+        super().__init__(cop)
+        self.callable = callable
+        self.args = args
+        self.dest = dest
+    
+    def execute(self, frame):
+        callable_val = frame.get_value(self.callable)
+        args_val = frame.get_value(self.args)
+        
+        # Use the frame's invoke_block method
+        result = frame.invoke_block(callable_val, args_val)
+        frame.registers[self.dest] = result
+        return result
+    
+    def __str__(self):
+        return f"invoke {self.dest} = {self.callable}({self.args})"
 

@@ -372,6 +372,38 @@ def main():
         prettynamespace(ns)
         return
 
+    if args.code:
+        # Build and display instruction code for each definition
+        defs = mod.definitions()
+        namespace = mod.namespace()
+        
+        print("Instructions for each definition:")
+        print("=" * 60)
+        
+        for name, definition in sorted(defs.items()):
+            print(f"\nDefinition: {name} ({definition.shape.qualified})")
+            print(f"Source: {comp.cop_unparse(definition.original_cop)}")
+            print("-" * 40)
+            
+            # Generate code using definition-focused approach
+            try:
+                # First ensure the definition is resolved
+                if not definition.resolved_cop:
+                    definition.resolved_cop = comp.cop_resolve(definition.original_cop, namespace)
+                
+                # Generate code using the new approach
+                instructions = comp.generate_code_for_definition(definition.resolved_cop)
+                
+                if instructions:
+                    for i, instr in enumerate(instructions):
+                        print(format_instruction(i, instr))
+                else:
+                    print("  (no instructions)")
+                    
+            except Exception as e:
+                print(f"  Code generation error: {e}")
+        return
+
     # Check if any output mode was specified
     if not any([args.larkcomp, args.larkscan, args.cop, args.resolve, args.code, args.eval, args.trace, args.definitions, args.scan]):
         parser.error("No output mode specified. Use --larkcomp, --larkscan, --cop, --resolve, --code, --eval, --trace, --scan, --imports, --definitions, or --namespace")

@@ -6,7 +6,7 @@ and easy to serialize.
 
 This data is usually generated from source with `comp.parse`. Each cop structure
 tracks the position it was generated from in the original source string. Cop
-data is built into executable code objects with `comp.build`.
+data is built into executable code objects with `comp.generate_code_for_definition`.
 
 Each cop node has a positional tag as its first child. There is also an optional
 "kids" field which contains a struct of positional cop nodes. (the kids can be
