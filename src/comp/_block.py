@@ -28,6 +28,9 @@ class Block:
         body: (object) AST node for function body
         frame: (ExecutionFrame | None) Closure frame from defining scope
         decorators: (list) Decorators to apply to evaluation
+        body_instructions: (list) Compiled bytecode for the body
+        closure_env: (dict) Captured environment from definition site
+        signature_cop: (Value) Original signature COP node
     """
 
     __slots__ = (
@@ -43,6 +46,9 @@ class Block:
         "body",
         "frame",
         "decorators",
+        "body_instructions",
+        "closure_env",
+        "signature_cop",
     )
 
     def __init__(self, qualified, private):
@@ -57,6 +63,9 @@ class Block:
         self.body = None
         self.frame = None
         self.decorators = []
+        self.body_instructions = None
+        self.closure_env = None
+        self.signature_cop = None
 
     def __repr__(self):
         return f"Block<{self.qualified}>"

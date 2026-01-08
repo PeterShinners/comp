@@ -86,7 +86,7 @@ SLASH.3: "/"
      | term (STAR | SLASH) pipeline_expr -> binary_op
 
 ?pipeline_expr: unary
-              | pipeline_expr (PIPE | PIPEFALLBACK) unary -> binary_op
+              | unary ((PIPE | PIPEFALLBACK) unary)+ -> pipeline
 
 ?unary: postfix
       | (PLUS | MINUS | LNOT) unary -> unary_op

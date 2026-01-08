@@ -2,12 +2,38 @@
 
 __all__ = [
     "InternalModule",
+    "InternalCallable",
     "SystemModule",
     "get_internal_module",
 ]
 
 import inspect
 import comp
+
+
+class InternalCallable:
+    """A Python function callable from Comp code.
+
+    Wraps a Python function so it can be invoked like a Comp block.
+    The Python function receives (input_val, args_val) and returns a Value.
+
+    Args:
+        name: (str) Name of the callable
+        func: (callable) Python function to call
+
+    Attributes:
+        name: (str) Name for display
+        func: (callable) The wrapped Python function
+    """
+
+    __slots__ = ("name", "func")
+
+    def __init__(self, name, func):
+        self.name = name
+        self.func = func
+
+    def __repr__(self):
+        return f"<InternalCallable {self.name}>"
 
 
 class InternalModule(comp.Module):
@@ -98,22 +124,23 @@ class InternalModule(comp.Module):
         """Add a callable definition to this module.
 
         Args:
-            qualified_name: Qualified name like "fold" or "unparse"
-            python_function: Python function to call
+            qualified_name: Qualified name like "fold" or "incr"
+            python_function: Python function to call. Receives (input_val, args_val)
+                and returns a Value.
 
         Returns:
             Definition: The created Definition object
         """
-        # For now, wrap the Python function in a Value
-        # TODO: Create proper InternalCallable type
+        callable_obj = InternalCallable(qualified_name, python_function)
+        value = comp.Value(callable_obj)
+        
         definition = comp.Definition(
             qualified=qualified_name,
             module_id=self.token,
             original_cop=None,
             shape=comp.shape_block
         )
-        definition.value = None  # Will be set to InternalCallable later
-        definition._python_function = python_function
+        definition.value = value
 
         self._definitions[qualified_name] = definition
         return definition
@@ -162,6 +189,19 @@ class SystemModule(comp.Module):
         self._definitions['struct'] = _create_builtin_def('struct', comp.shape_struct, comp.shape_shape)
         self._definitions['any'] = _create_builtin_def('any', comp.shape_any, comp.shape_shape)
         self._definitions['func'] = _create_builtin_def('func', comp.shape_block, comp.shape_shape)
+
+        # Builtin callables
+        def _incr(input_val, args_val):
+            """Increment a number by 1."""
+            n = input_val.to_python()
+            return comp.Value.from_python(n + 1)
+        
+        incr_callable = InternalCallable("incr", _incr)
+        incr_value = comp.Value(incr_callable)
+        incr_defn = comp.Definition("incr", self.token, incr_value, comp.shape_block)
+        incr_defn.resolved_cop = incr_value
+        incr_defn.value = incr_value
+        self._definitions['incr'] = incr_defn
 
         # Finalize to build namespace from definitions
         self.finalize()

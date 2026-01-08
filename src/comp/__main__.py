@@ -203,74 +203,17 @@ def prettynamespace(namespace):
 
 
 def format_instruction(idx, instr, indent=0):
-    """Format a single instruction for display."""
-    # Get instruction type name
-    instr_type = instr.__class__.__name__
-
-    # Indentation prefix
-    ind = "  " * indent
-
-    # Build a compact representation
-    parts = [f"{instr_type}"]
-
-    # Add key attributes based on instruction type
-    if hasattr(instr, 'value') and instr.value is not None:
-        # Const instruction
-        parts.append(f"value={instr.value.format()}")
-    if hasattr(instr, 'op') and instr.op is not None:
-        # Binary/Unary op
-        parts.append(f"op='{instr.op}'")
-    if hasattr(instr, 'name') and instr.name is not None:
-        # LoadVar/StoreVar
-        parts.append(f"name='{instr.name}'")
-    if hasattr(instr, 'left') and instr.left is not None:
-        # BinOp
-        left_str = instr.left.format() if hasattr(instr.left, 'format') else instr.left
-        parts.append(f"left={left_str}")
-    if hasattr(instr, 'right') and instr.right is not None:
-        # BinOp
-        right_str = instr.right.format() if hasattr(instr.right, 'format') else instr.right
-        parts.append(f"right={right_str}")
-    if hasattr(instr, 'operand') and instr.operand is not None:
-        # UnOp
-        operand_str = instr.operand.format() if hasattr(instr.operand, 'format') else instr.operand
-        parts.append(f"operand={operand_str}")
-    if hasattr(instr, 'source') and instr.source is not None:
-        # StoreVar, Return
-        source_str = instr.source.format() if hasattr(instr.source, 'format') else instr.source
-        parts.append(f"source={source_str}")
-    if hasattr(instr, 'callable') and instr.callable is not None:
-        # Invoke
-        callable_str = instr.callable.format() if hasattr(instr.callable, 'format') else instr.callable
-        parts.append(f"callable={callable_str}")
-    if hasattr(instr, 'args') and instr.args is not None:
-        # Invoke
-        args_str = instr.args.format() if hasattr(instr.args, 'format') else instr.args
-        parts.append(f"args={args_str}")
-    if hasattr(instr, 'fields') and instr.fields is not None:
-        # BuildStruct - show the field values
-        field_strs = []
-        for key, val in instr.fields:
-            if isinstance(key, comp.Unnamed):
-                key_str = "#"
-            else:
-                key_str = repr(key) if isinstance(key, str) else key.format() if hasattr(key, 'format') else str(key)
-            val_str = val.format() if hasattr(val, 'format') else val
-            field_strs.append(f"{key_str}={val_str}")
-        parts.append(f"[{', '.join(field_strs)}]")
-
-    # Always show dest if present
-    if hasattr(instr, 'dest') and instr.dest is not None:
-        parts.append(f"-> {instr.dest}")
-
-    result = f"{ind}  {idx:3d}  {' '.join(parts)}"
-
+    """Format a single instruction for display using SSA style."""
+    ind = "    " * indent
+    
+    # Use the instruction's format method
+    result = ind + instr.format(idx)
+    
     # If this is a BuildBlock, show nested body instructions
     if hasattr(instr, 'body_instructions') and instr.body_instructions:
-        result += f"\n{ind}       Body ({len(instr.body_instructions)} instructions):"
         for i, body_instr in enumerate(instr.body_instructions):
-            result += "\n" + format_instruction(i, body_instr, indent + 2)
-
+            result += "\n" + format_instruction(i, body_instr, indent + 1)
+    
     return result
 
 
@@ -372,37 +315,91 @@ def main():
         prettynamespace(ns)
         return
 
-    if args.code:
-        # Build and display instruction code for each definition
+    if args.code or args.eval or args.trace:
+        # Build instruction code for each definition
         defs = mod.definitions()
         namespace = mod.namespace()
         
-        print("Instructions for each definition:")
-        print("=" * 60)
+        # Optional: fold constants before code generation
+        if args.fold:
+            comp.fold_definitions(defs, namespace)
         
-        for name, definition in sorted(defs.items()):
-            print(f"\nDefinition: {name} ({definition.shape.qualified})")
-            print(f"Source: {comp.cop_unparse(definition.original_cop)}")
-            print("-" * 40)
-            
-            # Generate code using definition-focused approach
+        # Pass 1: Generate code for all definitions
+        for name, definition in defs.items():
             try:
-                # First ensure the definition is resolved
+                # Ensure the definition is resolved
                 if not definition.resolved_cop:
                     definition.resolved_cop = comp.cop_resolve(definition.original_cop, namespace)
                 
-                # Generate code using the new approach
-                instructions = comp.generate_code_for_definition(definition.resolved_cop)
+                # Apply constant folding if requested
+                if args.fold:
+                    definition.resolved_cop = comp.cop_fold(definition.resolved_cop, namespace)
                 
-                if instructions:
-                    for i, instr in enumerate(instructions):
+                # Generate and store instructions
+                definition.instructions = comp.generate_code_for_definition(definition.resolved_cop)
+            except Exception as e:
+                print(f"Code generation error for {name}: {e}")
+                return
+        
+        if args.code:
+            # Display instruction code for each definition
+            print("Instructions for each definition:")
+            print("=" * 60)
+            
+            for name, definition in sorted(defs.items()):
+                print(f"\nDefinition: {name} ({definition.shape.qualified})")
+                print(f"Source: {comp.cop_unparse(definition.original_cop)}")
+                print("-" * 40)
+                
+                if definition.instructions:
+                    for i, instr in enumerate(definition.instructions):
                         print(format_instruction(i, instr))
                 else:
                     print("  (no instructions)")
+            return
+        
+        if args.eval or args.trace:
+            # Pass 2: Execute definitions in order
+            # Build environment with all definition values
+            env = {}
+            
+            if args.trace:
+                # Create tracing frame subclass
+                class TracingFrame(comp.ExecutionFrame):
+                    def __init__(self, env=None, interp=None, depth=0):
+                        super().__init__(env, interp)
+                        self.depth = depth
                     
-            except Exception as e:
-                print(f"  Code generation error: {e}")
-        return
+                    def on_step(self, idx, instr, result):
+                        indent = "  " * self.depth
+                        result_str = result.format() if result else "(none)"
+                        print(f"{indent}{instr.format(idx)}  ->  {result_str}")
+                    
+                    def _make_child_frame(self, env):
+                        return TracingFrame(env=env, interp=self.interp, depth=self.depth + 1)
+                
+                # Execute with tracing
+                for name, definition in defs.items():
+                    if definition.instructions:
+                        print(f"\n-- {name} --")
+                        frame = TracingFrame(env, interp=interp, depth=0)
+                        result = frame.run(definition.instructions)
+                        env[name] = result
+            else:
+                # Normal execution
+                for name, definition in defs.items():
+                    if definition.instructions:
+                        result = interp.execute(definition.instructions, env)
+                        env[name] = result
+            
+            # Print final values
+            print("\nResults:")
+            print("=" * 60)
+            for name, definition in sorted(defs.items()):
+                if name in env:
+                    value = env[name]
+                    print(f"{name} = {value.format()}")
+            return
 
     # Check if any output mode was specified
     if not any([args.larkcomp, args.larkscan, args.cop, args.resolve, args.code, args.eval, args.trace, args.definitions, args.scan]):

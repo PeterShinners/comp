@@ -16,6 +16,7 @@ class Definition:
     1. Extract: Create with original_cop and shape
     2. Resolve: Populate resolved_cop with identifier references resolved
     3. Fold: Populate value with constant-folded Shape/Block/etc
+    4. Codegen: Populate instructions with bytecode
 
     Args:
         qualified: Fully qualified name (e.g., "cart", "add.i001")
@@ -31,11 +32,12 @@ class Definition:
         resolved_cop: (Value | None) The resolved+folded+optimized COP node
         shape: (Shape) Shape constant indicating definition type
         value: (Value | None) The constant-folded value (Shape/Block/etc) if applicable
+        instructions: (list | None) Bytecode instructions for this definition
         private: (bool) Whether this definition is private to the module
         auto_suffix: (bool) Whether the qualified name has an auto-generated suffix
 
     """
-    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "private", "auto_suffix")
+    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "auto_suffix")
 
     def __init__(self, qualified, module_id, original_cop, shape, private=False, auto_suffix=False):
         self.qualified = qualified
@@ -46,6 +48,7 @@ class Definition:
         self.auto_suffix = auto_suffix  # Whether qualified name has auto-generated suffix
         self.resolved_cop = None  # Filled during identifier resolution
         self.value = None  # Filled during constant folding
+        self.instructions = None  # Filled during code generation
 
     def __repr__(self):
         shape_name = self.shape.qualified
@@ -58,6 +61,10 @@ class Definition:
     def is_folded(self):
         """(bool) Whether constant folding has been performed."""
         return self.value is not None
+
+    def is_compiled(self):
+        """(bool) Whether bytecode has been generated."""
+        return self.instructions is not None
 
 
 class Module:

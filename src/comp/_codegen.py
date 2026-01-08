@@ -17,25 +17,21 @@ def generate_code_for_definition(cop):
     This is the main entry point for code generation. Takes a Definition
     and produces the instruction sequence needed to compute its value.
     
+    The generated code computes the value. The Definition object itself
+    handles binding that value to the name in the namespace.
+    
     Args:
         cop: (Value) cop nodes
         
     Returns:
-        List[Instruction]: Instruction sequence to compute the definition
+        List[Instruction]: Instruction sequence to compute the value
     """
     # Create a code generation context
     ctx = CodeGenContext()
     
     # Generate instructions for the definition's resolved COP
+    # The result is left in a register, no final store needed
     result_reg = ctx.build_expression(cop)
-    
-    # Add a final StoreVar to bind the result to the definition name  
-    store_instr = comp._interp.StoreVar(
-        cop=cop,
-        name="return", 
-        source=result_reg
-    )
-    ctx.instructions.append(store_instr)
     
     return ctx.instructions
 
@@ -43,26 +39,26 @@ def generate_code_for_definition(cop):
 class CodeGenContext:
     """Code generation context for a single definition.
     
-    This replaces the Builder pattern with a cleaner approach.
-    Context is immutable once created - no state mutation.
+    Uses SSA-style implicit register numbering - instruction index IS the register.
+    Operand references are integers pointing to previous instruction indices.
     """
     
     def __init__(self):
         self.instructions = []
-        self._next_register = 0
     
-    def gen_register(self):
-        """Generate a unique register name."""
-        name = f"%{self._next_register}"
-        self._next_register += 1
-        return name
+    def emit(self, instr):
+        """Emit an instruction and return its index (the implicit result register)."""
+        idx = len(self.instructions)
+        self.instructions.append(instr)
+        return idx
     
     def build_expression(self, cop):
         """Build instructions for an expression COP.
         
-        Returns the register name containing the final result.
+        Returns the instruction index containing the final result.
+        Always ensures the result is in a register (emits Const if needed).
         """
-        return self._build_value(cop)
+        return self._build_value_ensure_register(cop)
     
     def _build_value(self, cop):
         """Build a value from a COP node.
@@ -81,11 +77,8 @@ class CodeGenContext:
                 # Load from namespace/environment using qualified name
                 try:
                     qualified_name = cop.to_python("qualified")
-                    dest = self.gen_register()
-                    
-                    instr = comp._interp.LoadVar(cop=cop, name=qualified_name, dest=dest)
-                    self.instructions.append(instr)
-                    return dest
+                    instr = comp._interp.LoadVar(cop=cop, name=qualified_name)
+                    return self.emit(instr)
                     
                 except (AttributeError, KeyError) as e:
                     raise comp.CodeError(f"Invalid reference: {e}", cop)
@@ -98,11 +91,8 @@ class CodeGenContext:
                 if kids:
                     token_cop = kids[0]  # ident.token
                     name = token_cop.to_python("value")
-                    dest = self.gen_register()
-                    
-                    instr = comp._interp.LoadVar(cop=cop, name=name, dest=dest)
-                    self.instructions.append(instr)
-                    return dest
+                    instr = comp._interp.LoadVar(cop=cop, name=name)
+                    return self.emit(instr)
                 else:
                     raise comp.CodeError("Identifier has no token", cop)
             
@@ -126,6 +116,9 @@ class CodeGenContext:
             case "value.invoke":
                 return self._build_invoke(cop)
                 
+            case "value.pipeline":
+                return self._build_pipeline(cop)
+                
             case "value.block":
                 return self._build_block(cop)
                 
@@ -143,10 +136,8 @@ class CodeGenContext:
         left = self._build_value_ensure_register(kids[0])
         right = self._build_value_ensure_register(kids[1])
         
-        dest = self.gen_register()
-        instr = comp._interp.BinOp(cop=cop, op=op, left=left, right=right, dest=dest)
-        self.instructions.append(instr)
-        return dest
+        instr = comp._interp.BinOp(cop=cop, op=op, left=left, right=right)
+        return self.emit(instr)
     
     def _build_unary_op(self, cop):
         """Build unary operation instructions.""" 
@@ -155,10 +146,8 @@ class CodeGenContext:
         
         operand = self._build_value_ensure_register(kids[0])
         
-        dest = self.gen_register()
-        instr = comp._interp.UnOp(cop=cop, op=op, operand=operand, dest=dest)
-        self.instructions.append(instr)
-        return dest
+        instr = comp._interp.UnOp(cop=cop, op=op, operand=operand)
+        return self.emit(instr)
     
     def _build_invoke(self, cop):
         """Build function invocation instructions."""
@@ -166,18 +155,57 @@ class CodeGenContext:
         callable_cop = kids[0]
         
         # Build the callable
-        callable_reg = self._build_value_ensure_register(callable_cop)
+        callable_idx = self._build_value_ensure_register(callable_cop)
         
         # Process each argument as a separate call
-        result = callable_reg
+        result = callable_idx
         for arg_cop in kids[1:]:
-            arg_reg = self._build_value_ensure_register(arg_cop)
+            arg_idx = self._build_value_ensure_register(arg_cop)
+            instr = comp._interp.Invoke(cop=cop, callable=result, args=arg_idx)
+            result = self.emit(instr)
             
-            dest = self.gen_register() 
-            instr = comp._interp.Invoke(cop=cop, callable=result, args=arg_reg, dest=dest)
-            self.instructions.append(instr)
-            result = dest
+        return result
+    
+    def _build_pipeline(self, cop):
+        """Build pipeline instructions.
+        
+        A pipeline threads a value through a series of stages.
+        Each stage receives the previous result as piped input.
+        """
+        kids = _cop_kids(cop)
+        
+        # First stage is the initial value
+        result = self._build_value_ensure_register(kids[0])
+        
+        # Each subsequent stage receives the previous result as piped input
+        for stage_cop in kids[1:]:
+            stage_tag = stage_cop.positional(0).data.qualified
             
+            if stage_tag == "value.invoke":
+                # Piped invoke: callable(args) with piped input
+                invoke_kids = _cop_kids(stage_cop)
+                callable_cop = invoke_kids[0]
+                callable_idx = self._build_value_ensure_register(callable_cop)
+                
+                # Build args (remaining kids after callable)
+                if len(invoke_kids) > 1:
+                    arg_idx = self._build_value_ensure_register(invoke_kids[1])
+                else:
+                    # Empty args struct
+                    arg_idx = self.emit(comp._interp.BuildStruct(cop=stage_cop, fields=[]))
+                
+                # PipeInvoke passes result as piped input
+                instr = comp._interp.PipeInvoke(
+                    cop=stage_cop,
+                    callable=callable_idx,
+                    piped=result,
+                    args=arg_idx
+                )
+                result = self.emit(instr)
+            else:
+                # Non-invoke stage - just evaluate it (unusual but allowed)
+                result = self._build_value_ensure_register(stage_cop)
+        
         return result
     
     def _build_block(self, cop):
@@ -190,15 +218,12 @@ class CodeGenContext:
         body_ctx = CodeGenContext()
         body_ctx._build_value(body_cop)
         
-        dest = self.gen_register()
         instr = comp._interp.BuildBlock(
             cop=cop,
             signature_cop=signature_cop,
-            body_instructions=body_ctx.instructions,
-            dest=dest
+            body_instructions=body_ctx.instructions
         )
-        self.instructions.append(instr)
-        return dest
+        return self.emit(instr)
     
     def _build_struct(self, cop):
         """Build struct construction instructions."""
@@ -212,17 +237,16 @@ class CodeGenContext:
                 # Positional field: (struct.posfield kids=(value))
                 field_kids = _cop_kids(kid)
                 if field_kids:
-                    value_reg = self._build_value_ensure_register(field_kids[0])
-                    # Use unnamed key for positional field
-                    fields.append((comp.Unnamed(), value_reg))
+                    value_idx = self._build_value_ensure_register(field_kids[0])
+                    fields.append((comp.Unnamed(), value_idx))
                     
             elif tag == "struct.letassign":
                 # Local variable assignment: !let name=value
                 # Kids are positional: [name_cop, value_cop]
-                kids = _cop_kids(kid)
-                if len(kids) >= 2:
-                    name_cop = kids[0]  # value.identifier with the variable name
-                    value_cop = kids[1]  # expression for the value
+                let_kids = _cop_kids(kid)
+                if len(let_kids) >= 2:
+                    name_cop = let_kids[0]  # value.identifier with the variable name
+                    value_cop = let_kids[1]  # expression for the value
                     
                     # Extract the variable name from the identifier
                     name_kids = _cop_kids(name_cop)
@@ -231,46 +255,52 @@ class CodeGenContext:
                         name = token_cop.to_python("value")
                         
                         # Generate code for the value
-                        value_reg = self._build_value_ensure_register(value_cop)
+                        value_idx = self._build_value_ensure_register(value_cop)
                         
                         # Store as local variable
                         store_instr = comp._interp.StoreVar(
                             cop=kid,
                             name=name,
-                            source=value_reg
+                            source=value_idx
                         )
-                        self.instructions.append(store_instr)
+                        self.emit(store_instr)
                 # !let doesn't produce a field in the struct
                 
-            elif tag == "struct.namedfield":
+            elif tag == "struct.namefield":
                 # Named field: name=value
-                name = kid.to_python("name")
+                # Kids are [name_cop, value_cop] (in order: n=, v=)
                 field_kids = _cop_kids(kid)
-                if field_kids:
-                    value_reg = self._build_value_ensure_register(field_kids[0])
-                    fields.append((name, value_reg))
+                if len(field_kids) >= 2:
+                    name_cop = field_kids[0]  # value.identifier with the field name
+                    value_cop = field_kids[1]  # expression for the value
+                    
+                    # Extract the field name from the identifier
+                    name_kids = _cop_kids(name_cop)
+                    if name_kids:
+                        token_cop = name_kids[0]  # ident.token
+                        name = token_cop.to_python("value")
+                        
+                        value_idx = self._build_value_ensure_register(value_cop)
+                        fields.append((name, value_idx))
         
-        dest = self.gen_register()
-        instr = comp._interp.BuildStruct(cop=cop, fields=fields, dest=dest)
-        self.instructions.append(instr)
-        return dest
+        instr = comp._interp.BuildStruct(cop=cop, fields=fields)
+        return self.emit(instr)
     
     def _build_value_ensure_register(self, cop):
-        """Build a value and ensure it's in a register.
+        """Build a value and ensure it's in a register (has an index).
         
         If the value is a constant, emit a Const instruction to load it.
+        Returns the instruction index.
         """
         result = self._build_value(cop)
         
-        if isinstance(result, str):
-            # Already a register
+        if isinstance(result, int):
+            # Already an instruction index
             return result
         else:
-            # Constant value - load into register
-            dest = self.gen_register()
-            instr = comp._interp.Const(cop=cop, value=result, dest=dest)
-            self.instructions.append(instr)
-            return dest
+            # Constant value - emit Const instruction
+            instr = comp._interp.Const(cop=cop, value=result)
+            return self.emit(instr)
 
 
 def _cop_kids(cop):

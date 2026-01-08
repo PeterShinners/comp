@@ -17,7 +17,7 @@ from pathlib import Path
 
 import comp
 
-__all__ = ["Interp"]
+__all__ = ["Interp", "ExecutionFrame"]
 
 
 class Interp:
@@ -146,12 +146,7 @@ class Interp:
             Final result Value (from last instruction)
         """
         frame = ExecutionFrame(env, interp=self)
-        result = None
-
-        for instr in instructions:
-            result = instr.execute(frame)
-
-        return result
+        return frame.run(instructions)
 
     def _new_module(self, module):
         """Internally scan and register module."""
@@ -180,79 +175,130 @@ class ExecutionFrame:
     Holds registers (temporaries) and environment (variables).
     This is the mutable state passed through instruction execution.
 
+    Uses SSA-style implicit register numbering - instruction index IS the register.
+
     Attributes:
-        registers: Dict mapping register names to Values
+        registers: List of Values indexed by instruction number
         env: Dict mapping variable names to Values
         interp: The interpreter instance (for nested calls)
     """
 
     def __init__(self, env=None, interp=None):
-        self.registers = {}
+        self.registers = []  # List indexed by instruction number
         self.env = env if env is not None else {}
         self.interp = interp
 
-    def get_value(self, source):
-        """Get a value from either a register or directly.
+    def run(self, instructions):
+        """Execute a list of instructions, return final result.
 
         Args:
-            source: Either a register name (str) or a Value
+            instructions: List of instruction objects
+
+        Returns:
+            Value result of final instruction (or None)
+        """
+        result = None
+        for idx, instr in enumerate(instructions):
+            result = instr.execute(self)
+            self.on_step(idx, instr, result)
+        return result
+
+    def on_step(self, idx, instr, result):
+        """Hook called after each instruction executes.
+
+        Override in subclass to add tracing.
+
+        Args:
+            idx: Instruction index
+            instr: The instruction that executed
+            result: The result value
+        """
+        pass
+
+    def get_value(self, source):
+        """Get a value from either a register index or directly.
+
+        Args:
+            source: Either a register index (int) or a Value
 
         Returns:
             The Value
         """
-        if isinstance(source, str):
-            if source not in self.registers:
-                raise ValueError(f"Undefined register: {source}")
+        if isinstance(source, int):
+            if source >= len(self.registers):
+                raise ValueError(f"Undefined register: %{source}")
             return self.registers[source]
         return source
 
-    def invoke_block(self, block, args):
+    def set_result(self, value):
+        """Set the result of the current instruction.
+
+        The instruction index is implicitly len(registers).
+        """
+        self.registers.append(value)
+        return value
+
+    def invoke_block(self, block_val, args, piped=None):
         """Call a function with the given arguments.
 
         Args:
-            block: Value containing a Block
+            block_val: Value containing a Block or InternalCallable
             args: Value containing the argument struct
+            piped: Value for piped input (or None if not piped)
 
         Returns:
             Value result of the function call
         """
-        # Get the function signature from the block
-        signature_cop = block.data['signature_cop']
+        callable_obj = block_val.data
         
-        # Parse signature to determine input parameters
-        sig_kids = comp.cop_kids(signature_cop)
-        param_names = []
-        for field_cop in sig_kids:
-            if hasattr(field_cop, 'to_python'):
-                name = field_cop.to_python('name')
-                if name:
-                    param_names.append(name)
+        # Handle InternalCallable (Python function)
+        if isinstance(callable_obj, comp.InternalCallable):
+            input_val = piped if piped is not None else args
+            return callable_obj.func(input_val, args)
+        
+        # Handle Block (Comp function)
+        block = callable_obj
         
         # Create a new environment for the function
         # Start with the closure environment (captured at block definition)
-        new_env = dict(block.data['closure_env'])
+        new_env = dict(block.closure_env)
         
-        # For now, treat the args as the argument input (not piped input)
-        # TODO: Distinguish between piped input vs argument input
-        if len(param_names) >= 2:
-            # Two parameters: first is piped input, second is arguments
-            # For dos(2), we don't have piped input, so use nil for first param
-            new_env[param_names[0]] = comp.Value.from_python(None)  # piped input
-            new_env[param_names[1]] = args  # argument input
-        elif len(param_names) == 1:
-            # One parameter: could be either piped or argument
-            # For now, assume it's argument input
-            new_env[param_names[0]] = args
+        # Bind parameters based on the block's signature
+        # input_name gets the piped input (or args if no pipe)
+        # arg_name gets the arguments
+        if block.input_name and block.arg_name:
+            # Two parameters: input_name=piped, arg_name=args
+            new_env[block.input_name] = piped if piped is not None else comp.Value.from_python(None)
+            new_env[block.arg_name] = args
+        elif block.input_name:
+            # One parameter: gets piped if available, otherwise args
+            if piped is not None:
+                new_env[block.input_name] = piped
+            else:
+                new_env[block.input_name] = args
             
         # Execute the pre-compiled body instructions
-        new_frame = ExecutionFrame(env=new_env, interp=self.interp)
-        result = None
-
-        for instr in block.data['body_instructions']:
-            result = instr.execute(new_frame)
+        new_frame = self._make_child_frame(new_env)
+        result = new_frame.run(block.body_instructions)
 
         # Return the final result
         return result if result is not None else comp.Value.from_python(None)
+
+        # Return the final result
+        return result if result is not None else comp.Value.from_python(None)
+
+    def _make_child_frame(self, env):
+        """Create a child frame for nested execution.
+
+        Override in subclass to propagate tracing behavior.
+
+        Args:
+            env: Environment dict for the new frame
+
+        Returns:
+            New ExecutionFrame (or subclass)
+        """
+        return ExecutionFrame(env=env, interp=self.interp)
 
 
 # Instruction Classes
@@ -270,168 +316,195 @@ class Instruction:
 
 
 class Const(Instruction):
-    """Load a constant value into a register."""
+    """Load a constant value."""
     
-    def __init__(self, cop, value, dest):
+    def __init__(self, cop, value):
         super().__init__(cop)
         self.value = value
-        self.dest = dest
     
     def execute(self, frame):
-        frame.registers[self.dest] = self.value
-        return self.value
+        return frame.set_result(self.value)
     
-    def __str__(self):
-        return f"const {self.dest} = {self.value.format()}"
+    def format(self, idx):
+        return f"%{idx}  Const {self.value.format()}"
 
 
 class LoadVar(Instruction):
-    """Load a variable from the environment into a register."""
+    """Load a variable from the environment."""
     
-    def __init__(self, cop, name, dest):
+    def __init__(self, cop, name):
         super().__init__(cop)
         self.name = name
-        self.dest = dest
     
     def execute(self, frame):
-        if self.name not in frame.env:
-            raise NameError(f"Variable '{self.name}' not defined")
-        value = frame.env[self.name]
-        frame.registers[self.dest] = value
-        return value
+        # First check local environment
+        if self.name in frame.env:
+            value = frame.env[self.name]
+            return frame.set_result(value)
+        
+        # Fall back to system module for builtins
+        system = frame.interp.system
+        if system and self.name in system._definitions:
+            defn = system._definitions[self.name]
+            if defn.value:
+                return frame.set_result(defn.value)
+        
+        raise NameError(f"Variable '{self.name}' not defined")
     
-    def __str__(self):
-        return f"load {self.dest} = {self.name}"
+    def format(self, idx):
+        return f"%{idx}  LoadVar '{self.name}'"
 
 
 class StoreVar(Instruction):
-    """Store a register value into the environment."""
+    """Store a value into the environment (no result register)."""
     
     def __init__(self, cop, name, source):
         super().__init__(cop)
         self.name = name
-        self.source = source
+        self.source = source  # int index of source instruction
     
     def execute(self, frame):
         value = frame.get_value(self.source)
         frame.env[self.name] = value
-        return value
+        # StoreVar doesn't produce a result, but we still need to advance
+        return frame.set_result(value)
     
-    def __str__(self):
-        return f"store {self.name} = {self.source}"
+    def format(self, idx):
+        return f"%{idx}  StoreVar '{self.name}' = %{self.source}"
 
 
 class BinOp(Instruction):
     """Binary arithmetic/logical operation."""
     
-    def __init__(self, cop, op, left, right, dest):
+    def __init__(self, cop, op, left, right):
         super().__init__(cop)
         self.op = op
-        self.left = left
-        self.right = right
-        self.dest = dest
+        self.left = left    # int index
+        self.right = right  # int index
     
     def execute(self, frame):
         left_val = frame.get_value(self.left)
         right_val = frame.get_value(self.right)
-        
-        # Use the comp operations system
-        result = comp._ops.binary_op(left_val, self.op, right_val)
-        frame.registers[self.dest] = result
-        return result
+        result = comp._ops.math_binary(self.op, left_val, right_val)
+        return frame.set_result(result)
     
-    def __str__(self):
-        return f"binop {self.dest} = {self.left} {self.op} {self.right}"
+    def format(self, idx):
+        return f"%{idx}  BinOp '{self.op}' %{self.left} %{self.right}"
 
 
 class UnOp(Instruction):
     """Unary arithmetic/logical operation."""
     
-    def __init__(self, cop, op, operand, dest):
+    def __init__(self, cop, op, operand):
         super().__init__(cop)
         self.op = op
-        self.operand = operand
-        self.dest = dest
+        self.operand = operand  # int index
     
     def execute(self, frame):
         operand_val = frame.get_value(self.operand)
-        
-        # Use the comp operations system
-        result = comp._ops.unary_op(operand_val, self.op)
-        frame.registers[self.dest] = result
-        return result
+        result = comp._ops.math_unary(self.op, operand_val)
+        return frame.set_result(result)
     
-    def __str__(self):
-        return f"unop {self.dest} = {self.op}{self.operand}"
+    def format(self, idx):
+        return f"%{idx}  UnOp '{self.op}' %{self.operand}"
 
 
 class BuildStruct(Instruction):
     """Build a struct from field values."""
     
-    def __init__(self, cop, fields, dest):
+    def __init__(self, cop, fields):
         super().__init__(cop)
-        self.fields = fields  # List of (key, value) tuples
-        self.dest = dest
+        self.fields = fields  # List of (key, source_idx) tuples
     
     def execute(self, frame):
-        # Build the struct data dict
         struct_data = {}
         for key, source in self.fields:
             value = frame.get_value(source)
             struct_data[key] = value
-        
-        # Create the struct Value
         result = comp.Value.from_python(struct_data)
-        frame.registers[self.dest] = result
-        return result
+        return frame.set_result(result)
     
-    def __str__(self):
-        field_strs = [f"{k}={v}" for k, v in self.fields]
-        return f"struct {self.dest} = {{{', '.join(field_strs)}}}"
+    def format(self, idx):
+        parts = []
+        for key, src in self.fields:
+            if isinstance(key, comp.Unnamed):
+                parts.append(f"%{src}")
+            else:
+                parts.append(f"{key}=%{src}")
+        return f"%{idx}  BuildStruct ({' '.join(parts)})"
 
 
 class BuildBlock(Instruction):
     """Build a block/function value."""
     
-    def __init__(self, cop, signature_cop, body_instructions, dest):
+    def __init__(self, cop, signature_cop, body_instructions):
         super().__init__(cop)
         self.signature_cop = signature_cop
         self.body_instructions = body_instructions
-        self.dest = dest
     
     def execute(self, frame):
-        # Create a Block Value containing the instructions and signature
-        block_data = {
-            'signature_cop': self.signature_cop,
-            'body_instructions': self.body_instructions,
-            'closure_env': dict(frame.env)  # Capture current environment
-        }
-        result = comp.Value(comp.shape_block, block_data)
-        frame.registers[self.dest] = result
-        return result
+        # Create a Block object and store the execution data
+        block = comp.Block("anonymous", private=False)
+        block.body_instructions = self.body_instructions
+        block.closure_env = dict(frame.env)
+        block.signature_cop = self.signature_cop
+        
+        # Parse signature to extract parameter names
+        # shape.define contains shape.field children with name="paramname" attribute
+        sig_kids = comp.cop_kids(self.signature_cop)
+        for i, field_cop in enumerate(sig_kids):
+            # shape.field has name attribute directly
+            try:
+                param_name = field_cop.to_python("name")
+                if param_name:
+                    if i == 0:
+                        block.input_name = param_name
+                    elif i == 1:
+                        block.arg_name = param_name
+            except (KeyError, AttributeError):
+                pass
+        
+        result = comp.Value(block)
+        return frame.set_result(result)
     
-    def __str__(self):
-        return f"block {self.dest} = <{len(self.body_instructions)} instructions>"
+    def format(self, idx):
+        return f"%{idx}  BuildBlock ({len(self.body_instructions)} body)"
 
 
 class Invoke(Instruction):
-    """Invoke a function/block with arguments."""
+    """Invoke a function/block with arguments (no piped input)."""
     
-    def __init__(self, cop, callable, args, dest):
+    def __init__(self, cop, callable, args):
         super().__init__(cop)
-        self.callable = callable
-        self.args = args
-        self.dest = dest
+        self.callable = callable  # int index
+        self.args = args          # int index
     
     def execute(self, frame):
         callable_val = frame.get_value(self.callable)
         args_val = frame.get_value(self.args)
-        
-        # Use the frame's invoke_block method
-        result = frame.invoke_block(callable_val, args_val)
-        frame.registers[self.dest] = result
-        return result
+        result = frame.invoke_block(callable_val, args_val, piped=None)
+        return frame.set_result(result)
     
-    def __str__(self):
-        return f"invoke {self.dest} = {self.callable}({self.args})"
+    def format(self, idx):
+        return f"%{idx}  Invoke %{self.callable} (%{self.args})"
+
+
+class PipeInvoke(Instruction):
+    """Invoke a function/block with piped input and arguments."""
+    
+    def __init__(self, cop, callable, piped, args):
+        super().__init__(cop)
+        self.callable = callable  # int index
+        self.piped = piped        # int index - the piped input value
+        self.args = args          # int index
+    
+    def execute(self, frame):
+        callable_val = frame.get_value(self.callable)
+        piped_val = frame.get_value(self.piped)
+        args_val = frame.get_value(self.args)
+        result = frame.invoke_block(callable_val, args_val, piped=piped_val)
+        return frame.set_result(result)
+    
+    def format(self, idx):
+        return f"%{idx}  PipeInvoke %{self.callable} (%{self.piped} | %{self.args})"
 

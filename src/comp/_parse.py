@@ -64,7 +64,7 @@ def create_cop_module(module):
         "value.logic.binary",  # (op, kids)  2 kids
         "value.logic.unary",  # (op, kids)  1 kids
         "value.invoke",  # (kids)  kids 2+ kids; callable, argsandblocks
-        "value.pipe",  # (kids)
+        "value.pipeline",  # (kids) pipeline stages
         "value.fallback",  # (kids)
         "value.postfix",  # (left, kids)
         "value.transact",  # (kids)
@@ -195,6 +195,11 @@ def lark_to_cop(tree):
             if op == "??":
                 return _parsed(tree, "value.fallback", {"l": left, "r": right}, op=op)
             return _parsed(tree, "value.math.binary", {"l": left, "r": right}, op=op)
+
+        case "pipeline":
+            # Collect all pipeline stages (skip the | operators which are Token objects)
+            stages = [lark_to_cop(kid) for kid in kids if isinstance(kid, lark.Tree)]
+            return _parsed(tree, "value.pipeline", stages)
 
         case "compare_op":
             left = lark_to_cop(kids[0])
