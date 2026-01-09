@@ -71,7 +71,31 @@ class CodeGenContext:
         
         match tag:
             case "value.constant":
-                return cop.field("value")
+                const_val = cop.field("value")
+                # If the constant is a Block, we need to emit BuildBlock
+                # to properly set up closure_env and body_instructions at runtime
+                if isinstance(const_val.data, comp.Block):
+                    block = const_val.data
+                    # Reconstruct signature_cop from the block
+                    # For now, build instructions for the body and use BuildBlock
+                    body_cop = block.body
+                    if body_cop is not None:
+                        body_ctx = self.__class__()
+                        body_ctx.build_expression(body_cop)
+                        body_instructions = body_ctx.instructions
+                    else:
+                        body_instructions = []
+                    # Get signature from the block's original cop if available
+                    sig_cop = const_val.cop.field("kids").data
+                    sig_list = list(sig_cop.values())
+                    signature_cop = sig_list[0] if sig_list else None
+                    instr = comp._interp.BuildBlock(
+                        cop=cop, 
+                        signature_cop=signature_cop, 
+                        body_instructions=body_instructions
+                    )
+                    return self.emit(instr)
+                return const_val
                 
             case "value.reference":
                 # Load from namespace/environment using qualified name

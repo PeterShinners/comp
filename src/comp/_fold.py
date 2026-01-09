@@ -106,7 +106,7 @@ def cop_fold(cop, namespace=None):
             return _make_constant(cop, constant)
 
     if changed:
-        return comp.create_cop(tag, kids)
+        return comp.cop_rebuild(cop, kids)
     return cop
 
 

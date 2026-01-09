@@ -293,7 +293,7 @@ def fold_definition(definition):
         return
 
     # Perform constant folding on the COP tree
-    folded_cop = comp._parse.cop_fold(cop)
+    folded_cop = comp.cop_fold(cop)
 
     # For blocks, create Block objects
     if definition.shape is comp.shape_block:

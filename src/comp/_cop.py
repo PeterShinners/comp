@@ -16,6 +16,8 @@ __all__ = [
     "create_cop",
     "cop_tag",
     "cop_kids",
+    "cop_fields",
+    "cop_rebuild",
     "cop_unparse",
     "cop_resolve",
     "resolve_identifiers",
@@ -83,6 +85,41 @@ def cop_kids(cop_node):
         return list(kids.data.values())
     except (KeyError, AttributeError, TypeError):
         return []
+
+
+def cop_fields(cop_node):
+    """Extract named fields from a COP node (excluding tag and kids).
+
+    Args:
+        cop_node: A COP Value node
+
+    Returns:
+        dict: Field name -> value mapping
+    """
+    fields = {}
+    for key, val in cop_node.data.items():
+        if isinstance(key, comp.Unnamed):
+            continue  # Skip the tag
+        key_str = key.data if hasattr(key, "data") else key
+        if key_str == "kids":
+            continue  # Skip kids
+        fields[key_str] = val
+    return fields
+
+
+def cop_rebuild(cop_node, kids):
+    """Rebuild a COP node with new kids, preserving all other fields.
+
+    Args:
+        cop_node: Original COP node
+        kids: New list of child nodes
+
+    Returns:
+        New COP node with same tag and fields but new kids
+    """
+    tag = cop_tag(cop_node)
+    fields = cop_fields(cop_node)
+    return create_cop(tag, kids, **fields)
 
 
 # Identifier Resolution

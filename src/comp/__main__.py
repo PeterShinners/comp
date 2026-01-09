@@ -226,6 +226,7 @@ def main():
     parser.add_argument("--pos", action="store_true", help="Show line:column positions for nodes")
     parser.add_argument("--resolve", action="store_true", help="Resolve cop references")
     parser.add_argument("--fold", action="store_true", help="Fold cop constants")
+    parser.add_argument("--pure", action="store_true", help="Evaluate pure function invokes at compile time")
 
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--larkscan", action="store_true", help="Show scan Lark parse tree")
@@ -292,6 +293,14 @@ def main():
         if args.fold:
             # Pass namespace for reference folding if available
             cop_tree = comp.cop_fold(cop_tree, namespace)
+        if args.pure:
+            # Evaluate pure function invokes
+            if namespace is None:
+                defs = mod.definitions()
+                namespace = mod.namespace()
+            comp.evaluate_pure_definitions(defs, namespace, interp)
+            # Re-fold after pure evaluation
+            cop_tree = comp.cop_fold(cop_tree, namespace)
         if args.cop:
             prettycop(cop_tree, show_pos=args.pos)
         elif args.unparse:
@@ -320,21 +329,28 @@ def main():
         defs = mod.definitions()
         namespace = mod.namespace()
         
-        # Optional: fold constants before code generation
-        if args.fold:
+        # Pre-fold: always with --fold, or implicitly with --pure
+        if args.fold or args.pure:
             comp.fold_definitions(defs, namespace)
+        
+        # Resolve all definitions first
+        for name, definition in defs.items():
+            if not definition.resolved_cop:
+                definition.resolved_cop = comp.cop_resolve(definition.original_cop, namespace)
+            if args.fold or args.pure:
+                definition.resolved_cop = comp.cop_fold(definition.resolved_cop, namespace)
+        
+        # Evaluate pure function invokes
+        if args.pure:
+            comp.evaluate_pure_definitions(defs, namespace, interp)
+            # Post-fold after pure evaluation (only if --fold specified)
+            if args.fold:
+                for name, definition in defs.items():
+                    definition.resolved_cop = comp.cop_fold(definition.resolved_cop, namespace)
         
         # Pass 1: Generate code for all definitions
         for name, definition in defs.items():
             try:
-                # Ensure the definition is resolved
-                if not definition.resolved_cop:
-                    definition.resolved_cop = comp.cop_resolve(definition.original_cop, namespace)
-                
-                # Apply constant folding if requested
-                if args.fold:
-                    definition.resolved_cop = comp.cop_fold(definition.resolved_cop, namespace)
-                
                 # Generate and store instructions
                 definition.instructions = comp.generate_code_for_definition(definition.resolved_cop)
             except Exception as e:

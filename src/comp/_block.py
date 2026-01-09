@@ -64,7 +64,7 @@ class Block:
         self.frame = None
         self.decorators = []
         self.body_instructions = None
-        self.closure_env = None
+        self.closure_env = {}
         self.signature_cop = None
 
     def __repr__(self):
