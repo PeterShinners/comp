@@ -106,8 +106,8 @@ SLASH.3: "/"
 // Structures and Blocks
 KEY_LET.8: "!let"
 block: COLON shape_field* structure
-structure: PAREN_OPEN struct_decorator* (let_assign|struct_field)* PAREN_CLOSE
-struct_decorator: PIPE identifier
+structure: PAREN_OPEN struct_wrapper* (let_assign|struct_field)* PAREN_CLOSE
+struct_wrapper: PIPE identifier
 let_assign: KEY_LET identifier ASSIGN expression
 struct_field: (identifier ASSIGN)? expression
 

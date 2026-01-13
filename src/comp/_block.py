@@ -27,7 +27,6 @@ class Block:
         arg_shape: (Shape) Shape constraint for argument
         body: (object) AST node for function body
         frame: (ExecutionFrame | None) Closure frame from defining scope
-        decorators: (list) Decorators to apply to evaluation
         body_instructions: (list) Compiled bytecode for the body
         closure_env: (dict) Captured environment from definition site
         signature_cop: (Value) Original signature COP node
@@ -45,7 +44,6 @@ class Block:
         "arg_shape",
         "body",
         "frame",
-        "decorators",
         "body_instructions",
         "closure_env",
         "signature_cop",
@@ -62,7 +60,6 @@ class Block:
         self.arg_shape = None
         self.body = None
         self.frame = None
-        self.decorators = []
         self.body_instructions = None
         self.closure_env = {}
         self.signature_cop = None
@@ -77,7 +74,7 @@ class Block:
         """Format function as literal string representation.
 
         Returns:
-            (str) Formatted function like ":a b(|val x)" or ":()"
+            (str) Formatted function like ":a b(|wrap x)" or ":()"
         """
         sig = []
         if self.input_name:
@@ -97,14 +94,8 @@ class Block:
         if self.pure:
             sig.append("pure")
 
-        # Format body with decorators
+        # Format body
         body_parts = []
-        dec_parts = []
-        for dec in self.decorators:
-            dec_ident = comp.cop_unparse(dec)
-            dec_parts.append(f"|{dec_ident}")
-        body_parts.append("".join(dec_parts))
-
         if self.body:
             body_str = comp.cop_unparse(self.body)
             # Remove outer parentheses from struct.define
@@ -172,39 +163,8 @@ def create_blockdef(qualified_name, private, cop_node):
                     block.arg_name = field_name
                     block.arg_shape = field_kids[0] if field_kids else None
 
-    # Extract decorators from body (leading struct.decorator nodes)
-    # and separate them from the actual body
-    if body_cop:
-        body_kids = list(comp.cop_kids(body_cop))
-        for body_start, kid in enumerate(body_kids, 1):
-            if comp.cop_tag(kid) == "struct.decorator":
-                # Extract decorator identifier
-                dec_kids = comp.cop_kids(kid)
-                block.decorators.append(dec_kids[0])
-            else:
-                break
-
-        # Create new body without decorators if we found any
-        # Ugh, this is miserable and clumsy, needs to be elegent
-        if block.decorators:
-            # Reconstruct struct.define with remaining kids
-            body_dict = dict(body_cop.data)
-            # Remove old kids and create new kids list
-            remaining_kids = body_kids[body_start:]
-            if remaining_kids:
-                # Build new kids struct
-                new_kids = {}
-                for kid in remaining_kids:
-                    new_kids[comp.Unnamed()] = kid
-                body_dict[comp.Value.from_python("kids")] = comp.Value.from_python(new_kids)
-            else:
-                # Empty body
-                body_dict[comp.Value.from_python("kids")] = comp.Value.from_python({})
-            block.body = comp.Value.from_python(body_dict)
-        else:
-            block.body = body_cop
-    else:
-        block.body = None
+    # Store body COP
+    block.body = body_cop
 
     # Wrap in Value and set cop attribute
     value = comp.Value.from_python(block)

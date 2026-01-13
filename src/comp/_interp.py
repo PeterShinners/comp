@@ -254,7 +254,7 @@ class ExecutionFrame:
         # Handle InternalCallable (Python function)
         if isinstance(callable_obj, comp.InternalCallable):
             input_val = piped if piped is not None else args
-            return callable_obj.func(input_val, args)
+            return callable_obj.func(input_val, args, self)
         
         # Handle Block (Comp function)
         block = callable_obj

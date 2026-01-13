@@ -59,7 +59,7 @@ arguments. `sum(1 2 3)`.
 These callable structures have several other states and flags they can use.
 
 - Pure functions cannot use external resources but can be called at build time
-- Extended functions wrap existing functions and inherit their functionality
+- Wrapped functions intercept calls to add behavior around existing functions
 
 ## Invoking
 
@@ -310,34 +310,136 @@ engine() |car() |car() |caboose() # "train says, chugga chugga choo choo"
 In this example, there will be a build time failure if `car` or `caboose` are
 called without a preceding engine.
 
-## Function Extensions
+## Function Wrapping
 
-A function can be defined as an extension of another function, allowing you to
-wrap existing behavior with additional logic before and after the call. If
-you're familiar with decorators in other languages, extensions serve a similar
-purpose.
+Comp provides a unified mechanism for wrapping functions—intercepting calls to
+transform inputs, modify outputs, or add behavior around the original logic.
+This single concept covers what other languages split between decorators and
+middleware.
 
-The extension inherits the original function's documentation, arguments, input
-shapes, and other attributes. When you call the extension, you control whether
-and when the underlying function runs.
+The `wrap` function handles two related cases:
+
+1. **Defining a wrapper** — creating a wrapper that targets an existing function
+2. **Composing wrappers** — applying an existing wrapper to an existing function
+
+Additionally, functions can request to be wrapped using inline syntax at the
+start of their block.
+
+All wrappers receive a consistent context shape:
+
+```comp
+wrapping = ~(
+   callable   -- the function being wrapped
+   input      -- pipeline input
+   args       -- caller's arguments
+)
+```
+
+### Requesting Wrappers
+
+A function can declare wrappers at the start of its body using `|wrapper`
+syntax. These wrappers will intercept all calls to this function. Multiple
+wrappers are applied left to right—the leftmost wrapper is outermost and called
+first.
+
+```comp
+handle = :~event[type==mouse.up] ~state (|update
+    state.fist | move(-10 -90)
+)
+
+total = :~cart pure (|validate
+    cart.items | sum:item(item.price * item.quantity) * (1 - cart.discount)
+)
+```
+
+When these functions are called, the call passes through the declared wrappers
+before reaching the function body. This keeps wrapper declarations visible at
+the point of definition.
+
+### Defining a Wrapper
+
+A wrapper definition uses the `wrap` function with a target and a block. The
+block receives the `wrapping` context and controls when and how the original
+function is called.
+
+```comp
+logged = wrap(trim) :~wrapping
+    log("calling trim with" wrapping.args)
+    result = wrapping.input | wrapping.callable(wrapping.args)
+    log("trim returned" result)
+    result
+```
+
+The wrapper inherits the original function's documentation, arguments, input
+shapes, and other attributes. Inside the wrapper body, `wrapping.callable`
+refers to the original function (or the next wrapper in a chain).
+
+Wrappers can define their own arguments, which merge with the wrapped function's
+arguments to form the external signature:
+
+```comp
+logged = wrap(some-func) :~wrapping args~(~severity)
+    severity >= threshold | if :(log("calling" wrapping.args))
+    wrapping.input | wrapping.callable(wrapping.args)
+```
+
+Standard morphing rules apply when calling `wrapping.callable`, so most wrappers
+don't need to filter or manipulate arguments they don't care about—extra fields
+simply won't match the inner function's shape. Conflicts between wrapper and
+wrapped argument names can be detected by linting.
 
 Common uses:
 
 - Add logging or debugging output
 - Validate or transform arguments before calling the original
 - Process or modify the return value
-- Add optional behavior (like caching) without changing the original function
+- Add optional behavior like caching without changing the original function
+- Implement retry logic or error handling
 
-When extended the function namespace has an additional `extend` variable in the
-namespace which identifies the arguments and reference to the original function.
-The common `in` variable still represents the input for the function.
+A pure wrapper that adds validation:
 
 ```comp
-logged-trim = :extends=trim args~(log ~logger) (
-    args.log |info("Someone called trim with $(extend.args)")
-    in |extend.base(extend.args)
+validated = wrap(save) :~wrapping pure
+    wrapping.input | validate() | if-error :(
+        error("Invalid record: $(it)")
+    )
+    wrapping.input | wrapping.callable(wrapping.args)
+```
+
+### Composing Wrappers
+
+An existing wrapper can be applied to an existing function by passing both to
+`wrap`:
+
+```comp
+my-logger = wrap(some-func) :~wrapping
+    log("call")
+    wrapping.input | wrapping.callable(wrapping.args)
+
+-- Apply an existing wrapper to a different function
+traced-handler = wrap(handler my-logger)
+```
+
+This is straightforward composition—the result is a new callable that passes
+through the wrapper before reaching the original function.
+
+### Wrapper Ordering
+
+When multiple wrappers are involved, they form layers around the core function.
+The ordering follows Comp's left-to-right convention:
+
+```comp
+-- logging is outermost, validate is inner, function body is innermost
+process = :~data (|logging|validate
+    data | transform()
 )
 ```
+
+A call to `process` flows: logging → validate → function body → validate returns
+→ logging returns.
+
+This matches how you'd read a pipeline—data flows left to right through each
+stage.
 
 ## Blocks and Control Flow
 

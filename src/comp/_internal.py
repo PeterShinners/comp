@@ -15,7 +15,8 @@ class InternalCallable:
     """A Python function callable from Comp code.
 
     Wraps a Python function so it can be invoked like a Comp block.
-    The Python function receives (input_val, args_val) and returns a Value.
+    The Python function receives (input_val, args_val, frame) and returns a Value.
+    The frame parameter is optional - functions that don't need it can ignore it.
 
     Args:
         name: (str) Name of the callable
@@ -191,7 +192,7 @@ class SystemModule(comp.Module):
         self._definitions['func'] = _create_builtin_def('func', comp.shape_block, comp.shape_shape)
 
         # Builtin callables
-        def _incr(input_val, args_val):
+        def _incr(input_val, args_val, frame):
             """Increment a number by 1."""
             n = input_val.to_python()
             return comp.Value.from_python(n + 1)
@@ -202,6 +203,41 @@ class SystemModule(comp.Module):
         incr_defn.resolved_cop = incr_value
         incr_defn.value = incr_value
         self._definitions['incr'] = incr_defn
+
+        def _wrap(input_val, args_val, frame):
+            """Wrap a callable with outer wrappers.
+            
+            For now, just invokes the inner callable:
+            wrapped.input | wrapped.callable(wrapped.args)
+            
+            Args:
+                input_val: The wrap context ~(callable input args)
+                args_val: Unused for now
+                frame: The interpreter frame for invoking callables
+                
+            Returns:
+                Result of invoking the inner callable
+            """
+            # Extract from wrap context struct
+            # input_val is ~(callable input args)
+            ctx = input_val.data
+            callable_val = ctx.get(comp.Value.from_python("callable"))
+            inner_input = ctx.get(comp.Value.from_python("input"))
+            inner_args = ctx.get(comp.Value.from_python("args"))
+            
+            # Invoke: inner_input | callable(inner_args)
+            if callable_val is None:
+                return comp.Value.from_python(None)
+            
+            # callable_val is already a Value from struct.get()
+            return frame.invoke_block(callable_val, inner_args, inner_input)
+        
+        wrap_callable = InternalCallable("wrap", _wrap)
+        wrap_value = comp.Value(wrap_callable)
+        wrap_defn = comp.Definition("wrap", self.token, wrap_value, comp.shape_block)
+        wrap_defn.resolved_cop = wrap_value
+        wrap_defn.value = wrap_value
+        self._definitions['wrap'] = wrap_defn
 
         # Finalize to build namespace from definitions
         self.finalize()

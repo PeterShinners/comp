@@ -43,7 +43,6 @@ def create_cop_module(module):
         "struct.posfield",  # (kids) 1 kid
         "struct.namefield",  # (op, kids) 2 kids (name value)
         "struct.letassign",  # (name, kids) 1 kid (value)
-        "struct.decorator",  # (op, kids) 1 kid (name/identifier/ref)
         "mod.define",  # (kids)
         "mod.namefield",  # (op, kids) 2 kids (name value)
         "value.identassign",  # (kids)  same as identifier, but in an assignment
@@ -96,38 +95,6 @@ def lark_parser(name):
     _parsers[name] = parser
     return parser
 
-
-_copmodule = None
-_tagnames = {}
-
-
-def cop_module_init():
-    """Create and populate the cop module"""
-    global _copmodule
-    if _copmodule is None:
-        # Create a minimal ModuleSource for cop module
-        source = type('obj', (object,), {'resource': 'cop', 'content': ''})()
-        _copmodule = comp.Module(source)
-        _copmodule._definitions = {}
-
-        tag_def = comp.Tag("test", False)
-        tag_def.module = _copmodule
-        value = comp.Value.from_python(tag_def)
-        _copmodule._definitions[name] = value
-
-        for name in COP_TAGS:
-            tag_def = comp.Tag(name, False)
-            tag_def.module = _copmodule
-            # Wrap in Value and store in definitions
-            value = comp.Value.from_python(tag_def)
-            _copmodule._definitions[name] = value
-            # Store Tag for cop node construction
-            _tagnames[name] = tag_def
-            # Eventually want real shapes to go with each of these,
-            # but for now we freestyle it.
-
-        _copmodule.finalize()
-    return _copmodule
 
 
 def _parsed(treetoken, tag, kids, **fields):
@@ -271,10 +238,6 @@ def lark_to_cop(tree):
             value = lark_to_cop(kids[2])
             return _parsed(tree, "struct.namefield", {"n": name, "v": value}, op=op)
 
-        case "struct_decorator":
-            name = lark_to_cop(kids[1])
-            return _parsed(tree, "struct.decorator", [name])
-
         case "let_assign":
             name = lark_to_cop(kids[1])
             op = kids[2].value
@@ -285,8 +248,48 @@ def lark_to_cop(tree):
             # Signature is shape_fields (all kids except first COLON and last structure)
             sig_fields = [lark_to_cop(kid) for kid in kids[1:-1]]
             signature = _parsed(tree, "shape.define", sig_fields)
-            body = lark_to_cop(kids[-1])
-            return _parsed(tree, "value.block", {"s": signature, "b": body})
+            
+            # Get the structure (last kid) and check for wrappers
+            structure = kids[-1]
+            struct_kids = structure.children[1:-1]  # Skip PAREN_OPEN and PAREN_CLOSE
+            
+            # Separate struct_wrapper Lark nodes from regular body kids
+            wrapper_lark_nodes = [k for k in struct_kids if isinstance(k, lark.Tree) and k.data == "struct_wrapper"]
+            
+            if wrapper_lark_nodes:
+                # Build body without wrappers
+                body_lark_nodes = [k for k in struct_kids if not (isinstance(k, lark.Tree) and k.data == "struct_wrapper")]
+                body_cops = [lark_to_cop(kid) for kid in body_lark_nodes]
+                body = _parsed(structure, "struct.define", body_cops)
+            else:
+                # No wrappers - use structure as-is
+                body = lark_to_cop(structure)
+            
+            # Build the block
+            block_cop = _parsed(tree, "value.block", {"s": signature, "b": body})
+            
+            if not wrapper_lark_nodes:
+                return block_cop
+            
+            # Build wrap identifier node
+            wrap_ident = _parsed(tree, "value.identifier", [
+                _parsed(tree, "ident.token", [], value="wrap")
+            ])
+            
+            # Wrap with each wrapper (innermost first, so reverse order)
+            # :(|outer |inner body) becomes wrap((outer wrap((inner :(body)))))
+            result = block_cop
+            for wrapper_node in reversed(wrapper_lark_nodes):
+                # Extract identifier from struct_wrapper: PIPE identifier
+                wrapper_ident = lark_to_cop(wrapper_node.children[1])
+                # Build args struct with two positional fields: wrapper and inner
+                args_struct = _parsed(tree, "struct.define", [
+                    _parsed(tree, "struct.posfield", [wrapper_ident]),
+                    _parsed(tree, "struct.posfield", [result])
+                ])
+                # Build wrap(args_struct)
+                result = _parsed(tree, "value.invoke", [wrap_ident, args_struct])
+            return result
 
         case "mod_field":
             name = lark_to_cop(kids[0])
