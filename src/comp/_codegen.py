@@ -321,7 +321,17 @@ class CodeGenContext:
         for kid in kids:
             tag = kid.positional(0).data.qualified
 
-            if tag == "shape.field":
+            if tag == "shape.union":
+                # Shape union - build each member and create union
+                union_kids = _cop_kids(kid)
+                member_indices = []
+                for ukid in union_kids:
+                    idx = self._build_value_ensure_register(ukid)
+                    member_indices.append(idx)
+                instr = comp._interp.BuildShapeUnion(cop=cop, member_indices=member_indices)
+                return self.emit(instr)
+
+            elif tag == "shape.field":
                 # Shape field: name, optional shape constraint, optional default
                 name = None
                 shape_idx = None

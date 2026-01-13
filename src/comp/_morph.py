@@ -81,6 +81,22 @@ def _get_value_tag(value):
     return None
 
 
+def _shape_name(shape):
+    """Get a display name for a shape constraint.
+
+    Args:
+        shape: (Shape | Tag | ShapeUnion) The shape
+
+    Returns:
+        (str) Human-readable name for error messages
+    """
+    if hasattr(shape, "qualified"):
+        return shape.qualified
+    if hasattr(shape, "format"):
+        return shape.format()
+    return str(shape)
+
+
 def _tag_matches_shape(tag, shape):
     """Check if a tag matches a shape constraint.
 
@@ -173,7 +189,7 @@ def _check_type(value, shape_constraint, frame):
 
     Args:
         value: (Value) The value to check
-        shape_constraint: (Shape | Tag | None) The constraint
+        shape_constraint: (Shape | Tag | ShapeUnion | None) The constraint
         frame: (ExecutionFrame) Frame for lookups
 
     Returns:
@@ -181,6 +197,13 @@ def _check_type(value, shape_constraint, frame):
     """
     if shape_constraint is None:
         return True  # No constraint means any value matches
+
+    # Check union shapes - match if any member matches
+    if isinstance(shape_constraint, comp.ShapeUnion):
+        for member_shape in shape_constraint.shapes:
+            if _check_type(value, member_shape, frame):
+                return True
+        return False
 
     # Get value's shape
     value_shape = value.shape
@@ -223,6 +246,8 @@ def morph(value, shape, frame):
     field matching: named -> tag -> positional. Validates types against
     shape constraints. Keeps extra fields not in shape.
 
+    For union shapes, tries each member and returns the best scoring match.
+
     Scalar values are automatically promoted to single-element structs.
 
     Args:
@@ -233,26 +258,44 @@ def morph(value, shape, frame):
     Returns:
         MorphResult: Result with morphed value and match score
     """
+    # Handle union shapes - try each member and return best scoring match
+    if isinstance(shape, comp.ShapeUnion):
+        best_result = None
+        for member_shape in shape.shapes:
+            result = morph(value, member_shape, frame)
+            if result.failure_reason:
+                continue  # This member didn't match
+            if best_result is None or result.score > best_result.score:
+                best_result = result
+        if best_result is None:
+            return MorphResult.failed(f"Value does not match any member of {_shape_name(shape)}")
+        return best_result
+
+    # Get shape fields (Tags have no fields, they just act as type constraints)
+    shape_fields = getattr(shape, "fields", None) or []
+
     # Handle non-struct values by promoting to single-element struct
     if not isinstance(value.data, dict):
-        if not shape.fields:
-            # Primitive shape (num, text, etc.) - validate type
+        if not shape_fields:
+            # Primitive shape (num, text, etc.) or Tag - validate type
             if not _check_type(value, shape, frame):
-                return MorphResult.failed(f"Value does not match shape {shape.qualified}")
-            return MorphResult(value, 0, 0, 0)
+                return MorphResult.failed(f"Value does not match shape {_shape_name(shape)}")
+            # Count as 1 positional match - the value itself matched the shape
+            return MorphResult(value, 0, 0, 1)
         # Promote scalar to (scalar) - single positional field
         promoted_data = {comp.Unnamed(): value}
         value = comp.Value(promoted_data)
     else:
         # Struct value with primitive shape
-        if not shape.fields:
+        if not shape_fields:
             # Allow single-element struct to demote to scalar
             if len(value.data) == 1:
                 inner_val = next(iter(value.data.values()))
                 if not _check_type(inner_val, shape, frame):
-                    return MorphResult.failed(f"Value does not match shape {shape.qualified}")
-                return MorphResult(inner_val, 0, 0, 0)
-            return MorphResult.failed(f"Cannot morph struct to scalar shape {shape.qualified}")
+                    return MorphResult.failed(f"Value does not match shape {_shape_name(shape)}")
+                # Count as 1 positional match - one element matched the shape
+                return MorphResult(inner_val, 0, 0, 1)
+            return MorphResult.failed(f"Cannot morph struct to scalar shape {_shape_name(shape)}")
 
     # Build list of input fields
     input_fields = []
@@ -268,7 +311,7 @@ def morph(value, shape, frame):
     positional_matches = 0
 
     # Phase 1: Named matching
-    for i, shape_field in enumerate(shape.fields):
+    for i, shape_field in enumerate(shape_fields):
         if shape_field.name is None:
             continue  # Skip positional shape fields in named phase
 
@@ -289,7 +332,7 @@ def morph(value, shape, frame):
                 break
 
     # Phase 2: Tag matching
-    for i, shape_field in enumerate(shape.fields):
+    for i, shape_field in enumerate(shape_fields):
         if i in shape_matches:
             continue  # Already matched
 
@@ -318,16 +361,17 @@ def morph(value, shape, frame):
             tag_depth_total += best_depth
 
     # Phase 3: Positional matching
-    unmatched_inputs = [inp for inp in input_fields if not inp["matched"]]
+    # Only match positional (unnamed) input fields - named fields that didn't match stay as extras
+    unmatched_positional = [inp for inp in input_fields if not inp["matched"] and inp["name"] is None]
     unmatched_input_idx = 0
 
-    for i, shape_field in enumerate(shape.fields):
+    for i, shape_field in enumerate(shape_fields):
         if i in shape_matches:
             continue  # Already matched
 
-        # Find next unmatched input
-        while unmatched_input_idx < len(unmatched_inputs):
-            inp = unmatched_inputs[unmatched_input_idx]
+        # Find next unmatched positional input
+        while unmatched_input_idx < len(unmatched_positional):
+            inp = unmatched_positional[unmatched_input_idx]
             unmatched_input_idx += 1
 
             # Validate type
@@ -343,7 +387,7 @@ def morph(value, shape, frame):
                 )
 
     # Apply defaults for unmatched shape fields
-    for i, shape_field in enumerate(shape.fields):
+    for i, shape_field in enumerate(shape_fields):
         if i in shape_matches:
             continue
 
@@ -361,7 +405,7 @@ def morph(value, shape, frame):
     result_data = {}
 
     # Add matched fields with shape field names
-    for i, shape_field in enumerate(shape.fields):
+    for i, shape_field in enumerate(shape_fields):
         if i not in shape_matches:
             continue
         inp = shape_matches[i]
@@ -372,7 +416,7 @@ def morph(value, shape, frame):
         result_data[key] = inp["value"]
 
     # Add extra fields (morph keeps extras)
-    extra_idx = len(shape.fields)
+    extra_idx = len(shape_fields)
     for inp in input_fields:
         if inp["matched"]:
             continue
@@ -396,26 +440,37 @@ def mask(value, shape, frame):
     Returns:
         (Value | None, str | None) Tuple of (result value, error message)
     """
+    # Handle union shapes - try each member, return first successful match
+    if isinstance(shape, comp.ShapeUnion):
+        for member_shape in shape.shapes:
+            result_val, error = mask(value, member_shape, frame)
+            if error is None:
+                return result_val, None
+        return None, f"Value does not match any member of {_shape_name(shape)}"
+
+    # Get shape fields (Tags have no fields, they just act as type constraints)
+    shape_fields = getattr(shape, "fields", None) or []
+
     # Handle non-struct values by promoting to single-element struct
     if not isinstance(value.data, dict):
-        if not shape.fields:
-            # Primitive shape - validate type
+        if not shape_fields:
+            # Primitive shape or Tag - validate type
             if not _check_type(value, shape, frame):
-                return None, f"Value does not match shape {shape.qualified}"
+                return None, f"Value does not match shape {_shape_name(shape)}"
             return value, None
         # Promote scalar to (scalar) - single positional field
         promoted_data = {comp.Unnamed(): value}
         value = comp.Value(promoted_data)
     else:
         # Struct value with primitive shape
-        if not shape.fields:
+        if not shape_fields:
             # Allow single-element struct to demote to scalar
             if len(value.data) == 1:
                 inner_val = next(iter(value.data.values()))
                 if not _check_type(inner_val, shape, frame):
-                    return None, f"Value does not match shape {shape.qualified}"
+                    return None, f"Value does not match shape {_shape_name(shape)}"
                 return inner_val, None
-            return None, f"Cannot mask struct to scalar shape {shape.qualified}"
+            return None, f"Cannot mask struct to scalar shape {_shape_name(shape)}"
 
     # Build list of input fields
     input_fields = []
@@ -428,7 +483,7 @@ def mask(value, shape, frame):
     shape_matches = {}
 
     # Phase 1: Named matching
-    for i, shape_field in enumerate(shape.fields):
+    for i, shape_field in enumerate(shape_fields):
         if shape_field.name is None:
             continue
 
@@ -445,7 +500,7 @@ def mask(value, shape, frame):
                 break
 
     # Phase 2: Tag matching
-    for i, shape_field in enumerate(shape.fields):
+    for i, shape_field in enumerate(shape_fields):
         if i in shape_matches:
             continue
 
@@ -473,15 +528,16 @@ def mask(value, shape, frame):
             best_match["matched"] = True
 
     # Phase 3: Positional matching
-    unmatched_inputs = [inp for inp in input_fields if not inp["matched"]]
+    # Only match positional (unnamed) input fields - named fields that didn't match are dropped
+    unmatched_positional = [inp for inp in input_fields if not inp["matched"] and inp["name"] is None]
     unmatched_input_idx = 0
 
-    for i, shape_field in enumerate(shape.fields):
+    for i, shape_field in enumerate(shape_fields):
         if i in shape_matches:
             continue
 
-        if unmatched_input_idx < len(unmatched_inputs):
-            inp = unmatched_inputs[unmatched_input_idx]
+        if unmatched_input_idx < len(unmatched_positional):
+            inp = unmatched_positional[unmatched_input_idx]
             unmatched_input_idx += 1
 
             # Validate type
@@ -494,7 +550,7 @@ def mask(value, shape, frame):
             inp["matched"] = True
 
     # Apply defaults for unmatched shape fields
-    for i, shape_field in enumerate(shape.fields):
+    for i, shape_field in enumerate(shape_fields):
         if i in shape_matches:
             continue
 
@@ -508,7 +564,7 @@ def mask(value, shape, frame):
     # Build result struct (mask drops extras)
     result_data = {}
 
-    for i, shape_field in enumerate(shape.fields):
+    for i, shape_field in enumerate(shape_fields):
         if i not in shape_matches:
             continue
         inp = shape_matches[i]

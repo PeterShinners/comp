@@ -261,7 +261,7 @@ class SystemModule(comp.Module):
                 })
 
             shape = shape_val.data
-            if not isinstance(shape, comp.Shape):
+            if not isinstance(shape, (comp.Shape, comp.Tag, comp.ShapeUnion)):
                 return comp.Value.from_python({
                     "result": comp.tag_nil,
                     "reason": f"Second argument must be a shape, got {type(shape)}"
@@ -314,7 +314,7 @@ class SystemModule(comp.Module):
                 })
 
             shape = shape_val.data
-            if not isinstance(shape, comp.Shape):
+            if not isinstance(shape, (comp.Shape, comp.Tag, comp.ShapeUnion)):
                 return comp.Value.from_python({
                     "result": comp.tag_nil,
                     "reason": f"Second argument must be a shape, got {type(shape)}"
@@ -343,13 +343,10 @@ class SystemModule(comp.Module):
         self.finalize()
 
     def namespace(self):
-        # Simple implementation to avoid infinite recursion
+        # Use create_namespace to generate proper permutations
+        # e.g., 'bool.true' -> ['bool.true', 'true']
         if self._namespace is None:
-            self._namespace = {}
-            for key, value in self._definitions.items():
-                defset = comp._namespace.DefinitionSet()
-                defset.definitions.add(value)
-                self._namespace[key] = defset
+            self._namespace = comp._namespace.create_namespace(self._definitions, None)
         return self._namespace
 
     def finalize(self):
