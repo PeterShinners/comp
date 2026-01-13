@@ -471,6 +471,42 @@ class BuildBlock(Instruction):
         return f"%{idx}  BuildBlock ({len(self.body_instructions)} body)"
 
 
+class BuildShape(Instruction):
+    """Build a shape value from field definitions."""
+
+    def __init__(self, cop, fields):
+        super().__init__(cop)
+        self.fields = fields  # List of (name, shape_idx, default_idx) tuples
+
+    def execute(self, frame):
+        shape = comp.Shape("anonymous", private=False)
+
+        for name, shape_idx, default_idx in self.fields:
+            # Get shape constraint if provided
+            shape_constraint = None
+            if shape_idx is not None:
+                shape_val = frame.get_value(shape_idx)
+                if shape_val and shape_val.data:
+                    shape_constraint = shape_val.data
+
+            # Get default if provided
+            default_val = None
+            if default_idx is not None:
+                default_val = frame.get_value(default_idx)
+
+            # Create ShapeField - store resolved values in shape/default
+            # The morph code will check for both COP nodes and resolved values
+            field = comp.ShapeField(name=name, shape=shape_constraint, default=default_val)
+            shape.fields.append(field)
+
+        result = comp.Value(shape)
+        return frame.set_result(result)
+
+    def format(self, idx):
+        parts = [f"{n or '_'}" for n, s, d in self.fields]
+        return f"%{idx}  BuildShape ({' '.join(parts)})"
+
+
 class Invoke(Instruction):
     """Invoke a function/block with arguments (no piped input)."""
     

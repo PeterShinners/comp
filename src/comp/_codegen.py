@@ -148,7 +148,10 @@ class CodeGenContext:
                 
             case "struct.define":
                 return self._build_struct(cop)
-                
+
+            case "shape.define":
+                return self._build_shape(cop)
+
             case _:
                 raise comp.CodeError(f"Unsupported COP tag: {tag}", cop)
     
@@ -309,7 +312,53 @@ class CodeGenContext:
         
         instr = comp._interp.BuildStruct(cop=cop, fields=fields)
         return self.emit(instr)
-    
+
+    def _build_shape(self, cop):
+        """Build shape construction instructions."""
+        kids = _cop_kids(cop)
+        fields = []
+
+        for kid in kids:
+            tag = kid.positional(0).data.qualified
+
+            if tag == "shape.field":
+                # Shape field: name, optional shape constraint, optional default
+                name = None
+                shape_idx = None
+                default_idx = None
+
+                # Get the field name from attribute
+                try:
+                    name = kid.to_python("name")
+                except (KeyError, AttributeError):
+                    pass
+
+                # Get kids for shape constraint and default
+                # Structure is: first value.* kid is shape, second (if any) is default
+                field_kids = _cop_kids(kid)
+                for i, fkid in enumerate(field_kids):
+                    fkid_tag = fkid.positional(0).data.qualified
+
+                    if fkid_tag == "field.shape":
+                        # Wrapped shape constraint
+                        shape_cop = fkid.field("shape")
+                        shape_idx = self._build_value_ensure_register(shape_cop)
+                    elif fkid_tag == "field.default":
+                        # Wrapped default value
+                        default_cop = fkid.field("value")
+                        default_idx = self._build_value_ensure_register(default_cop)
+                    elif fkid_tag.startswith("value."):
+                        # Direct value - first is shape, second is default
+                        if shape_idx is None:
+                            shape_idx = self._build_value_ensure_register(fkid)
+                        else:
+                            default_idx = self._build_value_ensure_register(fkid)
+
+                fields.append((name, shape_idx, default_idx))
+
+        instr = comp._interp.BuildShape(cop=cop, fields=fields)
+        return self.emit(instr)
+
     def _build_value_ensure_register(self, cop):
         """Build a value and ensure it's in a register (has an index).
         

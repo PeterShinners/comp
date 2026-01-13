@@ -25,3 +25,4 @@ from ._import import *
 from ._code import *
 from ._scan import *
 from ._namespace import *
+from ._morph import *

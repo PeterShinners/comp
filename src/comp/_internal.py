@@ -239,6 +239,106 @@ class SystemModule(comp.Module):
         wrap_defn.value = wrap_value
         self._definitions['wrap'] = wrap_defn
 
+        def _morph(input_val, args_val, frame):
+            """Morph a value to match a shape.
+
+            Args:
+                input_val: Unused (morph takes args only)
+                args_val: Struct with (data shape) fields
+                frame: The interpreter frame
+
+            Returns:
+                Struct with result= and score= on success, or result=nil and reason= on failure
+            """
+            # Extract data and shape from args
+            data_val = args_val.positional(0)
+            shape_val = args_val.positional(1)
+
+            if data_val is None or shape_val is None:
+                return comp.Value.from_python({
+                    "result": comp.tag_nil,
+                    "reason": "morph requires (data shape) arguments"
+                })
+
+            shape = shape_val.data
+            if not isinstance(shape, comp.Shape):
+                return comp.Value.from_python({
+                    "result": comp.tag_nil,
+                    "reason": f"Second argument must be a shape, got {type(shape)}"
+                })
+
+            result = comp.morph(data_val, shape, frame)
+
+            if result.failure_reason:
+                return comp.Value.from_python({
+                    "result": comp.tag_nil,
+                    "reason": result.failure_reason
+                })
+
+            score_struct = comp.Value.from_python({
+                "named": result.score[0],
+                "tag": result.score[1],
+                "pos": result.score[2]
+            })
+            return comp.Value.from_python({
+                "result": result.value,
+                "score": score_struct
+            })
+
+        morph_callable = InternalCallable("morph", _morph)
+        morph_value = comp.Value(morph_callable)
+        morph_defn = comp.Definition("morph", self.token, morph_value, comp.shape_block)
+        morph_defn.resolved_cop = morph_value
+        morph_defn.value = morph_value
+        self._definitions['morph'] = morph_defn
+
+        def _mask(input_val, args_val, frame):
+            """Mask a value to match a shape, dropping extra fields.
+
+            Args:
+                input_val: Unused (mask takes args only)
+                args_val: Struct with (data shape) fields
+                frame: The interpreter frame
+
+            Returns:
+                Struct with result= on success, or result=nil and reason= on failure
+            """
+            # Extract data and shape from args
+            data_val = args_val.positional(0)
+            shape_val = args_val.positional(1)
+
+            if data_val is None or shape_val is None:
+                return comp.Value.from_python({
+                    "result": comp.tag_nil,
+                    "reason": "mask requires (data shape) arguments"
+                })
+
+            shape = shape_val.data
+            if not isinstance(shape, comp.Shape):
+                return comp.Value.from_python({
+                    "result": comp.tag_nil,
+                    "reason": f"Second argument must be a shape, got {type(shape)}"
+                })
+
+            result_val, error = comp.mask(data_val, shape, frame)
+
+            if error:
+                return comp.Value.from_python({
+                    "result": comp.tag_nil,
+                    "reason": error
+                })
+
+            return comp.Value.from_python({
+                "result": result_val
+            })
+
+        mask_callable = InternalCallable("mask", _mask)
+        mask_value = comp.Value(mask_callable)
+        mask_defn = comp.Definition("mask", self.token, mask_value, comp.shape_block)
+        mask_defn.resolved_cop = mask_value
+        mask_defn.value = mask_value
+        self._definitions['mask'] = mask_defn
+
         # Finalize to build namespace from definitions
         self.finalize()
 
