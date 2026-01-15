@@ -24,14 +24,12 @@ class ModuleSource:
     Attributes:
         resource: Original module resource identifier requested
         location: Where it came from (file path, URL, etc.)
-        source_type: Type of source - "file", "git", "http", "builtin"
         etag: Version identifier for cache validation (mtime_ns for files)
         anchor: Directory path for relative imports from this module
         content: Source text
     """
     resource: str
     location: str
-    source_type: str
     etag: str
     anchor: str
     content: str = dataclasses.field(repr=False)
@@ -214,7 +212,6 @@ def _locate_file(
             return ModuleSource(
                 resource=resource,
                 location=abs_path,
-                source_type="file",
                 etag=computed_etag,
                 content=content,
                 anchor=anchor,

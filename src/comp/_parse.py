@@ -47,7 +47,7 @@ def create_cop_module(module):
         "mod.namefield",  # (op, kids) 2 kids (name value)
         "value.identassign",  # (kids)  same as identifier, but in an assignment
         "value.identifier",  # (kids)
-        "value.reference",  # (definition, identifier, namespace, pos) Reference to a Definition
+        "value.reference",  # (definition qualified namespace) 
         "value.constant",  # (value) Constant value
         "ident.token",  # (value)
         "ident.index",  # (value)
@@ -65,7 +65,7 @@ def create_cop_module(module):
         "value.invoke",  # (kids)  kids 2+ kids; callable, argsandblocks
         "value.pipeline",  # (kids) pipeline stages
         "value.fallback",  # (kids)
-        "value.postfix",  # (left, kids)
+        "value.field",  # field access: (left, field)
         "value.transact",  # (kids)
         "value.handle",  # (op, kids) grab/drop/pull/etc
         "value.constant",  # (value) precompiled constant value
@@ -157,7 +157,7 @@ def lark_to_cop(tree):
             op = kids[1].value
             if op in ("||", "&&"):
                 return _parsed(
-                    tree, "value.logical.binary", {"l": left, "r": right}, op=op
+                    tree, "value.logic.binary", {"l": left, "r": right}, op=op
                 )
             if op == "??":
                 return _parsed(tree, "value.fallback", {"l": left, "r": right}, op=op)
@@ -185,26 +185,19 @@ def lark_to_cop(tree):
             fields = [lark_to_cop(kid) for kid in kids]
             return _parsed(tree, "value.invoke", fields)
 
-        # # Postfix operations (calls and field access)
-        # case "postfix":
-        #     # postfix: atom call_suffix*
-        #     # Build left-to-right: atom, then apply each suffix
-        #     result = lark_to_cop(kids[0])  # Start with the atom
-        #     for suffix in kids[1:]:
-        #         result = _apply_postfix_suffix(tree, result, suffix)
-        #     return result
+        case "fieldaccess":
+            # kids are (source data, dot literal, field)
+            left = lark_to_cop(kids[0])
+            field = lark_to_cop(kids[2])
+            return _parsed(tree, "value.field", {"l": left, "f": field})
 
-        # case "field_access":
-        #     # Handled by _apply_postfix_suffix
-        #     raise ValueError("field_access should be handled in postfix context")
-
-        # case "call_struct":
-        #     # Handled by _apply_postfix_suffix
-        #     raise ValueError("call_struct should be handled in postfix context")
-
-        # case "call_block":
-        #     # Handled by _apply_postfix_suffix
-        #     raise ValueError("call_block should be handled in postfix context")
+        case "postfield":
+            fields = [lark_to_cop(k) for k in kids[::2]]
+            # If single field, just return it directly
+            if len(fields) == 1:
+                return fields[0]
+            # Multiple fields - return as identifier-like structure
+            return _parsed(tree, "value.identifier", fields)
 
         # Identifier and fields
         case "identifier":

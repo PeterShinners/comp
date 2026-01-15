@@ -1,0 +1,10 @@
+---
+rediculously simple point calls
+---
+
+point = ~(x~num y~num)
+
+origin = :(point(0 0))
+
+transpose = :~point pure(x=point.y y=point.x)
+scale = :~point m~num pure(x=point.x * m y=point.y * m)

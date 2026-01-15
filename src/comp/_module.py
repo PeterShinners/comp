@@ -1,70 +1,11 @@
-"""Module represents a module's namespace at runtime"""
+"""Module represents unit of code, usually from a file"""
 
 import os
 
 import comp
 
 
-__all__ = ["Module", "Definition"]
-
-
-class Definition:
-    """A module-level definition that can be referenced.
-
-    Definitions are created during the extraction phase and progressively
-    enhanced through the compilation pipeline:
-    1. Extract: Create with original_cop and shape
-    2. Resolve: Populate resolved_cop with identifier references resolved
-    3. Fold: Populate value with constant-folded Shape/Block/etc
-    4. Codegen: Populate instructions with bytecode
-
-    Args:
-        qualified: Fully qualified name (e.g., "cart", "add.i001")
-        module_id: Module token string (not reference)
-        original_cop: The original COP node
-        shape: Shape constant (comp.shape_block, comp.shape_shape, etc.)
-        private: Whether this definition is private to the module
-        auto_suffix: Whether this definition has an auto-generated suffix
-    Attributes:
-        qualified: (str) Fully qualified name (e.g., "cart", "add.i001")
-        module_id: (str) Module token that owns this definition (avoids circular refs)
-        original_cop: (Value) The original COP node from parsing
-        resolved_cop: (Value | None) The resolved+folded+optimized COP node
-        shape: (Shape) Shape constant indicating definition type
-        value: (Value | None) The constant-folded value (Shape/Block/etc) if applicable
-        instructions: (list | None) Bytecode instructions for this definition
-        private: (bool) Whether this definition is private to the module
-        auto_suffix: (bool) Whether the qualified name has an auto-generated suffix
-
-    """
-    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "auto_suffix")
-
-    def __init__(self, qualified, module_id, original_cop, shape, private=False, auto_suffix=False):
-        self.qualified = qualified
-        self.module_id = module_id
-        self.original_cop = original_cop
-        self.shape = shape
-        self.private = private  # Whether this definition is private to the module
-        self.auto_suffix = auto_suffix  # Whether qualified name has auto-generated suffix
-        self.resolved_cop = None  # Filled during identifier resolution
-        self.value = None  # Filled during constant folding
-        self.instructions = None  # Filled during code generation
-
-    def __repr__(self):
-        shape_name = self.shape.qualified
-        return f"Definition<{self.qualified}:{shape_name}>"
-
-    def is_resolved(self):
-        """(bool) Whether identifiers have been resolved."""
-        return self.resolved_cop is not None
-
-    def is_folded(self):
-        """(bool) Whether constant folding has been performed."""
-        return self.value is not None
-
-    def is_compiled(self):
-        """(bool) Whether bytecode has been generated."""
-        return self.instructions is not None
+__all__ = ["Module", "Definition", "DefinitionSet", "Ambiguous"]
 
 
 class Module:
@@ -75,7 +16,7 @@ class Module:
     `scan` and `definitions` will incrementally build and prepare
     the module.
 
-    Modules are created and managed by an Interp.
+    Modules are created and managed by an Interp, not created directly.
     
     Modules will import and reference other modules with import statements.
     Each import statement can use different compilers and resource locators
@@ -91,17 +32,8 @@ class Module:
     _token_counter = os.getpid() & 0xFFFF
 
     def __init__(self, source):
-        if not hasattr(source, 'resource'):
-            raise TypeError(f"Module requires a ModuleSource, got {type(source)}")
-
         self.source = source
-        token = source.resource
-
-        # Module token is not attempting to be a secure id,
-        # Just to help distinguish conflicting tokens with a non repeating id
-        count = hash(token) & 0xFFFF ^ Module._token_counter
-        Module._token_counter += 1
-        self.token = f"{token}#{count:04x}"
+        self.token = _unique_token(source.resource)
 
         # Intermediate cached parse passes
         self._scan = None
@@ -136,7 +68,6 @@ class Module:
         Returns:
             ScanResult: Object with .imports(), .package(), .docs() methods
         """
-
         if self._scan is None:
             self._scan = comp._scan.scan(self.source.content)
         return self._scan
@@ -202,10 +133,10 @@ class Module:
     def definitions(self):
         """Parse source and extract definitions into module.definitions dict.
 
-        This method lazily parses and extracts definitions on first call.
-        Subsequent calls are no-ops if definitions already populated.
-
-        Results are cached.
+        This is a cached dictionary of qualified name strings to Definitions.
+        Initially the Definitions will contain only raw cop (ast) node
+        hierarchies. These definitions will be progressively refiend and
+        populated through the various build passes.
 
         Returns:
             dict: qualified names strings to Definition objects
@@ -222,9 +153,21 @@ class Module:
     def namespace(self):
         """(dict) Resolved namespace dict for identifier lookups.
 
-        Each value is a DefinitionSet which will contain at least one definition
-        and methods to help validate the various types of lookups (shape,
-        call, value)
+        This cached dictionary is derived from the module definitions().
+        The namespace combines definitions from this module and its imports.
+        
+        The namespace dictionary contains qualified names as keys and
+        each value is either
+
+        - Definition for single direct references
+        - DefinitionSet for overloaded references
+        - Ambiguous for conflicting references from imports
+
+        Most definitions will have multiple references from the namespace
+        dictionary. Any value is referencable by shortened fragments of
+        the fully qualified name.
+        
+        At this point any failed import statements will result in an exception.
 
         This requires the module belongs to an Interpreter that has already
         scanned and resolved its imports.
@@ -233,21 +176,27 @@ class Module:
         if self._namespace is not None:
             return self._namespace
 
+        for import_module, import_err in self._imports.values():
+            if import_err:
+                raise import_err
+
         if self._imports is None:
             raise comp.ModuleError("Cannot build namespace until interpreter registers imports.")
 
-        sys = comp.get_internal_module("system")
-        self._namespace = dict(sys.namespace())
+        if isinstance(self, comp._internal.SystemModule):
+            self._namespace = {}
+        else:
+            sys = comp.get_internal_module("system")
+            self._namespace = dict(sys.namespace())
+
         for import_name, (import_module, import_err) in self._imports.items():
-            if import_err:
-                raise import_err
             import_definitions = import_module.definitions()
-            import_namespace = comp._namespace.create_namespace(import_definitions, import_name)
-            self._namespace = comp._namespace.merge_namespace(self._namespace, import_namespace, clobber=False)
+            import_namespace = create_namespace(import_definitions, import_name)
+            self._namespace = merge_namespace(self._namespace, import_namespace, clobber=False)
 
         defs = self.definitions()
-        namespace = comp._namespace.create_namespace(defs, None)
-        self._namespace = comp._namespace.merge_namespace(self._namespace, namespace, clobber=True)
+        namespace = create_namespace(defs, None)
+        self._namespace = merge_namespace(self._namespace, namespace, clobber=True)
 
         return self._namespace
 
@@ -257,86 +206,227 @@ class Module:
         Args:
             imports: Dict {import_name: Module} of resolved imports
         """
-        if self._namespace is None:
-            raise comp.ModuleError("Cannot finalize module until interpreter generates namespace.")
-        comp.resolve_identifiers(self._definitions, namespace)
-
-        for definition in self._definitions.values():
-            # Skip non-Definition objects (e.g., AST module Tags)
-            if isinstance(definition, comp.Definition):
-                fold_definition(definition)
+        definitions = self.definitions()
+        namespace = self.namespace()
+        for definition in definitions.values():
+            if definition.resolved_cop is not None:
+                continue
+            definition.resolved_cop = comp.cop_resolve(
+                definition.original_cop,
+                namespace
+            )
 
         self._finalized = True
 
 
-def fold_definition(definition):
-    """Perform constant folding on a definition to create Shape/Block values.
+class Definition:
+    """A module-level definition that can be referenced.
 
-    This function takes a Definition with resolved_cop and performs constant
-    folding to create the final Value. For blocks, this creates Block objects.
-    For shapes, this creates Shape objects.
+    Definitions are created during the extraction phase and progressively
+    enhanced through the compilation pipeline:
+    1. Extract: Create with original_cop and shape
+    2. Resolve: Populate resolved_cop with identifier references resolved
+    3. Fold: Populate value with constant-folded Shape/Block/etc
+    4. Codegen: Populate instructions with bytecode
 
     Args:
-        definition: Definition with resolved_cop populated
+        qualified: Fully qualified name (e.g., "cart", "add.i001")
+        module_id: Module token string (not reference)
+        original_cop: The original COP node
+        shape: Shape constant (comp.shape_block, comp.shape_shape, etc.)
+        private: Whether this definition is private to the module
+        auto_suffix: Whether this definition has an auto-generated suffix
+    Attributes:
+        qualified: (str) Fully qualified name (e.g., "cart", "add.i001")
+        module_id: (str) Module token that owns this definition (avoids circular refs)
+        original_cop: (Value) The original COP node from parsing
+        resolved_cop: (Value | None) The resolved+folded+optimized COP node
+        shape: (Shape) Shape constant indicating definition type
+        value: (Value | None) The constant-folded value (Shape/Block/etc) if applicable
+        instructions: (list | None) Bytecode instructions for this definition
+        private: (bool) Whether this definition is private to the module
+        auto_suffix: (bool) Whether the qualified name has an auto-generated suffix
 
-    Side effects:
-        Populates definition.value with the folded constant value
     """
-    # Skip if already folded (e.g., SystemModule builtins)
-    if definition.value is not None:
-        return
+    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "auto_suffix")
 
-    # Use resolved_cop if available, otherwise original_cop
-    cop = definition.resolved_cop if definition.resolved_cop is not None else definition.original_cop
+    def __init__(self, qualified, module_id, original_cop, shape, private=False, auto_suffix=False):
+        self.qualified = qualified
+        self.module_id = module_id
+        self.original_cop = original_cop
+        self.shape = shape
+        self.private = private  # Whether this definition is private to the module
+        self.auto_suffix = auto_suffix  # Whether qualified name has auto-generated suffix
+        self.resolved_cop = None  # Filled during identifier resolution
+        self.value = None  # Filled during constant folding
+        self.instructions = None  # Filled during code generation
 
-    if cop is None:
-        return
+    def __repr__(self):
+        shape_name = self.shape.qualified
+        return f"Definition<{self.qualified}:{shape_name}>"
 
-    # Perform constant folding on the COP tree
-    folded_cop = comp.cop_fold(cop)
 
-    # For blocks, create Block objects
-    if definition.shape is comp.shape_block:
-        try:
-            # Extract qualified name and create Block
-            private = False  # TODO: Extract from definition or cop
-            func_value = comp.create_blockdef(definition.qualified, private, folded_cop)
-            definition.value = func_value
-            # Keep the folded COP for the function body
-            definition.resolved_cop = folded_cop
-        except comp.CodeError as e:
-            # If can't create func, just keep folded cop
-            definition.resolved_cop = folded_cop
+def create_namespace(definitions, prefix):
+    """Create namespace from definitions dict.
 
-    # For shapes, create Shape objects
-    elif definition.shape is comp.shape_shape:
-        try:
-            # Extract qualified name and create Shape
-            private = False  # TODO: Extract from definition or cop
-            shape_value = comp.create_shapedef(definition.qualified, private, folded_cop)
-            definition.value = shape_value
-            # Shapes should have no COP after folding (fully resolved)
-            definition.resolved_cop = None
-        except comp.CodeError as e:
-            # If can't create shape, just keep folded cop
-            definition.resolved_cop = folded_cop
+    Create a lookup namespace from definitions.
+    If no namespace is given then this will include private definitions.
 
-    # For other values, just perform constant folding
+    Args:
+        definitions: (dict) Mapping of qualified names to Definition objects
+        prefix: (str | None) Optional namespace to prefix to definitions
+    Returns:
+        dict: Mapping of names to Definition, DefinitionSet, or Ambiguous
+    """
+    namespace = {}
+    for qualified, definition in definitions.items():
+        for name in _identifier_permutations(definition, prefix):
+            if prefix and definition.private:
+                continue
+            defs = namespace.get(name)
+            if defs is None:
+                defs = namespace[name] = DefinitionSet()
+            defs.definitions.add(definition)
+    return namespace
+
+
+def merge_namespace(base, overrides, clobber):
+    """Merge two namespaces into a new resulting namespace.
+
+    Args:
+        base: (dict) Base namespace
+        overrides: (dict) Namespace with overriding definitions
+        clobber: (bool) New definitions replace previous ones
+    Returns:
+        dict: Mapping of names to Definition, DefinitionSet, or Ambiguous
+
+    """
+    result = dict(base)
+    if clobber:
+        result.update(overrides)
+
     else:
-        # Try to extract constant value from folded cop
-        try:
-            tag = comp.cop_tag(folded_cop)
-            if tag == "value.constant":
-                # Extract the constant value
-                definition.value = folded_cop.field("value")
-                definition.resolved_cop = folded_cop
-            elif tag == "value.reference":
-                # Keep as reference - will be resolved at build time
-                definition.resolved_cop = folded_cop
-            else:
-                # Keep the folded cop
-                definition.resolved_cop = folded_cop
-        except (AttributeError, KeyError):
-            definition.resolved_cop = folded_cop
+        for name, value in overrides.items():
+            defs = result.get(name)
+            if defs is None:
+                defs = result[name] = DefinitionSet()
+            defs.definitions.update(value.definitions)
+
+    return result
 
 
+class DefinitionSet:
+    """Collection of definitions for a given qualified name.
+    Attrs:
+        definitions: (set) of at least one definition
+    """
+    def __init__(self):
+        self.definitions = set()
+
+    def __repr__(self):
+        return f"<DefinitionSet x{len(self.definitions)}>"
+
+    def format(self):
+        """Format for display."""
+        names = [d.qualified for d in self.definitions]
+        return f"DefinitionSet({', '.join(names)})"
+
+    def scalar(self):
+        """Get single definition if unambiguous or None."""
+        if len(self.definitions) != 1:
+            return None
+        return next(iter(self.definitions))
+
+    def shape(self):
+        """Get single shape definition or None"""
+        shapes = [d for d in self.definitions if d.shape is comp.shape_shape]
+        if len(shapes) != 1:
+            return None
+        return shapes[0]
+
+    def invokables(self):
+        """Get all invokeable (blocks and/or a single shape) or empty list"""
+        shapes = [d for d in self.definitions if d.shape is comp.shape_shape]
+        blocks = [d for d in self.definitions if d.shape is comp.shape_block]
+        if len(shapes) > 1:
+            return None
+        if len(blocks) + len(shapes) != len(self.definitions):
+            return None
+        return shapes + blocks
+
+
+class Ambiguous:
+    """Represents an ambiguous namespace entry that cannot be resolved.
+
+    This occurs when multiple non-invokable definitions share the same name
+    and cannot be disambiguated through overload dispatch.
+
+    Attributes:
+        definitions: (set) The conflicting definitions
+        reason: (str) Description of why this is ambiguous
+    """
+
+    def __init__(self, definitions, reason="Multiple conflicting definitions"):
+        self.definitions = set(definitions)
+        self.reason = reason
+
+    def __repr__(self):
+        names = [d.qualified for d in self.definitions]
+        return f"<Ambiguous: {', '.join(names)}>"
+
+
+def _identifier_permutations(definition, prefix):
+    """Generate lookup name permutations from a Definition.
+
+    For auto-suffixed identifiers like "tree-contains.i001":
+    - Generates "tree-contains.i001" (full qualified name)
+    - Generates "tree-contains" (base name without suffix)
+    - Skips the bare suffix "i001"
+
+    This allows both "tree-contains" and "tree-contains.i001" to resolve.
+
+    Args:
+        definition: Definition object with qualified name and auto_suffix flag
+        prefix: Optional namespace prefix to add
+
+    Returns:
+        list: List of permutation strings to add to namespace
+    """
+    permutations = []
+    qualified = definition.qualified
+    parts = qualified.split('.')
+    if prefix:
+        parts.insert(0, prefix)
+
+    last = len(parts) - 1
+
+    # Generate all suffix permutations
+    for i in range(len(parts)):
+        name = '.'.join(parts[i:])
+        # Skip if this is just the bare auto-generated suffix
+        if definition.auto_suffix and i == last:
+            continue
+        permutations.append(name)
+
+    # If we have an auto-generated suffix, also add the base name without it
+    # e.g., "tree-contains.i001" also generates "tree-contains"
+    if definition.auto_suffix and len(parts) > 1:
+        base_parts = parts[:-1]
+        for i in range(len(base_parts)):
+            base_name = '.'.join(base_parts[i:])
+            if base_name not in permutations:
+                permutations.append(base_name)
+
+    return permutations
+
+
+_token_counter = os.getpid() & 0xFFFF
+
+def _unique_token(token):
+    "Generate a unique token for internal use."
+    # ot attempting to be a secure id, just distinguish conflicting tokens 
+    # with a non repeating id
+    global _token_counter
+    count = hash(token) & 0xFFFF ^ Module._token_counter
+    _token_counter += 1
+    return f"{token}#{count:04x}"

@@ -20,7 +20,6 @@ __all__ = [
     "cop_rebuild",
     "cop_unparse",
     "cop_resolve",
-    "resolve_identifiers",
 ]
 
 import decimal
@@ -122,46 +121,6 @@ def cop_rebuild(cop_node, kids):
     return create_cop(tag, kids, **fields)
 
 
-# Identifier Resolution
-
-def resolve_identifiers(definitions, namespace):
-    """Resolve identifiers in definitions to value.reference nodes.
-
-    This function walks all definition COP trees and replaces value.identifier
-    nodes with value.reference nodes pointing to Definition objects.
-
-    Args:
-        definitions: Dict {qualified_name: Definition} to resolve
-        namespace: Namespace dict {name: DefinitionSet}
-
-    Returns:
-        dict: The definitions dictionary (for chaining)
-
-    Side effects:
-        Populates definition.resolved_cop for each definition in definitions
-    """
-    # Resolve identifiers in each definition
-    for qualified_name, definition in definitions.items():
-        # Skip non-Definition objects (e.g., AST module Tags)
-        if not isinstance(definition, comp.Definition):
-            continue
-
-        if definition.original_cop is None:
-            continue
-
-        # Skip if already resolved (e.g., SystemModule builtins)
-        if definition.resolved_cop is not None:
-            continue
-
-        # Walk the COP tree and replace identifiers with references
-        definition.resolved_cop = _resolve_to_references(
-            definition.original_cop,
-            namespace
-        )
-
-    return definitions
-
-
 def _resolve_to_references(cop, namespace, param_names=None):
     """Walk a COP tree and replace value.identifier with value.reference nodes.
 
@@ -222,7 +181,25 @@ def _resolve_to_references(cop, namespace, param_names=None):
                 if hasattr(definition, '_import_namespace'):
                     import_namespace = definition._import_namespace
             else:
-                # Multiple definitions (overloaded) - leave as identifier for build-time resolution
+                # Multiple definitions - check if they're all invokables (overloaded functions)
+                invokables = definition_set.invokables()
+                if invokables is not None and len(invokables) > 0:
+                    # Create reference with list of all overload qualified names
+                    qualified_names = [d.qualified for d in invokables]
+                    # Use first definition's module_id (they should all be same module for overloads)
+                    module_id = invokables[0].module_id
+                    fields = {
+                        "qualified": qualified_names,  # List of qualified names for dispatch
+                        "module_id": module_id
+                    }
+                    try:
+                        pos = cop.field("pos")
+                        if pos is not None:
+                            fields["pos"] = pos
+                    except (KeyError, AttributeError):
+                        pass
+                    return create_cop("value.reference", [], **fields)
+                # Not all invokables - ambiguous, leave as identifier for error
                 return cop
 
             # Create value.reference node
@@ -342,7 +319,7 @@ def _resolve_to_references(cop, namespace, param_names=None):
 def cop_resolve(cop, namespace):
     """Resolve identifiers in a COP tree to references.
 
-    This is a convenience wrapper around _resolve_to_references.
+    This is a convenience wrapper around __resolve_to_references.
 
     Args:
         cop: COP node to resolve

@@ -1,0 +1,10 @@
+---
+Minimal geometric point definitions
+---
+
+point = ~(x~num y~num)
+
+origin = :(point(0 0))
+transpose = :pt~point pure(x=pt.y y=pt.x)
+scale = :pt~point m~num pure(x=pt.x * m y=pt.y * m)
+

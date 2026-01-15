@@ -163,7 +163,7 @@ def _eval_pure_pipeline(cop, pure_blocks, interp):
 
     # First stage is the initial value - fold and try to get constant
     first = stages[0]
-    first_folded = comp.cop_fold(_eval_pure_in_cop(first, pure_blocks, interp))
+    first_folded = comp.coptimize(_eval_pure_in_cop(first, pure_blocks, interp), True, None)
     current_value = _get_constant(first_folded)
 
     if current_value is None:
@@ -189,7 +189,7 @@ def _eval_pure_pipeline(cop, pure_blocks, interp):
             break
 
         # Check if args are constant (fold to ensure literals become constants)
-        args_folded = comp.cop_fold(_eval_pure_in_cop(args_cop, pure_blocks, interp))
+        args_folded = comp.coptimize(_eval_pure_in_cop(args_cop, pure_blocks, interp), True, None)
         args_value = _get_constant(args_folded)
         if args_value is None:
             break
@@ -255,7 +255,7 @@ def _try_eval_invoke(cop, pure_blocks, interp):
         return None
 
     # Check if args are constant
-    args_folded = comp.cop_fold(args_cop)
+    args_folded = comp.coptimize(args_cop, True, None)
     args_value = _get_constant(args_folded)
     if args_value is None:
         return None

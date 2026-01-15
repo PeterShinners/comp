@@ -15,7 +15,6 @@ __all__ = [
     "shape_tag",
     "shape_shape",
     "shape_union",
-    "create_shapedef",
 ]
 
 
@@ -135,14 +134,12 @@ class ShapeField:
 
     def format(self):
         """Format individual shape field to literal representation."""
-        format = self.name or ""
+        result = self.name or ""
         if self.shape:
-            shapefmt = comp.cop_unparse(self.shape)
-            if shapefmt != "~()":
-                format += f"~{shapefmt}"
+            result += f"~{self.shape.qualified}"
         if self.default:
-            format += f"={comp.cop_unparse(self.default)}"
-        return format
+            result += f"={self.default.format()}"
+        return result
 
 
 # Builtin shapes for primitive types
@@ -156,66 +153,3 @@ shape_union = Shape("union", False)
 
 # Internal shapes - used by implementation, not exposed to comp language
 shape_tag = Shape("tag", True)
-
-
-def create_shapedef(qualified_name, private, cop_node):
-    """Create a Shape from a value.shape COP node and wrap in a Value.
-
-    This is a pure initialization function that doesn't depend on Module or Interp.
-
-    Args:
-        qualified_name: (str) Fully qualified shape name (e.g., "Point")
-        private: (bool) Whether shape is private
-        cop_node: (Struct) The value.shape COP node
-
-    Returns:
-        Value: Initialized shape definition wrapped in a Value with cop attribute set
-
-    Raises:
-        CodeError: If cop_node is not a value.shape node
-    """
-    # Validate node type
-    tag = comp.cop_tag(cop_node)
-    if tag != "shape.define":
-        raise comp.CodeError(
-            f"Expected shape.define node, got {tag}",
-            cop_node
-        )
-
-    # Only works with shape field cop nodes (not unions or references)
-    shape = Shape(qualified_name, private)
-
-    for kid in comp.cop_kids(cop_node):
-        kid_tag = comp.cop_tag(kid)
-        if kid_tag != "shape.field":
-            continue  # Skip non-field kids
-
-        # Parse field definition
-        field_name = None
-        field_shape = None
-        field_default = None
-
-        for fkid in comp.cop_kids(kid):
-            fkid_tag = comp.cop_tag(fkid)
-            if fkid_tag == "field.name":
-                field_name = fkid.field("value").data
-            elif fkid_tag == "field.shape":
-                field_shape = fkid.field("shape")
-            elif fkid_tag == "field.default":
-                field_default = fkid.field("value")
-
-        shape_field = ShapeField(
-            name=field_name,
-            shape=field_shape,
-            default=field_default
-        )
-        shape.fields.append(shape_field)
-
-    # TODO: Parse field definitions from cop_node
-    # For now, just create the basic definition
-
-    # Wrap in Value and set cop attribute
-    value = comp.Value.from_python(shape)
-    value.cop = cop_node
-
-    return value

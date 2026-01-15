@@ -11,12 +11,16 @@ import inspect
 import comp
 
 
+def _make_constant_cop(value):
+    """Create a value.constant COP node for internal use."""
+    return comp.create_cop("value.constant", [], value=value)
+
+
 class InternalCallable:
     """A Python function callable from Comp code.
 
     Wraps a Python function so it can be invoked like a Comp block.
     The Python function receives (input_val, args_val, frame) and returns a Value.
-    The frame parameter is optional - functions that don't need it can ignore it.
 
     Args:
         name: (str) Name of the callable
@@ -58,7 +62,6 @@ class InternalModule(comp.Module):
         source = comp.ModuleSource(
             resource=resource,
             location=f"internal:{resource}",
-            source_type="internal",
             etag=resource,
             anchor="",
             content=""  # Internal modules have no source text
@@ -96,6 +99,8 @@ class InternalModule(comp.Module):
             shape=comp.shape_struct  # Tags are struct-shaped values
         )
         definition.value = comp.Value.from_python(tag)
+        # definition.resolved_cop = comp._fold.make_constant(None, definition.value)  # Already resolved
+        # definition.original_cop = definition.resolved_cop
 
         self._definitions[qualified_name] = definition
         return tag
@@ -117,6 +122,8 @@ class InternalModule(comp.Module):
             shape=comp.shape_shape
         )
         definition.value = comp.Value.from_python(shape_value)
+        # definition.resolved_cop = comp._fold.make_constant(None, definition.value)  # Already resolved
+        # definition.original_cop = definition.resolved_cop
 
         self._definitions[qualified_name] = definition
         return definition
@@ -142,6 +149,8 @@ class InternalModule(comp.Module):
             shape=comp.shape_block
         )
         definition.value = value
+        # definition.resolved_cop = comp._fold.make_constant(None, definition.value)  # Already resolved
+        # definition.original_cop = definition.resolved_cop
 
         self._definitions[qualified_name] = definition
         return definition
@@ -153,204 +162,187 @@ class InternalModule(comp.Module):
         return self._definitions
 
 
-
 class SystemModule(comp.Module):
     """System module singleton with several builtin attributes"""
 
     def __init__(self):
         # Create a minimal ModuleSource for system module
-        source = type('obj', (object,), {'resource': 'system', 'content': ''})()
+        source = type("obj", (object,), {"resource": "system", "content": ""})()
         super().__init__(source)
         self.token = "system#0000"
 
-        # Populate definitions dict with builtin tags and shapes as Definition objects
-        # These are pre-folded since they're built-in objects
         self._imports = {}
         self._definitions = {}
 
-        # Helper to create Definition with pre-folded value
-        def _create_builtin_def(name, obj, shape_type):
-            value = comp.Value.from_python(obj)
-            defn = comp.Definition(name, self.token, value, shape_type)
-            defn.resolved_cop = value  # Already resolved
-            defn.value = value  # Already folded
-            return defn
-
-        # Builtin tags - use shape_struct for tag values
-        self._definitions['nil'] = _create_builtin_def('nil', comp.tag_nil, comp.shape_struct)
-        self._definitions['bool'] = _create_builtin_def('bool', comp.tag_bool, comp.shape_struct)
-        self._definitions['bool.true'] = _create_builtin_def('bool.true', comp.tag_true, comp.shape_struct)
-        self._definitions['bool.false'] = _create_builtin_def('bool.false', comp.tag_false, comp.shape_struct)
-        # Note: 'true' and 'false' shortcuts are created via namespace permutations from 'bool.true' and 'bool.false'
-        self._definitions['fail'] = _create_builtin_def('fail', comp.tag_fail, comp.shape_struct)
+        # Builtin tags
+        self._add_tag("nil", comp.tag_nil)
+        self._add_tag("bool", comp.tag_bool)
+        self._add_tag("bool.true", comp.tag_true)
+        self._add_tag("bool.false", comp.tag_false)
+        self._add_tag("fail", comp.tag_fail)
 
         # Builtin shapes
-        self._definitions['num'] = _create_builtin_def('num', comp.shape_num, comp.shape_shape)
-        self._definitions['text'] = _create_builtin_def('text', comp.shape_text, comp.shape_shape)
-        self._definitions['struct'] = _create_builtin_def('struct', comp.shape_struct, comp.shape_shape)
-        self._definitions['any'] = _create_builtin_def('any', comp.shape_any, comp.shape_shape)
-        self._definitions['func'] = _create_builtin_def('func', comp.shape_block, comp.shape_shape)
+        self._add_shape("num", comp.shape_num)
+        self._add_shape("text", comp.shape_text)
+        self._add_shape("struct", comp.shape_struct)
+        self._add_shape("any", comp.shape_any)
+        self._add_shape("func", comp.shape_block)
 
         # Builtin callables
-        def _incr(input_val, args_val, frame):
-            """Increment a number by 1."""
-            n = input_val.to_python()
-            return comp.Value.from_python(n + 1)
-        
-        incr_callable = InternalCallable("incr", _incr)
-        incr_value = comp.Value(incr_callable)
-        incr_defn = comp.Definition("incr", self.token, incr_value, comp.shape_block)
-        incr_defn.resolved_cop = incr_value
-        incr_defn.value = incr_value
-        self._definitions['incr'] = incr_defn
+        self._add_callable("incr", _builtin_incr)
+        self._add_callable("wrap", _builtin_wrap)
+        self._add_callable("morph", _builtin_morph)
+        self._add_callable("mask", _builtin_mask)
 
-        def _wrap(input_val, args_val, frame):
-            """Wrap a callable with outer wrappers.
-            
-            For now, just invokes the inner callable:
-            wrapped.input | wrapped.callable(wrapped.args)
-            
-            Args:
-                input_val: The wrap context ~(callable input args)
-                args_val: Unused for now
-                frame: The interpreter frame for invoking callables
-                
-            Returns:
-                Result of invoking the inner callable
-            """
-            # Extract from wrap context struct
-            # input_val is ~(callable input args)
-            ctx = input_val.data
-            callable_val = ctx.get(comp.Value.from_python("callable"))
-            inner_input = ctx.get(comp.Value.from_python("input"))
-            inner_args = ctx.get(comp.Value.from_python("args"))
-            
-            # Invoke: inner_input | callable(inner_args)
-            if callable_val is None:
-                return comp.Value.from_python(None)
-            
-            # callable_val is already a Value from struct.get()
-            return frame.invoke_block(callable_val, inner_args, inner_input)
-        
-        wrap_callable = InternalCallable("wrap", _wrap)
-        wrap_value = comp.Value(wrap_callable)
-        wrap_defn = comp.Definition("wrap", self.token, wrap_value, comp.shape_block)
-        wrap_defn.resolved_cop = wrap_value
-        wrap_defn.value = wrap_value
-        self._definitions['wrap'] = wrap_defn
-
-        def _morph(input_val, args_val, frame):
-            """Morph a value to match a shape.
-
-            Args:
-                input_val: Unused (morph takes args only)
-                args_val: Struct with (data shape) fields
-                frame: The interpreter frame
-
-            Returns:
-                Struct with result= and score= on success, or result=nil and reason= on failure
-            """
-            # Extract data and shape from args
-            data_val = args_val.positional(0)
-            shape_val = args_val.positional(1)
-
-            if data_val is None or shape_val is None:
-                return comp.Value.from_python({
-                    "result": comp.tag_nil,
-                    "reason": "morph requires (data shape) arguments"
-                })
-
-            shape = shape_val.data
-            if not isinstance(shape, (comp.Shape, comp.Tag, comp.ShapeUnion)):
-                return comp.Value.from_python({
-                    "result": comp.tag_nil,
-                    "reason": f"Second argument must be a shape, got {type(shape)}"
-                })
-
-            result = comp.morph(data_val, shape, frame)
-
-            if result.failure_reason:
-                return comp.Value.from_python({
-                    "result": comp.tag_nil,
-                    "reason": result.failure_reason
-                })
-
-            score_struct = comp.Value.from_python({
-                "named": result.score[0],
-                "tag": result.score[1],
-                "pos": result.score[2]
-            })
-            return comp.Value.from_python({
-                "result": result.value,
-                "score": score_struct
-            })
-
-        morph_callable = InternalCallable("morph", _morph)
-        morph_value = comp.Value(morph_callable)
-        morph_defn = comp.Definition("morph", self.token, morph_value, comp.shape_block)
-        morph_defn.resolved_cop = morph_value
-        morph_defn.value = morph_value
-        self._definitions['morph'] = morph_defn
-
-        def _mask(input_val, args_val, frame):
-            """Mask a value to match a shape, dropping extra fields.
-
-            Args:
-                input_val: Unused (mask takes args only)
-                args_val: Struct with (data shape) fields
-                frame: The interpreter frame
-
-            Returns:
-                Struct with result= on success, or result=nil and reason= on failure
-            """
-            # Extract data and shape from args
-            data_val = args_val.positional(0)
-            shape_val = args_val.positional(1)
-
-            if data_val is None or shape_val is None:
-                return comp.Value.from_python({
-                    "result": comp.tag_nil,
-                    "reason": "mask requires (data shape) arguments"
-                })
-
-            shape = shape_val.data
-            if not isinstance(shape, (comp.Shape, comp.Tag, comp.ShapeUnion)):
-                return comp.Value.from_python({
-                    "result": comp.tag_nil,
-                    "reason": f"Second argument must be a shape, got {type(shape)}"
-                })
-
-            result_val, error = comp.mask(data_val, shape, frame)
-
-            if error:
-                return comp.Value.from_python({
-                    "result": comp.tag_nil,
-                    "reason": error
-                })
-
-            return comp.Value.from_python({
-                "result": result_val
-            })
-
-        mask_callable = InternalCallable("mask", _mask)
-        mask_value = comp.Value(mask_callable)
-        mask_defn = comp.Definition("mask", self.token, mask_value, comp.shape_block)
-        mask_defn.resolved_cop = mask_value
-        mask_defn.value = mask_value
-        self._definitions['mask'] = mask_defn
-
-        # Finalize to build namespace from definitions
         self.finalize()
 
-    def namespace(self):
-        # Use create_namespace to generate proper permutations
-        # e.g., 'bool.true' -> ['bool.true', 'true']
-        if self._namespace is None:
-            self._namespace = comp._namespace.create_namespace(self._definitions, None)
-        return self._namespace
+    def _add_definition(self, name, value, shape):
+        """Add a builtin definition with proper value and COP setup.
+
+        Args:
+            name: (str) Qualified name
+            value: (Value) The definition's value
+            shape: (Shape) The shape of the value
+        """
+        defn = comp.Definition(name, self.token, None, shape)
+        defn.value = value
+        defn.resolved_cop = _make_constant_cop(value)
+        defn.original_cop = defn.resolved_cop
+        self._definitions[name] = defn
+
+    def _add_tag(self, name, tag):
+        """Add a builtin tag definition."""
+        self._add_definition(name, comp.Value.from_python(tag), comp.shape_struct)
+
+    def _add_shape(self, name, shape):
+        """Add a builtin shape definition."""
+        self._add_definition(name, comp.Value.from_python(shape), comp.shape_shape)
+
+    def _add_callable(self, name, func):
+        """Add a builtin callable definition."""
+        callable_obj = InternalCallable(name, func)
+        self._add_definition(name, comp.Value(callable_obj), comp.shape_block)
 
     def finalize(self):
         self._finalized = True
+
+
+# Builtin callable implementations
+
+def _builtin_incr(input_val, args_val, frame):
+    """Increment a number by 1."""
+    val = input_val.as_scalar()
+    n = val.to_python()
+    return comp.Value.from_python(n + 1)
+
+
+def _builtin_wrap(input_val, args_val, frame):
+    """Wrap a callable with outer wrappers.
+
+    The compiler rewrites block wrappers to invoke this builtin function.
+    """
+    # This is a placeholder for now, it merely invokes the final
+    # invokable instead of passing through each wrapper
+    # input_val is ~(callable input args)
+    ctx = input_val.data
+    callable_val = ctx.get(comp.Value.from_python("callable"))
+    inner_input = ctx.get(comp.Value.from_python("input"))
+    inner_args = ctx.get(comp.Value.from_python("args"))
+
+    # Invoke: inner_input | callable(inner_args)
+    if callable_val is None:
+        return comp.Value.from_python(None)
+
+    # callable_val is already a Value from struct.get()
+    return frame.invoke_block(callable_val, inner_args, inner_input)
+
+
+def _builtin_morph(input_val, args_val, frame):
+    """Morph a value to match a shape.
+
+    Args:
+        input_val: Unused (morph takes args only)
+        args_val: Struct with (data shape) fields
+        frame: The interpreter frame
+
+    Returns:
+        Struct with result= and score= on success, or result=nil and reason= on failure
+    """
+    # Extract data and shape from args
+    data_val = args_val.positional(0)
+    shape_val = args_val.positional(1)
+
+    if data_val is None or shape_val is None:
+        return comp.Value.from_python({
+            "result": comp.tag_nil,
+            "reason": "morph requires (data shape) arguments"
+        })
+
+    shape = shape_val.data
+    if not isinstance(shape, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+        return comp.Value.from_python({
+            "result": comp.tag_nil,
+            "reason": f"Second argument must be a shape, got {type(shape)}"
+        })
+
+    result = comp.morph(data_val, shape, frame)
+
+    if result.failure_reason:
+        return comp.Value.from_python({
+            "result": comp.tag_nil,
+            "reason": result.failure_reason
+        })
+
+    score_struct = comp.Value.from_python({
+        "named": result.score[0],
+        "tag": result.score[1],
+        "pos": result.score[2]
+    })
+    return comp.Value.from_python({
+        "result": result.value,
+        "score": score_struct
+    })
+
+
+def _builtin_mask(input_val, args_val, frame):
+    """Mask a value to match a shape, dropping extra fields.
+
+    Args:
+        input_val: Unused (mask takes args only)
+        args_val: Struct with (data shape) fields
+        frame: The interpreter frame
+
+    Returns:
+        Struct with result= on success, or result=nil and reason= on failure
+    """
+    # Extract data and shape from args
+    data_val = args_val.positional(0)
+    shape_val = args_val.positional(1)
+
+    if data_val is None or shape_val is None:
+        return comp.Value.from_python({
+            "result": comp.tag_nil,
+            "reason": "mask requires (data shape) arguments"
+        })
+
+    shape = shape_val.data
+    if not isinstance(shape, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+        return comp.Value.from_python({
+            "result": comp.tag_nil,
+            "reason": f"Second argument must be a shape, got {type(shape)}"
+        })
+
+    result_val, error = comp.mask(data_val, shape, frame)
+
+    if error:
+        return comp.Value.from_python({
+            "result": comp.tag_nil,
+            "reason": error
+        })
+
+    return comp.Value.from_python({
+        "result": result_val
+    })
 
 
 

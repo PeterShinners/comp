@@ -55,9 +55,11 @@ assignment: identifier ASSIGN item
 // Identifiers - dotted paths for import.x and pkg.x
 // Allow structs after DOT for dynamic access like foo.(expr)
 // Allow DOT after DOT for .. merge operator
+// Allow HASH for index fields like pair.#1
 TOKENFIELD.4: /[a-zA-Z_][\w-]*/
 DOT.6: "."
-identifier: TOKENFIELD (DOT (TOKENFIELD | struct | DOT))*
+HASH.4: "#"
+identifier: TOKENFIELD (DOT (TOKENFIELD | struct | DOT | HASH /\d+/))*
 
 
 // Blob catches everything else - exclude structural chars

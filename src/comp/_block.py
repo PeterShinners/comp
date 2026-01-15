@@ -80,17 +80,16 @@ class Block:
         if self.input_name:
             input = self.input_name
             if self.input_shape:
-                shape_str = comp.cop_unparse(self.input_shape)
-                if shape_str != "~()":
-                    input += f"~{shape_str}"
-            sig.append(input)
+                # Only resolved shapes (Shape/Tag objects) are formatted
+                sig.append(f"{input}~{self.input_shape.qualified}")
+            else:
+                sig.append(input)
         if self.arg_name:
             arg = self.arg_name
             if self.arg_shape:
-                shape_str = comp.cop_unparse(self.arg_shape)
-                if shape_str != "~()":
-                    arg += f"~{shape_str}"
-            sig.append(arg)
+                sig.append(f"{arg}~{self.arg_shape.qualified}")
+            else:
+                sig.append(arg)
         if self.pure:
             sig.append("pure")
 
@@ -140,28 +139,23 @@ def create_blockdef(qualified_name, private, cop_node):
     block = Block(qualified_name, private)
 
     # Parse signature and body from block
-    # value.block has kids: s=shape.define (signature) and b=struct.define (body)
+    # value.block has kids: shape.define (signature), struct.define (body)
     kids = comp.cop_kids(cop_node)
     signature_cop = kids[0] if len(kids) > 0 else None
     body_cop = kids[1] if len(kids) > 1 else None
 
-    # Parse signature to extract parameter names and shapes
+    # Parse signature to extract parameter names (shapes resolved later by interpreter)
     if signature_cop:
+        block.signature_cop = signature_cop
         sig_fields = comp.cop_kids(signature_cop)
         for field in sig_fields:
             field_name = field.to_python("name")
             if field_name == "pure":
                 block.pure = True
-            # elif field_name == "private":
-            #     block.private = True
+            elif block.input_name is None:
+                block.input_name = field_name
             else:
-                field_kids = comp.cop_kids(field)
-                if block.input_name is None:
-                    block.input_name = field_name
-                    block.input_shape = field_kids[0] if field_kids else None
-                else:
-                    block.arg_name = field_name
-                    block.arg_shape = field_kids[0] if field_kids else None
+                block.arg_name = field_name
 
     # Store body COP
     block.body = body_cop
@@ -169,5 +163,4 @@ def create_blockdef(qualified_name, private, cop_node):
     # Wrap in Value and set cop attribute
     value = comp.Value.from_python(block)
     value.cop = cop_node
-
     return value

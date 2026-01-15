@@ -247,7 +247,7 @@ def main():
         import debugpy
         if debugpy.is_client_connected():
             print("Debugger attached.")
-            argv = ['examples/tree.comp', '--imports']
+            argv = ['sh=~(x~num) ov=:~num("digit") ov=:~text("letter") x=4|ov()', '--text', '--cop', '--resolve']
     except ImportError:
         pass
 
@@ -284,15 +284,11 @@ def main():
             # Build namespace and resolve identifiers
             defs = mod.definitions()
             namespace = mod.namespace()
-            # Resolve identifiers in the COP tree
-            cop_tree = comp.cop_resolve(cop_tree, namespace)
-
-            # If we're also folding, fold definitions with dependency tracking
-            if args.fold:
-                comp.fold_definitions(defs, namespace)
-        if args.fold:
-            # Pass namespace for reference folding if available
-            cop_tree = comp.cop_fold(cop_tree, namespace)
+            # Resolve and optionally fold
+            cop_tree = comp.coptimize(cop_tree, args.fold, namespace)
+        elif args.fold:
+            # Fold without namespace
+            cop_tree = comp.coptimize(cop_tree, True, None)
         if args.pure:
             # Evaluate pure function invokes
             if namespace is None:
@@ -300,7 +296,7 @@ def main():
                 namespace = mod.namespace()
             comp.evaluate_pure_definitions(defs, namespace, interp)
             # Re-fold after pure evaluation
-            cop_tree = comp.cop_fold(cop_tree, namespace)
+            cop_tree = comp.coptimize(cop_tree, True, namespace)
         if args.cop:
             prettycop(cop_tree, show_pos=args.pos)
         elif args.unparse:
@@ -325,20 +321,69 @@ def main():
         return
 
     if args.code or args.eval or args.trace:
-        # Build instruction code for each definition
+        do_fold = args.fold or args.pure
+        
+        # Prepare ALL modules in the interp (imports and main module)
+        # This is the "do everything up front" approach
+        def prepare_module(module):
+            """Prepare a single module: resolve COPs, generate instructions, populate values."""
+            module_defs = module.definitions()
+            module_ns = module.namespace()
+            
+            # Resolve and optionally fold all definitions
+            for name, definition in module_defs.items():
+                if not definition.resolved_cop:
+                    definition.resolved_cop = comp.coptimize(definition.original_cop, do_fold, module_ns)
+            
+            # Generate code for all definitions
+            for name, definition in module_defs.items():
+                if not definition.instructions:
+                    try:
+                        definition.instructions = comp.generate_code_for_definition(definition.resolved_cop)
+                    except Exception as e:
+                        print(f"Code generation error for {module.token}:{name}: {e}")
+                        raise
+            
+            # Populate definition values by executing their instructions
+            # Process shapes first, then blocks (blocks may reference shapes)
+            module_env = {}
+            
+            # First pass: shapes (shape definitions don't depend on blocks)
+            for name, definition in module_defs.items():
+                if definition.instructions and definition.value is None:
+                    if definition.shape.qualified == "shape":
+                        try:
+                            result = interp.execute(definition.instructions, module_env, module=module)
+                            definition.value = result
+                            module_env[name] = result
+                        except Exception as e:
+                            print(f"Evaluation error for {module.token}:{name}: {e}")
+                            raise
+            
+            # Second pass: everything else (blocks, etc.)
+            for name, definition in module_defs.items():
+                if definition.instructions and definition.value is None:
+                    try:
+                        result = interp.execute(definition.instructions, module_env, module=module)
+                        definition.value = result
+                        module_env[name] = result
+                    except Exception as e:
+                        print(f"Evaluation error for {module.token}:{name}: {e}")
+                        raise
+        
+        # First prepare all imported modules (dependencies before dependents)
+        for token, module in list(interp.module_cache.items()):
+            if module is not mod:  # Skip main module for now
+                prepare_module(module)
+        
+        # Now prepare the main module
         defs = mod.definitions()
         namespace = mod.namespace()
         
-        # Pre-fold: always with --fold, or implicitly with --pure
-        if args.fold or args.pure:
-            comp.fold_definitions(defs, namespace)
-        
-        # Resolve all definitions first
+        # Resolve and optionally fold all definitions
         for name, definition in defs.items():
             if not definition.resolved_cop:
-                definition.resolved_cop = comp.cop_resolve(definition.original_cop, namespace)
-            if args.fold or args.pure:
-                definition.resolved_cop = comp.cop_fold(definition.resolved_cop, namespace)
+                definition.resolved_cop = comp.coptimize(definition.original_cop, do_fold, namespace)
         
         # Evaluate pure function invokes
         if args.pure:
@@ -346,7 +391,7 @@ def main():
             # Post-fold after pure evaluation (only if --fold specified)
             if args.fold:
                 for name, definition in defs.items():
-                    definition.resolved_cop = comp.cop_fold(definition.resolved_cop, namespace)
+                    definition.resolved_cop = comp.coptimize(definition.resolved_cop, True, namespace)
         
         # Pass 1: Generate code for all definitions
         for name, definition in defs.items():
@@ -382,8 +427,8 @@ def main():
             if args.trace:
                 # Create tracing frame subclass
                 class TracingFrame(comp.ExecutionFrame):
-                    def __init__(self, env=None, interp=None, depth=0):
-                        super().__init__(env, interp)
+                    def __init__(self, env=None, interp=None, module=None, depth=0):
+                        super().__init__(env, interp, module)
                         self.depth = depth
                     
                     def on_step(self, idx, instr, result):
@@ -391,21 +436,21 @@ def main():
                         result_str = result.format() if result else "(none)"
                         print(f"{indent}{instr.format(idx)}  ->  {result_str}")
                     
-                    def _make_child_frame(self, env):
-                        return TracingFrame(env=env, interp=self.interp, depth=self.depth + 1)
+                    def _make_child_frame(self, env, module=None):
+                        return TracingFrame(env=env, interp=self.interp, module=module or self.module, depth=self.depth + 1)
                 
                 # Execute with tracing
                 for name, definition in defs.items():
                     if definition.instructions:
                         print(f"\n-- {name} --")
-                        frame = TracingFrame(env, interp=interp, depth=0)
+                        frame = TracingFrame(env, interp=interp, module=mod, depth=0)
                         result = frame.run(definition.instructions)
                         env[name] = result
             else:
                 # Normal execution
                 for name, definition in defs.items():
                     if definition.instructions:
-                        result = interp.execute(definition.instructions, env)
+                        result = interp.execute(definition.instructions, env, module=mod)
                         env[name] = result
             
             # Print final values

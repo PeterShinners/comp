@@ -45,9 +45,14 @@ KEY_PUSH.8: "!push"
 KEY_PULL.8: "!pull"
 transaction: KEY_TRANSACT PAREN_OPEN identifier+ PAREN_CLOSE
 
-?expression: comparison
+?expression: logic_or
            | transaction
 
+?logic_or: logic_and
+         | logic_or LOR logic_and -> binary_op
+
+?logic_and: comparison
+          | logic_and LAND comparison -> binary_op
 
 // Expressions
 EQ.6: "=="
@@ -91,8 +96,9 @@ SLASH.3: "/"
 ?unary: postfix
       | (PLUS | MINUS | LNOT) unary -> unary_op
 
+postfield: nextfield (DOT nextfield)*
 ?postfix: atom
-        | atom DOT identifier -> postidentifier
+        | atom DOT postfield -> fieldaccess
 
 // Simplified expressions, for default values  (avoids ambiguity) 
 ?simple_expr: simple_term

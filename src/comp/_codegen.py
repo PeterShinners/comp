@@ -76,19 +76,26 @@ class CodeGenContext:
                 # to properly set up closure_env and body_instructions at runtime
                 if isinstance(const_val.data, comp.Block):
                     block = const_val.data
-                    # Reconstruct signature_cop from the block
-                    # For now, build instructions for the body and use BuildBlock
-                    body_cop = block.body
-                    if body_cop is not None:
+                    # Use existing body_instructions if available (from prepare_module),
+                    # otherwise generate from body COP
+                    if block.body_instructions:
+                        body_instructions = block.body_instructions
+                    elif block.body is not None:
                         body_ctx = self.__class__()
-                        body_ctx.build_expression(body_cop)
+                        body_ctx.build_expression(block.body)
                         body_instructions = body_ctx.instructions
                     else:
                         body_instructions = []
-                    # Get signature from the block's original cop if available
-                    sig_cop = const_val.cop.field("kids").data
-                    sig_list = list(sig_cop.values())
-                    signature_cop = sig_list[0] if sig_list else None
+                    # Get signature from the block - either signature_cop attribute
+                    # or from the original cop if available
+                    signature_cop = getattr(block, "signature_cop", None)
+                    if signature_cop is None and const_val.cop is not None:
+                        try:
+                            sig_cop = const_val.cop.field("kids").data
+                            sig_list = list(sig_cop.values())
+                            signature_cop = sig_list[0] if sig_list else None
+                        except (KeyError, AttributeError):
+                            pass
                     instr = comp._interp.BuildBlock(
                         cop=cop, 
                         signature_cop=signature_cop, 
@@ -101,7 +108,11 @@ class CodeGenContext:
                 # Load from namespace/environment using qualified name
                 try:
                     qualified_name = cop.to_python("qualified")
-                    instr = comp._interp.LoadVar(cop=cop, name=qualified_name)
+                    # Check if this is an overloaded reference (list of names)
+                    if isinstance(qualified_name, list):
+                        instr = comp._interp.LoadOverload(cop=cop, names=qualified_name)
+                    else:
+                        instr = comp._interp.LoadVar(cop=cop, name=qualified_name)
                     return self.emit(instr)
                     
                 except (AttributeError, KeyError) as e:
@@ -111,14 +122,30 @@ class CodeGenContext:
                 # Unresolved identifier - load as local/parameter variable
                 # This happens inside function bodies where parameters and locals
                 # haven't been resolved to qualified names
+                # 
+                # Multi-part identifiers like `in.a` need to:
+                # 1. Load the first part (in)
+                # 2. Extract fields for subsequent parts (.a)
                 kids = _cop_kids(cop)
-                if kids:
-                    token_cop = kids[0]  # ident.token
-                    name = token_cop.to_python("value")
-                    instr = comp._interp.LoadVar(cop=cop, name=name)
-                    return self.emit(instr)
-                else:
+                if not kids:
                     raise comp.CodeError("Identifier has no token", cop)
+                
+                # First token is the variable name
+                token_cop = kids[0]  # ident.token
+                name = token_cop.to_python("value")
+                result = self.emit(comp._interp.LoadVar(cop=cop, name=name))
+                
+                # Subsequent tokens are field accesses
+                for i in range(1, len(kids)):
+                    field_cop = kids[i]
+                    field_tag = comp.cop_tag(field_cop)
+                    if field_tag == "ident.token":
+                        field_name = field_cop.to_python("value")
+                        result = self.emit(comp._interp.GetField(cop=cop, field=field_name, struct_reg=result))
+                    else:
+                        raise comp.CodeError(f"Unsupported field type in identifier: {field_tag}", cop)
+                
+                return result
             
             case "value.number":
                 # Inline constant
@@ -142,6 +169,9 @@ class CodeGenContext:
                 
             case "value.pipeline":
                 return self._build_pipeline(cop)
+
+            case "value.field":
+                return self._build_field_access(cop)
                 
             case "value.block":
                 return self._build_block(cop)
@@ -232,6 +262,59 @@ class CodeGenContext:
             else:
                 # Non-invoke stage - just evaluate it (unusual but allowed)
                 result = self._build_value_ensure_register(stage_cop)
+        
+        return result
+
+    def _build_field_access(self, cop):
+        """Build field access instructions.
+        
+        Generates code for expressions like `struct.field`, `struct.a.b`, or
+        `struct.#0` where we need to extract fields from struct values.
+        """
+        # kids[0] is left (the struct), kids[1] is field (the identifier)
+        kids = _cop_kids(cop)
+        left_cop = kids[0]
+        field_cop = kids[1]
+        
+        # Build the left side (struct expression)
+        result = self._build_value_ensure_register(left_cop)
+        
+        # Extract field accessors from the identifier - may be single field or multiple
+        field_tag = comp.cop_tag(field_cop)
+        
+        if field_tag == "value.identifier":
+            # Multiple field parts: chain access
+            field_kids = _cop_kids(field_cop)
+        else:
+            # Single field: wrap in list for uniform handling
+            field_kids = [field_cop]
+        
+        if not field_kids:
+            raise comp.CodeError("Postfix field has no identifier", cop)
+        
+        # Chain field access for each part in the identifier
+        for field_token in field_kids:
+            field_tag = comp.cop_tag(field_token)
+            
+            if field_tag == "ident.token":
+                # Named field access: struct.fieldname
+                field_name = field_token.to_python("value")
+                result = self.emit(comp._interp.GetField(
+                    cop=cop,
+                    struct_reg=result,
+                    field=field_name
+                ))
+            elif field_tag == "ident.index":
+                # Positional field access: struct.#N (0-based)
+                index_str = field_token.to_python("value")
+                index = int(index_str)
+                result = self.emit(comp._interp.GetIndex(
+                    cop=cop,
+                    struct_reg=result,
+                    index=index
+                ))
+            else:
+                raise comp.CodeError(f"Unsupported postfix field type: {field_tag}", cop)
         
         return result
     

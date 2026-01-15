@@ -170,7 +170,7 @@ def logic_unary(op, right):
 def compare(op, left, right):
     """Comparison operation.
 
-    All types are comparable with any type.
+    All types are comparable with any type using total ordering.
 
     Args:
         op: (str) Operator like "==" "!=" "<" "<=" ">" ">="
@@ -180,23 +180,174 @@ def compare(op, left, right):
     Returns:
         (Value) true or false tag
     """
+    cmp = _compare(left, right)
+    result = False
     match op:
         case "==":
-            if _equal(left, right):
-                return comp.Value(comp.tag_true)
-            return comp.Value(comp.tag_false)
+            result = cmp == 0
         case "!=":
-            if not _equal(left, right):
-                return comp.Value(comp.tag_true)
-            return comp.Value(comp.tag_false)
-        case "<" | "<=" | ">" | ">=":
-            if _equal(left, right):
-                return op in ("<=", ">=")
-            if op in ("<", "<="):
-                return _lessthan(left, right)
-            return _lessthan(right, left)
+            result = cmp != 0
+        case "<":
+            result = cmp < 0
+        case "<=":
+            result = cmp <= 0
+        case ">":
+            result = cmp > 0
+        case ">=":
+            result = cmp >= 0
+        case _:
+            raise ValueError(f"Unknown comparison operator: {op}")
 
-    raise ValueError(f"Unknown comparison operator: {op}")
+    if result:
+        return comp.Value(comp.tag_true)
+    return comp.Value(comp.tag_false)
+
+
+def _compare(left, right):
+    """Compare two Values using total ordering.
+
+    Type ordering: {} < false < true < other tags < numbers < text < non-empty structs
+
+    Args:
+        left: (Value) Left value
+        right: (Value) Right value
+
+    Returns:
+        (int) -1 if left < right, 0 if equal, 1 if left > right
+    """
+    lval = left.data
+    rval = right.data
+
+    # Identity check
+    if lval is rval:
+        return 0
+
+    lshape = left.shape
+    rshape = right.shape
+
+    # Different type priorities
+    lpri = _type_priority(left)
+    rpri = _type_priority(right)
+    if lpri != rpri:
+        return -1 if lpri < rpri else 1
+
+    # Same type - compare within type
+    if lshape is comp.shape_num:
+        if lval < rval:
+            return -1
+        if lval > rval:
+            return 1
+        return 0
+
+    if lshape is comp.shape_text:
+        if lval < rval:
+            return -1
+        if lval > rval:
+            return 1
+        return 0
+
+    if lshape is comp.shape_tag:
+        # Tags compare by qualified name
+        if lval.qualified < rval.qualified:
+            return -1
+        if lval.qualified > rval.qualified:
+            return 1
+        return 0
+
+    if lshape is comp.shape_struct:
+        return _compare_struct(left, right)
+
+    # Fallback for unknown types
+    return 0
+
+
+def _type_priority(value):
+    """Return type priority for total ordering.
+
+    Order: empty struct < false < true < other tags < numbers < text < non-empty structs
+
+    Args:
+        value: (Value) Value to get priority for
+
+    Returns:
+        (int) Priority number (lower = comes first)
+    """
+    shape = value.shape
+
+    if shape is comp.shape_struct:
+        if len(value.data) == 0:
+            return 0  # Empty struct first
+        return 6  # Non-empty structs last
+
+    if shape is comp.tag_false:
+        return 1
+    if shape is comp.tag_true:
+        return 2
+    if shape is comp.shape_tag:
+        return 3
+    if shape is comp.shape_num:
+        return 4
+    if shape is comp.shape_text:
+        return 5
+
+    return 7  # Unknown
+
+
+def _compare_struct(left, right):
+    """Compare two structs field by field.
+
+    Comparison rules:
+    - Compare fields in iteration order
+    - Unnamed fields sort before named fields
+    - For named fields, compare by field name first, then value
+    - Shorter struct is less if all compared fields are equal
+
+    Args:
+        left: (Value) Left struct
+        right: (Value) Right struct
+
+    Returns:
+        (int) -1 if left < right, 0 if equal, 1 if left > right
+    """
+    ldata = left.data
+    rdata = right.data
+
+    litems = list(ldata.items())
+    ritems = list(rdata.items())
+
+    for i in range(max(len(litems), len(ritems))):
+        # If one ran out, shorter is less
+        if i >= len(litems):
+            return -1
+        if i >= len(ritems):
+            return 1
+
+        lkey, lval = litems[i]
+        rkey, rval = ritems[i]
+
+        # Compare key types: unnamed < named
+        l_unnamed = isinstance(lkey, comp.Unnamed)
+        r_unnamed = isinstance(rkey, comp.Unnamed)
+
+        if l_unnamed and not r_unnamed:
+            return -1  # Unnamed comes before named
+        if not l_unnamed and r_unnamed:
+            return 1   # Named comes after unnamed
+
+        # Both named: compare field names
+        if not l_unnamed:
+            # Keys are Values containing field names
+            key_cmp = _compare(lkey, rkey)
+            if key_cmp != 0:
+                return key_cmp
+
+        # Compare values
+        val_cmp = _compare(lval, rval)
+        if val_cmp != 0:
+            return val_cmp
+
+    # All fields equal and same length
+    return 0
 
 
 def _equal(left, right):
@@ -258,75 +409,3 @@ def _equal(left, right):
             return False
 
     return True
-
-
-def _lessthan(left, right):
-    """Helper for sorted comparison.
-
-    Args:
-        left: (Value) Left value
-        right: (Value) Right value
-
-    Returns:
-        (bool) True if left is less than right
-    """
-    # Results on _equal values is undefined
-
-    lval = left.data
-    rval = right.data
-    if lval is rval:
-        return False
-
-    lshape = left.shape
-    rshape = right.shape
-    if lshape != rshape:
-        return _typeorder(left) < _typeorder(right)
-
-    if lshape is comp.shape_tag:
-        return lval.qualified < rval.qualified
-
-    if lshape is not comp.shape_struct:
-        return lval < rval
-
-    # structs compare ordered field by field my field name first
-    for (lkey, lvalue), (rkey, rvalue) in zip(lval.items(), rval.items()):
-        if isinstance(lkey, comp.Unnamed) and not isinstance(rkey, comp.Unnamed):
-            return True
-        if isinstance(rkey, comp.Unnamed):
-            return False
-        if not _equal(lkey, rkey):
-            return _lessthan(lkey, rkey)
-        if not _equal(lvalue, rvalue):
-            return _lessthan(lvalue, rvalue)
-
-    # if let is subset of right (and everything else matched)
-    return len(lval) < len(rval)
-
-
-def _typeorder(value):
-    """Return number describing sort order for mixed type comparisons.
-
-    Args:
-        value: (Value) Value to get type order for
-
-    Returns:
-        (int) Sort order number
-    """
-    shape = value.shape
-    if shape is comp.shape_struct:
-        # Struct order based on field count (empty or not)
-        if len(value.data) == 0:
-            return 0
-        return 6
-    if shape is comp.tag_false:
-        return 1
-    if shape is comp.tag_true:
-        return 2
-    if shape is comp.shape_tag:
-        return 3
-    if shape is comp.shape_num:
-        return 4
-    if shape is comp.shape_text:
-        return 5
-
-    return 7  # Unexpected or unknown type

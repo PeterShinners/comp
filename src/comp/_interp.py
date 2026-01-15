@@ -37,6 +37,7 @@ class Interp:
         self.search_paths = [
             os.path.join(self.comp_root, "stdlib"),  # Built-in stdlib
             os.path.join(self.working_dir, "stdlib"),  # Project stdlib
+            os.path.join(self.working_dir, "lib"),  # Project lib
             self.working_dir,  # Project root
         ]
         # Open directory file descriptors for efficient searching
@@ -123,9 +124,8 @@ class Interp:
     def module_from_text(self, text):
         """Create a Module from existing text."""
         src = comp._import.ModuleSource(
-            resource="text",
-            location="text",
-            source_type="text",
+            resource="txt",
+            location="txt",
             etag=hashlib.sha256(text.encode('utf-8')).hexdigest(),
             content=text,
             anchor="",
@@ -135,17 +135,18 @@ class Interp:
         return mod
 
 
-    def execute(self, instructions, env=None):
+    def execute(self, instructions, env=None, module=None):
         """Execute a sequence of instructions.
 
         Args:
             instructions: List of Instruction objects
             env: Initial environment (variable bindings)
+            module: The module being executed (for definition lookups)
 
         Returns:
             Final result Value (from last instruction)
         """
-        frame = ExecutionFrame(env, interp=self)
+        frame = ExecutionFrame(env, interp=self, module=module)
         return frame.run(instructions)
 
     def _new_module(self, module):
@@ -181,12 +182,14 @@ class ExecutionFrame:
         registers: List of Values indexed by instruction number
         env: Dict mapping variable names to Values
         interp: The interpreter instance (for nested calls)
+        module: The module being executed (for definition lookups)
     """
 
-    def __init__(self, env=None, interp=None):
+    def __init__(self, env=None, interp=None, module=None):
         self.registers = []  # List indexed by instruction number
         self.env = env if env is not None else {}
         self.interp = interp
+        self.module = module
 
     def run(self, instructions):
         """Execute a list of instructions, return final result.
@@ -238,11 +241,47 @@ class ExecutionFrame:
         self.registers.append(value)
         return value
 
+    def lookup(self, name):
+        """Look up a name in environment, module namespace, and system definitions.
+
+        Args:
+            name: (str) Variable or definition name to look up
+
+        Returns:
+            (Definition | None) The definition if found, None otherwise
+        """
+        # Check local environment first
+        if name in self.env:
+            # Env contains Values, but we need to return a Definition-like object
+            # For now, return None to fall through to namespace lookup
+            pass
+
+        # Check module namespace (includes imports and local definitions)
+        if self.module:
+            ns = self.module.namespace()
+            if name in ns:
+                item = ns[name]
+                # Namespace contains DefinitionSet objects - extract single definition
+                if isinstance(item, comp.DefinitionSet):
+                    if len(item.definitions) == 1:
+                        return next(iter(item.definitions))
+                    # For multiple definitions, return the set itself
+                    return item
+                return item
+
+        # Fall back to system module for builtins
+        if self.interp and self.interp.system:
+            system = self.interp.system
+            if name in system._definitions:
+                return system._definitions[name]
+
+        return None
+
     def invoke_block(self, block_val, args, piped=None):
         """Call a function with the given arguments.
 
         Args:
-            block_val: Value containing a Block or InternalCallable
+            block_val: Value containing a Block, DefinitionSet, Shape, or InternalCallable
             args: Value containing the argument struct
             piped: Value for piped input (or None if not piped)
 
@@ -256,12 +295,60 @@ class ExecutionFrame:
             input_val = piped if piped is not None else args
             return callable_obj.func(input_val, args, self)
         
-        # Handle Block (Comp function)
-        block = callable_obj
+        # Handle Shape (morph input to shape)
+        if isinstance(callable_obj, comp.Shape):
+            input_val = piped if piped is not None else args
+            morph_result = comp.morph(input_val, callable_obj, self)
+            if morph_result.failure_reason:
+                raise comp.CodeError(
+                    f"Shape morph failed: {morph_result.failure_reason}",
+                    block_val.cop if hasattr(block_val, "cop") else None
+                )
+            return morph_result.value
+        
+        # Handle DefinitionSet (dispatch to best-matching block, or shape as fallback)
+        if isinstance(callable_obj, comp.DefinitionSet):
+            result = self._dispatch_overload(callable_obj, args, piped)
+            if result is None:
+                raise comp.CodeError(
+                    f"No matching overload found for input",
+                    block_val.cop if hasattr(block_val, "cop") else None
+                )
+            # If dispatch returned a Value directly (from shape morph), return it
+            if isinstance(result, comp.Value):
+                return result
+            # Otherwise it's a Block to invoke
+            block = result
+        else:
+            # Handle Block (Comp function)
+            block = callable_obj
         
         # Create a new environment for the function
         # Start with the closure environment (captured at block definition)
         new_env = dict(block.closure_env)
+        
+        # For single-parameter blocks (input only, no arg), treat args as piped input
+        # This allows `up(5)` to work the same as `5|up()` for `:n(n+1)`
+        if block.input_name and not block.arg_name and piped is None:
+            # Extract the first positional value from the args struct
+            # So `transpose(p)` passes `p` as input, not `(p)`
+            args_data = args.data if hasattr(args, "data") else args
+            if isinstance(args_data, dict):
+                # Check for single positional argument (key is Unnamed)
+                positional_items = []
+                for k, v in args_data.items():
+                    if isinstance(k, comp.Unnamed):
+                        positional_items.append(v)
+                
+                if len(positional_items) == 1 and len(args_data) == 1:
+                    # Single positional arg - extract it as the input
+                    piped = positional_items[0]
+                else:
+                    # Multiple args or named args - use the whole struct as input
+                    piped = args
+            else:
+                piped = args
+            args = comp.Value.from_python({})
         
         # Apply morph/mask to parameters based on shapes
         input_val = piped if piped is not None else comp.Value.from_python({})
@@ -292,26 +379,110 @@ class ExecutionFrame:
                 new_env[block.input_name] = input_val
             else:
                 new_env[block.input_name] = args_val
+        
+        # Lazily compile body instructions if needed
+        if block.body_instructions is None and block.body:
+            # Need to resolve and compile the body COP
+            # Get namespace from the block's module for name resolution
+            if block.module:
+                ns = block.module.namespace()
+                resolved_body = comp.coptimize(block.body, True, ns)
+                block.body_instructions = comp.generate_code_for_definition(resolved_body)
+            else:
+                # No module - try to compile without namespace
+                block.body_instructions = comp.generate_code_for_definition(block.body)
             
         # Execute the pre-compiled body instructions
-        new_frame = self._make_child_frame(new_env)
+        # Use the block's defining module for namespace lookups
+        new_frame = self._make_child_frame(new_env, module=block.module)
         result = new_frame.run(block.body_instructions)
 
         # Return the final result
         return result if result is not None else comp.Value.from_python(None)
 
-    def _make_child_frame(self, env):
+    def _dispatch_overload(self, definition_set, args, piped):
+        """Find the best-matching block from a DefinitionSet.
+
+        Tries each definition's block input shape against the piped input 
+        and returns the block with the best morph score. If no block matches,
+        falls back to the shape definition (if any) and morphs to it.
+
+        Args:
+            definition_set: (DefinitionSet) Set of overloaded definitions
+            args: (Value) Arguments struct
+            piped: (Value | None) Piped input value
+
+        Returns:
+            (Block | Value | None) Best matching block, morphed Value from shape, or None
+        """
+        best_block = None
+        best_score = None
+        shape_defn = None
+        
+        # Iterate through definitions in the set
+        for defn in definition_set.definitions:
+            # Track shape definition for fallback
+            if defn.shape is comp.shape_shape:
+                shape_defn = defn
+                continue
+                
+            # Skip if not a block definition or not folded yet
+            if defn.shape is not comp.shape_block:
+                continue
+            if defn.value is None:
+                continue
+            
+            block = defn.value.data
+            
+            # For single-parameter blocks, use args as input when not piped
+            if block.input_name and not block.arg_name and piped is None:
+                input_val = args
+            else:
+                input_val = piped if piped is not None else comp.Value.from_python({})
+            
+            # Try to morph input to this block's input shape
+            if block.input_shape:
+                morph_result = comp.morph(input_val, block.input_shape, self)
+                if morph_result.failure_reason:
+                    # This overload doesn't match
+                    continue
+                score = morph_result.score
+            else:
+                # No input shape constraint - matches anything with lowest priority
+                score = (0, 0, 0)
+            
+            # Compare scores (higher is better)
+            if best_score is None or score > best_score:
+                best_score = score
+                best_block = block
+        
+        # If a block matched, return it
+        if best_block is not None:
+            return best_block
+        
+        # Fall back to shape morph if no block matched
+        if shape_defn is not None and shape_defn.value is not None:
+            shape = shape_defn.value.data
+            # For shape fallback, also use args as input when not piped
+            input_val = piped if piped is not None else args
+            morph_result = comp.morph(input_val, shape, self)
+            if not morph_result.failure_reason:
+                return morph_result.value
+        
+        return None
+    def _make_child_frame(self, env, module=None):
         """Create a child frame for nested execution.
 
         Override in subclass to propagate tracing behavior.
 
         Args:
             env: Environment dict for the new frame
+            module: Module for namespace lookups (defaults to self.module)
 
         Returns:
             New ExecutionFrame (or subclass)
         """
-        return ExecutionFrame(env=env, interp=self.interp)
+        return ExecutionFrame(env=env, interp=self.interp, module=module or self.module)
 
 
 # Instruction Classes
@@ -349,11 +520,64 @@ class LoadVar(Instruction):
         super().__init__(cop)
         self.name = name
     
+    def _ensure_definition_value(self, defn, frame):
+        """Lazily populate a definition's value if needed.
+        
+        For block definitions, creates the Block from the COP.
+        For shape definitions, creates the Shape from the COP.
+        """
+        if defn.value is not None:
+            return defn.value
+        
+        # Try to create value from the original COP
+        if defn.original_cop:
+            cop_tag = comp.cop_tag(defn.original_cop)
+            if cop_tag == "value.block":
+                # Create Block from COP
+                defn.value = comp.create_blockdef(defn.qualified, False, defn.original_cop)
+                # Set the module on the block
+                if defn.value and isinstance(defn.value.data, comp.Block):
+                    # Find the module that owns this definition
+                    defn.value.data.module = frame.interp.module_cache.get(defn.module_id)
+                return defn.value
+            elif cop_tag == "shape.define":
+                # Create Shape from COP - use the namespace to resolve references
+                if frame.module:
+                    ns = frame.module.namespace()
+                    shape = comp.create_shape(defn.original_cop, ns)
+                    defn.value = comp.Value.from_python(shape)
+                    return defn.value
+        
+        return None
+    
     def execute(self, frame):
         # First check local environment
         if self.name in frame.env:
             value = frame.env[self.name]
             return frame.set_result(value)
+        
+        # Check module namespace (includes imports and local definitions)
+        if frame.module:
+            ns = frame.module.namespace()
+            if self.name in ns:
+                item = ns[self.name]
+                # Namespace contains DefinitionSet objects
+                if isinstance(item, comp.DefinitionSet):
+                    # For single-definition sets, extract the value
+                    if len(item.definitions) == 1:
+                        defn = next(iter(item.definitions))
+                        value = self._ensure_definition_value(defn, frame)
+                        if value:
+                            return frame.set_result(value)
+                    # For multiple definitions, ensure all have values and return the set
+                    for defn in item.definitions:
+                        self._ensure_definition_value(defn, frame)
+                    return frame.set_result(comp.Value.from_python(item))
+                # Direct Definition object
+                elif hasattr(item, "value"):
+                    value = self._ensure_definition_value(item, frame)
+                    if value:
+                        return frame.set_result(value)
         
         # Fall back to system module for builtins
         system = frame.interp.system
@@ -366,6 +590,39 @@ class LoadVar(Instruction):
     
     def format(self, idx):
         return f"%{idx}  LoadVar '{self.name}'"
+
+
+class LoadOverload(Instruction):
+    """Load multiple overloaded definitions as a DefinitionSet."""
+    
+    def __init__(self, cop, names):
+        super().__init__(cop)
+        self.names = names  # list of qualified names
+    
+    def execute(self, frame):
+        definition_set = comp.DefinitionSet()
+        for name in self.names:
+            # First check local environment for the definition
+            if name in frame.env:
+                value = frame.env[name]
+                # If it's already a block value, we need to wrap it
+                # This shouldn't normally happen - env usually has Values
+                continue
+            
+            # Look up definition from module definitions
+            defn = frame.lookup(name)
+            if defn is not None:
+                definition_set.definitions.add(defn)
+        
+        if not definition_set.definitions:
+            raise NameError(f"No overloads found for '{self.names}'")
+        
+        result = comp.Value.from_python(definition_set)
+        return frame.set_result(result)
+    
+    def format(self, idx):
+        names_str = ", ".join(self.names)
+        return f"%{idx}  LoadOverload [{names_str}]"
 
 
 class StoreVar(Instruction):
@@ -422,6 +679,48 @@ class UnOp(Instruction):
         return f"%{idx}  UnOp '{self.op}' %{self.operand}"
 
 
+class GetField(Instruction):
+    """Get a named field from a struct."""
+    
+    def __init__(self, cop, struct_reg, field):
+        super().__init__(cop)
+        self.struct_reg = struct_reg  # Register containing the struct
+        self.field = field  # Field name to extract
+    
+    def execute(self, frame):
+        struct_val = frame.get_value(self.struct_reg)
+        # Look up the field by name
+        field_key = comp.Value.from_python(self.field)
+        result = struct_val.data.get(field_key)
+        if result is None:
+            raise comp.CodeError(f"Field '{self.field}' not found in struct", self.cop)
+        return frame.set_result(result)
+    
+    def format(self, idx):
+        return f"%{idx}  GetField %{self.struct_reg}.{self.field}"
+
+
+class GetIndex(Instruction):
+    """Get a field from a struct by position (0-based)."""
+    
+    def __init__(self, cop, struct_reg, index):
+        super().__init__(cop)
+        self.struct_reg = struct_reg  # Register containing the struct
+        self.index = index  # 0-based position
+    
+    def execute(self, frame):
+        struct_val = frame.get_value(self.struct_reg)
+        # Get field by position
+        items = list(struct_val.data.items())
+        if self.index < 0 or self.index >= len(items):
+            raise comp.CodeError(f"Index {self.index} out of range for struct with {len(items)} fields", self.cop)
+        _, result = items[self.index]
+        return frame.set_result(result)
+    
+    def format(self, idx):
+        return f"%{idx}  GetIndex %{self.struct_reg}.#{self.index}"
+
+
 class BuildStruct(Instruction):
     """Build a struct from field values."""
     
@@ -458,6 +757,7 @@ class BuildBlock(Instruction):
     def execute(self, frame):
         # Create a Block object and store the execution data
         block = comp.Block("anonymous", private=False)
+        block.module = frame.module  # Capture the defining module
         block.body_instructions = self.body_instructions
         block.closure_env = dict(frame.env)
         block.signature_cop = self.signature_cop

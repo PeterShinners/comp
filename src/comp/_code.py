@@ -68,6 +68,7 @@ def _module_definition(cop, module_id):
         case "shape.define":
             # Shape definitions
             shape = comp.shape_shape
+        # What about unions, literals, ?
         case _:
             #raise comp.CodeError(f"Invalid module value: {value_tag} for {identifier}")
             # All types are temporarily helpful for quick and minimal testing

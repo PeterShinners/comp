@@ -306,8 +306,8 @@ class Value:
                 struct[Unnamed()] = cls.from_python(item)
             return cls(struct)
 
-        # Allow Tag, Shape, ShapeUnion, Block objects to be wrapped in Values
-        if isinstance(value, (comp.Tag, comp.Shape, comp.ShapeUnion, comp.Block)):
+        # Allow Tag, Shape, ShapeUnion, Block, DefinitionSet objects to be wrapped in Values
+        if isinstance(value, (comp.Tag, comp.Shape, comp.ShapeUnion, comp.Block, comp.DefinitionSet)):
             return cls(value)
 
         raise TypeError(
