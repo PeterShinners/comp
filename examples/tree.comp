@@ -1,66 +1,46 @@
---- Binary search tree example
-Trivial sketches of building, modifying, and querying binary trees.
----
-
 tree = ~(
-	value~num
-	left~branch = nil
-	right~branch = nil
+    value~num
+    left~branch = nil
+    right~branch = nil
 )
 
 branch = ~(tree | nil)
 
-
-main = :(
-	-- Build tree from values
-	!let tree = (5 3 8 1 7 9)
-	| reduce (initial=tree() fold=:it(
-		it.accumulator | tree-insert(it.value)
-	))
-
-	-- Test finding values
-	!let seven = tree | tree-contains(7)  -- true
-	!let four = tree | tree-contains(4)  -- false
-
-	-- Get sorted values
-	tree-values(tree) | print()    -- [1 3 5 7 8 9]
+main = (|val
+    (5 3 8 1 7 9)
+    -> reduce[initial= >- tree tree-insert]
+    -> tree-values
+    -> print
 )
 
--- Insert value into binary search tree
-
-tree-insert = :tree~nil value~num pure (|val
-	tree(value)
+tree-insert = :t~nil :value~num :pure (|val
+    >- tree[value]
 )
 
-tree-insert = :tree~branch value~num pure (|update
-	if(value < tree.value)
-		:(left = tree-insert(tree.left value))
-	|else
-		:(right = tree-insert(tree.right value))
+tree-insert = :t~tree :value~num :pure (|update
+    value < t.value
+    -> when
+        :(t.left => tree-insert[value])
+        :(t.right => tree-insert[value])
 )
 
--- Search existance of value in tree
-
-tree-contains = :tree~nil value~num pure (|val
-	false
+tree-contains = :t~nil :value~num :pure (|val
+    false
 )
 
-tree-contains = :tree~branch value~num pure (|val
-	if(value < tree.value)
-		:(tree-contains(tree.left value))
-	|elif(value > tree.value)
-		:(tree-contains(tree.right value))
-	|else
-		(true)
+tree-contains = :t~tree :value~num :pure (|val
+    value < t.value
+    -> if[:v v][:v t.left -> tree-contains[value]]
+    -> elif[:v value > t.value][:v t.right -> tree-contains[value]]
+    -> else[:v true]
 )
 
--- Generate sequence of sorted tree members
-
-tree-values = :tree~nil pure (
+tree-values = :t~nil :pure (|val
+    ()
 )
 
-tree-values = :tree~branch pure (|flat
-	tree-values(tree.left)
-	tree.value
-	tree-values(tree.right)
+tree-values = :t~tree :pure (|flat
+    t.left -> tree-values
+    t.value
+    t.right -> tree-values
 )

@@ -1,0 +1,21 @@
+-- List recently starred repos with star counts
+
+starred-repos = @val(:user~text :count~num=10 :since~duration=1[week]
+    user
+    -> gh.starred[sort=starred-at]
+    -> filter [:r r.starred-at >= now - since]
+    -> map [:r
+        name = r.full-name
+        url = r.html-url
+        stars = r.stargazers-count
+        description = r.description -> truncate[80] -> default["(no description)"]
+        starred = r.starred-at -> format["%Y-%m-%d"]
+    ]
+    -> sort[descending by=stars]
+    -> take[count]
+    -> to-md
+)
+
+-- Usage
+"myusername" -> starred-repos
+"myusername" -> starred-repos[count=20 since=1[month]]
