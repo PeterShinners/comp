@@ -1,4 +1,5 @@
---- Classic Todo app using UI library
+--- 
+Classic Todo app using UI library
 Based on migration from Rio library for Python
 ---
 
@@ -63,7 +64,6 @@ todo-app = :~state (
 
 
 -- Build individual todo item component declaratively
-
 todo-item = :args~(state~state todo~todo)(
 	component.row align=center(
 		component.checkbox 
@@ -83,7 +83,6 @@ todo-item = :args~(state~state todo~todo)(
 
 
 -- Create new todo from current applications state
-
 add-todo = :~state (|mix
 	!let title = state.input | trim() | if-empty("<no name>")
 	state
@@ -92,7 +91,6 @@ add-todo = :~state (|mix
 
 
 -- Toggle todo complete status
-
 toggle-todo = :~state ~id (|update
 	todos = state.todos | map :it (|update
 		complete = pick (|val it.id == args.id !!it.complete it.complete)
@@ -101,14 +99,12 @@ toggle-todo = :~state ~id (|update
 
 
 -- Remove item from applicate state
-
 delete-todo = :~state ~id (|update
 	todos = state.todos |filter :it (it.id != args.id)
 )
 
 
 -- Determine if an item should be visible based on filter
-
 todo-visible = :~todo ~filter (|val
 	filter | case(
 		'all' = true

@@ -1,37 +1,27 @@
-member = ~(name~text tz~tz)
+member = ~(name~text tz~timezone)
 
-core-team = (
-    ("andres" tz.america.guayaquil)
-    ("fdncred" tz.us.central)
-    ("gedge" tz.us.eastern)
-    ("jt" tz.nz)
-    ("wycats" tz.us.pacific)
-    ("kubouch" tz.europe.helsinki)
-    ("elferherrera" tz.europe.london)
+core-team = {
+	{"andres" tz.america.guayaquil}
+	{"fdncred" tz.us.central}
+	{"gedge" tz.us.eastern}
+	{"jt" tz.nz}
+	{"wycats" tz.us.pacific}
+	{"kubouch" tz.europe.helsinki}
+	{"elferherrera" tz.europe.london}
+}
+
+main = (:
+	!let next-call = "2021-08-31 15:00:21.290597200 -05:00"
+	!let people = core-team -> with-local-time[next-call -> parse-datetime]
+
+	"for the next event on $(next-call).. " -> print
+	people -> each[:it it -> print["$(name)'s: $(time) (timezone $(tz))"]]
 )
 
-main = (|val
-    !let next-call = "2021-08-31 15:00:21.290597200 -05:00"
-    !let people = core-team -> with-local-time[next-call -> parse-datetime]
-
-    "for the next event on $(next-call).. " -> print
-    people -> each[:it it -> print["$(name)'s: $(time) (timezone $(tz))"]]
-)
-
-with-local-time = :people~member{} :event~datetime :pure (|val
-    people -> map[:person (|mix
-        name = person.name -> capitalize
-        time = event -> to-timezone[person.tz] -> format["%c"]
-    )]
-)
-
-
-main = (|val
-    !let next-call = "2021-08-31 15:00:21" -> parse-datetime
-
-    "for the next event on $(next-call).. " -> print
-    
-    core-team -> each[:m 
-        m 
-        -> print["$(m.name -> capitalize)'s: $(next-call -> to-tz[m.tz] -> format[%c]) (timezone $(m.tz))"]]
+with-local-time = (:people~member{} :event~datetime :pure 
+	people 
+	-> map ..{:person
+		name => capitalize
+		time = event -> to-timezone[person.tz] -> format["%c"]
+	}
 )

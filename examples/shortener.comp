@@ -1,37 +1,37 @@
-details = :id~text :db~redis.connection (|mix
-    target = id -> format[mod.keys.target] -> redis.get[db]
-    clicks = id -> format[mod.keys.counter] -> redis.get[db] -> defaults[0]
+details = ..(:id~text :db~redis.connection 
+	target = id -> format[mod.keys.target] -> redis.get[db]
+	clicks = id -> format[mod.keys.counter] -> redis.get[db] -> defaults[0]
 )
 
-increment = :details~details :db~redis.connection (|val
-    details.id -> format[mod.keys.counter] -> redis.incr[db]
+increment = (:details~details :db~redis.connection 
+	details.id -> format[mod.keys.counter] -> redis.incr[db]
 )
 
-insert-url = :url~text :db~redis.connection (|val
-    url
-    -> format[mod.keys.reverse]
-    -> redis.get[db]
-    -> if-empty[:(|val
-        !let id = mod.keys.total -> redis.incr[db] -> base36-encode
-        (
-            (id -> format[mod.keys.target]) = url
-            (id -> format[mod.keys.counter]) = 1
-            (url -> format[mod.keys.reverse]) = id
-        )
-        -> redis.mset[db]
-        id
-    )]
+insert-url = (:url~text :db~redis.connection
+	url
+	-> format[mod.keys.reverse]
+	-> redis.get[db]
+	-> if-empty (:
+		!let id = mod.keys.total -> redis.incr[db] -> base36-encode
+		{
+			(id -> format[mod.keys.target]) = url
+			(id -> format[mod.keys.counter]) = 1
+			(url -> format[mod.keys.reverse]) = id
+		}
+		-> redis.mset[db]
+		id
+	)
 )
 
-base36-encode = :num~num :pure (|val
-    !let charset = "0123456789abcdefghijklmnopqrstuvwxyz"
-    !let result = ""
-    !let n = num
-    n -> while[:n n > 0][:n
-        !let div = n -> divmod[36]
-        !let letter = charset -> char[div.remainder]
-        result => join[letter result]
-        n => div.division
-    ]
-    result -> if-empty["0"]
+base36-encode = (:<val :num~num :pure 
+	!let charset = "0123456789abcdefghijklmnopqrstuvwxyz"
+	!let result = ""
+	!let n = num
+	n -> while (:n n > 0) (:n
+		!let div = n -> divmod[charset -> length]
+		!let letter = charset -> char[div.remainder]
+		result => join[letter result]
+		n => div.division
+	)
+	result -> if-empty["0"]
 )

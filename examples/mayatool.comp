@@ -3,7 +3,8 @@
 !import maya ("maya-comp-spectacular@1.0.3" comp)
 
 
---- Maya tool to create offset transforms
+--- 
+Maya tool to create offset transforms
 First is an example of inserting a parent between two nodes and
 positioning it partway between them. This relies on the parenting
 commands that preserve positioning when reparenting nodes.
@@ -12,37 +13,38 @@ commands that preserve positioning when reparenting nodes.
 Based on https://github.com/TrevisanGMW/gt-tools
 ---
 
-layer-config = ~(
+layer-config = ~{
     suffix~text
-    parent-type~(parent | selection)
-    layer-type~(joint | locator | group)
-    outliner-color~(~num ~num ~num) = (1.0 0.5 0.0) -- orange
-)
+    parent-type~parent | selection
+    layer-type~joint | locator | group
+    outliner-color~{~num ~num ~num} = {1.0 0.5 0.0} -- orange
+}
 
-create-inbetween = :arg~layer-config (|val
+create-inbetween =  (:..~layer-config
     !transact(maya.scene maya.preserve-selection)
 
-    maya.selection ()
-    |map :obj (
-        !let parent = obj |maya.get-parent()
+    maya.selection
+    -> map (:obj
+        !let parent = obj -> maya.get-parent
 
         !let transform = parent
-        |maya.create-node(arg.layer-type name=format("$(obj.name)$(arg.suffix)"))
-        |maya.set-attr(useOutlinerColor true)
-        |maya.set-attr(outlinerColor arg.outliner-color)
-        |maya.parent(parent)
+        -> maya.create-node[layer-type name=|> format"$(obj.name)$(arg.suffix)"]
+        -> maya.set-attr[useOutlinerColor true]
+        -> maya.set-attr[outlinerColor arg.outliner-color]
+        -> maya.parent[parent]
 
-        !let target = if(arg.parent-type == parent):(parent) |else:(obj)
-        if(target |maya.exists()) : (
-            target |maya.constrain(transform)
+        !let target = (arg.parent-type == parent) -> when (: parent) (: obj)
+        if[target -> maya.exists] (:
+            target -> maya.constrain[transform]
         )
 
-        obj |maya.parent(transform)
+        obj -> maya.parent[transform]
     )
 )
 
 
---- Create random bubble shapes
+--- 
+Create random bubble shapes
 Create a group of random positioned and sized spheres around the selected
 objects.
 
@@ -51,23 +53,28 @@ Based on https://github.com/nestrada2/bubbles
 
 bubble-args = ~(
     count~num = 10
-    radius-range~(~num ~num) = (0.1 0.5)
-    position-range~(~num ~num) = (0.1 5.0)
+    radius-range~{~num ~num} = {0.1 0.5}
+    position-range~{~num ~num} = {0.1 5.0}
 )
 
-create-bubbles = :parent arg~bubble-args (|val
+create-bubbles = (:parents~dag-path{} :..~bubble-args
     !transact(maya.scene)
 
     !let group = parent
-    | maya.create-node(group name="bubbles")
-    | maya.select(replace)
+    -> maya.create-node[group name="bubbles"]
+    -> maya.select[replace]
 
     !transact(maya.preserve-selection)
 
-    range(arg.count) | map :i (
-        !let position = repeat(3) : (random(arg.position-range))
-        group
-        | maya.poly-sphere(name=format("bubble-$(i)") radius=random(arg.radius-range))
-        | maya.xform(position=position)
+    parents 
+    -> map (:obj
+        !let position = |> repeat[3] (: arg.position-range -> random)
+        obj 
+        -> group
+        -> maya.poly-sphere[
+            name=obj -> "bubble-$(i)" 
+            radius=arg.radius-range -> random
+        ]
+        -> maya.xform[position=position]
     )
 )

@@ -1,30 +1,45 @@
-cart = ~(
-    items~item{} = ()
-    discount~num = 0
-)
+--- 
+Shopping cart module
+Define several simplistic shapes and modification functions to manage
+the contents of a shopping cart.
 
-item = ~(
-    name~text
-    price~num
-    quantity~num = 1
-)
+Highlights:
 
-main = (|val
-    (
-        ("Apple" price=1.00 quantity=2)
-        ("Banana" price=0.50 quantity=2)
-        ("Apple" price=1.00 quantity=2)
-    )
-    -> reduce[initial= >- cart add-item]
-    -> merge[discount=0.2]
+- This entire example is built into a single print statement with a
+constant at build time.
+- The lower level replace has a comparison block to determine if
+an existing value is in the list. The upsert wraps its comparison
+in a `@once` to only replace a single value.
+
+---
+
+item = ~{name~text price~num quantity~num=1}
+cart = ~{items~item{} discount~num=0}
+
+
+main = (:
+    {
+        {"Apple" price=1.00}
+        {"Banana" price=0.50 quantity=2}
+        {"Apple" 1.00 quantity=2}
+    }
+    -> map (:> item)
+    -> reduce (:> upsert (:i i.name))
+    -> cart[discount=0.2]
     -> total
-    -> print["Shopping cart: $(in)"]
+    -> print "Total: $()"
 )
 
-total = :cart~cart :pure (|val
-    cart.items -> sum[:item item.price * item.quantity] -> mul[1 - cart.discount]
+
+-- This helper could easily be inlined into the main pipeline
+total = @val (:c~cart :pure
+    c.items -> sum (:i i.price * i.quantity) * (1 - c.discount)
 )
 
-add-item = :cart~cart :item~item :pure (|update
-    cart.items => upsert[item match=[:i i.name == item.name]]
+
+-- Upsert provided by standard libraries, but how does an implementation appear?
+upsert = (:in :block.predicate=equal :block.key=pass :pure
+    in.items
+    -> replace[limit=1] (:> block.predicate (:> block.key))
+    -> else (:> append[in.item])
 )

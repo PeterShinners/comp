@@ -1,21 +1,33 @@
--- List recently starred repos with star counts
+---
+List recently starred repos with star counts
+Inspired by the excellent Nushell introduction
+https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
+---
 
-starred-repos = @val(:user~text :count~num=10 :since~duration=1[week]
-    user
-    -> gh.starred[sort=starred-at]
-    -> filter [:r r.starred-at >= now - since]
-    -> map [:r
-        name = r.full-name
-        url = r.html-url
-        stars = r.stargazers-count
-        description = r.description -> truncate[80] -> default["(no description)"]
-        starred = r.starred-at -> format["%Y-%m-%d"]
-    ]
-    -> sort[descending by=stars]
-    -> take[count]
-    -> to-md
+!import gh ("github-comp@1.0.2" comp)
+!import table ("table" comp)
+
+
+main = (:
+	{
+		repo = "https://github.com/PeterShinners/comp" 
+		after = |> datetime.now - 1[week]
+	}
+	-> top-issues
+	-> rename-fields[thumbs-up="👍"]
+	-> table.markdown
 )
 
--- Usage
-"myusername" -> starred-repos
-"myusername" -> starred-repos[count=20 since=1[month]]
+
+-- Top issues created recently
+top-issues = (:repo~git-uri :count~num=10 :after~datetime
+	{repo fields=("created-at" "reaction-groups" "title" "url")}
+	-> gh.issues
+	-> filter (:i 
+		i.created-at >= after)
+	-> map ..{:i
+		thumbs-up = i.reaction-groups -> count [:r r.content == "thumbs-up"] 
+	}
+	-> sort[thumbs-up=descending]
+	-> head[count]
+)
