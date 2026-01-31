@@ -1,36 +1,36 @@
---- 
+/// 
 Lock free parallel stack using linked list
 Uses atomic swaps to retry while contested
 
 - The atomic-exchange retries the operation as needed
----
+///
 
-!import atomic ("@systems/atomic@1.0.1/lib" comp)
-
-
-stack = ~{head~node|nil atom~atomic.version}
-node = ~{data~text next~node|nil}
+!import atomic {comp "@systems/atomic@1.0.1/lib"}
 
 
-main = (:
-	-- Push some items (let's add threads here, much cooler)
+!shape stack ~{head~node|nil atom~atomic.version}
+!shape node ~{data~text next~node|nil}
+
+
+!startup main = (:
+	// Push some items (let's add threads here, much cooler)
 	!let vals = {atom = |> atomic.new}
 	-> atomic-push "first"
 	-> atomic-push "second"
 	-> atomic-push "third"
 
-	-- Pop them back
+	// Pop them back
 	forever [:
 		!let vals 
 		=> atomic-pop
 		-> print "Popped: $()"
-		->? field.fail break  -- Stop gracefully when empty
+		->? field.fail break  // Stop gracefully when empty
 	]
 )
 
 
--- Add new string to the stack
-atomic-push = (:vals~stack arg~text
+// Add new string to the stack
+!func atomic-push (:vals~stack arg~text
     vals -> atomic-exchange {:
         head = {data=arg next=stack.head}
         atom = vals.atom
@@ -38,8 +38,8 @@ atomic-push = (:vals~stack arg~text
 )
 
 
--- Remove item from stack or `fail` if empty
-atomic-pop = @val (:vals~stack
+// Remove item from stack or `fail` if empty
+!func atomic-pop (:vals~stack
     vals -> atomic-exchange {:
         head = stack.head.next
         atom = vals.atom

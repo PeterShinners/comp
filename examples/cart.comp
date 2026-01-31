@@ -1,4 +1,4 @@
---- 
+/// 
 Shopping cart module
 Define several simplistic shapes and modification functions to manage
 the contents of a shopping cart.
@@ -11,13 +11,12 @@ constant at build time.
 an existing value is in the list. The upsert wraps its comparison
 in a `@once` to only replace a single value.
 
----
+///
 
-item = ~{name~text price~num quantity~num=1}
-cart = ~{items~item{} discount~num=0}
+!shape item ~{name~text price~num quantity~num=1}
+!shape cart ~{items~item{} discount~num=0}
 
-
-main = (:
+!func main (:
     {
         {"Apple" price=1.00}
         {"Banana" price=0.50 quantity=2}
@@ -30,15 +29,13 @@ main = (:
     -> print "Total: $()"
 )
 
-
--- This helper could easily be inlined into the main pipeline
-total = @val (:c~cart :pure
+// This helper could easily be inlined into the main pipeline
+!func total (:c~cart :pure
     c.items -> sum (:i i.price * i.quantity) * (1 - c.discount)
 )
 
-
--- Upsert provided by standard libraries, but how does an implementation appear?
-upsert = (:in :block.predicate=equal :block.key=pass :pure
+// Upsert provided by standard libraries, but how does an implementation appear?
+!func upsert (:in :block.predicate=equal :block.key=pass :pure
     in.items
     -> replace[limit=1] (:> block.predicate (:> block.key))
     -> else (:> append[in.item])

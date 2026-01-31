@@ -1,14 +1,14 @@
----
+///
 List recently starred repos with star counts
 Inspired by the excellent Nushell introduction
 https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
----
+///
 
-!import gh ("github-comp@1.0.2" comp)
-!import table ("table" comp)
+!import gh {comp "github-comp@1.0.2"}
+!import table {comp "table"}
 
 
-main = (:
+!startup main (:
 	{
 		repo = "https://github.com/PeterShinners/comp" 
 		after = |> datetime.now - 1[week]
@@ -19,13 +19,13 @@ main = (:
 )
 
 
--- Top issues created recently
-top-issues = (:repo~git-uri :count~num=10 :after~datetime
+// Top starred/thumbs-up issues created recently
+!func top-issues (:repo~git-uri :count~num=10 :after~datetime
 	{repo fields=("created-at" "reaction-groups" "title" "url")}
 	-> gh.issues
 	-> filter (:i 
 		i.created-at >= after)
-	-> map ..{:i
+	-> map {:<update :i
 		thumbs-up = i.reaction-groups -> count [:r r.content == "thumbs-up"] 
 	}
 	-> sort[thumbs-up=descending]

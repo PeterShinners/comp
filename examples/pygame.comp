@@ -1,4 +1,11 @@
-main = (:
+/// 
+Pygame chimp tutorial example (React style)
+Punch a monkey to win prizes
+///
+
+!import pygame {comp "pygame-comp-spectacular@1.0.4"}
+
+!startup game (:
 	ctx.window = |> pg.display
 	-> window[1280 480 scaled=true]
 	-> caption["Monkey Fever"]
@@ -19,7 +26,7 @@ main = (:
 	)
 )
 
-handle = {:<update :state~state :event~event[type==mouse.down]
+!func handle {:<update :state~state :event~event[type==mouse.down]
 	state.fist => move[10 90]
 	!let hit = (state.fist state.chimp) -> intersect[overlap=5]
 
@@ -32,10 +39,10 @@ handle = {:<update :state~state :event~event[type==mouse.down]
 		(: res.whiff -> play)
 }
 
-handle = (:<update :state~state :event~event[type==mouse.up]
+!func handle (:<update<mod-dispatch :state~state :event~event[type==mouse.up]
 	state.fist => move[-10 -90]
 )
 
-handle = (:<update :state~state :event~event[type==mouse.move] 
+!func handle (:<update<mod-dispatch :state~state :event~event[type==mouse.move] 
 	state.fist => position[event.position]
 )

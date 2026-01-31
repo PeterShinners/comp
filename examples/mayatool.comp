@@ -1,9 +1,9 @@
--- Two examples of working with Maya
+// Two examples of working with Maya
 
-!import maya ("maya-comp-spectacular@1.0.3" comp)
+!import maya {comp "maya-comp-spectacular@1.0.3"}
 
 
---- 
+/// 
 Maya tool to create offset transforms
 First is an example of inserting a parent between two nodes and
 positioning it partway between them. This relies on the parenting
@@ -11,22 +11,21 @@ commands that preserve positioning when reparenting nodes.
 (which famously does not work once things are animated)
 
 Based on https://github.com/TrevisanGMW/gt-tools
----
+///
 
-layer-config = ~{
+!shape layer-config ~{
     suffix~text
-    parent-type~parent | selection
-    layer-type~joint | locator | group
-    outliner-color~{~num ~num ~num} = {1.0 0.5 0.0} -- orange
+    parent-type~parent|selection
+    layer-type~joint|locator|group
+    outliner-color~{~num ~num ~num} = {1.0 0.5 0.0} // orange
 }
 
-create-inbetween =  (:..~layer-config
+!func create-inbetween (:..~layer-config
     !transact(maya.scene maya.preserve-selection)
 
     maya.selection
     -> map (:obj
         !let parent = obj -> maya.get-parent
-
         !let transform = parent
         -> maya.create-node[layer-type name=|> format"$(obj.name)$(arg.suffix)"]
         -> maya.set-attr[useOutlinerColor true]
@@ -43,21 +42,21 @@ create-inbetween =  (:..~layer-config
 )
 
 
---- 
+/// 
 Create random bubble shapes
 Create a group of random positioned and sized spheres around the selected
 objects.
 
 Based on https://github.com/nestrada2/bubbles
----
+///
 
-bubble-args = ~(
+!shape bubble-args ~(
     count~num = 10
     radius-range~{~num ~num} = {0.1 0.5}
     position-range~{~num ~num} = {0.1 5.0}
 )
 
-create-bubbles = (:parents~dag-path{} :..~bubble-args
+!func create-bubbles (:parents~dag-paths :..~bubble-args
     !transact(maya.scene)
 
     !let group = parent

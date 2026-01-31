@@ -1,27 +1,28 @@
---- 
+/// 
 Binary search tree example
 Operations for a minimal binary tree
 
 - Overloaded dispatch to handle empty branches
 
----
+///
 
-tree = ~{value~num left~branch right~branch}
+!shape tree = ~{value~num left~branch right~branch}
+!shape branch = ~tree|nil = nil
 
-branch = ~tree | nil = nil
 
-main = (:
+!startup main (:
 	(5 3 8 1 7 9)
 	-> reduce[initial] [:> tree tree-insert]
 	-> tree-values
 	-> print
 )
 
--- Add new value into tree
-tree-insert = (:t~nil :value~num :pure
+
+// Add new value into tree
+!func tree-insert (:t~nil :value~num :pure
 	|> tree[value]
 )
-tree-insert = ..{:t~tree :value~num :pure
+!func tree-insert {:<update :t~tree :value~num :pure
 	value < t.value
 	-> when {:
 		left = t.left => tree-insert[value]
@@ -30,22 +31,24 @@ tree-insert = ..{:t~tree :value~num :pure
 	}
 }
 
--- Check if tree contains value
-tree-contains =  (:t~nil :value~num :pure
+
+// Check if tree contains value
+!func tree-contains (:t~nil :value~num :pure
 	false
 )
-tree-contains = ..{:t~tree :value~num :pure
+!func tree-contains {:<update :t~tree :value~num :pure
 
 	-> if [value < t.value] (:v t.left -> tree-contains[value])
 	-> elif (:v value > t.value) (:v t.right -> tree-contains[value])
 	-> else (:v true)
 }
 
--- Iterate values from tree in order
-tree-values = (:t~nil :pure 
+
+// Iterate values from tree in order
+!func tree-values (:t~nil :pure 
 	()
 )
-tree-values = (:<flat :t~tree :pure 
+!func tree-values (:<flat :t~tree :pure 
 	t.left -> tree-values
 	{t.value}
 	t.right -> tree-values
