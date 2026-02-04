@@ -1,9 +1,9 @@
-// Two examples of working with Maya
+/// Two examples of working with Maya
 
 !import maya {comp "maya-comp-spectacular@1.0.3"}
 
 
-/// 
+/**
 Maya tool to create offset transforms
 First is an example of inserting a parent between two nodes and
 positioning it partway between them. This relies on the parenting
@@ -11,7 +11,7 @@ commands that preserve positioning when reparenting nodes.
 (which famously does not work once things are animated)
 
 Based on https://github.com/TrevisanGMW/gt-tools
-///
+*/
 
 !shape layer-config ~{
     suffix~text
@@ -28,8 +28,8 @@ Based on https://github.com/TrevisanGMW/gt-tools
         !let parent = obj -> maya.get-parent
         !let transform = parent
         -> maya.create-node[layer-type name=|> format"$(obj.name)$(arg.suffix)"]
-        -> maya.set-attr[useOutlinerColor true]
-        -> maya.set-attr[outlinerColor arg.outliner-color]
+        -> maya.set-attr[useOutlinerColor=true]
+        -> maya.set-attr[outlinerColor=arg.outliner-color]
         -> maya.parent[parent]
 
         !let target = (arg.parent-type == parent) -> when (: parent) (: obj)
@@ -42,19 +42,19 @@ Based on https://github.com/TrevisanGMW/gt-tools
 )
 
 
-/// 
+/**
 Create random bubble shapes
 Create a group of random positioned and sized spheres around the selected
 objects.
 
 Based on https://github.com/nestrada2/bubbles
-///
+*/
 
-!shape bubble-args ~(
+!shape bubble-args ~{
     count~num = 10
     radius-range~{~num ~num} = {0.1 0.5}
     position-range~{~num ~num} = {0.1 5.0}
-)
+}
 
 !func create-bubbles (:parents~dag-paths :..~bubble-args
     !transact(maya.scene)
@@ -67,12 +67,12 @@ Based on https://github.com/nestrada2/bubbles
 
     parents 
     -> map (:obj
-        !let position = |> repeat[3] (: arg.position-range -> random)
+        !let position = |> repeat[3] (: arg.position-range->random)
         obj 
         -> group
         -> maya.poly-sphere[
-            name=obj -> "bubble-$(i)" 
-            radius=arg.radius-range -> random
+            name = obj -> "bubble-$(i)" 
+            radius = arg.radius-range -> random
         ]
         -> maya.xform[position=position]
     )

@@ -1,33 +1,32 @@
-///
+/**
 List recently starred repos with star counts
 Inspired by the excellent Nushell introduction
 https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
-///
+*/
 
 !import gh {comp "github-comp@1.0.2"}
 !import table {comp "table"}
 
 
-!startup main (:
+!startup main (
 	{
-		repo = "https://github.com/PeterShinners/comp" 
-		after = |> datetime.now - 1[week]
+		repo = "nushell/nushell" 
+		after = datetime.now - 1[week] 
+		field = t"created-at reaction-groups title url"
 	}
-	-> top-issues
-	-> rename-fields[thumbs-up="👍"]
-	-> table.markdown
+	| top-issues
+	| select t"thumbs-up title url"
+	| rename thumbs-up="👍"
+	| table.markdown
 )
 
 
-// Top starred/thumbs-up issues created recently
-!func top-issues (:repo~git-uri :count~num=10 :after~datetime
-	{repo fields=("created-at" "reaction-groups" "title" "url")}
-	-> gh.issues
-	-> filter (:i 
-		i.created-at >= after)
-	-> map {:<update :i
-		thumbs-up = i.reaction-groups -> count [:r r.content == "thumbs-up"] 
-	}
-	-> sort[thumbs-up=descending]
-	-> head[count]
+/// Top starred/thumbs-up issues created recently
+!func top-issues [$repo~git-uri $count~num=10 $after~datetime $fields~token#]
+(
+	| gh.issue-list repo=$repo fields=$fields
+	| where (| $.created-at >= $cutoff)
+	| insert "thumbs-up" (| $.reaction-groups | count-where (| $.content == "thumbs-up"))
+	| sort-by "thumbs-up" reverse
+	| first $count
 )

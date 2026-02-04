@@ -1,13 +1,13 @@
-/// 
+/**
 Binary search tree example
 Operations for a minimal binary tree
 
 - Overloaded dispatch to handle empty branches
 
-///
+*/
 
-!shape tree = ~{value~num left~branch right~branch}
-!shape branch = ~tree|nil = nil
+!shape tree ~{value~num left~branch right~branch}
+!shape branch ~tree|nil = nil
 
 
 !startup main (:
@@ -18,7 +18,7 @@ Operations for a minimal binary tree
 )
 
 
-// Add new value into tree
+/// Add new value into tree
 !func tree-insert (:t~nil :value~num :pure
 	|> tree[value]
 )
@@ -32,7 +32,7 @@ Operations for a minimal binary tree
 }
 
 
-// Check if tree contains value
+/// Check if tree contains value
 !func tree-contains (:t~nil :value~num :pure
 	false
 )
@@ -44,7 +44,7 @@ Operations for a minimal binary tree
 }
 
 
-// Iterate values from tree in order
+/// Iterate values from tree in order
 !func tree-values (:t~nil :pure 
 	()
 )

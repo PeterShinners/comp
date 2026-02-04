@@ -8,74 +8,80 @@ Based on migration from Rio library for Python
 
 !startup rio = {:
 	title = "Todo"
-	state = state()
+	state = |> state
 	component = todo-app
 }
 
 
-todo = ~(
+!shape todo = ~{
 	title~string
 	complete~bool = false
 	id~id  // auto unique value on construction? (not a number or string)
-)
+}
 
 
-state = ~(
+!shape state = ~{
 	todos~todo{} = ()
 	input~text = ""
 	filter~visibility = all
-)
+}
 
-tag.visibility = ~(all active complete)
+!tag visibility {all active complete}
 
 
 // Build app window component declaratively
-todo-app = :~state (
-	component.column spacing=2 (|mix
+!func todo-app (:~state
+	!ctx state state
+	rio.column[spacing=2
 		// Input field  
-		component.row(  
-			component.text-input 
-			text = state.input 
-			placeholder = "What needs doing?"
-			flex = 1
-			on-change = :it (it | merge (input=value))
-			on-submit = add-todo
-			
-			component.button 
-			text = "Add" 
-			disabled = (state.input | trim() == "")
-			on-click = add-todo
-		)
+		rio.row[  
+			rio.text-input[
+				text = state.input 
+				placeholder = "What needs doing?"
+				flex = 1
+				on-change = {:<merge input=value}
+				on-submit = add-todo
+			]
+			rio.button[
+				text = "Add" 
+				disabled = (: state.input -> trim == "")
+				on-click = add-todo
+			]
+		]
 		
 		// Todo list
 		state.todos
-		| filter : (todo-visible(state.filter))
-		| map : (todo-item (state it))
+		-> filter (:> todo-visible)
+		-> map (:> todo-item)
 		
 		// Filter radios
-		component.row(all active complete) | map :it (|flat
-			component.button
-			text = it.filter ~text
-			variant = pick(it == state.filter "primary" "outline")
-			on-click = :it (state | merge(filter=it))
+		rio.row[
+			{all active complete} 
+			->map :(<flat :i
+				rio.button[
+					text = it.filter ~text
+					variant = (it == state.filter) -> pick["primary" "outline"]
+					on-click = (state | merge(filter=it))
+				]
+			)
 		)
-	)
+	]
 )
 
 
 // Build individual todo item component declaratively
 todo-item = :args~(state~state todo~todo)(
-	component.row align=center(
-		component.checkbox 
+	rio.row align=center(
+		rio.checkbox 
 		checked = todo.complete 
 		on-change = : (|val toggle-todo(state todo.id))
 		
-		component.text 
+		rio.text 
 		text = todo.title 
 		flex = 1
 		style = pick(todo.complete "strikethrough" nil)
 		
-		component.icon-button 
+		rio.icon-button 
 		icon = "delete" 
 		on-click = : (|val delete-todo(state todo.id))
 	)

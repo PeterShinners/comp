@@ -1,7 +1,7 @@
-/// 
+/**
 URL shortener service
 A simple URL shortener using Redis for storage.
-///
+*/
 
 !import http {comp "http-server"}
 !import redis {comp "redis"}
@@ -12,10 +12,10 @@ A simple URL shortener using Redis for storage.
 !package version "1.0.0"
 
 
-/// mod values are constant
+/** mod values are constant
 these can only ever be seen by the current module, private data
 can be overridden at startup (.env files, args, whatever)
-///
+*/
 !mod server.static "./static"
 !mod server.templates "./templates"
 !mod redis {host="localhost" port=6379}
@@ -31,6 +31,19 @@ can be overridden at startup (.env files, args, whatever)
 	// automatic default to functions with a `db` modifier of this shape
 	redis-db = |> redis.connection 
 }
+
+
+
+!main web :req~http.request (|val
+    req 
+    -> dispatch
+    -> post["/"] (:> post-url)
+    -> get["/"] (:> forward-url)
+    -> get["/"] (:> response-template["newurl.html"])
+    -> get["/{id}"] (:> link-redirect)
+    -> get["/{id}.json"] (:> link-details)
+    -> missing (:> response-template["404.html" status=404])
+)
 
 
 !shape details ~(:id~text
@@ -61,6 +74,55 @@ can be overridden at startup (.env files, args, whatever)
 )
 
 
+!func post-url (:request~http.request
+    request.form.url
+    -> assert (parse(url).scheme -> in["http" "https"] :(
+        {error="Please enter a valid URL" url=request.form.url}
+        -> respond-template "newurl.html"
+    ))
+    -> insert-url
+    -> format "/$(id).json"
+    -> http.redirect()
+)
+
+
+!func link-redirect (:request~http.request
+    request.params.id
+    -> details()
+    -> increment()
+    -> (in.target)  // this needs some language definition
+    -> http.redirect()
+    // ?> respond-missing()
+)
+
+
+!func link-details (:req~http.request
+    req.params.id
+    -> details
+    -> render["details.html"]
+    // ?> respond-missing()
+)
+
+
+!shape details ~{
+    id~text
+    target~text
+    clicks~num = 0
+}
+
+
+!func details (:<mix :id~text 
+    id = id
+    (
+        target = id -> format[mod.keys.target]
+        clicks = id -> format[mod.keys.counter]
+    )
+    -> redis.mget
+    -> defaults[clicks=0]
+)
+
+
+
 !func base36-encode (:num~num :pure 
 	!let charset = "0123456789abcdefghijklmnopqrstuvwxyz"
 	!let result = ""
@@ -73,100 +135,3 @@ can be overridden at startup (.env files, args, whatever)
 	)
 	result -> if-empty :(charset -> letters -> first)
 )
-
-
-
-
-
-
-
-// Context functions bootstrap values before startup
-
-context.startup = :(
-    db = redis.connect(mod.redis)
-)
-
-
-// Primary entry for handling http server requests
-
-server = :request~http.request (|val
-    request | dispatch()
-    | post("/") :req (post-url)
-    | get("/" forward-url)
-    | get("/") :(response-template("newurl.html"))
-    | get("/{id}" link-redirect)
-    | get("/{id}.json" link-details)
-    | missing :(response-template("404.html" status=404))
-)
-
-
-// Handle form submission to create new short URL
-
-post-url = :request~http.request (
-    request.form.url
-    | assert (parse(url).scheme | in("http" "https") :(
-        (error="Please enter a valid URL" url=request.form.url)
-        | respond-template("newurl.html")
-    ))
-    | insert-url()
-    | format("/$(id).json")
-    | http.redirect()
-)
-
-
-link-redirect = :request~http.request(
-    request.params.id
-    | details()
-    | increment()
-    | (in.target)  // this needs some language definition
-    | http.redirect()
-    // | ?respond-missing()
-)
-
-
-link-details = :request~http.request (
-    request.params.id
-    | details()
-    | render("details.html")
-    // | ?respond-missing()
-)
-
-
-details = ~(
-    id~text
-    target~text
-    clicks~num = 0
-)
-
-
-details = :id~text db~redis.connection (|mix
-    id = id
-    (
-        target = id | format(mod.keys.target)
-        clicks = id | format(mod.keys.counter)
-    )
-    | redis.mget(db)
-    | defaults(clicks=0)
-)
-
-
-// Increment click count for given short id.
-
-increment = :~details db~redis.connection (|val
-    redis.incr(db details.id | format(mod.keys.counter))
-)
-
-
-// Inserts URL and returns short ID, reusing existing if present.
-insert-url = :url~text db~redis.connection (|val
-    url
-    | format(mod.keys.reverse)
-    | redis.get(db)
-    | if-empty :(|val
-        !let id = redis.incr(db mod.keys.total) | base36-encode()
-        (
-            'id |format(mod.keys.target)' = url
-            'id |format(mod.keys.counter)' = 1
-            'url |format(mod.keys.reverse)' = id
-        )
-        | redis.mset(db)

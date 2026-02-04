@@ -1,7 +1,7 @@
-/// 
+/**
 Pygame chimp tutorial example (React style)
 Punch a monkey to win prizes
-///
+*/
 
 !import pygame {comp "pygame-comp-spectacular@1.0.4"}
 

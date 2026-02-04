@@ -1,4 +1,4 @@
-/// 
+/**
 Team Timezone Display
 
 Original nushell script:
@@ -9,16 +9,16 @@ and realtive time information.
 1. Each person's timezone
 2. A header with the meeting time
 3. What time the meeting is for each person in their local timezone
-///
+*/
 
 
 !import tz {comp "timezone"}
 
 
-!shape member ~(name~text tz~timezone)
+!shape member ~{name~text tz~timezone}
 
 
-// Team members with their timezone information
+/// Team members with their timezone information
 !mod core-team {
 	{"andres" tz.america.guayaquil}
 	{"fdncred" tz.us.central}
@@ -41,7 +41,7 @@ and realtive time information.
 
 !func with-local-time (:people~member{} :event~datetime :pure 
 	people 
-	-> map ..{:person
+	-> map {:<update :person
 		name => capitalize
 		time = event -> to-timezone[person.tz] -> format["%c"]
 	}
