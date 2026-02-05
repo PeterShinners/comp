@@ -5,38 +5,54 @@ the contents of a shopping cart.
 
 Highlights:
 
-- This entire example is built into a single print statement with a
-constant at build time.
-- The lower level replace has a comparison block to determine if
-an existing value is in the list. The upsert wraps its comparison
-in a /@once/ to only replace a single value.
+- At build time this entire example is compiled into a single print
+statement with a constant static string.
 
 */
 
-!shape item ~{name~text price~num quantity~num=1}
-!shape cart ~{items~item{} discount~num=0}
+!shape item 
+~{
+    name~text 
+    price~num 
+    quantity~num = 1
+}
 
-!func main (:
+!shape cart 
+~{
+    items~item{} 
+    discount~num = 0
+}
+
+!func main 
+(|
     {
         {"Apple" price=1.00}
         {"Banana" price=0.50 quantity=2}
         {"Apple" 1.00 quantity=2}
     }
-    -> map (:> item)
-    -> reduce (:> upsert (:i i.name))
-    -> cart[discount=0.2]
-    -> total
-    -> print "Total: $()"
+    | map (| item)
+    | reduce (| upsert (| $.name))
+    | cart discount=0.2
+    | total
+    | print "Total: $()"
 )
 
-/// This helper could easily be inlined into the main pipeline
-!func total (:c~cart :pure
-    c.items -> sum (:i i.price * i.quantity) * (1 - c.discount)
+!func total
+@input ~cart
+@pure
+(| 
+    $.items 
+    | sum (| $.price * $.quantity) 
+    * (1 - $$.discount)
 )
 
-/// Upsert provided by standard libraries, but how does an implementation appear?
-!func upsert (:in :block.predicate=equal :block.key=pass :pure
-    in.items
-    -> replace[limit=1] (:> block.predicate (:> block.key))
-    -> else (:> append[in.item])
+/// Insert or update an item in a collection
+!func upsert
+@input ~collection
+@arg item~item
+@arg key~(|~item) = (| $.name)
+@pure
+(|
+    replace $item key=$key limit=1
+    | else (| append $item)
 )

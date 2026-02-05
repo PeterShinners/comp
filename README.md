@@ -1,23 +1,24 @@
 # Comp
 
-Comp is a programming language experiment. After decades of Python, I still love
-it—but writing clear, composable code increasingly fights against the grain. The
-patterns I want require unwanted ceremony and feel heavy. Python still *allows*
-me to program how I want, but the results less and less idiomatic.
+_You should be skeptical._ This is an experiment, not a production tool. But if
+you've felt friction writing robust Python—not with Python itself, but with the
+ceremony it takes to get there—these ideas might interest you. Type hints that
+don't quite catch what you need. Defensive None checks everywhere. Dataclass
+definitions that need pydantic that need mypy. Each layer solves a real problem.
+Together, they're more scaffolding than logic. Comp asks: what if the right
+primitives eliminated the scaffolding?
 
-But what would work better? I don't think it has been invented yet. Comp runs
-natively inside a Python interpreter but brings genuinely different ideas to the
-table. The goal: a lighter-weight language that's easier to read and reason
-about.
+- **Shaped** types, validation, and docs in one declaration
+- **Immutable** no defensive copies, no mutation surprises
+- **Declarative** imports and namespaces resolve at build time, not runtime
+- **Typed Sources** config files and API specs become validated modules
+- **Pipelined** data flows through transformations, not method chains
 
-- Whitespace-independent grammar
-- Declarative namespaces resolved at build time
-- Immutable values throughout
-- Unified `struct` container for all data
-- Typed shapes for matching and transformation
-
-**This is experimental.** Examples exist and work, but syntax and rules break
-frequently.
+This runs inside Python, not instead of it. The goal isn't replacement, it's
+handling the compositional, data-heavy parts with less ceremony. Syntax breaks
+regularly. The interpreter is incomplete. But if language design interests you,
+or if you've wanted a CoffeeScript for Python, there might be something here.
+See more in [Why Comp?](WHY.md).
 
 [MIT](LICENSE)
 
@@ -33,16 +34,18 @@ issues:
 !import gh {comp "github-comp@1.0.2"}
 !import table {comp "table"}
 
-!startup main (
-  $repo = "nushell/nushell"
-  $cutoff = datetime.now - 1[week]
+!startup main 
+(|
+    $repo = "nushell/nushell"
+    $cutoff = datetime.now - 1[week]
   
-  | gh.issue-list repo=$repo fields=t"created-at reaction-groups title url"
-  | where (| $.created-at >= $cutoff)
-  | insert "thumbs-up" (| $.reaction-groups | count-where (| $.content == "thumbs-up"))
-  | sort-by "thumbs-up" reverse
-  | first 5
-  | table.markdown
+    | gh.issue-list repo=$repo fields=t"created-at reaction-groups title url"
+    | where (| $.created-at >= $cutoff)
+    | insert "thumbs-up" (| $.reaction-groups | count-where (| $.content == "thumbs-up"))
+    | sort-by "thumbs-up" reverse
+    | first 5
+    | rename thumbs-up="👍"
+    | table.markdown
 )
 ```
 

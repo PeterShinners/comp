@@ -1,48 +1,48 @@
 /**
-Lock free parallel stack using linked list
-Uses atomic swaps to retry while contested
-
-- The atomic-exchange retries the operation as needed
+Lock-free stack using atomic compare-and-swap.
+Demonstrates retry-based concurrency without locks.
 */
 
-!import atomic {comp "@systems/atomic@1.0.1/lib"}
+!import atomic {comp "atomic"}
 
+!shape node 
+~{value~text  next~node|nil}
 
-!shape stack ~{head~node|nil atom~atomic.version}
-!shape node ~{data~text next~node|nil}
+!shape stack 
+~{head~node|nil  version~num}
 
-
-!startup main = (:
-	// Push some items (let's add threads here, much cooler)
-	!let vals = {atom = |> atomic.new}
-	-> atomic-push "first"
-	-> atomic-push "second"
-	-> atomic-push "third"
-
-	// Pop them back
-	forever [:
-		!let vals 
-		=> atomic-pop
-		-> print "Popped: $()"
-		->? field.fail break  // Stop gracefully when empty
-	]
+!startup main
+(|
+    (nil 0)
+    | stack-push "first"
+    | stack-push "second"
+    | stack-push "third"
+	| forever (|
+		stack-pop | print "Popped: $()" |? break
+	)
+    | print "Stack empty, done"
 )
 
-
-/// Add new string to the stack
-!func atomic-push (:vals~stack arg~text
-    vals -> atomic-exchange {:
-        head = {data=arg next=stack.head}
-        atom = vals.atom
-    }
+/// Push a value onto the stack, retrying on contention
+!func stack-push
+@input ~stack
+@arg value~text
+(|
+    atomic.swap {|
+		head = {value=$value next=$.head}
+		version = $.version + 1
+	}
 )
 
-
-/// Remove item from stack or `fail` if empty
-!func atomic-pop (:vals~stack
-    vals -> atomic-exchange {:
-        head = stack.head.next
-        atom = vals.atom
-    }
-	.data
+/// Pop a value from the stack, retrying on contention
+/// Fails if stack is empty
+!func stack-pop
+@input ~stack
+(|
+    $.head ?? !fail "stack empty"
+    atomic.swap {|
+		head = $.head.next
+		version = $.version + 1
+	}
+    | $$.head.value
 )
