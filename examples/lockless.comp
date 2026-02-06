@@ -5,11 +5,9 @@ Demonstrates retry-based concurrency without locks.
 
 !import atomic {comp "atomic"}
 
-!shape node 
-~{value~text  next~node|nil}
+!shape node ~{value~text  next~node|nil}
+!shape stack ~{head~node|nil  version~num}
 
-!shape stack 
-~{head~node|nil  version~num}
 
 !startup main
 (|
@@ -17,30 +15,34 @@ Demonstrates retry-based concurrency without locks.
     | stack-push "first"
     | stack-push "second"
     | stack-push "third"
-	| forever (|
+	| forever 
+    (|
 		stack-pop | print "Popped: $()" |? break
 	)
     | print "Stack empty, done"
 )
 
+
 /// Push a value onto the stack, retrying on contention
 !func stack-push
-@input ~stack
-@arg value~text
+@input ~stack @args value~text
 (|
-    atomic.swap {|
+    atomic.swap 
+    {|
 		head = {value=$value next=$.head}
 		version = $.version + 1
 	}
 )
 
+
 /// Pop a value from the stack, retrying on contention
 /// Fails if stack is empty
-!func stack-pop
+!func stack-pop 
 @input ~stack
 (|
     $.head ?? !fail "stack empty"
-    atomic.swap {|
+    atomic.swap 
+    {|
 		head = $.head.next
 		version = $.version + 1
 	}

@@ -1,55 +1,69 @@
 /**
-Binary search tree example
-Operations for a minimal binary tree
-
-- Overloaded dispatch to handle empty branches
-
+Binary search tree
+Operations for a minimal binary tree with shape-dispatched
+insertion, lookup, and in-order traversal.
 */
 
 !shape tree ~{value~num left~branch right~branch}
 !shape branch ~tree|nil = nil
 
 
-!startup main (:
-	(5 3 8 1 7 9)
-	-> reduce[initial] [:> tree tree-insert]
-	-> tree-values
-	-> print
+!startup main
+(|
+	{5 3 8 1 7 9}
+	| reduce initial=nil (| tree-insert) 
+	| tree-values
+	| print
 )
 
 
-/// Add new value into tree
-!func tree-insert (:t~nil :value~num :pure
-	|> tree[value]
+/// Add new value into tree, dispatched on nil vs tree
+!func tree-insert
+@input ~nil @args value~num @pure
+(| 
+	tree value=$value
 )
-!func tree-insert {:<update :t~tree :value~num :pure
-	value < t.value
-	-> when {:
-		left = t.left => tree-insert[value]
-	} {:
-		right = t.right => tree-insert[value]
-	}
-}
+
+!func tree-insert
+@input ~tree @args value~num @pure
+(|
+	if ($value < $.value) 
+	{| <update left = ($.left | tree-insert value=$value)}
+	| else 
+	{| <update right = ($.right | tree-insert value=$value)}
+)
 
 
 /// Check if tree contains value
-!func tree-contains (:t~nil :value~num :pure
+!func tree-contains
+@input ~nil @arg value~num @pure
+(| 
 	false
 )
-!func tree-contains {:<update :t~tree :value~num :pure
 
-	-> if [value < t.value] (:v t.left -> tree-contains[value])
-	-> elif (:v value > t.value) (:v t.right -> tree-contains[value])
-	-> else (:v true)
-}
+!func tree-contains
+@input ~tree @args value~num @pure
+(|
+	if ($value < $.value) 
+	(| $.left | tree-contains value=$value)
+	| elif ($value > $.value) 
+	(| $.right | tree-contains value=$value)
+	| else 
+	(| true)
+)
 
 
 /// Iterate values from tree in order
-!func tree-values (:t~nil :pure 
-	()
-)
-!func tree-values (:<flat :t~tree :pure 
-	t.left -> tree-values
-	{t.value}
-	t.right -> tree-values
-)
+!func tree-values
+@input ~nil @pure
+{|
+}
+
+!func tree-values
+@input ~tree @pure
+{|
+	<tree
+	{$.value}
+	($.left | tree-values)
+	($.right | tree-values)
+}

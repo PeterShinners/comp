@@ -10,18 +10,8 @@ statement with a constant static string.
 
 */
 
-!shape item 
-~{
-    name~text 
-    price~num 
-    quantity~num = 1
-}
-
-!shape cart 
-~{
-    items~item{} 
-    discount~num = 0
-}
+!shape item ~{name~text price~num quantity~num=1}
+!shape cart ~{items~item{} discount~num=0}
 
 !func main 
 (|
@@ -38,8 +28,7 @@ statement with a constant static string.
 )
 
 !func total
-@input ~cart
-@pure
+@input ~cart @pure
 (| 
     $.items 
     | sum (| $.price * $.quantity) 
@@ -48,10 +37,7 @@ statement with a constant static string.
 
 /// Insert or update an item in a collection
 !func upsert
-@input ~collection
-@arg item~item
-@arg key~(|~item) = (| $.name)
-@pure
+@input ~collection @args item~item key~(|~item)=pass @pure
 (|
     replace $item key=$key limit=1
     | else (| append $item)

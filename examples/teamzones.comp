@@ -1,25 +1,23 @@
 /**
 Team Timezone Display
 
+Quick script to display a table of team members with
+relative time information for scheduling meetings.
+
 Original nushell script:
 https://github.com/nushell/nu_scripts/blob/main/sourced/examples/date_in_local_timezones.nu
-
-Quick and simple script to display a table of team members
-and realtive time information.
-1. Each person's timezone
-2. A header with the meeting time
-3. What time the meeting is for each person in their local timezone
 */
 
-
 !import tz {comp "timezone"}
+!import table {comp "table"}
 
 
 !shape member ~{name~text tz~timezone}
 
 
 /// Team members with their timezone information
-!mod core-team {
+!mod core-team 
+{
 	{"andres" tz.america.guayaquil}
 	{"fdncred" tz.us.central}
 	{"gedge" tz.us.eastern}
@@ -30,19 +28,25 @@ and realtive time information.
 }
 
 
-!func main (:
-	!let next-call = "2021-08-31 15:00:21.290597200 -05:00"
-	!let people = core-team -> with-local-time[next-call -> parse-datetime]
+!startup main
+(|
+	$next-call = "2021-08-31 15:00:21 -05:00" | parse-datetime
 
-	"for the next event on $(next-call).. " -> print
-	people -> each[:it it -> print["$(name)'s: $(time) (timezone $(tz))"]]
+	core-team
+	| with-local-time event=$next-call
+	| print "For the next event on $($next-call)..."
+	| table.markdown
 )
 
 
-!func with-local-time (:people~member{} :event~datetime :pure 
-	people 
-	-> map {:<update :person
-		name => capitalize
-		time = event -> to-timezone[person.tz] -> format["%c"]
+/// Convert member times to local timezone for an event
+!func with-local-time
+@input ~member# @args event~datetime @pure
+(|
+	map 
+	{|
+		name = ($.name | capitalize)
+		time = ($event.tz | format "$()[%c]")
+		tz = $.tz
 	}
 )

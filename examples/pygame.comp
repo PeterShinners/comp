@@ -1,48 +1,82 @@
 /**
-Pygame chimp tutorial example (React style)
-Punch a monkey to win prizes
+Pygame chimp tutorial example
+Punch a monkey to win prizes.
+
+Demonstrates event dispatch, animation, and game loop
+using shape-based function overloading.
 */
 
-!import pygame {comp "pygame-comp-spectacular@1.0.4"}
+!import pg {comp "pygame-comp-spectacular@1.0.4"}
 
-!startup game (:
-	ctx.window = |> pg.display
-	-> window[1280 480 scaled=true]
-	-> caption["Monkey Fever"]
-	-> mouse-visible[false]
 
-	!let quit-events = {event.quit key.escape}
-	!let state = {
-		bgd = |> card[window.size] -> fill[.7 .9 .7]
-		fist = |> card[res.fist pivot=(235 80)]
-		chimp = |> card[res.chimp pivot=center]
-	}
-
-	:> pg.loop[ctx.window quit-on=quit-events] (:<val:frame
-		!let ee = frame.events -> each[:> handle[frame.state]]
-		frame.draw
-		-> clear[.7 .9 .7]
-		-> draw-cards[state.chimp state.fist]
-	)
-)
-
-!func handle {:<update :state~state :event~event[type==mouse.down]
-	state.fist => move[10 90]
-	!let hit = (state.fist state.chimp) -> intersect[overlap=5]
-
-	hit -> when
-		(:
-			state.chimp.rotate => spin[360 0.5 ease-out]
-			state.chimp.translate.x => update[after=state.chimp.rotate]
-			res.punch -> play
-		)
-		(: res.whiff -> play)
+!shape state 
+~{
+    bgd~pg.card
+    fist~pg.card
+    chimp~pg.card
 }
 
-!func handle (:<update<mod-dispatch :state~state :event~event[type==mouse.up]
-	state.fist => move[-10 -90]
+
+!startup game
+(|
+    $window = 
+	pg.display
+	| window 1280 480 scaled=true
+	| caption "Monkey Fever"
+	| mouse-visible false
+	//x idiomatically, where should the pg.display belong?
+
+    $state = 
+	{
+        bgd = (pg.card $window.size | fill {0.7 0.9 0.7})
+        fist = (pg.card res.fist pivot={235 80})
+        chimp = (pg.card res.chimp pivot=center)
+		//x should these pipe to card instead?
+    }
+
+    pg.loop $window quit-on={event.quit key.escape} 
+	(|
+        $.events 
+		| each 
+		(| handle state=$state)
+
+		$.draw
+        | clear {0.7 0.9 0.7}
+        | draw-cards $state.chimp $state.fist
+    )
 )
 
-!func handle (:<update<mod-dispatch :state~state :event~event[type==mouse.move] 
-	state.fist => position[event.position]
+
+/// Handle mouse down: punch and check for hit
+!func handle
+@input ~pg.event @args state~state
+(|
+    $.type ?? mouse.down | else (| pass)
+
+    $state.fist | move {10 90}
+    $hit = {$state.fist $state.chimp} | intersect overlap=5
+
+    $hit | when
+	(|
+		$state.chimp.rotate | spin 360 0.5 ease-out
+		$state.chimp.translate.x | update after=$state.chimp.rotate
+		res.punch | play
+	)
+	(| res.whiff | play)
+)
+
+
+/// Handle mouse up: retract fist
+!func handle
+@input ~pg.event{type==mouse.up} @args state~state
+(| 
+	$state.fist | move {-10 -90}
+)
+
+
+/// Handle mouse move: track fist position
+!func handle
+@input ~pg.event{type==mouse.move} @args state~state
+(| 
+	$state.fist | position $.position
 )
