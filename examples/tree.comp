@@ -2,68 +2,80 @@
 Binary search tree
 Operations for a minimal binary tree with shape-dispatched
 insertion, lookup, and in-order traversal.
+
+Highlights
+- Even though trees are immutable, they can be updated and rebuilt
+  quite naturally. Unchanged nodes are shared across generations of the tree
+  automatically and safely.
 */
 
 !shape tree ~{value~num left~branch right~branch}
 !shape branch ~tree|nil = nil
 
 
-!startup main
-(|
-	{5 3 8 1 7 9}
-	| reduce initial=nil (| tree-insert) 
-	| tree-values
-	| print
+!startup main 
+(
+    {5 3 8 1 7 9}
+    | reduce[initial=nil] (tree-insert)
+    | tree-values
+    | print
 )
 
 
 /// Add new value into tree, dispatched on nil vs tree
-!func tree-insert
-@input ~nil @args value~num @pure
-(| 
-	tree value=$value
+!pure tree-insert 
+(
+    !input ~nil
+    !args value~num
+
+    tree[value=$value]
 )
 
-!func tree-insert
-@input ~tree @args value~num @pure
-(|
-	if ($value < $.value) 
-	{| <update left = ($.left | tree-insert value=$value)}
-	| else 
-	{| <update right = ($.right | tree-insert value=$value)}
+!pure tree-insert 
+@update (
+    !input ~tree
+    !args value~num
+
+    !on value <> $.value
+    ~less {left = ($.left | tree-insert[value])}
+    ~else {right = ($.right | tree-insert[value])}
 )
 
 
 /// Check if tree contains value
-!func tree-contains
-@input ~nil @arg value~num @pure
-(| 
-	false
+!pure tree-contains 
+(
+    !input ~nil
+    !args value~num
+
+    false
 )
 
-!func tree-contains
-@input ~tree @args value~num @pure
-(|
-	if ($value < $.value) 
-	(| $.left | tree-contains value=$value)
-	| elif ($value > $.value) 
-	(| $.right | tree-contains value=$value)
-	| else 
-	(| true)
+!pure tree-contains 
+(
+    !input ~tree
+    !args value~num
+
+    !on value <> $.value
+    ~less ($.left | tree-contains[value])
+    ~greater ($.right | tree-contains[value])
+    ~equal true
 )
 
 
 /// Iterate values from tree in order
-!func tree-values
-@input ~nil @pure
-{|
-}
+!pure tree-values 
+(
+    !input ~nil
 
-!func tree-values
-@input ~tree @pure
-{|
-	<tree
-	{$.value}
-	($.left | tree-values)
-	($.right | tree-values)
-}
+    {}
+)
+
+!pure tree-values 
+@flat (
+    !input ~tree
+
+    ($.left | tree-values)
+    {$.value}
+    ($.right | tree-values)
+)

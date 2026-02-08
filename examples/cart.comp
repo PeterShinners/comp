@@ -14,31 +14,32 @@ statement with a constant static string.
 !shape cart ~{items~item{} discount~num=0}
 
 !func main 
-(|
+(
     {
         {"Apple" price=1.00}
         {"Banana" price=0.50 quantity=2}
-        {"Apple" 1.00 quantity=2}
+        {"Apple" 1.00 quantity=2}  // replaces previous apples item
     }
-    | map (| item)
-    | reduce (| upsert (| $.name))
-    | cart discount=0.2
+    | map[item]  // morph each simple structure into a full cart item
+    | reduce[upsert[$.name]]
+    | cart[discount=0.2]
     | total
-    | print "Total: $()"
+    | print["Total: $()"]
 )
 
-!func total
-@input ~cart @pure
-(| 
-    $.items 
-    | sum (| $.price * $.quantity) 
-    * (1 - $$.discount)
+!pure total
+( 
+    !input ~cart
+
+    $.items | sum[$.price * $.quantity] * (1 - $.discount)
 )
 
 /// Insert or update an item in a collection
-!func upsert
-@input ~collection @args item~item key~(|~item)=pass @pure
-(|
-    replace $item key=$key limit=1
-    | else (| append $item)
+!pure upsert
+(
+    !input ~collection
+    !args item~item
+    !block key ~item=pass
+
+    $ | replace[item key=key limit=1] | else[$ | append item]
 )

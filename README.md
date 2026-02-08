@@ -34,17 +34,19 @@ issues:
 !import gh {comp "github-comp@1.0.2"}
 !import table {comp "table"}
 
-!startup main 
-(|
-    $repo = "nushell/nushell"
-    $cutoff = datetime.now - 1[week]
-  
-    | gh.issue-list repo=$repo fields=t"created-at reaction-groups title url"
-    | where (| $.created-at >= $cutoff)
-    | insert "thumbs-up" (| $.reaction-groups | count-where (| $.content == "thumbs-up"))
-    | sort-by "thumbs-up" reverse
-    | first 5
-    | rename thumbs-up="👍"
+!startup main (
+    !let repo "nushell/nushell"
+    !let cutoff (datetime.now - 1[week])
+    !let fields {"created-at" "reaction-groups" "title" "url"}
+    !let thumb "👍"
+
+    gh.issue-list[repo=repo fields=fields]
+    | where[$.created-at >= cutoff]
+    | insert-each[
+        'thumb' = ($.reaction-groups | tally[$.content == "thumbs-up"])
+    ]
+    | sort-by[thumb reverse]
+    | first[5]
     | table.markdown
 )
 ```
@@ -54,34 +56,37 @@ issues:
 ### Whitespace Independent
 
 The grammar builds from a simple foundation: containers are whitespace-separated
-fields. No line-based statements. No significant indentation. No semicolons or commas.
-Everything builds on this, creating something lightweight and flexible. The
-language has no keywords and prefers kebab-case.
+fields. There are no line-based statements, significant indentation, or
+separators. Everything builds on this, creating something lightweight and
+flexible. The language has no keywords and prefers kebab-case.
 
 ```comp
-$point = {3 4}
-$current-player = {name="pete" score=100}
+!let point {3 4}
+!let current-player {name="pete" score=100}
 ```
 
 ### Basic Types with Units
 
-Comp provides tags, text, and numbers. Tags are hierarchical enumerations. Text
-is unicode. Numbers are precision-safe and hardware-independent.
+Comp provides tags, text, and numbers. Tags are hierarchical enumerations, text
+is unicode strings, and numbers are precision-safe and hardware-independent.
 
 Units extend these types with labels that control how values combine and
-convert. Even `true` and `false` are just tags—no magic keywords.
+convert. Constants like `true` and `false` are just defined and extensible tags.
+
+The traditional mathematic operators exist, but are only valid on numeric
+values. There are separate operators for text, tags, and structures.
 
 ```comp
-$timeout = 30[seconds]
-$cutoff = datetime.now - 1[week]
-$bytes = $size[mb][bytes]
+!let timeout 30[seconds]
+!let cutoff (datetime.now - 1[week])
+!let bytes $size[mb][bytes]
 ```
 
 ### Structures and Shapes
 
-Comp's unified container holds both named and unnamed fields—think of it like
-Python's combined positional and keyword arguments, but as a data structure.
-Every structure is immutable.
+Comp's unified `struct` container holds both named and unnamed fields.
+Comparable to Python's combined positional and keyword arguments, but as a data
+structure. Every structure is immutable.
 
 Shapes define what data looks like, not what it "is." Functions dispatch based
 on whether data matches their declared shapes. Data from files, databases, or
@@ -89,32 +94,18 @@ HTTP responses works interchangeably with literals in your code.
 
 ```comp
 !shape point ~{x~num y~num}
-!func process @input ~point (| $"Point at $($.x), $($.y)")
-!func process @input ~player (| $"$($.name) scored $($.score)")
+!func process @input~point ($ | "Point at $($.x), $($.y)")
 ```
-
-Same function name, different implementations selected by input shape.
 
 ### Pipelines and Blocks
 
-Data flows left-to-right through transformations. Blocks `(| ...)` are anonymous
-sub-pipelines that can be composed, passed around, and applied later. The `$`
-references implicit pipeline input; `$.field` accesses its fields.
+Data flows left-to-right through a pipeline of transformations. Blocks `(| ...)`
+are anonymous sub-pipelines that can be composed, passed around, and applied
+later.
 
 ```comp
-$transformer = (| from-json | where (| $.active) | select t"name score")
-$data | $transformer | process
-```
-
-### Tags for Type-Safe Arguments
-
-Tags route positional arguments by type, not position. A function expecting an
-`ordering` tag will match `reverse` or `forward` wherever they appear in the
-call—no need to remember argument order, and typos become build errors.
-
-```comp
-data | sort-by "score" reverse
-data | sort-by reverse "score"    // same thing
+!let transformer[$ | from-json | where[$.active] | select {"name" "score"}]
+data | $transformer | process
 ```
 
 ### Failure Handling
@@ -124,44 +115,34 @@ stack-unwinding. Lightweight operators handle failures where it makes sense.
 Failure types form an extensible hierarchy using shapes.
 
 ```comp
-config.timeout ?? 30                           // fallback for any failure
-fetch-data ??(timeout) cached-data             // catch specific type
-load |?(network) (| retry times=3) | process   // mid-pipeline handling
+config.timeout ?? 30                            // fallback for any failure
+fetch-data ??(timeout) cached-data              // catch specific type
+load |?(network) ($ | retry[times=3] | process) // mid-pipeline handling
 ```
 
-### Side Channels
+### Declarative modules
 
-Some functions communicate through side channels—metadata flowing alongside the
-main value. This enables patterns like `if`/`else` pairing and optional detail
-extraction without cluttering the primary data flow.
+Modules define a declarative namespace that is validated and optimized at build
+time. This is combined with imported modules to generate a definitive namespace
+for code to run in. Modules do not need to deal with definition orders or other
+annoyances. Comp takes advantage by generating flexible naming for references
+that are guaranteed to be correct.
 
-```comp
-value | if ($.score > 90) (| "A") | else (| "F")
-message | replace {"error"="FAILED"} | details   // {changed=1 matches=...}
-scores | do (| sum | print $"total=$()") | continue-processing
-```
+Comp modules are also their own self-contained package format. A single file
+is enough to manage dependencies, metadata. Modules may contain an extensible
+list of entry points to manage running unit tests, command line, servers,
+and more.
 
-### Function Wrapping
+The language separates operations with side effects into opaque handles.
+This allows simple definition of build time processing.
 
-Functions can inherit and customize another function's interface—essential for
-building reusable abstractions. Remove parameters, override defaults, or add new
-ones while preserving the wrapped function's documentation and behavior.
-
-```comp
-!func top-issues
-@inherit gh.issue-list
-  -fields
-  repo="nushell/nushell"
-@args ~{count~num=10}
-(| gh.issue-list fields=t"created-at title" @pass | first $count)
-```
-
-### Declarative Namespaces
+These are combined to generate comprehensive error checking and validation
+that happens at build time, not run time.
 
 Everything in a module is known before execution. Imports, definitions,
 references—all resolved at build time. A whole category of runtime errors
 becomes build errors. References can use shortened names when unambiguous:
-`types.boolean.true` can be just `true` if nothing else conflicts.
+`types.boolean.true` can be just `true` when nothing else conflicts.
 
 ## Quick Start
 
@@ -174,11 +155,22 @@ uv pip install -e .
 uv run comp examples/tree.comp
 ```
 
-## Why "Comp"?
+## Why is this named "Comp"?
 
-No deep meaning. It sits at the intersection of "compositing" (node graphs of
-operations), "composable" (the design philosophy), and "computing" (the obvious
-one). It's short and it wasn't taken.
+No deep meaning, it's short and it wasn't taken. Choose any combination of
+"comp" words and you've got a good definition.
+
+- Compose
+- Compile
+- Components
+- Compelling
+- Compute
+
+Studios that generate computer graphics often use procedural compositing
+applications; which often embed Python interpreters. These embody many of
+the familiar concepts and ambitions for the language.
+
+Sadly, "complete" is not yet a matching adjective.
 
 ## Inspirations
 

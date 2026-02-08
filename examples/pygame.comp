@@ -18,65 +18,85 @@ using shape-based function overloading.
 
 
 !startup game
-(|
-    $window = 
+(
+    !let window 
 	pg.display
-	| window 1280 480 scaled=true
-	| caption "Monkey Fever"
-	| mouse-visible false
-	//x idiomatically, where should the pg.display belong?
+	| window[1280 480 scaled=true]
+	| caption["Monkey Fever"]
+	| mouse-visible[false]
+	//x idiomatically, where should pg.display belong (line before or its current spot?)
 
-    $state = 
+    !let state 
 	{
-        bgd = (pg.card $window.size | fill {0.7 0.9 0.7})
-        fist = (pg.card res.fist pivot={235 80})
-        chimp = (pg.card res.chimp pivot=center)
-		//x should these pipe to card instead?
+        bgd = (pg.card[window.size | fill {0.7 0.9 0.7}])
+        fist = (pg.card[res.fist pivot={235 80}])
+        chimp = (pg.card[res.chimp pivot=center])
+		//x should these pipe to card instead? parenthesis seem unneeded here without pipe
     }
 
-    pg.loop $window quit-on={event.quit key.escape} 
-	(|
+    pg.loop[window quit-on={event.quit key.escape} (
+		!arg state~state // loop sets this up as context?
+
         $.events 
-		| each 
-		(| handle state=$state)
+		| each[handle]
 
 		$.draw
-        | clear {0.7 0.9 0.7}
-        | draw-cards $state.chimp $state.fist
-    )
+        | clear[{0.7 0.9 0.7}]
+        | draw-cards[state.chimp state.fist]
+	)]
 )
 
 
 /// Handle mouse down: punch and check for hit
 !func handle
-@input ~pg.event @args state~state
-(|
+(
+	!input ~pg.event 
+	!args state~state
+
     $.type ?? mouse.down | else (| pass)
 
-    $state.fist | move {10 90}
-    $hit = {$state.fist $state.chimp} | intersect overlap=5
+    state.fist | move[{10 90}]
 
-    $hit | when
-	(|
-		$state.chimp.rotate | spin 360 0.5 ease-out
-		$state.chimp.translate.x | update after=$state.chimp.rotate
-		res.punch | play
-	)
-	(| res.whiff | play)
+	state 
+	| @update
+	!on {state.fist state.chimp} | intersect[overlap=5]
+	~true {
+		state.chimp.rotate | spin[360 0.5 ease-out]
+		state.chimp.translate.x | update[after=state.chimp.rotate]
+		!let _ res.punch | play
+	}
+	~false {
+		!let _ res.whiff | play
+	}
+	// these updated fields seems too magical, or should this !on statement
+	// be piped to something like `insert-fields` or something?
+
+	//x this isn't right, it needs a way to create a new state with these changed fields 
+	// not loving `!let _` need a different op like `!do`? or something similar
+	// to let like; lit lot lat set yet get ?
+	// (chimp.rotate, etc)
 )
 
 
 /// Handle mouse up: retract fist
 !func handle
-@input ~pg.event{type==mouse.up} @args state~state
-(| 
-	$state.fist | move {-10 -90}
+(
+	!input ~pg.event[type==mouse.up]  //x how to make value based types from fields like this?
+	!args state~state
+
+	state.fist | move[{-10 -90}]
 )
+
+//x note, realistically these handlers want take state as input and event as a modifier
+// that could be ok if there was a function that dispatched based on modifiers
+// instead of the input shape?
 
 
 /// Handle mouse move: track fist position
 !func handle
-@input ~pg.event{type==mouse.move} @args state~state
-(| 
-	$state.fist | position $.position
+(
+	!input ~pg.even[type==mouse.move] 
+	!args state~state
+	
+	state.fist | position[$.position]
 )

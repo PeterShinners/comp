@@ -14,38 +14,42 @@ Based on https://github.com/TrevisanGMW/gt-tools
 
 !shape layer-config 
 ~{
-    suffix~text
-    parent-type~parent|selection
-    layer-type~joint|locator|group
-    outliner-color~{~num ~num ~num} = {1.0 0.5 0.0}
+    suffix ~text
+    parent-type ~parent | selection
+    layer-type ~joint | locator | group
+    outliner-color ~{~num ~num ~num} = {1.0 0.5 0.0}
 }
 
 
 !func create-inbetween
-@args config~layer-config
 (|
+    !args config~layer-config
+
     !transact {maya.scene maya.preserve-selection}
-
     maya.selection
-    | map 
-    (|
-        $parent = $ | maya.get-parent
-        $transform = $parent
-        | maya.create-node $config.layer-type
-            name=($.name ++ $config.suffix)
-        | maya.set-attr use-outliner-color=true
-        | maya.set-attr outliner-color=$config.outliner-color
-        | maya.parent $parent
+    | map[
+        !let parent $ | maya.get-parent
+        !let transform parent
+        | maya.create-node[
+            config.layer-type
+            name = @fmt"($.name)(config.suffix)"
+            //x going to need a better formatting syntax for string subst
+        ]
+        | maya.set-attr[use-outliner-color=true]
+        | maya.set-attr[outliner-color=config.outliner-color]
+        | maya.parent[parent]
 
-        $target = ($config.parent-type == parent)
-        | when (| $parent) (| $)
+        | !let target !on config.parent-type == parent
+        ~true parent
+        ~false $  
+        //x whoa, piping the previous statements into the false, i think this is ok?
+        //and nested !on inside `!let`. this all seems ok, those are expressions?
 
-        $target
-        | maya.exists
-        | when (| $target | maya.constrain $transform)
+        !on (target | maya.exists)
+        ~true (target | maya.constrain[transform])
 
-        $ | maya.parent $transform
-    )
+        $ | maya.parent[transform]
+    ]
 )
 
 
@@ -59,31 +63,31 @@ Based on https://github.com/nestrada2/bubbles
 
 !shape bubble-args 
 ~{
-    count~num = 10
-    radius-range~{~num ~num} = {0.1 0.5}
-    position-range~{~num ~num} = {0.1 5.0}
+    count ~num = 10
+    radius-range ~{~num ~num} = {0.1 0.5}
+    position-range ~{~num ~num} = {0.1 5.0}
 }
 
 
 !func create-bubbles
-@input ~dag-paths @args config~bubble-args
-(|
+(
+    !input ~dag-paths
+    !args config ~bubble-args
+
     !transact {maya.scene}
 
-    $group = $ | maya.create-node group name="bubbles"
-        | maya.select replace
+    !let group ($ | maya.create-node[group name="bubbles"] | maya.select[replace])
 
     !transact {maya.preserve-selection}
 
-    map (|
-        $position = repeat-values 3 
-        (| $config.position-range | random)
-        $dag-path
-        | $group
-        | maya.poly-sphere
+    $ | map[
+        !let position = repeat[count=3 (config.position-range | random)]
+        !let dag-path $
+        | group
+        | maya.poly-sphere[
             name = "bubble-$($.name)"
             radius = ($config.radius-range | random)
-        | maya.xform position=$position
-    )
-    //x this has args for poly-sphere on separate lines, that seems fine when used this way
+        ]
+        | maya.xform[position=$position]
+    ]
 )

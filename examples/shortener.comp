@@ -12,7 +12,12 @@ A simple URL shortener using Redis for storage.
 !package version "1.0.0"
 
 
-!shape link ~{id~text target~text clicks~num = 0}
+!shape details 
+~{
+    id~text 
+    target~text 
+    clicks~num = 0
+}
 
 
 /// Module configuration, overridable at startup
@@ -27,37 +32,35 @@ A simple URL shortener using Redis for storage.
 }
 
 
-!context web {
+!context web 
+{
     redis-db = redis.connection
 }
 
 
 !startup web
-(|
-    dispatch
-    | post "/" 
-    (| link-create)
-    | get "/" 
-    (| response-template "newurl.html")
-    | get "/{id}" 
-    (| link-redirect)
-    | get "/{id}.json" 
-    (| link-details)
-    | missing 
-    (| response-template "404.html" status=404)
+(
+    $ 
+    | dispatch
+    | post "/" (link-create)
+    | get "/" ($ | response-template "newurl.html")
+    | get "/{id}" ($ | link-redirect)
+    | get "/{id}.json" ($ | link-details)
+    | missing ($ | response-template "404.html" status=404)
 )
 
 
 /// Accept a URL submission and redirect to its detail page
-!func link-create
-@input ~http.request
-(|
+a!func link-create
+(
+    !input ~http.request
+
     $.form.url
-    | assert (| url.parse $.scheme | in {"http" "https"})
-    (|
+    unless[$ | url.parse | $.scheme | in {"http" "https"}
+    (
         {error="Please enter a valid URL" url=$$.form.url}
         | response-template "newurl.html"
-    )
+    )]
     | insert-url
     | http.redirect "/$($.id).json"
 )
@@ -65,83 +68,85 @@ A simple URL shortener using Redis for storage.
 
 /// Redirect short URL to its target, incrementing click count
 !func link-redirect
-@input ~http.request
-(|
-    $.params.id
-    | fetch-details
-    | increment
-    http.redirect $.target  //x this is 2 statements, an error
+(
+    !input ~http.request
+
+    $.params.id | fetch-details | increment
+    http.redirect $.target
 )
 
 
 /// Render detail page for a short URL
 !func link-details
-@input ~http.request
-(|
-    $.params.id
-    | fetch-details
-    | response-json
+(
+    !input ~http.request
+
+    $.params.id | fetch-details | response-json
 )
 
 
 /// Look up or create a short URL entry
 !func insert-url
-@input ~text
-(|
-    format mod.keys.reverse
+(
+    !input ~text
+
+    $ | fmt[mod.keys.reverse]
     | redis.get
-    | if-nil
-    (|
-        $id = mod.keys.total | redis.incr | base36-encode
+    | if-nil[
+        !let id mod.keys.total | redis.incr | base36-encode
         {
-            '$id | format mod.keys.target' = $$
-            '$id | format mod.keys.counter' = 1
-            '$$ | format mod.keys.reverse' = $id
+            'id | format mod.keys.target' = $$
+            'id | format mod.keys.counter' = 1
+            '$$ | format mod.keys.reverse' = id
             //x the single quote field expression needs to be ok for pipelines
         }
         | redis.mset
-        $id  //x one again a second statement, what to do about this?
-    )
+        id
+    ]
+    response-redirect[id | fmt["/$().json"]]
 )
 
 
 /// Fetch details for a short URL id
 !func fetch-details
-@input ~text
-{|
-    details id=$
-    | redis.mget {
-        target = ($.id | format mod.keys.target)
-        clicks = ($.id | format mod.keys.counter)
+{
+    !input ~text
+
+    {
+        target = $ | fmt[mod.kes.target]
+        clicks = $ | fmt[mod.kes.counter]
     }
+    | redis.mget
     | defaults clicks=0
 }
 
 
 /// Increment the click counter for a URL
 !func increment
-@input ~details
 (| 
+    !input ~details
+
     $.id 
-    | format mod.keys.counter 
+    | fmt[mod.keys.counter]
     | redis.incr
 )
 
 
 /// Encode a number in base36
-!func base36-encode
-@input ~num @pure
+!pure base36-encode
 (|
-    $charset = "0123456789abcdefghijklmnopqrstuvwxyz"
-    $result = ""
-    $n = $
+    !input ~num
+    !let charset "0123456789abcdefghijklmnopqrstuvwxyz"
+    !let result ""
+    !let n $
 
-    $n | while (| $ > 0)  //x why isn't this block on a separate line?
-    (|
-        $div = $ | divmod ($charset | length)
-        $result = {$charset | char-at-index $div.remainder} | join $result
-        $div.quotient
-    )
+    n | while[$ > 0
+        !let div $ | divmod ($charset | length)
+        !let result {charset | char-at-index div.remainder} | join result
+        div.quotient
+    ]
+    //x so `while` pipes the resulting value back to itself (sort of like a reduce?)
+    //x seems cool actually, unless there's a better abstraction somewhere else?
 
-    $result | if-empty (| $charset | first)
+    $result | if-empty[charset | first]
 )

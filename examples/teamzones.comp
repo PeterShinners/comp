@@ -30,23 +30,25 @@ https://github.com/nushell/nu_scripts/blob/main/sourced/examples/date_in_local_t
 
 !startup main
 (|
-	$next-call = "2021-08-31 15:00:21 -05:00" | parse-datetime
+	!let next-call = ("2021-08-31 15:00:21 -05:00" | parse-datetime)
 
 	core-team
-	| with-local-time event=$next-call
-	| print "For the next event on $($next-call)..."
+	| with-local-time[event=$next-call]
+	| print["For the next event on $($next-call)..."]
 	| table.markdown
 )
 
 
 /// Convert member times to local timezone for an event
-!func with-local-time
-@input ~member# @args event~datetime @pure
-(|
-	map 
-	{|
+!pure with-local-time
+(
+	!input ~member# 
+	!args event~datetime
+
+	$ | map[{
 		name = ($.name | capitalize)
-		time = ($event.tz | format "$()[%c]")
+		time = (event.tz | format["$()[%c]"])
 		tz = $.tz
-	}
+	}]
+	//x seeing this [{}] pattern too often?
 )
