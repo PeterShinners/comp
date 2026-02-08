@@ -9,8 +9,7 @@ Demonstrates retry-based concurrency without locks.
 !shape stack ~{head~node|nil  version~num}
 
 
-!startup main
-(
+!startup main (
     (nil 0)
     | stack-push["first"]
     | stack-push["second"]
@@ -23,8 +22,7 @@ Demonstrates retry-based concurrency without locks.
 
 
 /// Push a value onto the stack, retrying on contention
-!func stack-push
-(
+!func stack-push (
     !input ~stack 
     !args value~text
 
@@ -38,8 +36,7 @@ Demonstrates retry-based concurrency without locks.
 
 /// Pop a value from the stack, retrying on contention
 /// Fails if stack is empty
-!func stack-pop 
-(
+!func stack-pop (
     !input ~stack
 
     $ | atomic.swap[{

@@ -12,8 +12,7 @@ between them, preserving positioning when reparenting.
 Based on https://github.com/TrevisanGMW/gt-tools
 */
 
-!shape layer-config 
-~{
+!shape layer-config ~{
     suffix ~text
     parent-type ~parent | selection
     layer-type ~joint | locator | group
@@ -21,8 +20,7 @@ Based on https://github.com/TrevisanGMW/gt-tools
 }
 
 
-!func create-inbetween
-(|
+!func create-inbetween (
     !args config~layer-config
 
     !transact {maya.scene maya.preserve-selection}
@@ -61,16 +59,14 @@ around the selected objects.
 Based on https://github.com/nestrada2/bubbles
 */
 
-!shape bubble-args 
-~{
+!shape bubble-args ~{
     count ~num = 10
     radius-range ~{~num ~num} = {0.1 0.5}
     position-range ~{~num ~num} = {0.1 5.0}
 }
 
 
-!func create-bubbles
-(
+!func create-bubbles (
     !input ~dag-paths
     !args config ~bubble-args
 

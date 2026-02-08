@@ -13,8 +13,7 @@ statement with a constant static string.
 !shape item ~{name~text price~num quantity~num=1}
 !shape cart ~{items~item{} discount~num=0}
 
-!func main 
-(
+!func main (
     {
         {"Apple" price=1.00}
         {"Banana" price=0.50 quantity=2}
@@ -27,16 +26,14 @@ statement with a constant static string.
     | print["Total: $()"]
 )
 
-!pure total
-( 
+!pure total ( 
     !input ~cart
 
     $.items | sum[$.price * $.quantity] * (1 - $.discount)
 )
 
 /// Insert or update an item in a collection
-!pure upsert
-(
+!pure upsert (
     !input ~collection
     !args item~item
     !block key ~item=pass

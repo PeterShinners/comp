@@ -6,15 +6,13 @@ Based on migration from Rio library for Python.
 !import rio {comp "@gh/rio-dev/rio-comp"}
 
 
-!shape todo
-~{
+!shape todo ~{
     title~text
     complete~bool = false
     id~id
 }
 
-!shape state
-~{
+!shape state ~{
     todos~todo{} = {}
     input~text = ""
     filter~visibility = all
@@ -94,6 +92,7 @@ Based on migration from Rio library for Python.
 /// Create new todo from current input
 !func add-todo @update (
     !input ~state
+
     {
         input = ""
         todos = ($.todos | append (todo[title=($.input | trim | if-empty["untitled"])]))
@@ -105,6 +104,7 @@ Based on migration from Rio library for Python.
 !func toggle-todo @update (
     !input ~state
     !args id~id
+
     {
         todos = ($.todos | map (
             !on ($.id == id)
@@ -119,6 +119,7 @@ Based on migration from Rio library for Python.
 !func delete-todo @update (
     !input ~state
     !args id~id
+    
     {todos = ($.todos | where ($.id != id))}
 )
 

@@ -16,8 +16,7 @@ https://github.com/nushell/nu_scripts/blob/main/sourced/examples/date_in_local_t
 
 
 /// Team members with their timezone information
-!mod core-team 
-{
+!mod core-team {
 	{"andres" tz.america.guayaquil}
 	{"fdncred" tz.us.central}
 	{"gedge" tz.us.eastern}
@@ -28,8 +27,7 @@ https://github.com/nushell/nu_scripts/blob/main/sourced/examples/date_in_local_t
 }
 
 
-!startup main
-(|
+!startup main (
 	!let next-call = ("2021-08-31 15:00:21 -05:00" | parse-datetime)
 
 	core-team
@@ -40,8 +38,7 @@ https://github.com/nushell/nu_scripts/blob/main/sourced/examples/date_in_local_t
 
 
 /// Convert member times to local timezone for an event
-!pure with-local-time
-(
+!pure with-local-time (
 	!input ~member# 
 	!args event~datetime
 

@@ -10,11 +10,10 @@ Highlights
 */
 
 !shape tree ~{value~num left~branch right~branch}
-!shape branch ~tree|nil = nil
+!shape branch ~tree | nil = nil
 
 
-!startup main 
-(
+!startup main (
     {5 3 8 1 7 9}
     | reduce[initial=nil] (tree-insert)
     | tree-values
@@ -43,16 +42,14 @@ Highlights
 
 
 /// Check if tree contains value
-!pure tree-contains 
-(
+!pure tree-contains (
     !input ~nil
     !args value~num
 
     false
 )
 
-!pure tree-contains 
-(
+!pure tree-contains (
     !input ~tree
     !args value~num
 
@@ -64,8 +61,7 @@ Highlights
 
 
 /// Iterate values from tree in order
-!pure tree-values 
-(
+!pure tree-values (
     !input ~nil
 
     {}

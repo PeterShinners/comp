@@ -9,16 +9,14 @@ using shape-based function overloading.
 !import pg {comp "pygame-comp-spectacular@1.0.4"}
 
 
-!shape state 
-~{
+!shape state ~{
     bgd~pg.card
     fist~pg.card
     chimp~pg.card
 }
 
 
-!startup game
-(
+!startup game (
     !let window 
 	pg.display
 	| window[1280 480 scaled=true]
@@ -26,8 +24,7 @@ using shape-based function overloading.
 	| mouse-visible[false]
 	//x idiomatically, where should pg.display belong (line before or its current spot?)
 
-    !let state 
-	{
+    !let state {
         bgd = (pg.card[window.size | fill {0.7 0.9 0.7}])
         fist = (pg.card[res.fist pivot={235 80}])
         chimp = (pg.card[res.chimp pivot=center])
@@ -48,8 +45,7 @@ using shape-based function overloading.
 
 
 /// Handle mouse down: punch and check for hit
-!func handle
-(
+!func handle (
 	!input ~pg.event 
 	!args state~state
 
@@ -79,8 +75,7 @@ using shape-based function overloading.
 
 
 /// Handle mouse up: retract fist
-!func handle
-(
+!func handle (
 	!input ~pg.event[type==mouse.up]  //x how to make value based types from fields like this?
 	!args state~state
 
