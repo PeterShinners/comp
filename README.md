@@ -41,9 +41,9 @@ issues:
     !let thumb "👍"
 
     gh.issue-list[repo=repo fields=fields]
-    | where[$.created-at >= cutoff]
+    | where ($.created-at >= cutoff)
     | insert-each[
-        'thumb' = ($.reaction-groups | tally[$.content == "thumbs-up"])
+        'thumb' = ($.reaction-groups | tally ($.content == "thumbs-up"))
     ]
     | sort-by[thumb reverse]
     | first[5]

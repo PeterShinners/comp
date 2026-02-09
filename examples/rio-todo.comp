@@ -29,9 +29,8 @@ Based on migration from Rio library for Python.
 
 
 /// Build app window component declaratively
-!func todo-app (
-    !input ~state
-    !ctx state $
+!func todo-app ~state (
+    !context state $
 
     rio.column[spacing=2] {
         rio.row {
@@ -57,9 +56,9 @@ Based on migration from Rio library for Python.
             {all active complete}
             | map (
                 rio.button[
-                    text=($ | to-text)
-                    variant=($ == $$.filter | pick["primary" "outline"])
-                    on-click=(merge[filter=$])
+                    text = ($ | to-text)
+                    variant = ($ == $$.filter | pick["primary" "outline"])
+                    on-click = (merge[filter=$])
                 ]
             )
         }
@@ -68,9 +67,7 @@ Based on migration from Rio library for Python.
 
 
 /// Build individual todo item component
-!func todo-item (
-    !input ~todo
-
+!func todo-item ~todo (
     rio.row[align=center] {
         rio.checkbox[
             checked=$.complete
@@ -90,20 +87,14 @@ Based on migration from Rio library for Python.
 
 
 /// Create new todo from current input
-!func add-todo @update (
-    !input ~state
-
-    {
-        input = ""
-        todos = ($.todos | append (todo[title=($.input | trim | if-empty["untitled"])]))
-    }
-)
-
+!func add-todo ~state @update {
+    input = ""
+    todos = ($.todos | append (todo[title=($.input | trim | if-empty["untitled"])]))
+}
 
 /// Toggle todo complete status
-!func toggle-todo @update (
-    !input ~state
-    !args id~id
+!func toggle-todo state @update (
+    !mods id~id
 
     {
         todos = ($.todos | map (
@@ -116,18 +107,16 @@ Based on migration from Rio library for Python.
 
 
 /// Remove item from state
-!func delete-todo @update (
-    !input ~state
-    !args id~id
+!func delete-todo ~state @update (
+    !mods id~id
     
     {todos = ($.todos | where ($.id != id))}
 )
 
 
 /// Determine if an item should be visible based on filter
-!pure todo-visible (
-    !input ~todo
-    !args filter~visibility
+!pure todo-visible ~todo (
+    !mods filter~visibility
 
     !on filter
     ~all true

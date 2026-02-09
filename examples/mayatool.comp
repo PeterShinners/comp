@@ -21,16 +21,16 @@ Based on https://github.com/TrevisanGMW/gt-tools
 
 
 !func create-inbetween (
-    !args config~layer-config
+    !mods config~layer-config
 
     !transact {maya.scene maya.preserve-selection}
     maya.selection
     | map[
-        !let parent $ | maya.get-parent
+        !let parent ($ | maya.get-parent)
         !let transform parent
         | maya.create-node[
             config.layer-type
-            name = @fmt"($.name)(config.suffix)"
+            name = @fmt "($.name)(config.suffix)"
             //x going to need a better formatting syntax for string subst
         ]
         | maya.set-attr[use-outliner-color=true]
@@ -46,7 +46,7 @@ Based on https://github.com/TrevisanGMW/gt-tools
         !on (target | maya.exists)
         ~true (target | maya.constrain[transform])
 
-        $ | maya.parent[transform]
+        ($ | maya.parent[transform])
     ]
 )
 
@@ -66,9 +66,8 @@ Based on https://github.com/nestrada2/bubbles
 }
 
 
-!func create-bubbles (
-    !input ~dag-paths
-    !args config ~bubble-args
+!func create-bubbles ~dag-paths (
+    !mods config ~bubble-args
 
     !transact {maya.scene}
 
@@ -77,13 +76,13 @@ Based on https://github.com/nestrada2/bubbles
     !transact {maya.preserve-selection}
 
     $ | map[
-        !let position = repeat[count=3 (config.position-range | random)]
+        !let position = repeat[count=3] (config.position-range | random)
         !let dag-path $
         | group
         | maya.poly-sphere[
-            name = "bubble-$($.name)"
-            radius = ($config.radius-range | random)
+            name = @fmt "bubble-%($.name)"
+            radius = (config.radius-range | random)
         ]
-        | maya.xform[position=$position]
+        | maya.xform[position=position]
     ]
 )

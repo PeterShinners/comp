@@ -17,26 +17,23 @@ statement with a constant static string.
     {
         {"Apple" price=1.00}
         {"Banana" price=0.50 quantity=2}
-        {"Apple" 1.00 quantity=2}  // replaces previous apples item
+        {"Apple" 1.00 quantity=2}  // replaces previous apples
     }
     | map[item]  // morph each simple structure into a full cart item
-    | reduce[upsert[$.name]]
+    | reduce (upsert ($.name))
     | cart[discount=0.2]
     | total
-    | print["Total: $()"]
+    | print["Total: %()"]
 )
 
-!pure total ( 
-    !input ~cart
-
-    $.items | sum[$.price * $.quantity] * (1 - $.discount)
+!pure total ~cart ( 
+    $.items | sum ($.price * $.quantity) * (1 - $.discount)
 )
 
 /// Insert or update an item in a collection
-!pure upsert (
-    !input ~collection
-    !args item~item
+!pure upsert ~collection (
+    !mods item~item
     !block key ~item=pass
 
-    $ | replace[item key=key limit=1] | else[$ | append item]
+    $ | replace[item limit=1] (key) | else (append[item])
 )

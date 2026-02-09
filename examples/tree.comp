@@ -22,18 +22,16 @@ Highlights
 
 
 /// Add new value into tree, dispatched on nil vs tree
-!pure tree-insert 
-(
-    !input ~nil
-    !args value~num
+!pure tree-insert  ~nil (
+    !mods value~num
 
+    // which of these two forms is more idiomatic
+    {value} | tree
     tree[value=$value]
 )
 
-!pure tree-insert 
-@update (
-    !input ~tree
-    !args value~num
+!pure tree-insert ~tree @update (
+    !mods value~num
 
     !on value <> $.value
     ~less {left = ($.left | tree-insert[value])}
@@ -42,16 +40,14 @@ Highlights
 
 
 /// Check if tree contains value
-!pure tree-contains (
-    !input ~nil
-    !args value~num
+!pure tree-contains ~nil (
+    !mods value~num
 
     false
 )
 
-!pure tree-contains (
-    !input ~tree
-    !args value~num
+!pure tree-contains ~tree (
+    !mods value~num
 
     !on value <> $.value
     ~less ($.left | tree-contains[value])
@@ -61,17 +57,11 @@ Highlights
 
 
 /// Iterate values from tree in order
-!pure tree-values (
-    !input ~nil
+!pure tree-values ~nil {
+}
 
-    {}
-)
-
-!pure tree-values 
-@flat (
-    !input ~tree
-
+!pure tree-values ~tree @flat {
     ($.left | tree-values)
     {$.value}
     ($.right | tree-values)
-)
+}

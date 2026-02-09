@@ -32,20 +32,18 @@ https://github.com/nushell/nu_scripts/blob/main/sourced/examples/date_in_local_t
 
 	core-team
 	| with-local-time[event=$next-call]
-	| print["For the next event on $($next-call)..."]
+	| print["For the next event on %(next-call)..."]
 	| table.markdown
 )
 
 
 /// Convert member times to local timezone for an event
-!pure with-local-time (
-	!input ~member# 
-	!args event~datetime
+!pure with-local-time ~member# (
+	!mods event~datetime
 
-	$ | map[{
+	$ | map {
 		name = ($.name | capitalize)
-		time = (event.tz | format["$()[%c]"])
+		time = (event.tz | isoformat)
 		tz = $.tz
-	}]
-	//x seeing this [{}] pattern too often?
+	}
 )

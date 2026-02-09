@@ -15,32 +15,29 @@ Demonstrates retry-based concurrency without locks.
     | stack-push["second"]
     | stack-push["third"]
 	| forever[
-		stack-pop | print "Popped: $()" |? break
+		stack-pop | print["Popped: %()"] |? break
     ]
     | print["Stack empty, done"]
 )
 
 
 /// Push a value onto the stack, retrying on contention
-!func stack-push (
-    !input ~stack 
-    !args value~text
+!func stack-push ~stack (
+    !mods value~text
 
-    $ | atomic.swap[{
+    $ | atomic.swap {
         head = {value=$value next=$.head}
         version = $.version + 1
         //x this isn't right? increment by one? that doesn't feel like it would catch conflicts?
-    }]
+    }
 )
 
 
 /// Pop a value from the stack, retrying on contention
 /// Fails if stack is empty
-!func stack-pop (
-    !input ~stack
-
-    $ | atomic.swap[{
+!func stack-pop ~stack (
+    $ | atomic.swap {
 		head = $.head.next
 		version = $.version + 1
-    }]
+    }
 )

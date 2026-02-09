@@ -24,9 +24,9 @@ A simple URL shortener using Redis for storage.
 !mod server.templates "./templates"
 !mod redis {host="localhost" port=6379}
 !mod keys {
-    target = "url-target:$()"
-    counter = "click-count:$()"
-    reverse = "reverse-url:$()"
+    target = "url-target:%()"
+    counter = "click-count:%()"
+    reverse = "reverse-url:%()"
     total = "last-url-id"
 }
 
@@ -39,63 +39,56 @@ A simple URL shortener using Redis for storage.
 !startup web (
     $ 
     | dispatch
-    | post "/" (link-create)
-    | get "/" ($ | response-template "newurl.html")
-    | get "/{id}" ($ | link-redirect)
-    | get "/{id}.json" ($ | link-details)
-    | missing ($ | response-template "404.html" status=404)
+    | post["/"] (link-create)
+    | get["/"] (response-template["newurl.html"])
+    | get["/{id}"] (link-redirect)
+    | get["/{id}.json"] (link-details)
+    | missing (response-template["404.html" status=404])
+    //x or perhaps something with an `!on` here?
 )
 
 
 /// Accept a URL submission and redirect to its detail page
-!func link-create (
-    !input ~http.request
-
+!func link-create ~http.request (
     $.form.url
-    unless[$ | url.parse | $.scheme | in {"http" "https"} (
+    unless[$ | url.parse | $.scheme | in {"http" "https"}] (
         {error="Please enter a valid URL" url=$$.form.url}
         | response-template "newurl.html"
-    )]
+    )
     | insert-url
-    | http.redirect "/$($.id).json"
+    | http.redirect["/%($.id).json"]
 )
 
 
 /// Redirect short URL to its target, incrementing click count
-!func link-redirect (
-    !input ~http.request
-
+!func link-redirect ~http.request (
     $.params.id | fetch-details | increment
-    http.redirect $.target
+    http.redirect[$.target]
 )
 
 
 /// Render detail page for a short URL
-!func link-details (
-    !input ~http.request
-
+!func link-details ~http.request (
     $.params.id | fetch-details | response-json
 )
 
 
 /// Look up or create a short URL entry
-!func insert-url (
-    !input ~text
-
+!func insert-url text (
     $ | fmt[mod.keys.reverse]
     | redis.get
     | if-nil[
         !let id mod.keys.total | redis.incr | base36-encode
         {
-            'id | format mod.keys.target' = $$
-            'id | format mod.keys.counter' = 1
-            '$$ | format mod.keys.reverse' = id
-            //x the single quote field expression needs to be ok for pipelines
+            'id | fmt[mod.keys.target' = $$
+            'id | fmt[mod.keys.counter]' = 1
+            '$$ | fmt[mod.keys.reverse]' = id
+            //x the single quote field expression needs to be ok for pipelines            
         }
         | redis.mset
         id
     ]
-    response-redirect[id | fmt["/$().json"]]
+    response-redirect[@fmt "/%().json"]
 )
 
 
@@ -109,15 +102,12 @@ A simple URL shortener using Redis for storage.
         clicks = $ | fmt[mod.kes.counter]
     }
     | redis.mget
-    | defaults clicks=0
+    | defaults[clicks=0]
 }
 
 
 /// Increment the click counter for a URL
-!func increment
-(| 
-    !input ~details
-
+!func increment ~details ( 
     $.id 
     | fmt[mod.keys.counter]
     | redis.incr
@@ -125,20 +115,22 @@ A simple URL shortener using Redis for storage.
 
 
 /// Encode a number in base36
-!pure base36-encode
-(|
-    !input ~num
+!pure base36-encode ~num (
     !let charset "0123456789abcdefghijklmnopqrstuvwxyz"
     !let result ""
     !let n $
 
     n | while[$ > 0
-        !let div $ | divmod ($charset | length)
-        !let result {charset | char-at-index div.remainder} | join result
+        !let div ($ | divmod[$charset | length])
+        !let result (charset | char-at-index[div.remainder]) | join result
         div.quotient
     ]
     //x so `while` pipes the resulting value back to itself (sort of like a reduce?)
     //x seems cool actually, unless there's a better abstraction somewhere else?
 
-    $result | if-empty[charset | first]
+    $result | if-empty[(charset | first)]
+    //x ok, this is the thing.. if `[]` uses the same grammar as a `{}` struct literal
+    //then any pipeline expressions must be put into a `()`. but this nesting is annoying
+    //for positional only args; a `()` for the modifiers could be fine without the
+    //nexting. but that doesn't allow named modifiers, which are kind of crucial.
 )
