@@ -41,9 +41,9 @@ issues:
     !let thumb "👍"
 
     gh.issue-list[repo=repo fields=fields]
-    | where ($.created-at >= cutoff)
+    | where ($created-at >= cutoff)
     | insert-each[
-        'thumb' = ($.reaction-groups | tally ($.content == "thumbs-up"))
+        'thumb' = ($reaction-groups | tally ($content == "thumbs-up"))
     ]
     | sort-by[thumb reverse]
     | first[5]
@@ -94,7 +94,7 @@ HTTP responses works interchangeably with literals in your code.
 
 ```comp
 !shape point ~{x~num y~num}
-!func process @input~point ($ | "Point at $($.x), $($.y)")
+!func process ~point ($ | "Point at %(x), %(y)")
 ```
 
 ### Pipelines and Blocks
@@ -104,7 +104,7 @@ are anonymous sub-pipelines that can be composed, passed around, and applied
 later.
 
 ```comp
-!let transformer[$ | from-json | where[$.active] | select {"name" "score"}]
+!let transformer[$ | from-json | where[$active] | select {"name" "score"}]
 data | $transformer | process
 ```
 

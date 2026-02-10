@@ -1,129 +1,103 @@
---- Simple SQLite interface for Comp
-Provides basic database operations using Python's sqlite3 module.
----
+/// Simple SQLite interface for Comp
+/// Basic database operations using Python's sqlite3 module.
 
-import.py = ("python" stdlib)
-
-
--- Connection handle for open database resource
-
-handle.db = ~()
+!import py {comp "python" stdlib}
 
 
--- Tags for database operations
+!shape handle-db ~{}
 
-tag.isolation = ~(deferred exclusive immediate none)
+!tag isolation {deferred exclusive immediate none}
 
--- Extend builtin fail with SQLite-specific error categories
+!tag fail {
+    interface       /// Connection/cursor management errors
+    database        /// Database file/format errors
+    data            /// Data type conversion errors
+    operation       /// SQL operation errors
+    integrity       /// Constraint violations
+    internal        /// Internal SQLite errors
+    programming     /// API misuse errors
+    notsupported    /// Feature not supported
+}
 
-tag.fail = ~(
-	interface      -- Connection/cursor management errors
-	database       -- Database file/format errors
-	data           -- Data type conversion errors
-	operation      -- SQL operation errors
-	integrity      -- Constraint violations
-	internal       -- Internal SQLite errors
-	programming    -- API misuse errors
-	notsupported   -- Feature not supported
+!shape connect-args ~{
+    timeout~num = 5
+    isolation-level~isolation = isolation.deferred
+}
+
+!shape execute-result ~{
+    rows~struct
+    columns~struct
+    row-id~num
+    row-count~num
+}
+
+
+/// Map Python sqlite3 exception types to Comp fail tags
+!let exception-tags {
+    interface-error = fail.interface
+    database-error = fail.database
+    data-error = fail.data
+    operational-error = fail.operation
+    integrity-error = fail.integrity
+    internal-error = fail.internal
+    programming-error = fail.programming
+    not-supported-error = fail.notsupported
+}
+
+
+/// Test function to verify failure handling
+!func test-fail (
+    fail["The database has failed" tag=fail.database]
+)
+
+/// Test function that raises a Python sqlite exception
+!func test-sqlite-error (
+    py.call-func[name="sqlite3.connect"]
+        {database="/invalid/path/that/does/not/exist/test.db"}
 )
 
 
--- Connection arguments shape
-
-connect-args = ~(
-	timeout~num = 5
-	isolation-level~isolation = isolation.deferred
+/// Open database connection from file path
+!func database-file ~text (
+    !mods connect-args
+    !let pydb (py.call-func[name="sqlite3.connect"] {database=$})
+    !let db (grab-handle[handle-db])
+    db @update {private.py = pydb}
 )
 
-
--- Map Python sqlite3 exception types to Comp fail tags
-
-mod.exception-tags = (
-	InterfaceError = fail.interface
-	DatabaseError = fail.database
-	DataError = fail.data
-	OperationalError = fail.operation
-	IntegrityError = fail.integrity
-	InternalError = fail.internal
-	ProgrammingError = fail.programming
-	NotSupportedError = fail.notsupported
+/// Open database connection from URL
+!func database-url ~text (
+    !mods connect-args
+    !let pydb (py.call-func[name="sqlite3.connect"] {database=$ url=true})
+    !let db (grab-handle[handle-db])
+    db @update {private.py = pydb}
 )
 
-
--- Test function to verify fail.database is treated as a real failure
-
-test-fail = :_ (
-	fail("The database has failed" tag=fail.database)
+/// Open in-memory database
+!func database-memory (
+    !mods connect-args
+    !let pydb (py.call-func[name="sqlite3.connect"] {database=":memory:"})
+    !let db (grab-handle[handle-db])
+    db @update {private.py = pydb}
 )
 
+/// Execute SQL statement and return results
+!func execute ~{db~handle-db} (
+    !mods sql~text
 
--- Test function that raises a Python sqlite exception
+    !let cursor (py.call[method="cursor"] {self=$db.private.py})
+    !let exec (py.call[method="execute"] {self=cursor sql})
+    !let cursor-vars (py.call[method="vars"] {self=cursor})
 
-test-sqlite-error = :_ (
-	(database="/invalid/path/that/does/not/exist/test.db")
-	|py.call-func(name="sqlite3.connect")
+    execute-result {
+        rows = (py.call[method="fetchall"] {self=cursor} | py.pull)
+        columns = cursor-vars.description
+        row-id = cursor-vars.lastrowid
+        row-count = cursor-vars.rowcount
+    }
 )
 
-
--- Result of execute calls
-
-execute-result = ~(
-	rows~struct
-	columns~struct
-	row-id~num
-	row-count~num
-)
-
-
--- Open database connection from file path
-
-database-file = :in~text arg~connect-args (|val
-	var.pydb = (database=in) |py.call-func(name="sqlite3.connect")
-	var.db = grab-handle(handle.db)
-	var.db.private.py = var.pydb
-	var.db
-)
-
-
--- Open database connection from URL
-
-database-url = :in~text arg~connect-args (|val
-	var.pydb = (database=in url=true) |py.call-func(name="sqlite3.connect")
-	var.db = grab-handle(handle.db)
-	var.db.private.py = var.pydb
-	var.db
-)
-
-
--- Open in-memory database
-
-database-memory = :_ arg~connect-args (|val
-	var.pydb = (database=":memory:") |py.call-func(name="sqlite3.connect")
-	var.db = grab-handle(handle.db)
-	var.db.private.py = var.pydb
-	var.db
-)
-
-
--- Execute SQL statement and return results
-
-execute = :in~(db~handle.db) arg~(sql~text) (|val
-	var.cursor = (self=in.db.private.py) |py.call(method="cursor")
-	var.exec = (self=var.cursor sql=arg.sql) |py.call(method="execute")
-	var.cursor-vars = (self=var.cursor) |py.call(method="vars")
-
-	-- TODO: Convert row tuples to structs with column names from description
-	execute-result(
-		rows = (self=var.cursor) |py.call(method="fetchall") |py.pull()
-		columns = var.cursor-vars.description
-		row-id = var.cursor-vars.lastrowid
-		row-count = var.cursor-vars.rowcount
-	)
-)
-
-
--- Called automatically as handle is dropped
-
-drop-handle = :in~(db~handle.db) (
-	(self=in.db.private.py) |py.call(method="close")
+/// Called automatically as handle is dropped
+!func drop-handle ~{db~handle-db} (
+    py.call[method="close"] {self=$db.private.py}
 )

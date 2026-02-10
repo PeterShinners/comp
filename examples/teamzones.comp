@@ -42,8 +42,8 @@ https://github.com/nushell/nu_scripts/blob/main/sourced/examples/date_in_local_t
 	!mods event~datetime
 
 	$ | map {
-		name = ($.name | capitalize)
+		name = ($name | capitalize)
 		time = (event.tz | isoformat)
-		tz = $.tz
+		tz = $tz
 	}
 )

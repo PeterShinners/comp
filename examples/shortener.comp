@@ -50,26 +50,26 @@ A simple URL shortener using Redis for storage.
 
 /// Accept a URL submission and redirect to its detail page
 !func link-create ~http.request (
-    $.form.url
-    unless[$ | url.parse | $.scheme | in {"http" "https"}] (
-        {error="Please enter a valid URL" url=$$.form.url}
+    $form.url
+    unless[$ | url.parse | $scheme | in {"http" "https"}] (
+        {error="Please enter a valid URL" url=$$form.url}
         | response-template "newurl.html"
     )
     | insert-url
-    | http.redirect["/%($.id).json"]
+    | http.redirect["/%($id).json"]
 )
 
 
 /// Redirect short URL to its target, incrementing click count
 !func link-redirect ~http.request (
-    $.params.id | fetch-details | increment
-    http.redirect[$.target]
+    $params.id | fetch-details | increment
+    http.redirect[$target]
 )
 
 
 /// Render detail page for a short URL
 !func link-details ~http.request (
-    $.params.id | fetch-details | response-json
+    $params.id | fetch-details | response-json
 )
 
 
@@ -108,7 +108,7 @@ A simple URL shortener using Redis for storage.
 
 /// Increment the click counter for a URL
 !func increment ~details ( 
-    $.id 
+    $id 
     | fmt[mod.keys.counter]
     | redis.incr
 )

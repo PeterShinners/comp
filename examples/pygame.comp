@@ -34,10 +34,10 @@ using shape-based function overloading.
     pg.loop[window quit-on={event.quit key.escape} (
 		!arg state~state // loop sets this up as context?
 
-        $.events 
+        $events 
 		| each[handle]
 
-		$.draw
+		$draw
         | clear[{0.7 0.9 0.7}]
         | draw-cards[state.chimp state.fist]
 	)
@@ -48,7 +48,7 @@ using shape-based function overloading.
 !func handle @update ~pg.event (
     !mods state~state
 
-    $.type ?? mouse.down | else (pass)
+    $type ?? mouse.down | else (pass)
 
     !on ({state.fist state.chimp} | intersect[overlap=5])
     ~true {
@@ -79,5 +79,5 @@ using shape-based function overloading.
 !func handle ~pg.even[type==mouse.move] (
 	!mods state~state
 	
-	state.fist | position[$.position]
+	state.fist | position[$position]
 )

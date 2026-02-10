@@ -3,229 +3,355 @@
   "name": "Comp",
   "scopeName": "source.comp",
   "patterns": [
-    { "include": "#main" }
+    { "include": "#comments" },
+    { "include": "#module-declarations" },
+    { "include": "#block-operators" },
+    { "include": "#decorators" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#constants" },
+    { "include": "#input-references" },
+    { "include": "#tags" },
+    { "include": "#operators" },
+    { "include": "#type-names" },
+    { "include": "#function-calls" }
   ],
   "repository": {
-    "main": {
-      "patterns": [
-        { "include": "#doc-block" },
-        { "include": "#doc-line" },
-        { "include": "#comment" },
-        { "include": "#string-triple" },
-        { "include": "#string-double" },
-        { "include": "#block" },
-        { "include": "#directive" },
-        { "include": "#parameter" },
-        { "include": "#tag" },
-        { "include": "#number" },
-        { "include": "#pipe-operator" },
-        { "include": "#assignment-operator" },
-        { "include": "#operator" },
-        { "include": "#function-call" },
-        { "include": "#field-access" },
-        { "include": "#identifier" }
-      ]
-    },
 
-    "doc-block": {
-      "comment": "Block documentation delimited by ---",
-      "name": "comment.block.documentation.comp",
-      "begin": "---",
-      "end": "---",
-      "beginCaptures": {
-        "0": { "name": "punctuation.definition.comment.begin.comp" }
-      },
-      "endCaptures": {
-        "0": { "name": "punctuation.definition.comment.end.comp" }
-      }
-    },
-
-    "comment": {
-      "comment": "Line comment starting with ;",
-      "name": "comment.line.semicolon.comp",
-      "match": "(;)(.*)$",
-      "captures": {
-        "1": { "name": "punctuation.definition.comment.comp" }
-      }
-    },
-
-    "string-triple": {
-      "name": "string.quoted.triple.comp",
-      "begin": "\"\"\"",
-      "end": "\"\"\"",
-      "beginCaptures": {
-        "0": { "name": "punctuation.definition.string.begin.comp" }
-      },
-      "endCaptures": {
-        "0": { "name": "punctuation.definition.string.end.comp" }
-      },
-      "patterns": [
-        { "include": "#string-interpolation" }
-      ]
-    },
-
-    "string-double": {
-      "name": "string.quoted.double.comp",
-      "begin": "\"",
-      "end": "\"",
-      "beginCaptures": {
-        "0": { "name": "punctuation.definition.string.begin.comp" }
-      },
-      "endCaptures": {
-        "0": { "name": "punctuation.definition.string.end.comp" }
-      },
-      "patterns": [
-        { "include": "#string-interpolation" },
-        { "include": "#string-escape" }
-      ]
-    },
-
-    "string-interpolation": {
-      "name": "meta.interpolation.comp",
-      "begin": "\\$\\(",
-      "end": "\\)",
-      "beginCaptures": {
-        "0": { "name": "punctuation.definition.interpolation.begin.comp" }
-      },
-      "endCaptures": {
-        "0": { "name": "punctuation.definition.interpolation.end.comp" }
-      },
-      "contentName": "source.comp.embedded",
-      "patterns": [
-        { "include": "#main" }
-      ]
-    },
-
-    "string-escape": {
-      "name": "constant.character.escape.comp",
-      "match": "\\\\."
-    },
-
-    "block": {
-      "comment": "Parenthesized block",
-      "name": "meta.block.comp",
-      "begin": "(\\()",
-      "end": "(\\))",
-      "beginCaptures": {
-        "1": { "name": "punctuation.section.block.begin.comp" }
-      },
-      "endCaptures": {
-        "1": { "name": "punctuation.section.block.end.comp" }
-      },
-      "patterns": [
-        { "include": "#main" }
-      ]
-    },
-
-    "directive": {
-      "comment": "Directives like !transact, !pure, !entry",
-      "name": "keyword.control.directive.comp",
-      "match": "![a-zA-Z][a-zA-Z0-9-]*"
-    },
-
-    "parameter": {
-      "comment": "Parameter declarations like :arg~type or just :arg",
-      "match": "(:)([a-zA-Z][a-zA-Z0-9-]*\\??)(~([a-zA-Z][a-zA-Z0-9-]*\\??))?",
-      "captures": {
-        "1": { "name": "punctuation.definition.parameter.comp" },
-        "2": { "name": "variable.parameter.comp" },
-        "3": { "name": "punctuation.separator.type.comp" },
-        "4": { "name": "entity.name.type.comp" }
-      }
-    },
-
-    "tag": {
-      "comment": "Tags like ~text, ~num, ~nil",
-      "match": "(~)([a-zA-Z][a-zA-Z0-9-]*\\??)",
-      "captures": {
-        "1": { "name": "punctuation.definition.tag.comp" },
-        "2": { "name": "entity.name.tag.comp" }
-      }
-    },
-
-    "number": {
+    "comments": {
       "patterns": [
         {
-          "comment": "Number with unit like 1~week",
-          "match": "([0-9]+\\.?[0-9]*)(~)([a-zA-Z][a-zA-Z0-9-]*)",
+          "name": "comment.block.documentation.comp",
+          "begin": "/\\*\\*(?!/)",
+          "end": "\\*/",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.comp" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.comment.comp" } },
+          "patterns": [{ "include": "#comments" }]
+        },
+        {
+          "name": "comment.block.comp",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.comp" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.comment.comp" } },
+          "patterns": [{ "include": "#comments" }]
+        },
+        {
+          "name": "comment.line.documentation.comp",
+          "match": "///.*$"
+        },
+        {
+          "name": "comment.line.double-slash.comp",
+          "match": "//.*$"
+        }
+      ]
+    },
+
+    "module-declarations": {
+      "patterns": [
+        {
+          "comment": "!import name",
+          "match": "(!import)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
           "captures": {
-            "1": { "name": "constant.numeric.comp" },
-            "2": { "name": "punctuation.separator.unit.comp" },
-            "3": { "name": "constant.other.unit.comp" }
+            "1": { "name": "keyword.control.import.comp" },
+            "2": { "name": "entity.name.namespace.comp" }
           }
         },
         {
-          "comment": "Decimal number",
-          "name": "constant.numeric.comp",
-          "match": "[0-9]+\\.[0-9]+"
+          "comment": "!func name ~type — function with input shape",
+          "match": "(!(func|pure))\\s+([a-zA-Z_][a-zA-Z0-9_?-]*)\\s*(~[a-zA-Z_][a-zA-Z0-9_|-]*)?",
+          "captures": {
+            "1": { "name": "keyword.declaration.function.comp" },
+            "2": { "name": "entity.name.function.comp" },
+            "3": { "name": "storage.type.comp" }
+          }
         },
         {
-          "comment": "Integer",
-          "name": "constant.numeric.comp",
-          "match": "[0-9]+"
+          "comment": "!startup name",
+          "match": "(!startup)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.function.comp" },
+            "2": { "name": "entity.name.function.comp" }
+          }
+        },
+        {
+          "comment": "!shape name",
+          "match": "(!shape)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.type.comp" },
+            "2": { "name": "entity.name.type.comp" }
+          }
+        },
+        {
+          "comment": "!tag name",
+          "match": "(!tag)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.type.comp" },
+            "2": { "name": "entity.name.type.comp" }
+          }
+        },
+        {
+          "comment": "!mod name",
+          "match": "(!mod)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.module.comp" },
+            "2": { "name": "entity.name.namespace.comp" }
+          }
+        },
+        {
+          "comment": "!package name version",
+          "match": "(!package)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)\\s+(\"[^\"]*\")",
+          "captures": {
+            "1": { "name": "keyword.declaration.module.comp" },
+            "2": { "name": "entity.name.tag.comp" },
+            "3": { "name": "string.quoted.double.comp" }
+          }
+        },
+        {
+          "comment": "!context name",
+          "match": "(!context)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.function.comp" },
+            "2": { "name": "entity.name.function.comp" }
+          }
         }
       ]
     },
 
-    "pipe-operator": {
-      "comment": "Pipe operator | - control flow",
-      "name": "keyword.control.pipe.comp",
-      "match": "\\|(?![|=])"
-    },
-
-    "assignment-operator": {
-      "comment": "Assignment operator = - control flow",
-      "name": "keyword.control.assignment.comp",
-      "match": "=(?!=)"
-    },
-
-    "operator": {
+    "block-operators": {
       "patterns": [
+        {
+          "comment": "!on — dispatch operator",
+          "name": "keyword.control.dispatch.comp",
+          "match": "!on\\b"
+        },
+        {
+          "comment": "!let — local binding",
+          "name": "keyword.control.let.comp",
+          "match": "!let\\b"
+        },
+        {
+          "comment": "!do — side effect expression",
+          "name": "keyword.control.do.comp",
+          "match": "!do\\b"
+        },
+        {
+          "comment": "!mods — modifier declaration in function body",
+          "name": "keyword.other.mods.comp",
+          "match": "!mods\\b"
+        },
+        {
+          "comment": "!input — input type declaration (legacy, now on !func line)",
+          "name": "keyword.other.input.comp",
+          "match": "!input\\b"
+        },
+        {
+          "comment": "!default — default value declaration",
+          "name": "keyword.other.default.comp",
+          "match": "!default\\b"
+        },
+        {
+          "comment": "!ctx — context binding",
+          "name": "keyword.other.ctx.comp",
+          "match": "!ctx\\b"
+        },
+        {
+          "comment": "!transact — transaction block",
+          "name": "keyword.control.transact.comp",
+          "match": "!transact\\b"
+        },
+        {
+          "comment": "Catch-all for any !operator not listed above",
+          "name": "keyword.other.bang.comp",
+          "match": "![a-zA-Z][a-zA-Z0-9-]*\\b"
+        }
+      ]
+    },
+
+    "decorators": {
+      "patterns": [
+        {
+          "comment": "@decorator on blocks/expressions",
+          "name": "meta.decorator.comp",
+          "match": "(@)([a-zA-Z_][a-zA-Z0-9_-]*)",
+          "captures": {
+            "1": { "name": "punctuation.decorator.comp" },
+            "2": { "name": "entity.name.function.decorator.comp" }
+          }
+        }
+      ]
+    },
+
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.comp",
+          "begin": "\"",
+          "end": "\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.comp" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.comp" } },
+          "patterns": [
+            {
+              "comment": "Escaped percent — literal %(",
+              "name": "constant.character.escape.comp",
+              "match": "%%\\("
+            },
+            {
+              "comment": "String interpolation %(expr)",
+              "name": "meta.interpolation.comp",
+              "begin": "%\\(",
+              "end": "\\)(\\[[^\\]]*\\])?",
+              "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.comp" } },
+              "endCaptures": {
+                "0": { "name": "punctuation.section.interpolation.end.comp" },
+                "1": { "name": "string.interpolation.format.comp" }
+              },
+              "contentName": "source.comp.embedded",
+              "patterns": [
+                { "include": "#input-references" },
+                { "include": "#operators" },
+                { "include": "#numbers" },
+                { "include": "#constants" },
+                { "include": "#function-calls" }
+              ]
+            },
+            {
+              "name": "constant.character.escape.comp",
+              "match": "\\\\[\\\\\"nrt0]"
+            }
+          ]
+        }
+      ]
+    },
+
+    "numbers": {
+      "patterns": [
+        {
+          "comment": "Hex literal",
+          "name": "constant.numeric.hex.comp",
+          "match": "\\b0x[0-9a-fA-F_]+\\b"
+        },
+        {
+          "comment": "Binary literal",
+          "name": "constant.numeric.binary.comp",
+          "match": "\\b0b[01_]+\\b"
+        },
+        {
+          "comment": "Float or integer",
+          "name": "constant.numeric.comp",
+          "match": "\\b\\d[\\d_]*(\\.[\\d_]+)?([eE][+-]?\\d+)?\\b"
+        }
+      ]
+    },
+
+    "constants": {
+      "patterns": [
+        {
+          "comment": "Boolean and nil constants",
+          "name": "constant.language.comp",
+          "match": "\\b(true|false|nil)\\b"
+        },
+        {
+          "comment": "Stream control tags",
+          "name": "constant.language.stream.comp",
+          "match": "\\b(done|skip|pass)\\b"
+        }
+      ]
+    },
+
+    "input-references": {
+      "patterns": [
+        {
+          "comment": "$$ — outer scope input",
+          "name": "variable.language.outer-input.comp",
+          "match": "\\$\\$(?:\\.[a-zA-Z_][a-zA-Z0-9_-]*)*"
+        },
+        {
+          "comment": "$ — pipeline input with optional field access",
+          "name": "variable.language.input.comp",
+          "match": "\\$(?:\\.[a-zA-Z_][a-zA-Z0-9_-]*)*"
+        }
+      ]
+    },
+
+    "tags": {
+      "patterns": [
+        {
+          "comment": "~tag — type tag / shape reference",
+          "name": "storage.type.comp",
+          "match": "~[a-zA-Z_][a-zA-Z0-9_|-]*"
+        }
+      ]
+    },
+
+    "operators": {
+      "patterns": [
+        {
+          "comment": "Pipeline operator",
+          "name": "keyword.operator.pipeline.comp",
+          "match": "\\|(?!\\?)"
+        },
+        {
+          "comment": "Fallback operator |?",
+          "name": "keyword.operator.fallback.comp",
+          "match": "\\|\\?"
+        },
+        {
+          "comment": "Three-way comparison <> operator",
+          "name": "keyword.operator.comparison.threeway.comp",
+          "match": "<>"
+        },
         {
           "comment": "Comparison operators",
           "name": "keyword.operator.comparison.comp",
-          "match": "==|!=|<=|>=|<|>"
+          "match": "==|!=|<=|>=|(?<!<)<(?!>)|(?<!<)>(?!>)"
         },
         {
-          "comment": "Arithmetic operators",
+          "comment": "Assignment",
+          "name": "keyword.operator.assignment.comp",
+          "match": "="
+        },
+        {
+          "comment": "Arithmetic",
           "name": "keyword.operator.arithmetic.comp",
-          "match": "\\+|-|\\*|/"
+          "match": "\\+|-|\\*|/|%(?!\\()"
         },
         {
-          "comment": "Logical operators",
-          "name": "keyword.operator.logical.comp",
-          "match": "\\b(and|or|not)\\b"
+          "comment": "Range operator",
+          "name": "keyword.operator.range.comp",
+          "match": "\\.\\."
+        },
+        {
+          "comment": "Field access dot",
+          "name": "punctuation.accessor.comp",
+          "match": "\\.(?!\\d|\\.)"
         }
       ]
     },
 
-    "function-call": {
-      "comment": "Function calls like name() or namespace.name()",
-      "match": "([a-zA-Z][a-zA-Z0-9-]*(?:\\.[a-zA-Z][a-zA-Z0-9-]*)*)(?=\\s*\\()",
-      "captures": {
-        "1": { "name": "entity.name.function.comp" }
-      }
+    "type-names": {
+      "patterns": [
+        {
+          "comment": "Built-in type names",
+          "name": "support.type.comp",
+          "match": "\\b(text|num|int|bool|struct|datetime|any)\\b"
+        }
+      ]
     },
 
-    "field-access": {
-      "comment": "Field/namespace access like obj.field or var.name",
-      "match": "([a-zA-Z][a-zA-Z0-9-]*\\??)(\\.)",
-      "captures": {
-        "1": { "name": "variable.other.object.comp" },
-        "2": { "name": "punctuation.accessor.comp" }
-      }
-    },
-
-    "identifier": {
-      "comment": "Regular identifiers with kebab-case and optional trailing ?",
-      "name": "variable.other.comp",
-      "match": "[a-zA-Z][a-zA-Z0-9-]*\\??"
-    },
-
-    "doc-line": {
-      "comment": "Single line documentation: -- followed by text",
-      "name": "comment.line.documentation.comp",
-      "match": "--.*$"
+    "function-calls": {
+      "patterns": [
+        {
+          "comment": "Dotted function call — module.function followed by [ or (",
+          "name": "entity.name.function.comp",
+          "match": "[a-zA-Z_][a-zA-Z0-9_-]*\\.[a-zA-Z_][a-zA-Z0-9_.-]*(?=\\s*[\\[\\(\\{])"
+        },
+        {
+          "comment": "Function call — identifier followed by [ or (",
+          "name": "entity.name.function.comp",
+          "match": "[a-zA-Z_][a-zA-Z0-9_?-]*(?=\\s*[\\[\\(\\{])"
+        }
+      ]
     }
   }
 }

@@ -30,7 +30,7 @@ Based on https://github.com/TrevisanGMW/gt-tools
         !let transform parent
         | maya.create-node[
             config.layer-type
-            name = @fmt "($.name)(config.suffix)"
+            name = @fmt "($name)(config.suffix)"
             //x going to need a better formatting syntax for string subst
         ]
         | maya.set-attr[use-outliner-color=true]
@@ -80,7 +80,7 @@ Based on https://github.com/nestrada2/bubbles
         !let dag-path $
         | group
         | maya.poly-sphere[
-            name = @fmt "bubble-%($.name)"
+            name = @fmt "bubble-%($name)"
             radius = (config.radius-range | random)
         ]
         | maya.xform[position=position]

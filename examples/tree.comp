@@ -33,9 +33,9 @@ Highlights
 !pure tree-insert ~tree @update (
     !mods value~num
 
-    !on value <> $.value
-    ~less {left = ($.left | tree-insert[value])}
-    ~else {right = ($.right | tree-insert[value])}
+    !on value <> $value
+    ~less {left = ($left | tree-insert[value])}
+    ~else {right = ($right | tree-insert[value])}
 )
 
 
@@ -49,9 +49,9 @@ Highlights
 !pure tree-contains ~tree (
     !mods value~num
 
-    !on value <> $.value
-    ~less ($.left | tree-contains[value])
-    ~greater ($.right | tree-contains[value])
+    !on value <> $value
+    ~less ($left | tree-contains[value])
+    ~greater ($right | tree-contains[value])
     ~equal true
 )
 
@@ -61,7 +61,7 @@ Highlights
 }
 
 !pure tree-values ~tree @flat {
-    ($.left | tree-values)
-    {$.value}
-    ($.right | tree-values)
+    ($left | tree-values)
+    {$value}
+    ($right | tree-values)
 }
