@@ -1,436 +1,235 @@
 # Structures and Shapes
 
-Structures are the backbone of Comp. Every function receives a structure as
-input and generates a new structure as output. Even simple values like numbers
-and booleans are automatically promoted into single-element structures when used
-in pipelines.
+Structures are the backbone of Comp. They are immutable collections that unify
+arrays, dictionaries, and records into a single concept. A struct can contain
+any mix of named and positional fields, accessed by name or position. Fields are
+always ordered. Every piece of data in Comp is either a simple type (number,
+text, boolean, tag) or a structure containing other values.
 
-Structures are immutable collections that combine the roles of arrays,
-dictionaries, and records. They can contain any mix of named and unnamed fields,
-accessed by name or position. Field names can be simple tokens, strings, or even
-tag values.
+Immutability is fundamental — structures cannot be modified after creation.
+Operations that appear to change data actually produce new structures with
+shared internals, similar to how Python handles strings. 
 
-Comp data is stored in one powerful and flexible structure type. It combines
-positional and named data into a single container. It combines the use cases of
-iterators, sequences, and maps into a flexible container that does more and does
-it uniformly.
+## Structure Literals
 
-Even functions are defined as structures, which run in as deferred code. A
-structure definition can define and reference local temporary values, which
-works comfortably for both literal values and function definitions. It combines
-positional and named fields interchangeably. Imagine a data structure that could
-describe arguments for a Python function.
-
-Imagine a data structure that could define the argument signature for a Python
-function. Fields can have names or be defined positionally. They can also have
-optional types and optional default values.
-
-Each structure is immutable, but has rich operations that naturally create
-modified and minimal clones of data. Think of the way Python handles strings,
-but now apply that to everything.
-
-There are simple data types like numbers and text. These are also immutable, and
-work interchangeably with simple structures that containing single, scalar
-values.
-
-Comp uses shape values to define a schema for data. Data can be tested and
-converted between compatible shapes. The language doesn't use classes or
-restrictive definitions, any function can be called an compatible data. Shapes
-are defined using the `~` operator on a structure and can be referenced and used
-like any regular value.
-
-The `~` is used to define the shapes, and internally applied to individual
-fields to define their own shapes.. No inheritance hierarchies, no interface
-implementations—just structural matching that works intuitively. The shape
-schemas provide strongly typed data validation in a way that is reusable and
-expressive.
-
-A shape definition is also a callable object which is used to construct or
-convert data into the defined shape.
-
-Structure literals can be defines with two syntaxes. The traditional uses curly
-brackets `()` to define individual fields. Parenthesis `()` can also be used
-when assembling structures from predefined calls or data. Both can be used
-interchangeably in function calls, argument definitions, or any place structures
-are needed. They both produce the same structure object types, they just provide
-alternative ways of getting to the same destination.
-
-Structures are not classes. Comp has no traditional class definitions and
-behaviors. There are ways to perform many similar operations that traditional
-classes define, but they are done in a way that makes the data the priority, not
-the code.
-
-## Structure Definition and Field Access
-
-Structures are created with `()` parenthesis containing field definitions.
-Fields can be named or positional (unnamed). Named fields use `=` for
-assignment, while unnamed fields are simply listed.
+Structure literals are created with `{}` braces. Named fields use `=` for
+assignment. Positional fields are simply listed. Whitespace separates fields.
 
 ```comp
-# Simple structures
-user = (name="Alice" age=30)
-coords = (10 20 30)
-mixed = (x=5 10 y=15)
-
-# Field access
-user.name  -- Named field
-coords.#0  -- First positional field (indexed)
-user.#active.status  -- Tag as field name
-
-# String and computed field names
-data."Full Name" = "Alice"  -- String field name
-data.'field-' ++ suffix  -- Computed field name
-
-# Chained access
-users.#0.name  -- Index then field
-config."servers".#0.host  -- String field, index, then field
+user = {name="Alice" age=30}
+coords = {10 20 30}
+mixed = {x=5 10 y=15}
+empty = {}
 ```
 
-**Field access types:**
-
-- `data.field` - Named field (token)
-- `data.#0` - Positional index
-- `data.'expr'` - Computed field name
-- `data."string"` - String literal field name
-
-## Literal decorators
-
-Any structure literal (including function/block definitions) can be prefixed
-with a decorator. This is a pure defined function that modifies the
-interpretation of the structure literal. These are prefixed with a `|` pipe
-symbol at the begining of the struct.
-
-The libraries provide several common decorators.
-
-- `val` - Whatever the final evaluated value in this structure becomes the
-  resulting value of this literal.
-- `mix` - Merge all the values and fields in this single structure
-- `flat` - Sequentially order all the fields and values defined in this
-  structure
+Field access uses dot notation. Positional fields use `#` with an index.
+String field names use double quotes. Computed field names use single quotes.
 
 ```comp
-(|val 1+2 three (4 5))  -- (4 5) - returns only final value
-(|flat 1+2 three (4 5))  -- (3 three 4 5) - values unwrapped
-
-(|mix (one=1 two=2) (three=3)) -- (one=1 two=2 three=3)
-(|flat (one=1 two=2) (three=3)) -- (1 2 3)
-```
-
-## Assignment Operators
-
-Assignment creates new structures - nothing is modified in place.
-
-```comp
--- Override behavior
-config = (
-    port = 8080
-    host = "localhost"
-    timeout = 30
-    log = (severity=warning ignore="http")
-)
-```
-
-**Assignment targets:**
-
-- `field = value` - Creates field in output struct
-- `!let local = value` - Function-local variable
-- `ctx.name = value` - Context variable
-
-## Destructured Assignment
-
-Extract multiple fields from a structure in a single statement:
-
-```comp
--- Extract named fields
-(name age city) = user
-
--- Extract with renaming
-(name=username age=years) = user
-
--- Mix named and positional
-(x y label=name) = point
--- Gets first two unnamed fields as x, y and 'label' field as name
-
--- Nested destructuring
-(user=(name email) status) = response
-
--- With defaults
-(port ? 8080 host ? "localhost") = config
-```
-
-## Field Deletion
-
-Remove fields by creating new structures without them:
-
-```comp
--- Delete operator
-cleaned = mix(original temp=delete old=delete)
-cleaned = original |remove-fields("temp" "old")
-
--- Shape morphing for filtering
-public-user = ~(name~str email~str)
-user = (name="Alice" email="alice@example.com" password="secret")
-public = public-user(user)  -- Password removed
-```
-
-Using shapes for field filtering is idiomatic and provides type safety.
-
-## Structure Comparison and Iteration
-
-Structures support equality and ordering comparisons:
-
-```comp
--- Equality - named field order doesn't matter
-(x=1 y=2) == (y=2 x=1)  -- true
-(1 2 3) == (1 2 3)  -- true
-(x=1 2) == (2 x=1)  -- false - positional order matters
-
--- Ordering - lexicographic comparison
-(a=1) < (a=2)  -- true
-(x=1) < (x=1 y=2)  -- true
-```
-
-Standard library functions from `struct/` module enable field inspection,
-filtering, and transformation:
-
-```comp
-import.struct = ("core/struct" std)
-
-data |field-names() -- ("name" "age" "status")
-data |has-field() "email"  -- true or false
-data |filter:(value > 0)
-data |map-fields() |upper()
+user.name                       // named field
+coords.#0                       // first field positionally
+record."Full Name"              // string field name
+data.'field-name | uppercase'   // computed field name
+users.#0.name                   // chained access
 ```
 
 ## Shapes
 
-Shapes define structural types for data validation and transformation. Instead
-of rigid class hierarchies, shapes use structural compatibility: any data with
-the right fields matches.
+Shapes define structural types — they are simultaneously a schema, a validator,
+and a constructor. Where other languages split these roles across dataclasses,
+pydantic models, and type hints, Comp shapes handle all three. A shape
+definition is also a callable: passing data to a shape validates and converts it.
 
-Shape definitions are actually functions that can be used to construct and
-convert data and arguments into specific shapes.
-
-The shape system integrates with units to provide semantic typing. Units attach
-meaning to values: `5~meter` is different from `5~second`, and the type system
-prevents mixing them. Together, shapes and units create compile-time validation
-without runtime overhead.
-
-Defined tags are also valid shapes. The hierarchical parent of tags can be used
-as a type specification for any of its children.
-
-## Shape Definition
-
-Shapes are defined like structs with a `~` prefix but use a slightly different
-syntax. Each field in the struct can define an optional name, an optional type,
-and an optional default value. Without a name fields are considered as
-positional values.
-
-The default value can only use literal values or expressions. They cannot use
-function calls of their own. (Perhaps one day pure calls will be allowed?)
+Shapes are defined at module level with `!shape` using the `~` prefix on a
+struct definition. Each field can specify a name, a type constraint, and a
+default value.
 
 ```comp
-point = ~(
-    x~num = 0
-    y~num = 0
-)
-
-point-3d = ~(
-    ..~point-2d  # Inherit x, y fields
-    z~num = 0  # Add z coordinate
-)
-
-user = ~(
-    name~text
-    email~text
-    age~num = 0
-    is-active~bool = true
-    user-tag[]  # Array of specific tags
-)
-
--- Shape composition through spreading
-point-3d = ~(
-    ..~point  -- todo, need a syntax for this?
-    z~num = 0
-)
-
--- Array constraints
-config = ~(
-    servers~server[1-]  -- At least one
-    backups~backup[0-3]  -- Up to three
-    options~text[]  -- Any number
-)
+!shape item ~{name~text price~num quantity~num=1}
+!shape cart ~{items~item{} discount~num=0}
+!shape point ~{x~num=0 y~num=0}
+!shape branch ~tree|nil = nil
 ```
 
-### Named vs Positional Fields
+The `~` operator is central to the type system. It appears in shape definitions,
+in function input types (`!pure total ~cart`), in field type annotations
+(`name~text`), and in type union syntax (`~tree|nil`). It always means "has this
+shape" or "matches this type."
 
-Shape fields can be **named** (matched by name) or **positional** (matched by
-position):
+### Optional Fields and Defaults
 
-```comp
-# Named fields
-user = ~(name~text age~num)
-(name="Alice" age=30) ~user  # Named match
-("Alice" 30) ~user  # Positional fills named
-
-# Positional fields
-pair = (~num ~num)
-(5 10) ~pair  # Matched by position
-
-# Mixed
-labeled = (~text name ~text)
-("ID" name="Alice") ~labeled  # Positional then named
-```
-
-Morphing tries named matches first, then fills remaining fields by position.
-
-### Optional Fields
-
-Optional fields use union types with `~nil` and defaults:
+Optional fields use union types with `nil` and provide defaults. Fields without
+defaults are required — missing them causes a build-time or morphing error.
 
 ```comp
-user = ~(
-    name~text
-    email~(text | nil) = ()
-    age~(num | nil) = ()
-)
-
-# Usage
-user(name="Alice")
-# Result: (name="Alice" email=() age=()
-
-user(name="Bob" email="bob@example.com")
-# Result: (name="Bob" email="bob@example.com" age=()
-```
-
-```comp
-session = ~(
-    user~text
-    is-active~bool = true
-    is-verified~bool = false
-)
+!shape config ~{
+    host~text = "localhost"
+    port~num = 8080
+    timeout~num|nil = nil
+    verbose~bool = false
+}
 ```
 
 ### Shape Morphing
 
-Data is automatically morphed as it moves through function input and arguments.
-There are different rules applied.
+When data moves through function calls and shape constructors, it is
+automatically morphed to match the target shape. Morphing follows a multi-phase
+process: named fields match first, then handle and tag fields, then positional
+fields fill remaining slots, and finally defaults apply for anything missing.
 
-This is also used to determine a most specific match when functions are
-overloaded with multiple implementations. A shape can score itself how
-specifically it matches a piece of data.
-
-Morph shapes allow data to match one of multiple shapes and will choose only the
-most specific shape that matches and convert to that.
-
-Morphing transforms data to match shapes through a multi-phase process:
-
-1. **Named field matching** - Exact field names matched first
-2. **Handle field matching** - Fields with matching handle types
-3. **Tag field matching** - Fields with matching tag types
-4. **Positional matching** - Remaining fields by position
-5. **Default application** - Missing fields get defaults
-
-**Specificity ranking:**
-
-- Exact field matches beat partial matches
-- Named fields beat positional fields
-- Specific types beat generic types (`~num` > `~any`)
-- Deeper tag/handle hierarchies beat shallower ones
-
-Order doesn't matter except for ties (left-to-right tiebreaker).
-
-### Specificity Scoring
-
-Specificity uses a lexicographic tuple: `(named_matches, combined_depth,
-positional_matches)`
-
-- **Named matches** beat everything else
-- **Depth** comes from tag/handle hierarchies (deeper = more specific)
-- **Positional matches** provide final tiebreaker
+Any value that can be successfully morphed to a shape can generated a matching
+score. This allows determing the most specific match from a set of possible
+shapes to any value. This is used internally for function dispatch and the `!on`
+operator. Named matches beat positional, specific types beat generic types
+(`~num` beats `~any`), and deeper tag hierarchies beat shallower ones. Order is
+the final tiebreaker when scores are equal.
 
 ```comp
+!shape point-2d ~{x~num y~num}
+!shape point-3d ~{x~num y~num z~num}
 
--- This is a mess, what is going on here (too many syntax replacement ops?)
-
-tag.status = ~(ok error)
-
-generic = (  #status)
-specific = (  #network.error)
-
-(state=#network.error) ~generic | ~specific
--- Result: ~specific wins (deeper tag hierarchy)
-
--- Ambiguous matches cause errors:**
-user = (name ~text email ~text)
-group = (name ~text members ~user[])
-
-(name="X") ~user | ~group
--- ERROR: Ambiguous - both match 50%
-
--- Resolve with discriminator tag
-user = (  #user name ~text email ~text)
-group = (  #group name ~text members ~user[])
-
-(type=#user name="X") ~user | ~group  -- Unambiguous
+{x=5 y=10 z=15} | render       // dispatches to 3d overload
+{x=5 y=10} | render            // dispatches to 2d overload
 ```
 
-## Guards and Lists Constraints
+## Tags
 
-Shapes can be enhanced with additional constraints. Guards validate that values
-meet specific requirements beyond their base type. Lists specify how many values
-of a shape can appear in a sequence. Both can be combined to create precise type
-definitions that are reusable throughout a module.
-
-Guards are specified in square brackets [] after a shape. Each guard is a pure
-function that validates the value. If any guard fails, the value cannot morph to
-that shape. Multiple guards can be listed together and all must pass. Common
-guards include numeric bounds like min and max, text constraints like non-empty
-and ascii, and pattern matching with match for regular expressions.
-
-List constraints use curly braces {} with syntax borrowed from regular
-expressions. A single number specifies an exact count, two comma-separated
-numbers specify a range (inclusive), and omitting a number leaves that bound
-open. For example, {3} means exactly three, {1,5} means one to five, {2,} means
-two or more, and {,8} means up to eight.
-
-Any pure function can serve as a guard if it takes the appropriate type and
-optionally an argument, returning a failure when the value doesn't satisfy the
-constraint.
+Tags are named constants that serve as both values and types. They represent
+distinct states, categories, or markers within a program. Tags are defined in
+hierarchies at module level, allowing related concepts to be grouped while
+remaining individually usable.
 
 ```comp
--- Define constrained types
-uint8 = num[integer min=0 max=255]
-unix-name = text[ascii size=(1 32) match="^[a-z_][a-z0-9_-]*$"]
-
--- Build on constrained types with lists
-rgb = uint8{3}
-path-segments = text[non-empty]{1,}
-
--- Use in shape definitions
-sprite = ~(
-    position~num{2}
-    color~rgb
-    layers~image{1,4}
-)
-
--- Custom guard function
-divisible-by = :val~num divisor~num pure (|val
-    if(divmod(val divisor).#1 != 0) :(
-        fail("$(val) is not divisible by $(divisor)")
-    )
-)
-
--- Use custom guards alongside builtins
-grid-size = num[positive integer divisible-by=8]
+!tag visibility {all active complete}
+!tag http-status {
+    success = {ok created accepted}
+    error = {not-found forbidden server-error}
+}
+!tag http-status.offline
 ```
 
-Comp also defines a system called units as a way to extend number and text
-values. These are separate from these constraints, and the two concepts can be
-combined. See [Type Documentation](type.md) for more unit details.
+A tag's dual nature as value and type enables powerful patterns. As values,
+tags can be stored in fields, passed to functions, and compared. As types, tags
+constrain shapes to accept only values from a specific hierarchy. When used as a
+type, a parent tag means "any child of this tag" — the parent itself is not a
+valid value. `~bool` accepts `true` or `false`, never `bool` itself.
 
-Guards and lists are separate from units. Guards validate during morphing but
-don't persist on values — a number that passes [min=0] is still just a number.
-Units are tags that attach to numbers and text and persist through operations,
-enabling dispatch and conversion between compatible measurements.
+Tags are the foundation of Comp's dispatch system. Function overloading,
+`!on` branching, and the `<>` comparison operator all work through tag matching.
+The boolean values `true` and `false` are simply predefined tags under the
+`bool` hierarchy. The stream control values `done`, `skip`, and `pass` are
+similarly just tags.
 
+Tag hierarchies can be extended by external modules independently from the
+initial definition. A library might define `!tag status {ok error}` while a
+consuming module adds `!tag status {timeout validation}` for more specific
+error handling.
+
+## Guards and Constraints
+
+Shapes can carry additional constraints beyond their base type. Guards validate
+that values meet specific requirements during morphing. They appear in square
+brackets after a type and accept any pure function as a validator.
+
+```comp
+!shape uint8 ~num[integer min=0 max=255]
+!shape unix-name ~text[ascii size={1 32} match="^[a-z_][a-z0-9_-]*$"]
+```
+
+Collection size constraints use `{}` with regex-inspired syntax: `{3}` for
+exactly three, `{1,5}` for one to five, `{2,}` for two or more.
+
+```comp
+!shape rgb ~uint8{3}
+!shape path-segments ~text[non-empty]{1,}
+!shape sprite ~{position~num{2} color~rgb layers~image{1,4}}
+```
+
+Guards validate during morphing but don't persist on values — a number that
+passes `[min=0]` is still just a number. This is distinct from units, which
+attach to values and persist through operations.
+
+## Decorators
+
+The `@` prefix on a block or expression attaches a decorator that controls how
+the result is interpreted. Decorators are higher-order functions — they receive
+the input, the wrapped block as a callable, and the arguments, and decide the
+orchestration. This is fundamentally different from piping through a function;
+the decorator controls whether and how the inner block executes.
+
+```comp
+@update {name = ($name | upper)}   // merge result onto input
+@flat {($left | values) $value ($right | values)}  // concatenate results
+@fmt"hello %(name)"                // template interpolation
+```
+
+`@update` runs the block and merges the resulting fields onto the original
+input. `@flat` collects multiple expressions and concatenates them into a single
+sequence. `@fmt` activates template interpolation on a string. Libraries can
+define custom decorators — `@retry[times=3]`, `@transact[scene]`,
+`@cache[ttl=60]` — without any special language support. The decorator protocol
+is a standard function signature.
+
+Decorators appear on function definitions to modify the function's behavior for
+all callers, or inline on individual expressions:
+
+```comp
+// Function-level: all calls to tree-insert merge results onto input
+!pure tree-insert ~tree @update (...)
+
+// Inline: just this one map applies update semantics
+| map @update {name = ($name | upper)}
+```
+
+## Comparison and Equality
+
+Equality (`==`, `!=`) tests structural equivalence. Values of different types
+are never equal. Named field order does not matter for equality, but positional
+order does.
+
+```comp
+{x=1 y=2} == {y=2 x=1}   // true — named order irrelevant
+{1 2 3} == {1 2 3}         // true
+5 == 5.0                   // true — same numeric value
+5 == "5"                   // false — different types
+```
+
+Ordering (`<`, `>`, `<=`, `>=`) provides total ordering across all types. Any
+two values can be compared with deterministic results. Types are ordered by
+priority: nil, empty struct, false, true, number, text, tag, struct. Within a
+type, values use their natural ordering — numeric for numbers, lexicographic for
+text, field-by-field for structs.
+
+The three-way comparison `<>` returns a tag (`~less`, `~equal`, or `~greater`)
+rather than a boolean, enabling clean dispatch over all three cases.
+
+```comp
+!on (value <> $value)
+~less ($left | tree-insert[value])
+~greater ($right | tree-insert[value])
+~equal $
+```
+
+## Units
+
+Units extend number and text values with persistent type information. A number
+isn't just `12` — it's `12[inch]` or `12[second]`. The type system prevents
+mixing incompatible units, and compatible units within the same family convert
+automatically.
+
+Units are defined as tags in the `unit.num` or `unit.text` hierarchies.
+
+```comp
+height = 12[inch]
+width = 3[foot]
+timeout = 30[second]
+
+total = 12[inch] + 1[foot]         // 24[inch], auto-converts
+height[meter]                       // 0.3048
+mixed = 5[meter] + 3[second]       // ERROR — incompatible units
+```
+
+For text, units mark domain or format — a SQL query or HTML fragment carries its
+context through operations, enabling proper escaping during interpolation. Units
+are separate from guards: guards validate during morphing and don't persist,
+while units attach to values and flow through operations.

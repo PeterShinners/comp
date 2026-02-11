@@ -1,294 +1,178 @@
 # Modules and Imports
 
-Comp modules provide declarative namespaces that can be analyzed without
-executing code. Modules can be single `.comp` files or directories of `.comd`
-files—both appear as a single namespace with no circular dependency concerns.
+Comp modules are declarative namespaces that can be fully analyzed without
+executing any code. A module defines shapes, tags, functions, and metadata that
+become a fixed namespace resolved before runtime. This means the compiler knows
+every reference, every type, and every dependency at build time — preventing
+entire categories of errors before your code ever runs.
 
-The module and its direct imports define a declarative namespace used by all
-code running in that module. References are resolved and validated at build
-time, preventing many common error situations before runtime begins.
-
-Imports are quite advanced for the comp. There are a variety of handlers that
-build a fixed namespace from a variety of sources. While comp files will be the
-most common, a namespace can come from any source that has a provided handler.
-
-The namespace for each module is fixed and precomputed. It cannot be changed
-dynamically or modified at runtime.
-
-## Syntax
-
-A module defines several types of objects that it exports. These are defined
-using top level keywords at the module level.
-
-- Functions are defined with the `func` keyword. This allows metadata to define
-  the input and argument shapes. Multiple implementations can be defined for the
-  same function name, they are identified by a unique shape for the input
-  argument, which will automatically dispatch to the most specifically defined
-  implementation.
-- Shape definitions use the `shape` keyword. They define a shape name that must
-  be prefixed with a `~` character. The shape body is a list of fields wrapped
-  in curly braces. Each field defines an optional name, an optional shape, and
-  can also have an optinal default value.
-- Tag definitions use the `tag` keyword. They define tags that must be prefixed
-  with a `#` character. Tags can define a hierarchy of children as well as
-  optional values.
-- Handle definitions are defined with the `handle` keyword. Handles have no
-  values or metatadata themselves, they require management by functions to be
-  handed to other modules.
-- Module metadata can be defined with constant data and expressions. These can
-  define values that provide default values for function arguments in the
-  function. The metadata also defines package information like versioning,
-  dependencies, and tool definitions.
-- Loose documentation is attached to the module. This can be used to
-  positionally define sections and overviews about the module contents. Larger
-  block documentation can be separate from code using the `---` symbol to start
-  and close the sections.
-- Imports are an important part of building the module namespace.
+Modules can be single `.comp` files or directories of files. Both appear as a
+single namespace. There are no circular dependency concerns because the
+namespace is declarative — definitions can appear in any order across any files,
+and the compiler resolves them all in one pass.
 
 ## Imports
 
-The `import` keyword assigns a namespace and specifies the source:
+The `!import` operator assigns a local namespace and specifies the source. The
+source handler determines how the module is loaded — from the filesystem, a git
+repository, a Python package, or even an API specification.
 
 ```comp
--- Standard library
-import.store = ("core/store" std)
-import.math = ("core/math" std)
-
--- Local filesystem
-import.utils = ("./lib/utils" comp)
-import.shared = ("/home/shared/libs" comp)
-
--- Git repositories
-import.project = ("git@github.com:company/project.git" comp)
-import.versioned = ("git@github.com:org/lib.git#v2.0.1" comp)
-
--- Python modules
-import.numpy = ("numpy" python)
-import.requests = ("requests" python)
-
--- OpenAPI specs
-import.api = ("https://api.example.com/swagger.json" openapi)
+!import store {comp "std:store"}
+!import utils {comp "./lib/utils"}
+!import rio {comp "@gh/rio-dev/rio-comp"}
+!import numpy {python "numpy"}
+!import api {openapi "https://api.example.com/swagger.json"}
 ```
+
+After import, the module's exports are accessed through the assigned namespace:
+`rio.button`, `numpy.array`, `api.users.get`. The namespace is fixed at build
+time — there is no dynamic module loading or runtime import modification.
 
 ### Import Sources
 
-**Core sources:**
-
-- `std` - Standard library modules
-- `comp` - Comp modules (filesystem, git, URLs)
-- `python` - Python modules
-- `main` - Shared dependencies from entry module
-
-**Schema-based sources:**
-
-- `protobuf` - Protocol Buffers specs
-- `openapi` - OpenAPI specs
-- `qtui` - Qt Designer definitions
-- `ffi` - C libraries
-
-## Import Fallbacks and Coordination
-
-Use `?` for fallback sources:
+Core sources include `comp` for Comp modules (filesystem, git, URLs), `python`
+for Python packages, and `main` for shared dependencies from the entry module.
+Schema-based sources generate typed namespaces from structured specifications:
+`openapi` for API specs, `protobuf` for Protocol Buffers, `ffi` for C
+libraries. Each source handler translates external structure into Comp's type
+system, giving you build-time validation against external contracts.
 
 ```comp
--- Try multiple sources
-import.json = ("json" ? std "core/json" ? comp "./minimal-json" main)
+!import db {postgres "localhost/mydb?schema=public"}
+!import proto {protobuf "./messages.proto"}
 
--- Platform-specific
-import.graphics = ("./graphics-gpu" ? comp "./graphics-cpu" comp)
+// Generated namespaces are typed and validated
+!let user api.users.get[id=123]
+!let result db.users.find-by-email[email="user@example.com"]
 ```
 
-By default, libraries check if main module imported a dependency before using
-their own:
+### Dependency Coordination
+
+Libraries check if the main module has already imported a dependency before
+using their own. This means the entry point controls which version of shared
+dependencies the entire application uses, preventing version conflicts without
+explicit coordination.
 
 ```comp
--- In library - automatically checks main first
-import.json = ("core/json" std)
--- Behaves as: main "json" ? std "core/json"
+// In the main module — becomes the source for all libraries
+!import json {comp "git@github.com:fast/json.git#v2.0"}
 
--- In main module - becomes source for libraries
-import.json = ("git@github.com:fast/json.git#v2.0" comp)
+// In a library — automatically checks main first
+!import json {comp "std:json"}
+// Behaves as: main's json if available, otherwise std:json
 ```
 
-## Startup Contexts
+## Module-Level Declarations
 
-As comp functions execute they define a shared context that can be updated and
-passed through the call chain. Modules can coordinate and define different
-contexts to be used in different environments.
+A module's namespace is built from several types of declarations, all using `!`
+operators at the top level. These are fully resolved before any code executes.
 
-The most common context is the `cli` context, which is used by the comp command
-line tool when invoking modules.
+`!func` and `!pure` define functions. Multiple definitions with the same name
+create overloads dispatched by input shape. See [Functions](function.md) for
+details.
 
-The context defines a specially named function to be the entry point. This entry
-point can be defined in the module that defines it in the context, but is
-typically overridden by the module that is being executed.
+`!shape` defines data schemas that serve as types, validators, and
+constructors. See [Structures](struct.md) for shape semantics.
+
+`!tag` defines hierarchical enumerations. Tags serve as both values and types,
+enabling dispatch and categorization.
+
+`!startup` defines entry points that execute when the module is invoked in a
+specific context (CLI, web server, test runner).
+
+`!mod` defines sub-modules — namespaces nested within the current module.
+
+Module-level `!let` bindings define constants — values computed once and
+available throughout the module. These can use expressions and pure function
+calls.
 
 ```comp
-startup.cli = extends default (
-    verbose = true
-    source = "connection.json"
-)
+!import py {comp "python" stdlib}
+!shape handle-db ~{}
+!tag isolation {deferred exclusive immediate none}
+!tag fail {interface database operation integrity}
 
-startup.default = (
-    threads = 4
-)
-
-All modules will invoke their context definitions in order
-
+!let exception-tags {
+    interface-error = fail.interface
+    database-error = fail.database
+}
 ```
 
 ## Package Metadata
 
-Fields defined at the module level are private to the module during runtime.
-They are available to external tools to query and analyze.
-
-Comp modules contain their own package definition. They do not rely on external
-files or definition scripts to define their package information and
-requirements. There is a shape to define this package schema.
+Comp modules contain their own package definition — no external configuration
+files. The `!package` operator defines versioning, authorship, and dependency
+information that tools can query without executing the module.
 
 ```comp
-pkg = (
-    name="image-processor"
-    version="2.1.0"
-    author="Joe Q Developer <joeq@example.dev>"
-    homepage="https://example.com/image-processor"
+!package image-processor "2.1.0"
+```
+
+## Startup and Context
+
+The `!startup` operator defines named entry points. When Comp executes a module,
+it looks for a startup function matching the requested context. The startup
+function bootstraps the application, establishing initial context values that
+flow through the entire call chain.
+
+```comp
+!startup main (
+    {5 3 8 1 7 9}
+    | reduce[initial=nil] (tree-insert)
+    | tree-values
+    | print
 )
-pkg.license = "MIT"
+
+!startup rio {
+    title = "Todo"
+    state = state
+    component = todo-app
+}
 ```
 
-## Schema-Based Imports
-
-Imports from schemas generate typed namespaces:
-
-```comp
-import.api = ("./swagger.json" openapi)
-import.db = ("localhost/mydb?schema=public" postgres)
-import.proto = ("./messages.proto" protobuf)
-
--- Use generated namespaces
-let user = api.users.get (id=123)
-let result = db.users.find-by-email (email="user@example.com")
-```
+Startup functions can use `!ctx` to establish context values that automatically
+populate matching modifier arguments in any function called within the
+application. This is how configuration, theme data, and shared state flow
+through Comp applications without explicit threading.
 
 ## Platform-Specific Modules
 
-Modules and files can define specific architectures and runtimes, which will
-override files without those decorated details.
-
-Overrides can be based on platform, like `windows`, `linux`, `macos`, `wasm`,
-and others.
-
-Overides can also be based on architecture, version of comp, or other runtime
-based information.
-
-When importing comp modules the most specific decorated file will be selected.
-This also works for indiidual files inside a directory-based module.
+Modules and individual files can target specific platforms. The most specific
+file matching the current environment is selected during import resolution.
 
 ```comp
-render.comp  -- Default implementation
-render.windows.comp  -- Windows-specific
-render.linux.comp  -- Linux-specific
-render.wasm.comp  -- WebAssembly
+render.comp              // default implementation
+render.windows.comp      // Windows-specific
+render.linux.comp        // Linux-specific
+render.wasm.comp         // WebAssembly
 ```
 
-## Namespace Aliasing
+This works at both the module level (entire directory) and the file level
+(individual files within a module directory). No conditional compilation or
+platform-detection code is needed — the import system handles selection.
 
-Definitions in the local module will be used by default will override those from
-imported modules.
+## Namespace and Aliasing
 
-Modules can also define aliases of objects defined in imported namespaces. These
-aliases will be treated as if defined in the local module directly, and will
-also become part of this modules exported namespace.
-
-Aliases can also be used define alternative names for internally defined
-objects.
+Module-level definitions take priority over imported names. Modules can create
+aliases for imported objects, making them appear as local definitions and
+including them in the module's exports.
 
 ```comp
-text | text.length(text)  -- Function from str module
-math.matrix(data)  -- Shape from math module
-
--- Create aliases
 sqrt = fast-math.sqrt
 vec = math.vector-3d
-
--- Use short forms
-sqrt(4)
-vec(point)
 ```
 
-## Import Process
+After aliasing, `sqrt` and `vec` can be used as if defined locally, and other
+modules importing this one will see them as part of its namespace.
 
-Import handlers coordinate with the import system to download, cache, and
-resolve versions. This hierarchy of dependencies is computed initially and
-validated before any code in any modules is evaluated.
+## Caching and Bundling
 
-The languages itself comes with handlers for common types of data and.
+The compiler caches compiled output, downloaded packages, and git repositories
+automatically. Because the dependency graph is fully declarative, the compiler
+can perform dead code elimination and bundling optimizations without executing
+any module code.
 
-- Comp module (single file or directory of files)
-- Python module
-- Json schema
-- OpenAPI schema
-
-**Key principles:**
-
-- **Declarative** - Know what a module provides without running it
-- **Order independent** - Define functions in any order across any files
-- **Single source** - Main module coordinates shared dependencies
-
-### Private Data Attachments
-
-Modules attach private metadata invisible to other modules:
-
-```comp
--- Cache module
-with-cache = :key~text (
-    !let result = (key value=(key |fetch()))
-
-    -- Attach private data
-    result&.cached-at = time.now
-    result&.cache-key = key
-    result
-)
-
--- Session module
-with-session = :user-data~in (
-    !let result = (..user-data)
-    result&.session-id = new-session
-    result&.session-start = time.now
-    result
-)
-
--- Usage - both attach private data to same structure
-!let user = (name="alice" email="alice@example.com")
-|with-cache()
-|with-session()
-
--- Each module sees only its own private data
--- cache sees: user&.cached-at, user&.cache-key
--- session sees: user&.session-id, user&.session-start
-```
-
-## Caching and Optimization
-
-Compiled bytecode, downloaded packages, and git repositories are cached
-automatically. Build tools analyze the declarative dependency graph for dead
-code elimination and bundling optimizations.
-
-## Dependency Bundling
-
-Package applications with all dependencies in a single archive:
-
-```comp
-# Build tool generates manifest
-dependencies = (
-    "main/json" = "./bundle/json.comp"
-    "main/store/utils" = "./bundle/store-utils.comp"
-    "std/core/str" = "./bundle/str.comp"
-)
-
-# Deploy standalone executable
-# ```comp app.comp --bundle ./app.bundle```
-```
-
-Bundled apps run without network access or external files, working identically
-across environments.
+Applications can be bundled with all dependencies into a single archive that
+runs without network access or external files. The bundle contains the same
+declarative namespace structure, just pre-resolved and pre-validated.

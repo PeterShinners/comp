@@ -1,70 +1,30 @@
 # Syntax and Style Guide
 
-Description of the language syntax and requirements. This doesn't cover the
-features in detail, but describes how they must be written.
+Comp is a whitespace-flexible, expression-oriented language. Source code is a
+series of module-level declarations and expressions using three paired
+delimiters: `()` for blocks and expressions, `{}` for struct containers, and
+`[]` for function modifiers. These three bracket types are the backbone of the
+grammar and each has distinct semantics described throughout this guide.
 
-## Whitespace
+Whitespace is required only between fields of a structure and between tokens
+that would otherwise be ambiguous. Tabs are preferred for indentation. A
+formatter tool `compfmt` will handle line-breaking and indentation choices, so
+developers can write code in whatever shape feels productive and let the
+formatter enforce consistency.
 
-Whitespace is completely optional in most places of the language. Whitespace can
-consist of any amount of spaces, tabs, extra lines or indentation.
+## Tokens and Naming
 
-The only place whitespace is required is between fields of a structure and
-between the operations a function or structure.
-
-The standard style uses:
-
-- Tabs for indentation
-- Lines under 100 characters when reasonable
-- Space around binary operators
-- Space between function name and container for arguments
-- Long pipelines split with `|` starting a new line
-
-This said; the language is flexible and allows for whatever format feels most
-readable and editable for your current project.
+Identifiers use **kebab-case** — lowercase words separated by hyphens. Digits
+are allowed after the first character. Leading and trailing underscores are
+permitted but leading or trailing hyphens are not. Characters are case-sensitive
+and the full UAX #31 Unicode specification is supported, but lower case is
+preferred. These unicode rules match what Rust and Python allow for identifiers
+(with the addition of hypens). Identifiers cannot begin or end with hyphens.
 
 ```comp
-tight=:("oneline")  -- No spacing
-spacey       = :arg ~num  -- Wild spacing
-     ( prose and docs___
-            !let first =
-    1 !let second =arg
-)
+valid-name      html5        _private       用户名
+Content-Accept  is-active   pad-left       tree-insert
 ```
-
-## Tokens
-
-Tokens are used for naming variables, functions, tags, and nearly everything in
-the language. Tokens have the following rules:
-
-- Use kebab-case with hyphens as word separators
-- No leading digits (digits allowed after first character)
-- Leading and trailing underscores are allowed
-- No leading or trailing hyphens allowed
-- Characters are case sensitive
-- Allows UAX #31 specification for valid unicode tokens
-
-This unicode UAX #31 is the same character set used by languages like Rust and
-Python. These are combined with a set of preferred patterns:
-
-- Prefer lowercase tokens
-- Prefer boolean functions and fields with a trailing `?`
-
-The language convention is to use all lowercase characters when writing purely
-Comp-specific identifiers. When interfacing with other languages or data
-specifications, use capitalizations and underscores where preferred.
-
-The style preference is to use hyphens as word separators instead of compacting
-token names into abnormal compound words.
-
-The style of using lowercase words with hyphen separators is referred to as
-**kebab-case**.
-
-Allowed tokens (although not always preferred)
-
-- `html5`
-- `Content-Accept`
-- `_parity_bit`
-- `用户名`
 
 ## Identifier Fields
 
@@ -80,8 +40,7 @@ number value. Like `#3` or `#0`. This can also use a mathemetic expression
 wrapped in parenthesis to compute an index `#(2+2)`.
 
 Any string can also be used as a field reference when wrapped in double quotes.
-Although this does not work to reference the first level of a field name, only
-nested fields can use this. Like `"Full Name"`.
+Like `"Full Name"`.
 
 These types of field names can be combined in a single identifier.
 
@@ -89,188 +48,226 @@ These types of field names can be combined in a single identifier.
 records.#0."Owners".'$owner-name'.active?
 ```
 
-## Struct literals
-
-Structs are usually created from code surrounded by parenthesis `()`. These can
-contain any mix of positional fields and named fields, which are separated by
-any whitespace. All values have a positional order, even the named fields.
-
-Struct literals can provide a decorator which modifies how the literal is
-interepreted to define a new literal. These must be pure methods that use a
-special `~literal` argument.
-
-```comp
-(|val color="red" 5)  -- 5
-(|flat (1 2 3) (4) (5 6)) -- (1 2 3 4 5 6)
-```
-
-These decorators can be used interchangeably in many parts of the language
-
-- Struct literals
-- Function call arguments
-- Function body definition
-- Block body definition
-
-More details about how scopes and created and referenced is in the
-[Struct](struct.md) documentation.
+Although this does not work to reference the first level of a field name, only
+nested fields can use this, string literals cannot be used as the root
+name without wrapping in single quotes also.
 
 ## Comments and Documentation
 
-Comp uses `--` to define line comments that include everything to the end of the
-line. Block comments are nested between triple dash `---` symbols.
-
-These comments actually become floating documentation that is associated with
-the code around them in different ways.
-
-Multiline comments will be unindented to positionally match the indentation of
-the opening `---` symbol.
-
-The documentation is generally freely positioned through the code, and can be
-represented as literal information for documentation generators.
-
-- The opening comment for a file is considered documentation for the module
-  itself.
-- Comments mid stream become general section information and apply to all
-  following code.
-- Line comments that follow code are applied to all the preceding code on that
-  line.
+Line comments use `//`. Block comments use `/* */` and nest properly. Triple-
+slash `///` marks documentation comments that attach to the following
+declaration. The language provides ways to get all styles of comments
+attached to any value.
 
 ```comp
----
-The save functions will error if the given resources are not found
-or do not have proper permissions.
-
-### Markdown
-
-It's possible that block documentation will be interpreted as markdown
-in many contexts. What does this mean? Only time can tell.
----
-
--- Process different types of data appropriately
-
-save = :~nil ()
-save = ~(data) (implementation())
-
-color = (1 0 0) -- red
-```
-
-## Operator Reference
-
-**Mathematical operators:**
-
-- `+`, `-`, `*`, `/` - Arithmetic operations  
-- `==`, `!=` - Equality comparison
-- `<`, `<=`, `>`, `>=` - Ordered comparison
-
-**Logical operators:**
-
-- `&&`, '||' - Logical AND and OR (short-circuiting)
-- `!!` - Logical NOT (boolean negation)
-
-All logical operators use double characters for consistency and clarity
-
-**Pipeline and flow control:**
-
-- `|` - Pipeline function chaining
-- `|?` - Pipeline fallback operator
-- `?` - Provide fallback value
-
-**Assignment operators:**
-
-- `=` - Normal assignment
-- `=*` - Strong assignment (resists overwriting)  
-- `=?` - Weak assignment (only if undefined)
-
-**Special operators:**
-
-- `~` - Shape definition
-- `:` - Block or function definition
-
-Comp's use of kebab case conflicts with use of the mathematic subtraction
-operator between two tokens. For these cases an alternative syntax must be
-chosen.
-
-- `a - b` use spaces around the operator
-- `a+-b` an add of the mathematic is the same as subtraction
-- `(a)-(b)` one or both tokens must be wrapped in parenthesis
-
-## Scopes
-
-The language uses many predefined scopes. Some can be read and others can be
-written to in specific contexts of the language.
-
-- `mod` these constant values can only be set at the top level of the module.
-  They can only be set to simple expressions or literal values, like the default
-  for shape fields. They can be read from anywhere within the same file, but are
-  not visible to code outside the module.
-- `my` a simple scope that module assignments can be made to that are private to
-  the current module. Values written to this scope can be referenced normally
-  within the same module.
-- `pkg` like `mod` these can be assigned to at the module top level. These
-  contain package metadata for the module. These are intended to be accessed and
-  read externally. There is a defined set of expected and optional field names
-  that packages can define, although anything can be set here.
-- `import` module level code can assign simple structures that define an import
-  specification. The handling of imports is managed by the language before the
-  module evaluates any code.
-- `startup` a module level context that named functions or struct literals are
-  assigned into. These are discoverable by runtime tools. The fields these
-  defines become values defined in the `ctx` scope.
-- `ctx` are values defined by the startup functions. This special context can
-  only be accessed inside evaluating functions. It's fields are not normally
-  accessible, but instead get merged into the function's argument definitions.
-  It is possible to assign or overwrite new fields into this context, which will
-  then be adopted by all function calls made from the current function.
-- `var` is an internal private namespace for local variables. These can be used
-  in functions and blocks, and is also accessible from regular struct literals
-  to reuse data. Blocks defined in a function share the same `var` scope as the
-  function that defined them.
-- `tag` modules define tag hiearchy in this declarative namespace. They
-  then become part of the module namespace after being processed.
-- `out` when a function is running this can refer to fields that have already
-  been defined. Nothing can be written to this scope directly.
-- `<in>` each function can define a shape used for its input and choose whatever
-  name it wants to represent this input. When data is given to a function
-  through pipeline input it is only loosely matched, and can contain additional
-  fields not part of the input shape.
-- `<arg>` each function can also defin a shape used to define its argument. It
-  can name this scope whatever it wants in the function definition. Argument
-  values are strictly matched to their scope. The arguments will not contain any
-  fields that are not in the function definition. This argument scope will be
-  populated by the `ctx` and `mod` scopes with any named fields that satisfy the
-  shape requirements for those arguments.
-
-As code is executed, a variety of scopes are available to the running code.
-These are always referenced through their fully qualified name, like
-`mod.version` or `arg.verbose`. In some contexts different scopes can be written
-to, like `ctx.server.port = 8000`. Remember that assignment doesn't modify
-existing structures since they are immutable. Instead they construct a new data
-with overlayed edits (and as much shared data as possible).
-
-Functions optionally receive separate scopes for provded arguments and for data
-passed through the pipeline. The block definition can define what name these two
-structs will be assigned inside the body.
-
-The pipeline data will always match the defined shape. It may also contain extra
-data and fields..
-
-The arguments struct is stricter and only contains explicitly defined fields.
-The arguments can be contributed to by other scopes like `ctx` or `mod` if they
-contain data that matches the defined shapes.
-
-The special `var` context is used for storing temporaries inside the scope. This
-scope is shared with any blocks defined inside the same function.
-
-```comp
-process-request = :in~(request) arg~(timeout ~num) (
-    !let start = time()  -- Function-local variable
-    !let user = in.user  -- Another local variable
-    (
-        response = in |validate() |process()  -- Struct field
-        duration = now() - start  -- Field computed from local
-    )
-
-    ctx.server.timeout = arg.timeout  -- Copy argument value to context scope
-    !let config = mod.settings  -- Module-level constants
+/// Add new value into tree, dispatched on nil vs tree
+!pure tree-insert ~tree @update (
+    // normal implementation comment
+    !mods value~num
+    /* block comments
+       can span multiple lines */
 )
 ```
+
+Block documentation `/** */` at the start of a file documents the module itself.
+Comments positioned between declarations become section documentation, available
+to documentation generators.
+
+## Bracket Types
+
+Comp uses a set of bracket types to define different constructs in the
+language. These all have their own customizations on the grammar and
+statements they allow.
+
+**Parentheses `()`** are used to group expressions. There are places in
+the grammar where expressions can be deferred, which turns `()` statements
+into blocks, or even fully defined functions. It is allowed to put multiple
+statements into the parenthesis, but the statement will always evaluate to
+the value of the final statement. Inside a block, `$`
+references the input value. The outer statement defining a function provides
+a local scope defined by `!let` variables and are shared across all internal
+defined blocks, like closures).
+
+**Braces `{}`** define structure literals. They hold both named and positional
+fields separated by whitespace. Each non-`!let` line inside braces contributes a
+field to the resulting struct. Named fields use `=` for assignment; bare values
+become positional fields. Structure literals can also be deferred statements
+and used as the bodies for function and block statements.
+
+**Shapes `~{}`** shapes are similar to structure literals. They define a set
+of fields, which must have at least one of an optional name and an optional
+shape. Each field can also be assigned an optional default value, which must
+be a simple expression. The `~` shape can be used to reference shapes or
+build unioned types, but with the curly braces defines a literal shape.
+
+**Square brackets `[]`** are modifiers. These can be applied to types inside
+of a shape definition or onto any callable object to provide additional
+parameters to define how that invoked callable should operate. Inside shape
+definitions the modifiers provide a set of "guards" or "conditions" that
+allow advanced type matching.
+
+```comp
+// Block: deferred computation producing a value
+{1 2 3}  // Ordered struct with three unnamed fields
+(1 2 3)  // Literal 3
+
+($name | uppercase)  // Block
+{name="Alice" age=30 active=true}  // Struct literal with named fields
+
+sort[reverse]  // Modifer on an invokable
+~num[integer]  // Modifier on a type 
+```
+
+## Pipeline Operator
+
+The pipe `|` chains function calls, passing the result of the left side as
+input to the right side. Pipelines are Comp's primary composition mechanism,
+replacing method chaining and nested function calls from other languages.
+
+```comp
+{5 3 8 1 7 9}
+| reduce[initial=nil] (tree-insert)
+| tree-values
+| print
+```
+
+The syntax treats it like any binary operator which can be packed into a single
+expression or split however desired across multiple lines. Invoked functions
+allow special "block arguments" that are supplied by trailing `()` or `{}`
+literals that have deferred evaluation.
+
+A fallback pipeline operator `|?` catches failures and provides an alternative.
+
+## Input References
+
+The `$` sigil accesses the pipeline input — the data flowing into the current
+block or function. Field access drops the dot for the common case, using `$`
+directly followed by the field name.
+
+Multiple `$` symbosl can be stacked to reference the input from each outer level
+of blocks inside a function.
+
+```comp
+$              // entire input value
+$name          // input's "name" field (shorthand for $.name)
+$items.price   // nested field access still uses dots
+$$             // outer scope's input (one level up)
+$$filter       // outer scope's field
+```
+
+## Operators
+
+Mathematical operators follow standard precedence. All arithmetic operates on
+numbers only — no string concatenation or boolean arithmetic.
+
+```comp
++ - * /            // arithmetic
+== != < > <= >=    // comparison (return true/false)
+<>                 // three-way comparison (returns ~less ~equal ~greater)
+&& || !!           // logical (booleans only)
+|                  // pipeline
+|?                 // fallback
+=                  // field assignment in structs and modifiers
+```
+
+The three-way comparison `<>` returns a tag rather than a boolean. This `less`
+`more` or `equal` enables dispatch over all three cases in a single `!on`
+expression. See the [Functions](function.md) documentation for details on `!on`.
+
+## Text Literals and Interpolation
+
+Text use double quotes. Multiline text literals uses triple quotes. Standard
+escape sequences like `\n` and `\"` are supported. The language has no text
+operators for thing like concatenation or repetition. Text manipulation happens
+through library functions, including powerful template formatting.
+
+The formatting functions in the library uses `%(expression)` with an optional
+`[format]` suffix as a modifier. A bare `%` without a following `(` is just a
+literal percent sign — no escaping needed in most cases. Use `%%(` for the rare
+case of a literal `%(`.
+
+```comp
+"hello %(name)"                      // interpolate from scope
+"price: %($ * 1.08)[.2]"             // expression with format
+"%(count)[04] items at 100% markup"  // format modifier, literal %
+data | fmt["row %($id): %($title)"]  // fmt function for data templates
+```
+
+The `@fmt` decorator is a wrapper that applies interpolation directly from the
+current scope. The `fmt` pipeline function applies interpolation using the piped
+data's fields. Both use identical `%(...)` syntax inside the template string.
+
+## Module-Level Declarations
+
+All top-level constructs use `!` operator syntax. This is a different grammar
+than used inside of the various blocks like `()` and `{}`. These declarations
+build the module's namespace and are fully resolved before any code executes.
+
+```comp
+!import rio {comp "@gh/rio-dev/rio-comp"}   // import module
+!shape todo ~{title~text complete~bool}     // define data shape
+!tag visibility {all active complete}       // define tag hierarchy
+!startup main (...)                         // define entry point
+!func handle ~event (...)                   // define function
+!pure total ~cart (...)                     // define pure function
+```
+
+See [Modules](module.md) for import handling and namespace resolution, and
+[Functions](function.md) for function definition details.
+
+## Block Level Operators
+
+Inside function bodies and blocks, `!` operators handle local bindings,
+dispatch, and control flow.
+
+`!let` creates a local binding. It does not use `=`, which is reserved for
+field assignment. The binding captures the value of the following expression.
+That variable can be accessed using the defined name inside the function
+block and all its nested block definitions.
+
+```comp
+!let base ($price * $quantity)
+!let cutoff (datetime.now - 1[week])
+```
+
+`!on` performs type-based dispatch. It evaluates an expression and branches
+based on the type or tag of the result. See [Functions](function.md) for
+complete dispatch documentation.
+
+```comp
+!on (value <> $value)
+~less ($left | tree-insert[value])
+~greater ($right | tree-insert[value])
+~equal $
+```
+
+`!defer` prevents automatic invocation of a callable expression, capturing it
+as a reference instead. See [Functions](function.md) for invocation rules.
+
+`!fail` raises a failure value that fast-forwards through the call chain until
+caught by a fallback `|?` or `??` operator.
+
+## Function Level Operators
+
+Blocks used in function definition statements can define additional
+operators to control the signature and metadata about the function.
+Common examples are `!mods` `!block` and `!default`. Further details
+are in the [Functions](function.md) design document.
+
+## Decorators
+
+The `@` prefix attaches a transformation to any statement. Decorators
+are not just metadata — they receive the input, the block as a callable, and
+the arguments, controlling how the statement is executed.
+
+```comp
+!pure tree-insert ~tree @update (...)  // merge result onto input
+!pure tree-values ~tree @flat (...)    // concatenate multiple results
+| map @update {name = ($name | upper)} // inline decorator
+@fmt"hello %(name)"                    // string template decorator
+```
+
+Common decorators include `@update` (merge fields onto input), `@flat`
+(concatenate results), and `@fmt` (template interpolation). Libraries can define
+custom decorators for retry logic, transactions, caching, and more. See
+[Structures](struct.md) for decorator semantics.
