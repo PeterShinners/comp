@@ -23,7 +23,7 @@ Demonstrates retry-based concurrency without locks.
 
 /// Push a value onto the stack, retrying on contention
 !func stack-push ~stack (
-    !mods value~text
+    !params value~text
 
     $ | atomic.swap {
         head = {value=$value next=$head}

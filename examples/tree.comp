@@ -23,7 +23,7 @@ Highlights
 
 /// Add new value into tree, dispatched on nil vs tree
 !pure tree-insert  ~nil (
-    !mods value~num
+    !params value~num
 
     // which of these two forms is more idiomatic
     {value} | tree
@@ -31,7 +31,7 @@ Highlights
 )
 
 !pure tree-insert ~tree @update (
-    !mods value~num
+    !params value~num
 
     !on value <> $value
     ~less {left = ($left | tree-insert[value])}
@@ -41,13 +41,13 @@ Highlights
 
 /// Check if tree contains value
 !pure tree-contains ~nil (
-    !mods value~num
+    !params value~num
 
     false
 )
 
 !pure tree-contains ~tree (
-    !mods value~num
+    !params value~num
 
     !on value <> $value
     ~less ($left | tree-contains[value])

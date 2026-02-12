@@ -3,7 +3,7 @@
 Comp is a whitespace-flexible, expression-oriented language. Source code is a
 series of module-level declarations and expressions using three paired
 delimiters: `()` for blocks and expressions, `{}` for struct containers, and
-`[]` for function modifiers. These three bracket types are the backbone of the
+`[]` for function parameters. These three bracket types are the backbone of the
 grammar and each has distinct semantics described throughout this guide.
 
 Whitespace is required only between fields of a structure and between tokens
@@ -19,7 +19,7 @@ are allowed after the first character. Leading and trailing underscores are
 permitted but leading or trailing hyphens are not. Characters are case-sensitive
 and the full UAX #31 Unicode specification is supported, but lower case is
 preferred. These unicode rules match what Rust and Python allow for identifiers
-(with the addition of hypens). Identifiers cannot begin or end with hyphens.
+(with the addition of hyphens). Identifiers cannot begin or end with hyphens.
 
 ```comp
 valid-name      html5        _private       用户名
@@ -36,7 +36,7 @@ done by wrapping the name in single quotes. This allows any type of value, like
 numbers, booleans, tags and anything else. Like `'2+4'` or `'#status.ok'`.
 
 Fields can also be referenced positionally. This is done using the `#` with a
-number value. Like `#3` or `#0`. This can also use a mathemetic expression
+number value. Like `#3` or `#0`. This can also use a mathematical expression
 wrapped in parenthesis to compute an index `#(2+2)`.
 
 Any string can also be used as a field reference when wrapped in double quotes.
@@ -63,7 +63,7 @@ attached to any value.
 /// Add new value into tree, dispatched on nil vs tree
 !pure tree-insert ~tree @update (
     // normal implementation comment
-    !mods value~num
+    !params value~num
     /* block comments
        can span multiple lines */
 )
@@ -86,7 +86,7 @@ statements into the parenthesis, but the statement will always evaluate to
 the value of the final statement. Inside a block, `$`
 references the input value. The outer statement defining a function provides
 a local scope defined by `!let` variables and are shared across all internal
-defined blocks, like closures).
+defined blocks, like closures.
 
 **Braces `{}`** define structure literals. They hold both named and positional
 fields separated by whitespace. Each non-`!let` line inside braces contributes a
@@ -100,22 +100,21 @@ shape. Each field can also be assigned an optional default value, which must
 be a simple expression. The `~` shape can be used to reference shapes or
 build unioned types, but with the curly braces defines a literal shape.
 
-**Square brackets `[]`** are modifiers. These can be applied to types inside
+**Square brackets `[]`** are parameters. These can be applied to types inside
 of a shape definition or onto any callable object to provide additional
-parameters to define how that invoked callable should operate. Inside shape
-definitions the modifiers provide a set of "guards" or "conditions" that
+controls that define how that invoked callable should operate. Inside shape
+definitions the parameters provide a set of "guards" or "conditions" that
 allow advanced type matching.
 
 ```comp
-// Block: deferred computation producing a value
 {1 2 3}  // Ordered struct with three unnamed fields
 (1 2 3)  // Literal 3
 
 ($name | uppercase)  // Block
 {name="Alice" age=30 active=true}  // Struct literal with named fields
 
-sort[reverse]  // Modifer on an invokable
-~num[integer]  // Modifier on a type 
+sort[reverse]  // Parameter on an invokable
+~num[integer]  // Guard on a type
 ```
 
 ## Pipeline Operator
@@ -136,7 +135,37 @@ expression or split however desired across multiple lines. Invoked functions
 allow special "block arguments" that are supplied by trailing `()` or `{}`
 literals that have deferred evaluation.
 
-A fallback pipeline operator `|?` catches failures and provides an alternative.
+## Failures and Fallbacks
+
+The `!fail` operator raises a failure value that fast-forwards through the call
+chain. Failures skip all intermediate pipeline steps and struct field
+evaluations until caught. Failures carry a value — typically a struct with a
+message and optional tag for categorization.
+
+```comp
+!fail {fail.value "index out of bounds"}
+!fail {fail.database message="not found"}
+```
+
+Two operators catch failures. The pipeline fallback `|?` catches failures
+flowing through a pipeline and provides an alternative path. The value fallback
+`??` catches a failure on any single expression.
+
+```comp
+// Pipeline fallback — catch failure from preceding pipeline
+data | find[name="alice"] |? default-user
+risky-operation |? (log-error | safe-default)
+
+// Value fallback — catch failure on any expression
+config.optional-field ?? "default-value"
+$timeout ?? 30
+```
+
+The distinction is scope: `|?` operates on the entire pipeline result up to that
+point, while `??` operates on the single expression to its left. Both replace
+the failure with the right-hand value. Failures are not exceptions — they
+propagate through values, not through a separate control channel, making failure
+handling explicit and traceable.
 
 ## Input References
 
@@ -144,7 +173,7 @@ The `$` sigil accesses the pipeline input — the data flowing into the current
 block or function. Field access drops the dot for the common case, using `$`
 directly followed by the field name.
 
-Multiple `$` symbosl can be stacked to reference the input from each outer level
+Multiple `$` symbols can be stacked to reference the input from each outer level
 of blocks inside a function.
 
 ```comp
@@ -166,36 +195,38 @@ numbers only — no string concatenation or boolean arithmetic.
 <>                 // three-way comparison (returns ~less ~equal ~greater)
 && || !!           // logical (booleans only)
 |                  // pipeline
-|?                 // fallback
-=                  // field assignment in structs and modifiers
+|?                 // pipeline fallback
+??                 // value fallback
+=                  // field assignment in structs and parameters
 ```
 
-The three-way comparison `<>` returns a tag rather than a boolean. This `less`
-`more` or `equal` enables dispatch over all three cases in a single `!on`
-expression. See the [Functions](function.md) documentation for details on `!on`.
+The three-way comparison `<>` returns a tag rather than a boolean. The `less`,
+`equal`, or `greater` result enables dispatch over all three cases in a single
+`!on` expression. See the [Functions](function.md) documentation for details
+on `!on`.
 
 ## Text Literals and Interpolation
 
 Text use double quotes. Multiline text literals uses triple quotes. Standard
 escape sequences like `\n` and `\"` are supported. The language has no text
-operators for thing like concatenation or repetition. Text manipulation happens
+operators for things like concatenation or repetition. Text manipulation happens
 through library functions, including powerful template formatting.
 
-The formatting functions in the library uses `%(expression)` with an optional
-`[format]` suffix as a modifier. A bare `%` without a following `(` is just a
-literal percent sign — no escaping needed in most cases. Use `%%(` for the rare
-case of a literal `%(`.
+The formatting functions in the library use `%(expression)` with an optional
+`[format]` suffix. A bare `%` without a following `(` is just a literal percent
+sign — no escaping needed in most cases. Use `%%(` for the rare case of a
+literal `%(`.
 
 ```comp
 "hello %(name)"                      // interpolate from scope
 "price: %($ * 1.08)[.2]"             // expression with format
-"%(count)[04] items at 100% markup"  // format modifier, literal %
+"%(count)[04] items at 100% markup"  // format spec, literal %
 data | fmt["row %($id): %($title)"]  // fmt function for data templates
 ```
 
-The `@fmt` decorator is a wrapper that applies interpolation directly from the
-current scope. The `fmt` pipeline function applies interpolation using the piped
-data's fields. Both use identical `%(...)` syntax inside the template string.
+The `@fmt` wrapper applies interpolation directly from the current scope. The
+`fmt` pipeline function applies interpolation using the piped data's fields.
+Both use identical `%(...)` syntax inside the template string.
 
 ## Module-Level Declarations
 
@@ -210,6 +241,7 @@ build the module's namespace and are fully resolved before any code executes.
 !startup main (...)                         // define entry point
 !func handle ~event (...)                   // define function
 !pure total ~cart (...)                     // define pure function
+!alias crc zlib.crc32                       // namespace alias
 ```
 
 See [Modules](module.md) for import handling and namespace resolution, and
@@ -245,29 +277,33 @@ complete dispatch documentation.
 as a reference instead. See [Functions](function.md) for invocation rules.
 
 `!fail` raises a failure value that fast-forwards through the call chain until
-caught by a fallback `|?` or `??` operator.
+caught by a `|?` or `??` operator. See the Failures and Fallbacks section above.
 
 ## Function Level Operators
 
 Blocks used in function definition statements can define additional
 operators to control the signature and metadata about the function.
-Common examples are `!mods` `!block` and `!default`. Further details
+Common examples are `!params`, `!block`, and `!default`. Further details
 are in the [Functions](function.md) design document.
 
-## Decorators
+## Wrappers
 
-The `@` prefix attaches a transformation to any statement. Decorators
-are not just metadata — they receive the input, the block as a callable, and
-the arguments, controlling how the statement is executed.
+The `@` prefix attaches a wrapper to any statement. Wrappers are higher-order
+functions that receive the input, the wrapped block as a callable, and the
+parameters, controlling how the statement is executed. This is similar to
+Python's decorator concept but more powerful — wrappers can be applied to any
+expression or block, not just function definitions, and they control the full
+orchestration of how the inner expression runs.
 
 ```comp
 !pure tree-insert ~tree @update (...)  // merge result onto input
 !pure tree-values ~tree @flat (...)    // concatenate multiple results
-| map @update {name = ($name | upper)} // inline decorator
-@fmt"hello %(name)"                    // string template decorator
+| map @update {name = ($name | upper)} // inline wrapper on expression
+@fmt"hello %(name)"                    // string template wrapper
 ```
 
-Common decorators include `@update` (merge fields onto input), `@flat`
+Common wrappers include `@update` (merge fields onto input), `@flat`
 (concatenate results), and `@fmt` (template interpolation). Libraries can define
-custom decorators for retry logic, transactions, caching, and more. See
-[Structures](struct.md) for decorator semantics.
+custom wrappers for retry logic, transactions, caching, and more. See
+[Structures](struct.md) for wrapper semantics and [Functions](function.md) for
+wrappers on function definitions.

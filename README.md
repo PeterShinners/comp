@@ -48,13 +48,12 @@ the developer experience.
 **Types are validation** In Python, you define a dataclass, add pydantic for
 validation, add type hints for the checker. In Comp, [shapes](design/struct.md)
 do all three: definition, validation, documentation. Data matches a shape or it
-doesn't — whether it comes from literals, JSON, network requests, or databases.
+doesn't, whether it comes from literals, JSON, network requests, or databases.
 
 **Immutable by default** No more defensive copies, no wondering if a function
 mutated your data, no `frozen=True` with its gotchas. Everything in Comp is
-immutable. The [decorator system](design/struct.md#decorators) makes producing
-modified copies feel as easy as mutation — `@update` merges changed fields onto
-the original.
+immutable. The language provides several mechanisms to make complex overrides
+feel safe and natural.
 
 **Lightweight syntax** A refined and lightweight syntax that is not stuck on
 indentation or line based statements. Get rid of the separators and noise. The
@@ -62,16 +61,18 @@ language has no keywords to get in the way of working with fields and data.
 
 **Namespaces are declarative** No circular import tangles or import order
 puzzles. No evaluating code to know what a module contains. Comp's
-[modules](design/module.md) are declarative — everything is known at build time,
+[modules](design/module.md) are declarative. Everything is known at build time,
 references resolve before execution. Combined with [pure
-functions](design/function.md), much of the language becomes a powerful
-build-time exercise.
+functions](design/function.md), much of the language allows convenient
+build-time validation.
 
-**Flow control is functions** Use general library functions for flow
-control, iteration, and more. Extend the ones that are there, build entirely new
+**Flow control is functions** Use general library functions for flow control,
+iteration, and more. Extend the ones that are there, build entirely new
 conveniences for conditionals. The language provides minimal conditionals based
 on type dispatch; you build the rest (or not). The language embraces pipelines
 and puts data at the center instead of itself.
+
+There are many novel and borrowed ideas joined together in a way that fits.
 
 ## Go Further
 

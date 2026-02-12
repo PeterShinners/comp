@@ -75,7 +75,7 @@ email | match["^[^@]+@[^@]+$"]      // regex matching
 
 ### Template Formatting
 
-String interpolation uses `%(expression)` with an optional `[format]` modifier.
+String interpolation uses `%(expression)` with an optional `[format]` suffix.
 A bare `%` without a following `(` is a literal percent — no escaping needed in
 most cases. The `%%(` sequence produces a literal `%(` for the rare case where
 that's needed.
@@ -87,7 +87,7 @@ that's needed.
 ```
 
 Two invocation styles provide interpolation from different data sources. The
-`@fmt` decorator resolves references from the current scope. The `fmt` pipeline
+`@fmt` wrapper resolves references from the current scope. The `fmt` pipeline
 function resolves references from the piped data's fields.
 
 ```comp
@@ -152,7 +152,7 @@ leaking through untyped paths.
 !shape branch ~tree|nil = nil
 
 !pure tree-insert ~nil (
-    !mods value~num
+    !params value~num
     tree[value=value]
 )
 ```

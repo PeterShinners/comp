@@ -22,16 +22,14 @@ using shape-based function overloading.
 	| window[1280 480 scaled=true]
 	| caption["Monkey Fever"]
 	| mouse-visible[false]
-	//x idiomatically, where should pg.display belong (line before or its current spot?)
 
     !let state {
-        bgd = (pg.card[window.size | fill {0.7 0.9 0.7}])
-        fist = (pg.card[res.fist pivot={235 80}])
-        chimp = (pg.card[res.chimp pivot=center])
-		//x should these pipe to card instead? parenthesis seem unneeded here without pipe
+        bgd = pg.card[window.size | fill {0.7 0.9 0.7}]
+        fist = pg.card[res.fist pivot={235 80}]
+        chimp = pg.card[res.chimp pivot=center]
     }
 
-    pg.loop[window quit-on={event.quit key.escape} (
+    pg.loop[window quit-on={event.quit key.escape}] (
 		!arg state~state // loop sets this up as context?
 
         $events 
@@ -46,7 +44,7 @@ using shape-based function overloading.
 
 /// Handle mouse down: punch and check for hit
 !func handle @update ~pg.event (
-    !mods state~state
+    !params state~state
 
     $type ?? mouse.down | else (pass)
 
@@ -65,7 +63,7 @@ using shape-based function overloading.
 /// Handle mouse up: retract fist
 !func handle pg.event[type==mouse.up] (
 	//x how to make value based types from fields like this?
-	!mods state~state
+	!params state~state
 
 	state.fist | move[{-10 -90}]
 )
@@ -77,7 +75,7 @@ using shape-based function overloading.
 
 /// Handle mouse move: track fist position
 !func handle ~pg.even[type==mouse.move] (
-	!mods state~state
+	!params state~state
 	
 	state.fist | position[$position]
 )

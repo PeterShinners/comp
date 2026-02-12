@@ -43,7 +43,7 @@ Based on migration from Rio library for Python.
             ]
             rio.button[
                 text="Add"
-                disabled=($input | trim | empty?)
+                disabled=($input | trim | empty)
                 on-click=add-todo
             ]
         }
@@ -94,7 +94,7 @@ Based on migration from Rio library for Python.
 
 /// Toggle todo complete status
 !func toggle-todo state @update (
-    !mods id~id
+    !params id~id
 
     {
         todos = ($todos | map (
@@ -108,7 +108,7 @@ Based on migration from Rio library for Python.
 
 /// Remove item from state
 !func delete-todo ~state @update (
-    !mods id~id
+    !params id~id
     
     {todos = ($todos | where ($id != id))}
 )
@@ -116,7 +116,7 @@ Based on migration from Rio library for Python.
 
 /// Determine if an item should be visible based on filter
 !pure todo-visible ~todo (
-    !mods filter~visibility
+    !params filter~visibility
 
     !on filter
     ~all true

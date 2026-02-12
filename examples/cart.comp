@@ -32,7 +32,7 @@ statement with a constant static string.
 
 /// Insert or update an item in a collection
 !pure upsert ~collection (
-    !mods item~item
+    !params item~item
     !block key ~item=pass
 
     $ | replace[item limit=1] (key) | else (append[item])

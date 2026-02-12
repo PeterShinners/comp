@@ -8,7 +8,7 @@ text, boolean, tag) or a structure containing other values.
 
 Immutability is fundamental — structures cannot be modified after creation.
 Operations that appear to change data actually produce new structures with
-shared internals, similar to how Python handles strings. 
+shared internals, similar to how Python handles strings.
 
 ## Structure Literals
 
@@ -77,8 +77,8 @@ automatically morphed to match the target shape. Morphing follows a multi-phase
 process: named fields match first, then handle and tag fields, then positional
 fields fill remaining slots, and finally defaults apply for anything missing.
 
-Any value that can be successfully morphed to a shape can generated a matching
-score. This allows determing the most specific match from a set of possible
+Any value that can be successfully morphed to a shape can generate a matching
+score. This allows determining the most specific match from a set of possible
 shapes to any value. This is used internally for function dispatch and the `!on`
 operator. Named matches beat positional, specific types beat generic types
 (`~num` beats `~any`), and deeper tag hierarchies beat shallower ones. Order is
@@ -149,13 +149,13 @@ Guards validate during morphing but don't persist on values — a number that
 passes `[min=0]` is still just a number. This is distinct from units, which
 attach to values and persist through operations.
 
-## Decorators
+## Wrappers
 
-The `@` prefix on a block or expression attaches a decorator that controls how
-the result is interpreted. Decorators are higher-order functions — they receive
-the input, the wrapped block as a callable, and the arguments, and decide the
+The `@` prefix on a block or expression attaches a wrapper that controls how
+the result is interpreted. Wrappers are higher-order functions — they receive
+the input, the wrapped block as a callable, and the parameters, and decide the
 orchestration. This is fundamentally different from piping through a function;
-the decorator controls whether and how the inner block executes.
+the wrapper controls whether and how the inner block executes.
 
 ```comp
 @update {name = ($name | upper)}   // merge result onto input
@@ -166,11 +166,11 @@ the decorator controls whether and how the inner block executes.
 `@update` runs the block and merges the resulting fields onto the original
 input. `@flat` collects multiple expressions and concatenates them into a single
 sequence. `@fmt` activates template interpolation on a string. Libraries can
-define custom decorators — `@retry[times=3]`, `@transact[scene]`,
-`@cache[ttl=60]` — without any special language support. The decorator protocol
+define custom wrappers — `@retry[times=3]`, `@transact[scene]`,
+`@cache[ttl=60]` — without any special language support. The wrapper protocol
 is a standard function signature.
 
-Decorators appear on function definitions to modify the function's behavior for
+Wrappers appear on function definitions to control the function's behavior for
 all callers, or inline on individual expressions:
 
 ```comp

@@ -21,7 +21,7 @@
 
 /// Remove whitespace or characters from text ends
 !pure trim ~text (
-    !mods what~trim=trim.whitespace target~target=target.both
+    !params what~trim=trim.whitespace target~target=target.both
 
     !let method (
         !on target
@@ -36,43 +36,43 @@
 )
 
 /// Test if text is empty
-!pure empty? ~text (
+!pure empty ~text (
     $ | length == 0
 )
 
 /// Test if text contains only whitespace or is empty
-!pure blank? ~text (
-    $ | trim | empty?
+!pure blank ~text (
+    $ | trim | empty
 )
 
 /// Test if text contains only numeric characters
-!pure numeric? ~text (
+!pure numeric ~text (
     py.call[module="str" method="isnumeric"] {text=$}
 )
 
 /// Test if text contains only alphabetic characters
-!pure alpha? ~text (
+!pure alpha ~text (
     py.call[module="str" method="isalpha"] {text=$}
 )
 
 /// Test if text contains only alphanumeric characters
-!pure alphanumeric? ~text (
+!pure alphanumeric ~text (
     py.call[module="str" method="isalnum"] {text=$}
 )
 
 /// Test if text contains only lowercase characters
-!pure lowercase? ~text (
+!pure lowercase ~text (
     py.call[module="str" method="islower"] {text=$}
 )
 
 /// Test if text contains only uppercase characters
-!pure uppercase? ~text (
+!pure uppercase ~text (
     py.call[module="str" method="isupper"] {text=$}
 )
 
 /// Test if text contains a substring
-!pure contains? ~text (
-    !mods substring~text case~case=case.sensitive
+!pure contains ~text (
+    !params substring~text case~case=case.sensitive
 
     !let text (
         !on case
@@ -88,20 +88,20 @@
 )
 
 /// Test if text starts with a prefix
-!pure starts-with? ~text (
-    !mods prefix~text
+!pure starts-with ~text (
+    !params prefix~text
     py.call[module="str" method="startswith"] {text=$ prefix}
 )
 
 /// Test if text ends with a suffix
-!pure ends-with? ~text (
-    !mods suffix~text
+!pure ends-with ~text (
+    !params suffix~text
     py.call[module="str" method="endswith"] {text=$ suffix}
 )
 
 /// Find first occurrence of substring, return index or nil
 !pure find ~text (
-    !mods substring~text
+    !params substring~text
     !let result (py.call[module="str" method="find"] {text=$ sub=substring})
     !on (result == -1)
     ~true nil
@@ -110,19 +110,19 @@
 
 /// Count occurrences of substring
 !pure count ~text (
-    !mods substring~text
+    !params substring~text
     py.call[module="str" method="count"] {text=$ sub=substring}
 )
 
 /// Replace all occurrences of old with new
 !pure replace ~text (
-    !mods old~text new~text
+    !params old~text new~text
     py.call[module="str" method="replace"] {text=$ old new}
 )
 
 /// Split text by separator
 !pure split ~text (
-    !mods separator~text=" "
+    !params separator~text=" "
     py.call[module="str" method="split"] {text=$ sep=separator}
 )
 
@@ -133,7 +133,7 @@
 
 /// Join collection of strings with separator
 !pure join ~struct (
-    !mods separator~text=""
+    !params separator~text=""
     py.call-func[name="str.join"] {separator items=$}
 )
 
@@ -144,13 +144,13 @@
 
 /// Repeat text n times
 !pure repeat ~text (
-    !mods times~num
+    !params times~num
     py.call-func[name="operator.mul"] {text=$ times}
 )
 
 /// Get substring
 !pure slice ~text (
-    !mods start~num=0 end~num|nil=nil
+    !params start~num=0 end~num|nil=nil
     py.call-func[name="operator.getitem"] {text=$ start end}
 )
 
@@ -161,19 +161,19 @@
 
 /// Pad text on left
 !pure pad-left ~text (
-    !mods width~num fill~text=" "
+    !params width~num fill~text=" "
     py.call[module="str" method="rjust"] {text=$ width fillchar=fill}
 )
 
 /// Pad text on right
 !pure pad-right ~text (
-    !mods width~num fill~text=" "
+    !params width~num fill~text=" "
     py.call[module="str" method="ljust"] {text=$ width fillchar=fill}
 )
 
 /// Center text within width
 !pure center ~text (
-    !mods width~num fill~text=" "
+    !params width~num fill~text=" "
     py.call[module="str" method="center"] {text=$ width fillchar=fill}
 )
 

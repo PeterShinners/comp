@@ -39,7 +39,7 @@ https://github.com/nushell/nu_scripts/blob/main/sourced/examples/date_in_local_t
 
 /// Convert member times to local timezone for an event
 !pure with-local-time ~member# (
-	!mods event~datetime
+	!params event~datetime
 
 	$ | map {
 		name = ($name | capitalize)

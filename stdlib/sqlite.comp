@@ -59,7 +59,7 @@
 
 /// Open database connection from file path
 !func database-file ~text (
-    !mods connect-args
+    !params connect-args
     !let pydb (py.call-func[name="sqlite3.connect"] {database=$})
     !let db (grab-handle[handle-db])
     db @update {private.py = pydb}
@@ -67,7 +67,7 @@
 
 /// Open database connection from URL
 !func database-url ~text (
-    !mods connect-args
+    !params connect-args
     !let pydb (py.call-func[name="sqlite3.connect"] {database=$ url=true})
     !let db (grab-handle[handle-db])
     db @update {private.py = pydb}
@@ -75,7 +75,7 @@
 
 /// Open in-memory database
 !func database-memory (
-    !mods connect-args
+    !params connect-args
     !let pydb (py.call-func[name="sqlite3.connect"] {database=":memory:"})
     !let db (grab-handle[handle-db])
     db @update {private.py = pydb}
@@ -83,7 +83,7 @@
 
 /// Execute SQL statement and return results
 !func execute ~{db~handle-db} (
-    !mods sql~text
+    !params sql~text
 
     !let cursor (py.call[method="cursor"] {self=$db.private.py})
     !let exec (py.call[method="execute"] {self=cursor sql})

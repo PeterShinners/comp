@@ -21,17 +21,16 @@ Based on https://github.com/TrevisanGMW/gt-tools
 
 
 !func create-inbetween (
-    !mods config~layer-config
+    !params config~layer-config
 
     !transact {maya.scene maya.preserve-selection}
     maya.selection
-    | map[
+    | map (
         !let parent ($ | maya.get-parent)
         !let transform parent
         | maya.create-node[
             config.layer-type
-            name = @fmt "($name)(config.suffix)"
-            //x going to need a better formatting syntax for string subst
+            name = @fmt "%(name)%(config.suffix)"
         ]
         | maya.set-attr[use-outliner-color=true]
         | maya.set-attr[outliner-color=config.outliner-color]
@@ -39,15 +38,13 @@ Based on https://github.com/TrevisanGMW/gt-tools
 
         | !let target !on config.parent-type == parent
         ~true parent
-        ~false $  
-        //x whoa, piping the previous statements into the false, i think this is ok?
-        //and nested !on inside `!let`. this all seems ok, those are expressions?
+        ~false $
 
         !on (target | maya.exists)
         ~true (target | maya.constrain[transform])
 
         ($ | maya.parent[transform])
-    ]
+    )
 )
 
 
@@ -67,7 +64,7 @@ Based on https://github.com/nestrada2/bubbles
 
 
 !func create-bubbles ~dag-paths (
-    !mods config ~bubble-args
+    !params config ~bubble-args
 
     !transact {maya.scene}
 

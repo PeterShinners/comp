@@ -4,7 +4,7 @@
 
 /// Generate infinite counter stream
 !func infinite (
-    !mods start~num=0 step~num=1
+    !params start~num=0 step~num=1
     stream (
         {value=$ next=($ + step)}
     ) [seed=start]
@@ -12,7 +12,7 @@
 
 /// Generate range of numbers
 !pure range (
-    !mods start~num=0 end~num step~num=1
+    !params start~num=0 end~num step~num=1
 
     !on (step == 0)
     ~true (fail["range step cannot be zero"])
@@ -43,21 +43,21 @@
 )
 
 /// Test if any element matches condition
-!pure any? ~struct (
+!pure any ~struct (
     !block test
-    $ | filter (test) | empty? | not
+    $ | filter (test) | empty | not
 )
 
 /// Test if all elements match condition
-!pure all? ~struct (
+!pure all ~struct (
     !block test
-    $ | filter (not (test)) | empty?
+    $ | filter (not (test)) | empty
 )
 
 /// Test if no elements match condition
-!pure none? ~struct (
+!pure none ~struct (
     !block test
-    $ | any? (test) | not
+    $ | any (test) | not
 )
 
 /// Count elements matching optional condition
@@ -74,7 +74,7 @@
 
 /// Group consecutive elements into fixed-size chunks
 !pure chunk ~struct (
-    !mods size~num
+    !params size~num
     !let len ($ | length)
     range[start=0 end=len step=size]
     | map ($ | slice[start=$ end=(min[$ + size len])])
@@ -82,7 +82,7 @@
 
 /// Reduce sequence to single value
 !pure reduce ~struct (
-    !mods initial
+    !params initial
     !block fold
     //x this likely needs a builtin or recursive approach
     //x since we can't mutate an accumulator
@@ -91,7 +91,7 @@
 
 /// Unfold: generate sequence from seed
 !pure unfold (
-    !mods seed
+    !params seed
     !block step
     !block collect=pass
     //x needs runtime support for lazy generation
@@ -100,7 +100,7 @@
 
 /// Extract positional digits from number in given base
 !pure digits ~num (
-    !mods base~num=10
+    !params base~num=10
     unfold[seed=$] (
         !on ($ == 0)
         ~true done
@@ -119,13 +119,13 @@
 
 /// Take first n elements
 !pure take ~struct (
-    !mods count~num
+    !params count~num
     $ | slice[start=0 end=count]
 )
 
 /// Drop first n elements
 !pure drop ~struct (
-    !mods count~num
+    !params count~num
     $ | slice[start=count end=($ | length)]
 )
 
@@ -140,7 +140,7 @@
 
 /// Zip multiple sequences together
 !pure zip ~struct (
-    !mods others~struct
+    !params others~struct
     !let min-len (
         {($ | length)} | append (others | map (length)) | min
     )

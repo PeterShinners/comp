@@ -21,7 +21,7 @@
 )
 
 /// Check if struct is empty
-!pure empty? ~struct (
+!pure empty ~struct (
     $ | length == 0
 )
 
@@ -33,14 +33,14 @@
 
 /// Get index position of named field
 !pure field-index ~struct (
-    !mods field~text
+    !params field~text
     $ | enumerate | find ($value.field == field) | $index
     |? nil
 )
 
 /// Get first element(s)
 !pure first ~struct (
-    !mods count~num=1
+    !params count~num=1
     !on (count == 1)
     ~true ($ | at[index=0])
     ~false ($ | slice[start=0 end=count])
@@ -48,7 +48,7 @@
 
 /// Get last element(s)
 !pure last ~struct (
-    !mods count~num=1
+    !params count~num=1
     !let len ($ | length)
     !on (count == 1)
     ~true ($ | at[index=-1])
@@ -57,13 +57,13 @@
 
 /// Get range of elements
 !pure slice ~struct (
-    !mods start~num end~num
+    !params start~num end~num
     $ | enumerate | filter ($index >= start && $index < end) | map ($value)
 )
 
 /// Get element at index (supports negative indexing)
 !pure at ~struct (
-    !mods index~num
+    !params index~num
     !let len ($ | length)
     !let target (
         !on (index < 0)
@@ -83,9 +83,9 @@
 )
 
 /// Check if struct contains value
-!pure contains? ~struct (
-    !mods value
-    $ | any? ($ == value)
+!pure contains ~struct (
+    !params value
+    $ | any ($ == value)
 )
 
 /// Get all items as field/value pairs
@@ -104,7 +104,7 @@
 
 /// Sort by value
 !pure sort ~struct (
-    !mods key=pass reverse~bool=false
+    !params key=pass reverse~bool=false
 
     //x placeholder: needs proper sort implementation
     //x bubble sort in immutable language is painful
@@ -114,13 +114,13 @@
 
 /// Remove specified fields
 !pure drop ~struct (
-    !mods fields~struct
-    $ | filter (not (fields | contains?[$field]))
+    !params fields~struct
+    $ | filter (not (fields | contains[$field]))
 )
 
 /// Keep only specified fields
 !pure select ~struct (
-    !mods fields~struct
+    !params fields~struct
     fields | map ($field)
 )
 
@@ -136,21 +136,21 @@
 
 /// Merge structs (right-biased)
 !pure merge ~struct @update (
-    !mods updates~struct
+    !params updates~struct
     updates
 )
 
 /// Insert value at position
 !pure insert ~struct (
-    !mods at~num value
+    !params at~num value
     !let before ($ | slice[start=0 end=at])
     !let after ($ | slice[start=at end=($ | length)])
     {before value after} | flat
 )
 
 /// Test if struct starts with prefix
-!pure starts-with? ~struct (
-    !mods prefix~struct
+!pure starts-with ~struct (
+    !params prefix~struct
     !let prefix-len (prefix | length)
     !on ($ | length < prefix-len)
     ~true false
@@ -158,8 +158,8 @@
 )
 
 /// Test if struct ends with suffix
-!pure ends-with? ~struct (
-    !mods suffix~struct
+!pure ends-with ~struct (
+    !params suffix~struct
     !let suffix-len (suffix | length)
     !let len ($ | length)
     !on (len < suffix-len)

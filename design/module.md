@@ -63,17 +63,56 @@ explicit coordination.
 // Behaves as: main's json if available, otherwise std:json
 ```
 
+## Namespace Resolution
+
+All names from a module's own definitions and its imports are combined into a
+single namespace. Within this namespace, any leaf name can be used as a shortcut
+when it is unambiguous. Given an import `!import web {comp "std:web"}` where the
+web module defines a tag hierarchy `status = {ok error timeout}`, all of these
+are equivalent references:
+
+```comp
+web.status.ok       // fully qualified
+status.ok           // drop the import prefix
+ok                  // just the leaf name
+```
+
+The compiler resolves the shortest unambiguous path. If two imports both define
+an `ok` tag, the bare `ok` becomes ambiguous and the compiler requires
+qualification. This applies equally to functions, shapes, tags, and any other
+named object in the namespace. Local definitions always take priority over
+imported names.
+
+### Aliases
+
+The `!alias` operator is a top-level module declaration that creates explicit
+namespace entries. Aliases can re-export symbols from imported modules as part
+of the current module's public API, choose a default implementation when
+multiple imports define the same name, or simply provide a shorter name for
+a deeply nested reference.
+
+```comp
+!alias crc zlib.crc32              // shortcut for deeply nested import
+!alias parse json.parse            // choose json.parse as the default 'parse'
+!alias sqrt fast-math.sqrt         // re-export under a different name
+!alias crc& zlib.crc32             // private alias, not visible to importers
+```
+
+Aliases participate in namespace resolution like any other definition. An alias
+to a function includes all of its overloads. An alias marked private with `&`
+is available within the module but hidden from importers, just like any other
+private declaration.
+
 ## Module-Level Declarations
 
 A module's namespace is built from several types of declarations, all using `!`
 operators at the top level. These are fully resolved before any code executes.
 
 `!func` and `!pure` define functions. Multiple definitions with the same name
-create overloads dispatched by input shape. See [Functions](function.md) for
-details.
+create overloads dispatched by input shape. See [Functions](function.md).
 
 `!shape` defines data schemas that serve as types, validators, and
-constructors. See [Structures](struct.md) for shape semantics.
+constructors. See [Structures](struct.md).
 
 `!tag` defines hierarchical enumerations. Tags serve as both values and types,
 enabling dispatch and categorization.
@@ -82,6 +121,9 @@ enabling dispatch and categorization.
 specific context (CLI, web server, test runner).
 
 `!mod` defines sub-modules — namespaces nested within the current module.
+
+`!alias` creates namespace entries that reference other definitions. See
+Aliases above.
 
 Module-level `!let` bindings define constants — values computed once and
 available throughout the module. These can use expressions and pure function
@@ -98,6 +140,23 @@ calls.
     database-error = fail.database
 }
 ```
+
+### Private Declarations
+
+Any module-level declaration can be marked private with a trailing `&` on its
+name. Private declarations participate fully within the module — they contribute
+to overloaded dispatch, can be referenced by other definitions, and behave
+identically to public declarations. They are simply invisible to anyone
+importing the module.
+
+```comp
+!func resource& (...)
+!shape internal-state& ~{...}
+!tag fail {interface database operation integrity internal&}
+```
+
+The `&` on a tag child hides just that branch. On a parent, it hides the entire
+hierarchy underneath.
 
 ## Package Metadata
 
@@ -131,10 +190,38 @@ flow through the entire call chain.
 }
 ```
 
-Startup functions can use `!ctx` to establish context values that automatically
-populate matching modifier arguments in any function called within the
-application. This is how configuration, theme data, and shared state flow
-through Comp applications without explicit threading.
+### Context Scope
+
+While the interpreter evaluates code it maintains a special scope called the
+context. Functions can modify this scope with the `!ctx` operator, which works
+like `!let` but affects all downstream function calls rather than just the local
+scope.
+
+Functions do not access context directly. Instead, context values automatically
+provide defaults for any invoked function whose parameters match by name and
+type. This is conceptually similar to environment variables in an operating
+system, but integrated with the language's type system and available at all
+levels of the application.
+
+```comp
+!func outer (
+    !ctx url "http://example.com/"
+
+    !let one inner              // inner sees url from context
+    !let two inner[url="http://dev.example.com/"]  // explicit overrides context
+)
+
+!func inner (
+    !params url~text
+    @fmt"%(url)/v1/ping/"
+)
+```
+
+Context values are matched by name and type against parameter declarations. A
+context value only populates a parameter if both the name matches and the type
+is compatible. Values provided explicitly in `[]` always take priority over
+context. Modules define their initial context through `!startup` declarations,
+which establish the context before the entry point function is invoked.
 
 ## Platform-Specific Modules
 
@@ -151,20 +238,6 @@ render.wasm.comp         // WebAssembly
 This works at both the module level (entire directory) and the file level
 (individual files within a module directory). No conditional compilation or
 platform-detection code is needed — the import system handles selection.
-
-## Namespace and Aliasing
-
-Module-level definitions take priority over imported names. Modules can create
-aliases for imported objects, making them appear as local definitions and
-including them in the module's exports.
-
-```comp
-sqrt = fast-math.sqrt
-vec = math.vector-3d
-```
-
-After aliasing, `sqrt` and `vec` can be used as if defined locally, and other
-modules importing this one will see them as part of its namespace.
 
 ## Caching and Bundling
 
