@@ -29,11 +29,11 @@ you've wanted a CoffeeScript for Python, there might be something here.
     !let fields {"created-at" "reaction-groups" "title" "url"}
 
     gh.issue-list :repo=repo :fields=fields
-    | where --($created-at >= cutoff)
-    | map --($thumbs-up = $reaction-groups | count --($content == "thumbs-up"))
-    | sort --reverse --($thumbs-up)
-    | first --5
-    | select --{"thumbs-up"="👍" "title" "url"}
+    | where :($created-at >= cutoff)
+    | map :($thumbs-up = $reaction-groups | count :($content == "thumbs-up"))
+    | sort :reverse :($thumbs-up)
+    | first :5
+    | select :{"thumbs-up"="👍" "title" "url"}
     | table.markdown
 )
 ```

@@ -100,11 +100,10 @@ shape. Each field can also be assigned an optional default value, which must
 be a simple expression. The `~` shape can be used to reference shapes or
 build unioned types, but with the curly braces defines a literal shape.
 
-**Square brackets `[]`** are parameters. These can be applied to types inside
-of a shape definition or onto any callable object to provide additional
-controls that define how that invoked callable should operate. Inside shape
-definitions the parameters provide a set of "guards" or "conditions" that
-allow advanced type matching.
+**Square brackets `[]`** are type modifiers. These can be applied to types
+inside of a shape definition or onto any callable object to provide additional
+controls that define how that invoked callable should operate. This defines a
+set of "guards" or "conditions" that allow advanced type matching.
 
 ```comp
 {1 2 3}  // Ordered struct with three unnamed fields
@@ -113,7 +112,7 @@ allow advanced type matching.
 ($name | uppercase)  // Block
 {name="Alice" age=30 active=true}  // Struct literal with named fields
 
-sort[reverse]  // Parameter on an invokable
+sort :reverse  // Parameter on an invokable
 ~num[integer]  // Guard on a type
 ```
 
@@ -125,15 +124,15 @@ replacing method chaining and nested function calls from other languages.
 
 ```comp
 {5 3 8 1 7 9}
-| reduce[initial=nil] (tree-insert)
+| reduce :initial=nil :(tree-insert)
 | tree-values
 | print
 ```
 
 The syntax treats it like any binary operator which can be packed into a single
-expression or split however desired across multiple lines. Invoked functions
-allow special "block arguments" that are supplied by trailing `()` or `{}`
-literals that have deferred evaluation.
+expression or split however desired across multiple lines. Parameters are
+attached to invokable objects as a tail of prefixed `:` expresions, which
+provide either named or positional parameters.
 
 ## Failures and Fallbacks
 
@@ -153,7 +152,7 @@ flowing through a pipeline and provides an alternative path. The value fallback
 
 ```comp
 // Pipeline fallback — catch failure from preceding pipeline
-data | find[name="alice"] |? default-user
+data | find :name="alice" |? default-user
 risky-operation |? (log-error | safe-default)
 
 // Value fallback — catch failure on any expression
@@ -221,7 +220,7 @@ literal `%(`.
 "hello %(name)"                      // interpolate from scope
 "price: %($ * 1.08)[.2]"             // expression with format
 "%(count)[04] items at 100% markup"  // format spec, literal %
-data | fmt["row %($id): %($title)"]  // fmt function for data templates
+data | fmt :"row %($id): %($title)"  // fmt function for data templates
 ```
 
 The `@fmt` wrapper applies interpolation directly from the current scope. The
@@ -268,8 +267,8 @@ complete dispatch documentation.
 
 ```comp
 !on (value <> $value)
-~less ($left | tree-insert[value])
-~greater ($right | tree-insert[value])
+~less ($left | tree-insert :value)
+~greater ($right | tree-insert :value)
 ~equal $
 ```
 

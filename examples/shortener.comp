@@ -1,6 +1,14 @@
 /**
 URL shortener service
 A simple URL shortener using Redis for storage.
+
+Highlights:
+
+- Redis key patterns use fmt with module constants, `$id | fmt :mod.keys.target` generates keys from a single template definition
+- `unless` acts as a guard clause, if the URL is invalid, the pipeline detours to an error template and never reaches `insert-url`
+- Computed field names with single quotes let expressions generate Redis keys inline, `'id | fmt :mod.keys.target' = $$`
+- `while` pipes its result back as the next iteration's input, loop state is just the pipeline value, no mutable counter
+
 */
 
 !import http {comp "http-server"}
@@ -39,11 +47,11 @@ A simple URL shortener using Redis for storage.
 !startup web (
     $ 
     | dispatch
-    | post --"/" (link-create)
-    | get --"/" (response-template --"newurl.html")
-    | get --"/{id}" (link-redirect)
-    | get --"/{id}.json" (link-details)
-    | missing (response-template --"404.html" --status=404)
+    | post :"/" (link-create)
+    | get :"/" (response-template :"newurl.html")
+    | get :"/{id}" (link-redirect)
+    | get :"/{id}.json" (link-details)
+    | missing (response-template :"404.html" :status=404)
     //x or perhaps something with an `!on` here?
 )
 
@@ -51,19 +59,19 @@ A simple URL shortener using Redis for storage.
 /// Accept a URL submission and redirect to its detail page
 !func link-create ~http.request (
     $form.url
-    unless --$ | url.parse | $scheme | in --{"http" "https"}) (
+    unless :$ | url.parse | $scheme | in :{"http" "https"}) (
         {error="Please enter a valid URL" url=$$form.url}
-        | response-template --"newurl.html"
+        | response-template :"newurl.html"
     )
     | insert-url
-    | http.redirect --"/%($id).json"
+    | http.redirect :"/%($id).json"
 )
 
 
 /// Redirect short URL to its target, incrementing click count
 !func link-redirect ~http.request (
     $params.id | fetch-details | increment
-    http.redirect --$target
+    http.redirect :$target
 )
 
 
@@ -75,20 +83,20 @@ A simple URL shortener using Redis for storage.
 
 /// Look up or create a short URL entry
 !func insert-url text (
-    $ | fmt --mod.keys.reverse
+    $ | fmt :mod.keys.reverse
     | redis.get
-    | if-nil --(
+    | if-nil :(
         !let id mod.keys.total | redis.incr | base36-encode
         {
-            'id | fmt --mod.keys.target' = $$
-            'id | fmt --mod.keys.counter' = 1
-            '$$ | fmt --mod.keys.reverse' = id
+            'id | fmt :mod.keys.target' = $$
+            'id | fmt :mod.keys.counter' = 1
+            '$$ | fmt :mod.keys.reverse' = id
             //x the single quote field expression needs to be ok for pipelines            
         }
         | redis.mset
         id
     )
-    response-redirect --@fmt"/%().json"
+    response-redirect :@fmt"/%().json"
 )
 
 
@@ -98,18 +106,18 @@ A simple URL shortener using Redis for storage.
     !input ~text
 
     {
-        target = $ | fmt --mod.keys.target
-        clicks = $ | fmt --mod.keys.counter
+        target = $ | fmt :mod.keys.target
+        clicks = $ | fmt :mod.keys.counter
     }
     | redis.mget
-    | defaults --clicks=0
+    | defaults :clicks=0
 }
 
 
 /// Increment the click counter for a URL
 !func increment ~details ( 
     $id 
-    | fmt --mod.keys.counter
+    | fmt :mod.keys.counter
     | redis.incr
 )
 
@@ -120,13 +128,11 @@ A simple URL shortener using Redis for storage.
     !let result ""
     !let n $
 
-    n | while --($ > 0
-        !let div $ | divmod --(charset | length)
-        !let result (charset | char-at-index --div.remainder) | join result
+    n | while :($ > 0
+        !let div $ | divmod :(charset | length)
+        !let result (charset | char-at-index :div.remainder) | join result
         div.quotient
     )
-    //x so `while` pipes the resulting value back to itself (sort of like a reduce?)
-    //x seems cool actually, unless there's a better abstraction somewhere else?
 
-    $result | if-empty --(charset | first)
+    $result | if-empty :(charset | first)
 )

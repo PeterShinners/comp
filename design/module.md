@@ -43,8 +43,8 @@ system, giving you build-time validation against external contracts.
 !import proto {protobuf "./messages.proto"}
 
 // Generated namespaces are typed and validated
-!let user api.users.get[id=123]
-!let result db.users.find-by-email[email="user@example.com"]
+!let user api.users.get :id=123
+!let result db.users.find-by-email :email="user@example.com"
 ```
 
 ### Dependency Coordination
@@ -118,9 +118,16 @@ constructors. See [Structures](struct.md).
 enabling dispatch and categorization.
 
 `!startup` defines entry points that execute when the module is invoked in a
-specific context (CLI, web server, test runner).
+specific context (CLI, web server, test runner). These are not added to the
+module's namespace.
 
-`!mod` defines sub-modules — namespaces nested within the current module.
+`!context` defines callables that cooperate to define the initial context
+and select the name for the startup function. These are not added to the
+module's namespace.
+
+`!mod` defines module level constant values. Similar to a `!let` but this
+works across function definitions inside the module. These are never
+exported to importers.
 
 `!alias` creates namespace entries that reference other definitions. See
 Aliases above.
@@ -135,7 +142,7 @@ calls.
 !tag isolation {deferred exclusive immediate none}
 !tag fail {interface database operation integrity}
 
-!let exception-tags {
+!mod exception-tags {
     interface-error = fail.interface
     database-error = fail.database
 }
@@ -178,7 +185,7 @@ flow through the entire call chain.
 ```comp
 !startup main (
     {5 3 8 1 7 9}
-    | reduce[initial=nil] (tree-insert)
+    | reduce :initial=nil :(tree-insert)
     | tree-values
     | print
 )
@@ -194,32 +201,32 @@ flow through the entire call chain.
 
 While the interpreter evaluates code it maintains a special scope called the
 context. Functions can modify this scope with the `!ctx` operator, which works
-like `!let` but affects all downstream function calls rather than just the local
-scope.
+like `!let` but affects all downstream function calls while also adding that
+variable to the local scope.
 
-Functions do not access context directly. Instead, context values automatically
-provide defaults for any invoked function whose parameters match by name and
-type. This is conceptually similar to environment variables in an operating
-system, but integrated with the language's type system and available at all
-levels of the application.
+Functions do not access the accumulated context directly. Instead, context
+values automatically provide defaults for any invoked function whose parameters
+match by name and type. This is conceptually similar to environment variables in
+an operating system, but integrated with the language's type system and
+available at all levels of the application.
 
 ```comp
 !func outer (
     !ctx url "http://example.com/"
 
     !let one inner              // inner sees url from context
-    !let two inner[url="http://dev.example.com/"]  // explicit overrides context
+    !let two inner :url="http://dev.example.com/"  // explicit overrides context
 )
 
 !func inner (
-    !params url~text
+    :param url~text
     @fmt"%(url)/v1/ping/"
 )
 ```
 
 Context values are matched by name and type against parameter declarations. A
 context value only populates a parameter if both the name matches and the type
-is compatible. Values provided explicitly in `[]` always take priority over
+is compatible. Parameters provided explicitly always take priority over
 context. Modules define their initial context through `!startup` declarations,
 which establish the context before the entry point function is invoked.
 

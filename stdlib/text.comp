@@ -11,17 +11,18 @@
 
 /// Transform text to uppercase
 !pure uppercase ~text (
-    py.call[module="str" method="upper"] {text=$}
+    py.call :module="str" :method="upper" :{text=$}
 )
 
 /// Transform text to lowercase
 !pure lowercase ~text (
-    py.call[module="str" method="lower"] {text=$}
+    py.call :module="str" :method="lower" :{text=$}
 )
 
 /// Remove whitespace or characters from text ends
 !pure trim ~text (
-    !params what~trim=trim.whitespace target~target=target.both
+    :param what~trim=trim.whitespace 
+    :param target~target=target.both
 
     !let method (
         !on target
@@ -31,8 +32,8 @@
     )
 
     !on what
-    ~whitespace (py.call[module="str" method] {text=$})
-    ~chars (py.call[module="str" method] {text=$ chars=what})
+    ~whitespace (py.call :module="str" :method=method :{text=$})
+    ~chars (py.call :module="str" :method=method :{text=$ chars=what})
 )
 
 /// Test if text is empty
@@ -47,32 +48,33 @@
 
 /// Test if text contains only numeric characters
 !pure numeric ~text (
-    py.call[module="str" method="isnumeric"] {text=$}
+    py.call :module="str" :method="isnumeric" :{text=$}
 )
 
 /// Test if text contains only alphabetic characters
 !pure alpha ~text (
-    py.call[module="str" method="isalpha"] {text=$}
+    py.call :module="str" :method="isalpha" :{text=$}
 )
 
 /// Test if text contains only alphanumeric characters
 !pure alphanumeric ~text (
-    py.call[module="str" method="isalnum"] {text=$}
+    py.call :module="str" :method="isalnum" :{text=$}
 )
 
 /// Test if text contains only lowercase characters
 !pure lowercase ~text (
-    py.call[module="str" method="islower"] {text=$}
+    py.call :module="str" :method="islower" :{text=$}
 )
 
 /// Test if text contains only uppercase characters
 !pure uppercase ~text (
-    py.call[module="str" method="isupper"] {text=$}
+    py.call :module="str" :method="isupper" :{text=$}
 )
 
 /// Test if text contains a substring
 !pure contains ~text (
-    !params substring~text case~case=case.sensitive
+    :param substring~text 
+    :param case~case=case.sensitive
 
     !let text (
         !on case
@@ -84,25 +86,25 @@
         ~insensitive (substring | lowercase)
         ~sensitive substring
     )
-    text | py.call[module="str" method="__contains__"] {substring=key}
+    text | py.call :module="str" method="__contains__" {substring=key}
 )
 
 /// Test if text starts with a prefix
 !pure starts-with ~text (
-    !params prefix~text
-    py.call[module="str" method="startswith"] {text=$ prefix}
+    :param prefix~text
+    py.call :module="str" :method="startswith" :{text=$ prefix}
 )
 
 /// Test if text ends with a suffix
 !pure ends-with ~text (
-    !params suffix~text
-    py.call[module="str" method="endswith"] {text=$ suffix}
+    :param suffix~text
+    py.call :module="str" :method="endswith" :{text=$ suffix}
 )
 
 /// Find first occurrence of substring, return index or nil
 !pure find ~text (
-    !params substring~text
-    !let result (py.call[module="str" method="find"] {text=$ sub=substring})
+    :param substring~text
+    !let result (py.call :module="str" :method="find" :{text=$ sub=substring})
     !on (result == -1)
     ~true nil
     ~false result
@@ -110,79 +112,79 @@
 
 /// Count occurrences of substring
 !pure count ~text (
-    !params substring~text
-    py.call[module="str" method="count"] {text=$ sub=substring}
+    :param substring~text
+    py.call :module="str" :method="count" :{text=$ sub=substring}
 )
 
 /// Replace all occurrences of old with new
 !pure replace ~text (
-    !params old~text new~text
-    py.call[module="str" method="replace"] {text=$ old new}
+    :param old~text new~text
+    py.call :module="str" :method="replace" :{text=$ old new}
 )
 
 /// Split text by separator
 !pure split ~text (
-    !params separator~text=" "
-    py.call[module="str" method="split"] {text=$ sep=separator}
+    :param separator~text=" "
+    py.call :module="str" :method="split" :{text=$ sep=separator}
 )
 
 /// Split text into lines
 !pure lines ~text (
-    py.call[module="str" method="splitlines"] {text=$}
+    py.call :module="str" :method="splitlines" :{text=$}
 )
 
 /// Join collection of strings with separator
 !pure join ~struct (
-    !params separator~text=""
-    py.call-func[name="str.join"] {separator items=$}
+    :param separator~text=""
+    py.call :func :name="str.join" :{separator items=$}
 )
 
 /// Reverse text character order
 !pure reverse ~text (
-    py.call-func[name="reversed"] {text=$} | join
+    py.call :func :name="reversed" :{text=$} | join
 )
 
 /// Repeat text n times
 !pure repeat ~text (
-    !params times~num
-    py.call-func[name="operator.mul"] {text=$ times}
+    :param times~num
+    py.call :func :name="operator.mul" :{text=$ times}
 )
 
 /// Get substring
 !pure slice ~text (
-    !params start~num=0 end~num|nil=nil
-    py.call-func[name="operator.getitem"] {text=$ start end}
+    :param start~num=0 end~num|nil=nil
+    py.call :func :name="operator.getitem" :{text=$ start end}
 )
 
 /// Get text length in characters
 !pure length ~text (
-    py.call[module="str" method="__len__"] {text=$}
+    py.call :module="str" :method="__len__" :{text=$}
 )
 
 /// Pad text on left
 !pure pad-left ~text (
-    !params width~num fill~text=" "
-    py.call[module="str" method="rjust"] {text=$ width fillchar=fill}
+    :param width~num fill~text=" "
+    py.call :module="str" :method="rjust" :{text=$ width fillchar=fill}
 )
 
 /// Pad text on right
 !pure pad-right ~text (
-    !params width~num fill~text=" "
-    py.call[module="str" method="ljust"] {text=$ width fillchar=fill}
+    :param width~num fill~text=" "
+    py.call :module="str" :method="ljust" :{text=$ width fillchar=fill}
 )
 
 /// Center text within width
 !pure center ~text (
-    !params width~num fill~text=" "
-    py.call[module="str" method="center"] {text=$ width fillchar=fill}
+    :param width~num fill~text=" "
+    py.call :module="str" :method="center" :{text=$ width fillchar=fill}
 )
 
 /// Capitalize first character
 !pure capitalize ~text (
-    py.call[module="str" method="capitalize"] {text=$}
+    py.call :module="str" :method="capitalize" :{text=$}
 )
 
 /// Convert to title case
 !pure title ~text (
-    py.call[module="str" method="title"] {text=$}
+    py.call :module="str" :method="title" :{text=$}
 )

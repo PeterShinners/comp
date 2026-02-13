@@ -5,11 +5,10 @@ evaluated as deferred statements called blocks. These can take an input
 object through pipelines and define their own parameters. Functions take
 a block and define additional metadata and place it into a module namespace.
 
-Comp functions are centered on a simple philosophy of operating on
-input data received through the pipeline with parameters to customize how they
-behave. Data flows through `|`, configuration lives in `[]`, and callable
-arguments arrive in `()` or `{}`. This separation keeps function signatures
-clean and call sites readable.
+Comp functions are centered on a simple philosophy of operating on input data
+received through the pipeline with parameters to customize how they behave. Data
+flows through `|`, parameters are defined with `:` prefixed expressions. This
+separation keeps function signatures clean and call sites readable.
 
 Blocks can define special block objects which allow them to do advanced
 language level features like conditionals and looping. Comp defines several
@@ -22,7 +21,7 @@ at build time, or in parallel, and other contexts.
 Functions are declared at module level with `!func` or `!pure`. The input shape
 follows the name on the declaration line. The body is a `()` block containing
 optional metadata operators and the implementation. Functions can be defined
-with a deferred `{}` structure literal, but this is a less common special case.
+with a deferred `{}` structure literal, but typically this is not as common.
 
 ```comp
 !func double ~num (
@@ -30,13 +29,13 @@ with a deferred `{}` structure literal, but this is a less common special case.
 )
 
 !pure lookup-field ~struct (
-    !params field~text fallback~any
+    :param field~text fallback~any
 
     $.'field' ?? fallback
 )
 ```
 
-The `!pure` declaration means this function has no side effects — it cannot
+The `!pure` declaration means this function has no side effects, it cannot
 access external resources or call non-pure functions.
 Pure functions can be evaluated at build time when their inputs are known, and
 the compiler can safely cache, parallelize, or eliminate their calls. Use `!func`
@@ -46,33 +45,30 @@ for functions that perform side effects.
 
 Inside the function body, metadata operators declare what the function accepts:
 
-`!params` declares the function's parameters — what callers pass in `[]`. Each
-parameter can have a name, a type constraint, and a default value. Parameters
-without defaults are required.
+`:param` declares a function parameter. Each parameter can have a name, a type
+constraint, and a default value. Parameters without defaults are required.
+Unlike defaults in shape definitions, these parameter definitions can use full
+expressions and pipelines that are only invoked if the parameter is not
+provided.
 
-`!block` declares that the function accepts a callable block argument. The block
-declaration specifies the expected type and an optional default. Functions can
-accept multiple blocks.
-
-`!default` invokes an expression for parameters that are not provided. This is
-more involved than the simple expressions allowed for default values in shape
-fields — these allow invoking code conditionally only when needed, and avoid
-messy union types for parameters that might not be provided.
+`:block` declares that the function accepts a deferred block as a parameter. The
+block declaration can define the input shape for the block and an optional
+default.
 
 ```comp
 !pure reduce ~struct (
-    !params initial
-    !block fold
+    :param initial
+    :block fold
     // implementation
 )
 
-// Called as: data | reduce[initial=0] ($ + $accumulator)
+// Called as: data | reduce :initial=0 :($ + $accumulator)
 ```
 
 ## Invocation Rules
 
 Expressions that produce a callable value are **invoked by default**. This
-means bare references to zero-argument functions automatically execute, and
+means bare references to zero-parameter functions automatically execute, and
 expressions in most positions evaluate eagerly.
 
 ```comp
@@ -81,15 +77,15 @@ expressions in most positions evaluate eagerly.
 ```
 
 There are two exceptions to eager invocation. Inside a **pipeline expression**
-being constructed, evaluation is deferred until the pipeline is consumed — the
+being constructed, evaluation is deferred until the pipeline is consumed, the
 pipeline describes a chain of operations, not an immediate result. And inside a
-**block argument position** (where the receiving function declared `!block`),
+**block parameter position** (where the receiving function declared `:block`),
 the expression becomes a callable that the function invokes with its own data.
 
 ```comp
-| map (uppercase)                    // block argument — deferred
-| reduce[initial=nil] (tree-insert)  // block argument — deferred
-| where ($active)                    // block argument — deferred
+| map :(uppercase)                    // block parameter, deferred
+| reduce :initial=nil (tree-insert)  // block parameter, deferred
+| where :($active)                    // block parameter, deferred
 ```
 
 The `!defer` operator explicitly prevents invocation, capturing a callable as a
@@ -98,8 +94,8 @@ parameters or to capture a pipeline as a higher level object.
 
 ```comp
 !let make-timestamp !defer datetime.now
-!let replace-single !defer replace[limit=1]
-!let first-word-lower !defer (split[limit=1] | first | lowercase)
+!let replace-single !defer replace :limit=1
+!let first-word-lower !defer (split :limit=1 | first | lowercase)
 ```
 
 ## Pipeline Composition
@@ -109,22 +105,21 @@ left to right through a chain of functions, each receiving the output result of
 the previous step as input.
 
 ```comp
-gh.issue-list[repo=repo fields=fields]
-| where ($created-at >= cutoff)
-| insert-each[thumb = ($reaction-groups | tally ($content == "thumbs-up"))]
-| sort-by[thumb reverse]
-| first[5]
-| table.markdown
+github.issue-list :repo=repo :fields=fields
+| where :($created-at >= cutoff)
+| map :($thumbs-up = $reaction-groups | count :($content == "thumbs-up"))
+| sort :reverse :($thumbs-up)
+| first :5
 ```
 
-Each function in a pipeline receives the previous result as `$`. Parameters in
-`[]` customize behavior. Trailing blocks in `()` or `{}` are passed to the
-function as deferred block arguments. The pipeline reads as a description of
-what you want, not how to compute it.
+Each function in a pipeline receives the previous result as `$`. Parameters
+prefixed with `:` customize the behavior. Block parameters are must still be
+wrapped in `()` or `{}` statements. The pipeline reads as a description of what
+you want, not how to compute it.
 
 ## Dispatch with `!on`
 
-The `!on` operator performs type-based dispatch — Comp's unified branching
+The `!on` operator performs type-based dispatch, Comp's unified branching
 mechanism. It evaluates an expression and selects a branch based on the type or
 tag of the result, using the same matching engine as function overloading. Each
 branch starts with a `~tag` or `~type` pattern. When scores tie, the branch
@@ -132,17 +127,17 @@ listed first wins.
 
 ```comp
 !on (value <> $value)
-~less ($left | tree-contains[value])
-~greater ($right | tree-contains[value])
+~less ($left | tree-contains :value)
+~greater ($right | tree-contains :value)
 ~equal true
 
 !on ($id == id)
-~true @update {complete = (not $complete)}
+~true @update {complete = !not $complete}
 ~false $
 ```
 
 Comp comes with several standard library functions that build on this for
-higher-level branching — `if` and `else` functions, along with convenient
+higher-level branching, `if` and `else` functions, along with convenient
 conditional patterns. Design or extend your own based on specific use cases.
 
 ## Function Overloading
@@ -153,18 +148,17 @@ the input data's shape. Each overload can define its own parameters and body.
 
 ```comp
 !pure tree-insert ~nil (
-    !params value~num
-    tree[value=value]
+    :param value~num
+    tree :value=value
 )
-
 !pure tree-insert ~tree @update (
-    !params value~num
+    :param value~num
     !on (value <> $value)
-    ~less {left = ($left | tree-insert[value])}
-    ~greater {right = ($right | tree-insert[value])}
+    ~less {left = ($left | tree-insert :value)}
+    ~greater {right = ($right | tree-insert :value)}
 )
 
-!pure tree-values ~nil ({})
+!pure tree-values ~nil {}
 !pure tree-values ~tree @flat (
     ($left | tree-values)
     {$value}
@@ -174,7 +168,7 @@ the input data's shape. Each overload can define its own parameters and body.
 
 The `~nil` overloads handle the base case (empty tree). The `~tree` overloads
 handle the recursive case. When `tree-insert` is called, the runtime examines
-the input — if it's `nil`, the first definition runs; if it's a `~tree` shape,
+the input, if it's `nil`, the first definition runs; if it's a `~tree` shape,
 the second runs. Overloads must be unambiguous or the compiler reports an error.
 
 ## Wrappers
@@ -182,7 +176,7 @@ the second runs. Overloads must be unambiguous or the compiler reports an error.
 The `@` wrapper between the function name and its body wraps the function's
 execution. A wrapper receives the input, the function body as a callable, and
 the parameters. It controls whether, when, and how the inner function runs. This
-is similar to Python's decorator concept but more powerful — wrappers can be
+is similar to Python's decorator concept but more powerful, wrappers can be
 applied to any expression or block, not just function definitions. They control
 the orchestration of how the inner statement executes, while remaining readable
 and composable.
@@ -190,7 +184,6 @@ and composable.
 ```comp
 !pure tree-insert ~tree @update (...)
 !pure tree-values ~tree @flat (...)
-!func handle ~event @transact[scene] (...)
 ```
 
 `@update` runs the body and merges the resulting struct onto the original input.
@@ -198,18 +191,18 @@ This means the body only needs to return the fields that changed, not the entire
 structure. `@flat` collects multiple expressions from the body and concatenates
 them into a single sequence.
 
-Wrappers are not special language features — they follow a standard protocol
+Wrappers are not special language features, they follow a standard protocol
 and can be defined by any library.
 
 ```comp
 // A wrapper is just a function that receives the wrapping context
 !func retry (
-    !params times~num=3
-    !block wrapped
+    :param times~num = 3
+    :block wrapped
     // invoke wrapped, retry on failure up to `times` attempts
 )
 
-// Used as: !func flaky-fetch ~url @retry[times=5] (...)
+// Used as: !func flaky-fetch ~url @retry :times=5 (...)
 ```
 
 ## Local Bindings
@@ -221,7 +214,7 @@ whose value it captures.
 ```comp
 !let base ($price * $quantity)
 !let parent ($ | maya.get-parent)
-!let transform (parent | maya.create-node[config.layer-type])
+!let transform (parent | maya.create-node :config.layer-type)
 ```
 
 Locals are scoped to the function they are defined in. They are shared

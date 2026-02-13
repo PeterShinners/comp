@@ -66,11 +66,11 @@ multiline = """
 String operations come from the standard library and work through pipelines:
 
 ```comp
-"hello world" | uppercase            // "HELLO WORLD"
-"  padded  " | trim                  // "padded"
-"a b c" | split | join["-"]          // "a-b-c"
-email | match["^[^@]+@[^@]+$"]      // regex matching
-"Camp" | replace["amp" "omp"]        // "Comp"
+"hello world" | uppercase         // "HELLO WORLD"
+"  padded  " | trim               // "padded"
+"a b c" | split | join["-"]       // "a-b-c"
+email | match :"^[^@]+@[^@]+$"    // regex matching
+"Camp" | replace :"amp" :"omp"    // "Comp"
 ```
 
 ### Template Formatting
@@ -81,8 +81,8 @@ most cases. The `%%(` sequence produces a literal `%(` for the rare case where
 that's needed.
 
 ```comp
-"hello %(name)"                        // interpolate from scope
-"%(count)[04d] items at 100% off"     // formatted number, literal %
+"hello %(name)"                      // interpolate from scope
+"%(count)[04d] items at 100% off"    // formatted number, literal %
 "price: %($ * 1.08)[.2f]"            // expression with format spec
 ```
 
@@ -152,7 +152,7 @@ leaking through untyped paths.
 !shape branch ~tree|nil = nil
 
 !pure tree-insert ~nil (
-    !params value~num
+    :param value~num
     tree[value=value]
 )
 ```
@@ -171,7 +171,7 @@ producing garbage values.
 number = "42" | parse-num       // 42
 invalid = "abc" | parse-num     // failure
 text = 42 | fmt                 // "42"
-formatted = 3.14 | fmt["%()[.2f]"]  // "3.14"
+formatted = pi | fmt :"%()[.2f]"  // "3.14"
 ```
 
 ## Comparison and Ordering
@@ -188,8 +188,8 @@ This is especially useful for binary tree operations and sorted data structures.
 
 ```comp
 !on (value <> $value)
-~less ($left | tree-contains[value])
-~greater ($right | tree-contains[value])
+~less ($left | tree-contains :value)
+~greater ($right | tree-contains :value)
 ~equal true
 ```
 

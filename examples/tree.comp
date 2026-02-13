@@ -4,9 +4,12 @@ Operations for a minimal binary tree with shape-dispatched
 insertion, lookup, and in-order traversal.
 
 Highlights
-- Even though trees are immutable, they can be updated and rebuilt
-  quite naturally. Unchanged nodes are shared across generations of the tree
-  automatically and safely.
+
+- Immutable trees share unchanged nodes across generations, inserting a value only rebuilds the path from root to insertion point
+- `@flat` wrapper on `tree-values` concatenates multiple expressions into a single sequence, the in-order traversal reads as three lines: left, self, right
+- `~nil` vs `~tree` overloads replace null checks, the base case and recursive case are separate function definitions, not branches in one function
+- `@update` on `tree-insert ~tree` means the body only returns the one child field that changed, the other child and value pass through
+
 */
 
 !shape tree ~{value~num left~branch right~branch}
@@ -15,7 +18,7 @@ Highlights
 
 !startup main (
     {5 3 8 1 7 9}
-    | reduce --initial=nil --tree-insert
+    | reduce :initial=nil :tree-insert
     | tree-values
     | print
 )
@@ -23,35 +26,35 @@ Highlights
 
 /// Add new value into tree, dispatched on nil vs tree
 !pure tree-insert  ~nil (
-    --param value~num
+    :param value~num
 
     // which of these two forms is more idiomatic
     {value} | tree
-    tree --value=$value
+    tree :value=$value
 )
 
 !pure tree-insert ~tree @update(
-    --param value~num
+    :param value~num
 
     !on value <> $value
-    ~less {left = ($left | tree-insert --value)}
-    ~else {right = ($right | tree-insert --value)}
+    ~less {left = ($left | tree-insert :value)}
+    ~else {right = ($right | tree-insert :value)}
 )
 
 
 /// Check if tree contains value
 !pure tree-contains ~nil (
-    --param value~num
+    :param value~num
 
     false
 )
 
 !pure tree-contains ~tree (
-    --param value~num
+    :param value~num
 
     !on value <> $value
-    ~less ($left | tree-contains --value)
-    ~greater ($right | tree-contains --value)
+    ~less ($left | tree-contains :value)
+    ~greater ($right | tree-contains :value)
     ~equal true
 )
 

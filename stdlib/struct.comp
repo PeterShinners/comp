@@ -28,42 +28,43 @@
 /// Count total fields
 !pure length ~struct (
     !let count 0
-    $ | each (count + 1) | last
+    $ | each :(count + 1) | last
 )
 
 /// Get index position of named field
 !pure field-index ~struct (
-    !params field~text
-    $ | enumerate | find ($value.field == field) | $index
+    :param field~text
+    $ | enumerate | find :($value.field == field) | $index
     |? nil
 )
 
 /// Get first element(s)
 !pure first ~struct (
-    !params count~num=1
+    :param count~num=1
     !on (count == 1)
-    ~true ($ | at[index=0])
-    ~false ($ | slice[start=0 end=count])
+    ~true ($ | at :index=0)
+    ~false ($ | slice :start=0 end=count)
 )
 
 /// Get last element(s)
 !pure last ~struct (
-    !params count~num=1
+    :param count~num=1
     !let len ($ | length)
     !on (count == 1)
-    ~true ($ | at[index=-1])
-    ~false ($ | slice[start=(len - count) end=len])
+    ~true ($ | at :index=-1)
+    ~false ($ | slice :start=(len - count) :end=len)
 )
 
 /// Get range of elements
 !pure slice ~struct (
-    !params start~num end~num
-    $ | enumerate | filter ($index >= start && $index < end) | map ($value)
+    :param start~num 
+    :param end~num
+    $ | enumerate | filter :($index >= start && $index < end) | map :($value)
 )
 
 /// Get element at index (supports negative indexing)
 !pure at ~struct (
-    !params index~num
+    :param index~num
     !let len ($ | length)
     !let target (
         !on (index < 0)
@@ -71,26 +72,26 @@
         ~false index
     )
     !on (target < 0 || target >= len)
-    ~true (fail["index out of bounds"])
+    ~true (fail :"index out of bounds")
     ~false ($ | enumerate | find ($index == target) | $value)
 )
 
 /// Find first element matching condition
 !pure find ~struct (
-    !block test
-    $ | filter (test) | first
-    |? fail["not found"]
+    :block test
+    $ | filter :(test) | first
+    |? fail :"!not found"
 )
 
 /// Check if struct contains value
 !pure contains ~struct (
-    !params value
+    :param value
     $ | any ($ == value)
 )
 
 /// Get all items as field/value pairs
 !pure items ~struct (
-    $ | each (
+    $ | each :(
         {field=$field value=$value}
     )
 )
@@ -98,71 +99,71 @@
 /// Reverse field order
 !pure reverse ~struct (
     !let len ($ | length)
-    range[end=len]
-    | map ($ | at[index=(len - 1 - $)])
+    range :end=len
+    | map :($ | at :index=(len - 1 - $))
 )
 
 /// Sort by value
 !pure sort ~struct (
-    !params key=pass reverse~bool=false
+    :param key=pass reverse~bool=false
 
     //x placeholder: needs proper sort implementation
     //x bubble sort in immutable language is painful
     //x this would likely be a builtin or use a merge sort
-    $ | builtin.sort[key reverse]
+    $ | builtin.sort :key :reverse
 )
 
 /// Remove specified fields
 !pure drop ~struct (
-    !params fields~struct
-    $ | filter (not (fields | contains[$field]))
+    :param fields~struct
+    $ | filter :(!not (fields | contains :$field))
 )
 
 /// Keep only specified fields
 !pure select ~struct (
-    !params fields~struct
-    fields | map ($field)
+    :param fields~struct
+    fields | map :($field)
 )
 
 /// Extract just values
 !pure values ~struct (
-    $ | map ($value)
+    $ | map :($value)
 )
 
 /// Extract just field names
 !pure fields ~struct (
-    $ | filter ($field != nil) | map ($field)
+    $ | filter :($field != nil) | map :($field)
 )
 
 /// Merge structs (right-biased)
 !pure merge ~struct @update (
-    !params updates~struct
+    :param updates~struct
     updates
 )
 
 /// Insert value at position
 !pure insert ~struct (
-    !params at~num value
-    !let before ($ | slice[start=0 end=at])
-    !let after ($ | slice[start=at end=($ | length)])
+    :param at~num value
+    !let before ($ | slice :start=0 :end=at)
+    !let after ($ | slice :start=at :end=($ | length))
     {before value after} | flat
 )
 
 /// Test if struct starts with prefix
 !pure starts-with ~struct (
-    !params prefix~struct
+    :param prefix~struct
     !let prefix-len (prefix | length)
     !on ($ | length < prefix-len)
     ~true false
-    ~false ($ | slice[start=0 end=prefix-len] == prefix)
+    ~false ($ | slice :start=0 :end=prefix-len == prefix)
 )
 
 /// Test if struct ends with suffix
 !pure ends-with ~struct (
-    !params suffix~struct
+    :param suffix~struct
     !let suffix-len (suffix | length)
     !let len ($ | length)
     !on (len < suffix-len)
     ~true false
-    ~false ($ | slice[start=(len - suffix-len) end=len] == suffix)
+    ~false ($ | slice :start=(len - suffix-len) end=len == suffix)
 )

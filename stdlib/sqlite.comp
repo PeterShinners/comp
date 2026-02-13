@@ -45,52 +45,47 @@
 }
 
 
-/// Test function to verify failure handling
-!func test-fail (
-    fail["The database has failed" tag=fail.database]
-)
-
 /// Test function that raises a Python sqlite exception
 !func test-sqlite-error (
-    py.call-func[name="sqlite3.connect"]
+    py.call-func :name="sqlite3.connect"
         {database="/invalid/path/that/does/not/exist/test.db"}
 )
 
 
 /// Open database connection from file path
 !func database-file ~text (
-    !params connect-args
-    !let pydb (py.call-func[name="sqlite3.connect"] {database=$})
-    !let db (grab-handle[handle-db])
+    :params connect-args
+    !let pydb (py.call-func :name="sqlite3.connect" {database=$})
+    !let db (grab-handle :handle-db)
     db @update {private.py = pydb}
 )
 
 /// Open database connection from URL
 !func database-url ~text (
-    !params connect-args
-    !let pydb (py.call-func[name="sqlite3.connect"] {database=$ url=true})
-    !let db (grab-handle[handle-db])
-    db @update {private.py = pydb}
+    :params connect-args
+    !let pydb (py.call-func :name="sqlite3.connect" :{database=$ url=true})
+    !let db (grab-handle :handle-db)
+    db @update :{private.py = pydb}
 )
 
 /// Open in-memory database
 !func database-memory (
-    !params connect-args
-    !let pydb (py.call-func[name="sqlite3.connect"] {database=":memory:"})
-    !let db (grab-handle[handle-db])
-    db @update {private.py = pydb}
+    :params connect-args
+    !let pydb (py.call-func :name="sqlite3.connect" :{database=":memory:"})
+    !let db (grab-handle :handle-db)
+    db @update :{private.py = pydb}
 )
 
 /// Execute SQL statement and return results
 !func execute ~{db~handle-db} (
-    !params sql~text
+    :param sql~text
 
-    !let cursor (py.call[method="cursor"] {self=$db.private.py})
-    !let exec (py.call[method="execute"] {self=cursor sql})
-    !let cursor-vars (py.call[method="vars"] {self=cursor})
+    !let cursor (py.call :method="cursor" {self=$db.private.py})
+    !let exec (py.call :method="execute" :{self=cursor sql})
+    !let cursor-vars (py.call :method="vars" :{self=cursor})
 
     execute-result {
-        rows = (py.call[method="fetchall"] {self=cursor} | py.pull)
+        rows = (py.call :method="fetchall" :{self=cursor} | py.pull)
         columns = cursor-vars.description
         row-id = cursor-vars.lastrowid
         row-count = cursor-vars.rowcount
@@ -99,5 +94,5 @@
 
 /// Called automatically as handle is dropped
 !func drop-handle ~{db~handle-db} (
-    py.call[method="close"] {self=$db.private.py}
+    py.call :method="close" :{self=$db.private.py}
 )
