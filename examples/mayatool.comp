@@ -9,7 +9,7 @@ Insert a parent between two nodes and position it partway
 between them, preserving positioning when reparenting.
 (Which famously does not work once things are animated.)
 
-Based on https://github.com/TrevisanGMW/gt-tools
+Based on https--//github.com/TrevisanGMW/gt-tools
 */
 
 !shape layer-config ~{
@@ -25,25 +25,24 @@ Based on https://github.com/TrevisanGMW/gt-tools
 
     !transact {maya.scene maya.preserve-selection}
     maya.selection
-    | map (
+    | map --(
         !let parent ($ | maya.get-parent)
         !let transform parent
-        | maya.create-node[
-            config.layer-type
-            name = @fmt "%(name)%(config.suffix)"
-        ]
-        | maya.set-attr[use-outliner-color=true]
-        | maya.set-attr[outliner-color=config.outliner-color]
-        | maya.parent[parent]
+        | maya.create-node
+            --config.layer-type
+            --name=@fmt"%(name)%(config.suffix)"
+        | maya.set-attr --use-outliner-color=true
+        | maya.set-attr --outliner-color=config.outliner-color
+        | maya.parent --parent
 
         | !let target !on config.parent-type == parent
         ~true parent
         ~false $
 
         !on (target | maya.exists)
-        ~true (target | maya.constrain[transform])
+        ~true (target | maya.constrain --transform)
 
-        ($ | maya.parent[transform])
+        ($ | maya.parent --transform)
     )
 )
 
@@ -53,7 +52,7 @@ Create random bubble shapes.
 Create a group of random positioned and sized spheres
 around the selected objects.
 
-Based on https://github.com/nestrada2/bubbles
+Based on https--//github.com/nestrada2/bubbles
 */
 
 !shape bubble-args ~{
@@ -64,22 +63,21 @@ Based on https://github.com/nestrada2/bubbles
 
 
 !func create-bubbles ~dag-paths (
-    !params config ~bubble-args
+    --param config ~bubble-args
 
     !transact {maya.scene}
 
-    !let group ($ | maya.create-node[group name="bubbles"] | maya.select[replace])
+    !let group ($ | maya.create-node --group --name="bubbles" | maya.select --replace)
 
     !transact {maya.preserve-selection}
 
-    $ | map[
-        !let position = repeat[count=3] (config.position-range | random)
+    $ | map --(
+        !let position = repeat --3 --(config.position-range | random)
         !let dag-path $
         | group
-        | maya.poly-sphere[
-            name = @fmt "bubble-%($name)"
-            radius = (config.radius-range | random)
-        ]
-        | maya.xform[position=position]
-    ]
+        | maya.poly-sphere
+            --name=@fmt"bubble-%($name)"
+            --radius=(config.radius-range | random)
+        | maya.xform --position=position
+    )
 )

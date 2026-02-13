@@ -19,43 +19,43 @@ using shape-based function overloading.
 !startup game (
     !let window 
 	pg.display
-	| window[1280 480 scaled=true]
-	| caption["Monkey Fever"]
-	| mouse-visible[false]
+	| window --{1280 480} --scaled
+	| caption --"Monkey Fever"
+	| mouse-visible --false
 
     !let state {
-        bgd = pg.card[window.size | fill {0.7 0.9 0.7}]
-        fist = pg.card[res.fist pivot={235 80}]
-        chimp = pg.card[res.chimp pivot=center]
+        bgd = pg.card --window.size --fill={0.7 0.9 0.7}
+        fist = pg.card --res.fist --pivot={235 80}
+        chimp = pg.card --res.chimp --pivot=center
     }
 
-    pg.loop[window quit-on={event.quit key.escape}] (
+    pg.loop --window --quit-on={event.quit key.escape} --(
 		!arg state~state // loop sets this up as context?
 
         $events 
 		| each[handle]
 
 		$draw
-        | clear[{0.7 0.9 0.7}]
-        | draw-cards[state.chimp state.fist]
+        | clear --{0.7 0.9 0.7}
+        | draw-cards --{state.chimp state.fist}
 	)
 )
 
 
 /// Handle mouse down: punch and check for hit
-!func handle @update ~pg.event (
-    !params state~state
+!func handle ~pg.event @update(
+    --param state~state
 
     $type ?? mouse.down | else (pass)
 
-    !on ({state.fist state.chimp} | intersect[overlap=5])
+    !on {state.fist state.chimp} | intersect --overlap=5
     ~true {
-        chimp.rotate = (state.chimp.rotate | spin[360 0.5 ease-out])
-        chimp.translate.x = (state.chimp.translate.x | update[after=chimp.rotate])
-        commands = {audio.play[res.punch]}
+        chimp.rotate = (state.chimp.rotate | spin --360 --0.5 --ease-out)
+        chimp.translate.x = (state.chimp.translate.x | update --after=chimp.rotate)
+        commands = {audio.play --res.punch}
     }
     ~false {
-        commands = {audio.play[res.whiff]}
+        commands = {audio.play --res.whiff}
     }
 )
 
@@ -63,9 +63,9 @@ using shape-based function overloading.
 /// Handle mouse up: retract fist
 !func handle pg.event[type==mouse.up] (
 	//x how to make value based types from fields like this?
-	!params state~state
+	--param state~state
 
-	state.fist | move[{-10 -90}]
+	state.fist | move --{-10 -90}
 )
 
 //x note, realistically these handlers want take state as input and event as a modifier
@@ -75,7 +75,7 @@ using shape-based function overloading.
 
 /// Handle mouse move: track fist position
 !func handle ~pg.even[type==mouse.move] (
-	!params state~state
+	--param state~state
 	
-	state.fist | position[$position]
+	state.fist | position --$position
 )

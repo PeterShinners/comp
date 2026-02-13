@@ -7,12 +7,12 @@ and ceremeny and boilerplate. The type hints, the dataclasses, the defensive
 checks and repetitive declarations are getting in the way. What if robust
 patterns and designs could be the default instead?
 
-A language should be its own best example. The Comp standard libraries
-should reflect what your own good code should look like.
+A language should be its own best example. The Comp standard libraries should
+reflect what your own good code should look like.
 
-Comp runs inside Python, comfortably interopting in both directions. The
-syntax and interpreter are still evolving, but if language design interests you
-or you've wanted a CoffeeScript for Python, there might be something here.
+Comp runs inside Python, comfortably operating in both directions. The syntax
+and interpreter are still evolving, but if language design interests you or
+you've wanted a CoffeeScript for Python, there might be something here.
 
 ## Example
 
@@ -27,15 +27,13 @@ or you've wanted a CoffeeScript for Python, there might be something here.
     !let repo "nushell/nushell"
     !let cutoff (datetime.now - 1[week])
     !let fields {"created-at" "reaction-groups" "title" "url"}
-    !let thumb "👍"
 
-    gh.issue-list[repo=repo fields=fields]
-    | where ($created-at >= cutoff)
-    | insert-each[
-        'thumb' = ($reaction-groups | tally ($content == "thumbs-up"))
-    ]
-    | sort-by[thumb reverse]
-    | first[5]
+    gh.issue-list :repo=repo :fields=fields
+    | where --($created-at >= cutoff)
+    | map --($thumbs-up = $reaction-groups | count --($content == "thumbs-up"))
+    | sort --reverse --($thumbs-up)
+    | first --5
+    | select --{"thumbs-up"="👍" "title" "url"}
     | table.markdown
 )
 ```

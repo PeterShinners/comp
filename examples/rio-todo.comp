@@ -32,33 +32,33 @@ Based on migration from Rio library for Python.
 !func todo-app ~state (
     !context state $
 
-    rio.column[spacing=2] {
-        rio.row {
-            rio.text-input[
-                text=$input
-                placeholder="What needs doing?"
-                flex=1
-                on-change=(merge[input=$value])
-                on-submit=add-todo
-            ]
-            rio.button[
-                text="Add"
-                disabled=($input | trim | empty)
-                on-click=add-todo
-            ]
+    rio.column --spacing=2 --{
+        rio.row --{
+            rio.text-input --{
+                text = $input
+                placeholder = "What needs doing?"
+                flex = 1
+                on-change = merge --input=$value]
+                on-submit = add-todo
+            }
+            rio.button --{
+                text = "Add"
+                disabled = ($input | trim | empty)
+                on-click = add-todo
+            }
         }
 
         $todos
-        | where (todo-visible[filter=$$filter])
-        | map (todo-item)
+        | where --(todo-visible[filter=$$filter])
+        | map --(todo-item)
 
-        rio.row {
+        rio.row --{
             {all active complete}
-            | map (
+            | map --(
                 rio.button[
                     text = ($ | to-text)
-                    variant = ($ == $$filter | pick["primary" "outline"])
-                    on-click = (merge[filter=$])
+                    variant = ($ == $$filter | pick --{"primary" "outline"})
+                    on-click = (merge --filter=$)
                 ]
             )
         }
@@ -68,38 +68,39 @@ Based on migration from Rio library for Python.
 
 /// Build individual todo item component
 !func todo-item ~todo (
-    rio.row[align=center] {
-        rio.checkbox[
-            checked=$complete
-            on-change=(toggle-todo[$id])
+    rio.row --align=center --{
+        rio.checkbox --{
+            checked = $complete
+            on-change = (toggle-todo --$id)
         ]
-        rio.text[
-            text=$title
-            flex=1
-            style=($complete | pick["strikethrough" nil])
-        ]
-        rio.icon-button[
-            icon="delete"
-            on-click=(delete-todo[$id])
-        ]
+        rio.text --{
+            text = $title
+            flex = 1
+            style = ($complete | pick --"strikethrough" --nil)
+        }
+        rio.icon-button --{
+            icon = "delete"
+            on-click = (delete-todo --$id)
+        }
     }
 )
 
 
 /// Create new todo from current input
-!func add-todo ~state @update {
+!func add-todo ~state @update{
     input = ""
-    todos = ($todos | append (todo[title=($input | trim | if-empty["untitled"])]))
+    todos = ($todos | append --(
+        todo --title=($input | trim | if-empty --"untitled")
+    ))
 }
 
 /// Toggle todo complete status
-!func toggle-todo state @update (
-    !params id~id
-
+!func toggle-todo state @update(
+    --param id~id
     {
-        todos = ($todos | map (
+        todos = ($todos | map --(
             !on ($id == id)
-            ~true @update {complete = (not $complete)}
+            ~true @update{complete = (!not $complete)}
             ~false $
         ))
     }
@@ -107,19 +108,17 @@ Based on migration from Rio library for Python.
 
 
 /// Remove item from state
-!func delete-todo ~state @update (
-    !params id~id
-    
-    {todos = ($todos | where ($id != id))}
-)
+!func delete-todo ~state @update{
+    --param id~id
+    todos = ($todos | where --($id != id))
+}
 
 
 /// Determine if an item should be visible based on filter
 !pure todo-visible ~todo (
-    !params filter~visibility
-
+    --param filter~visibility
     !on filter
     ~all true
-    ~active (not $complete)
+    ~active (!not $complete)
     ~complete $complete
 )

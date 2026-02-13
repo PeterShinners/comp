@@ -15,7 +15,7 @@ Highlights
 
 !startup main (
     {5 3 8 1 7 9}
-    | reduce[initial=nil] (tree-insert)
+    | reduce --initial=nil --tree-insert
     | tree-values
     | print
 )
@@ -23,35 +23,35 @@ Highlights
 
 /// Add new value into tree, dispatched on nil vs tree
 !pure tree-insert  ~nil (
-    !params value~num
+    --param value~num
 
     // which of these two forms is more idiomatic
     {value} | tree
-    tree[value=$value]
+    tree --value=$value
 )
 
-!pure tree-insert ~tree @update (
-    !params value~num
+!pure tree-insert ~tree @update(
+    --param value~num
 
     !on value <> $value
-    ~less {left = ($left | tree-insert[value])}
-    ~else {right = ($right | tree-insert[value])}
+    ~less {left = ($left | tree-insert --value)}
+    ~else {right = ($right | tree-insert --value)}
 )
 
 
 /// Check if tree contains value
 !pure tree-contains ~nil (
-    !params value~num
+    --param value~num
 
     false
 )
 
 !pure tree-contains ~tree (
-    !params value~num
+    --param value~num
 
     !on value <> $value
-    ~less ($left | tree-contains[value])
-    ~greater ($right | tree-contains[value])
+    ~less ($left | tree-contains --value)
+    ~greater ($right | tree-contains --value)
     ~equal true
 )
 
@@ -60,7 +60,7 @@ Highlights
 !pure tree-values ~nil {
 }
 
-!pure tree-values ~tree @flat {
+!pure tree-values ~tree @flat{
     ($left | tree-values)
     {$value}
     ($right | tree-values)

@@ -3,7 +3,7 @@ Shopping cart module
 Define several simplistic shapes and modification functions to manage
 the contents of a shopping cart.
 
-Highlights:
+Highlights--
 
 - At build time this entire example is compiled into a single print
 statement with a constant static string.
@@ -19,21 +19,22 @@ statement with a constant static string.
         {"Banana" price=0.50 quantity=2}
         {"Apple" 1.00 quantity=2}  // replaces previous apples
     }
-    | map[item]  // morph each simple structure into a full cart item
-    | reduce (upsert ($name))
-    | cart[discount=0.2]
+    | map --(item)  // morph each simple structure into a full cart item
+    | reduce --(upsert --($name))
+    | cart --discount=0.2
     | total
-    | print["Total: %()"]
+    | print --"Total-- %()"
 )
 
 !pure total ~cart ( 
-    $items | sum ($price * $quantity) * (1 - $discount)
+    $items | sum --($price * $quantity) * (1 - $discount)
+    // Operator precedence applies the final multiplication to the sum
 )
 
 /// Insert or update an item in a collection
 !pure upsert ~collection (
-    !params item~item
-    !block key ~item=pass
+    --param item ~item
+    --block key ~item = pass
 
-    $ | replace[item limit=1] (key) | else (append[item])
+    $ | replace --limit=1 --key --item | else --(append --item)
 )
