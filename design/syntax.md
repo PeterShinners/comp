@@ -2,9 +2,10 @@
 
 Comp is a whitespace-flexible, expression-oriented language. Source code is a
 series of module-level declarations and expressions using three paired
-delimiters: `()` for blocks and expressions, `{}` for struct containers, and
-`[]` for function parameters. These three bracket types are the backbone of the
-grammar and each has distinct semantics described throughout this guide.
+delimiters: `()` for blocks and expressions, `{}` for struct containers. These
+three bracket types are the backbone of the grammar and each has distinct
+semantics described throughout this guide. The language also provides uses `~{}`
+for shape definitions and `[]` inside of those for type guards and conditions.
 
 Whitespace is required only between fields of a structure and between tokens
 that would otherwise be ambiguous. Tabs are preferred for indentation. A
@@ -14,7 +15,7 @@ formatter enforce consistency.
 
 ## Tokens and Naming
 
-Identifiers use **kebab-case** — lowercase words separated by hyphens. Digits
+Identifiers use **kebab-case**, lowercase words separated by hyphens. Digits
 are allowed after the first character. Leading and trailing underscores are
 permitted but leading or trailing hyphens are not. Characters are case-sensitive
 and the full UAX #31 Unicode specification is supported, but lower case is
@@ -22,8 +23,8 @@ preferred. These unicode rules match what Rust and Python allow for identifiers
 (with the addition of hyphens). Identifiers cannot begin or end with hyphens.
 
 ```comp
-valid-name      html5        _private       用户名
-Content-Accept  is-active   pad-left       tree-insert
+valid-name      html5       _private     用户名
+Content-Accept  is-active   pad-left     tree-insert
 ```
 
 ## Identifier Fields
@@ -65,7 +66,7 @@ attached to any value.
     // normal implementation comment
     !params value~num
     /* block comments
-       can span multiple lines */
+       can span multiple lines /* and nest */ */
 )
 ```
 
@@ -101,9 +102,8 @@ be a simple expression. The `~` shape can be used to reference shapes or
 build unioned types, but with the curly braces defines a literal shape.
 
 **Square brackets `[]`** are type modifiers. These can be applied to types
-inside of a shape definition or onto any callable object to provide additional
-controls that define how that invoked callable should operate. This defines a
-set of "guards" or "conditions" that allow advanced type matching.
+inside of a shape definition. This defines a set of "guards" or "conditions"
+that allow advanced type matching.
 
 ```comp
 {1 2 3}  // Ordered struct with three unnamed fields
@@ -138,7 +138,7 @@ provide either named or positional parameters.
 
 The `!fail` operator raises a failure value that fast-forwards through the call
 chain. Failures skip all intermediate pipeline steps and struct field
-evaluations until caught. Failures carry a value — typically a struct with a
+evaluations until caught. Failures carry a value, typically a struct with a
 message and optional tag for categorization.
 
 ```comp
@@ -151,24 +151,24 @@ flowing through a pipeline and provides an alternative path. The value fallback
 `??` catches a failure on any single expression.
 
 ```comp
-// Pipeline fallback — catch failure from preceding pipeline
+// Pipeline fallback, catch failure from preceding pipeline
 data | find :name="alice" |? default-user
 risky-operation |? (log-error | safe-default)
 
-// Value fallback — catch failure on any expression
+// Value fallback, catch failure on any expression
 config.optional-field ?? "default-value"
 $timeout ?? 30
 ```
 
 The distinction is scope: `|?` operates on the entire pipeline result up to that
 point, while `??` operates on the single expression to its left. Both replace
-the failure with the right-hand value. Failures are not exceptions — they
+the failure with the right-hand value. Failures are not exceptions, they
 propagate through values, not through a separate control channel, making failure
 handling explicit and traceable.
 
 ## Input References
 
-The `$` sigil accesses the pipeline input — the data flowing into the current
+The `$` sigil accesses the pipeline input, the data flowing into the current
 block or function. Field access drops the dot for the common case, using `$`
 directly followed by the field name.
 
@@ -186,13 +186,13 @@ $$filter       // outer scope's field
 ## Operators
 
 Mathematical operators follow standard precedence. All arithmetic operates on
-numbers only — no string concatenation or boolean arithmetic.
+numbers only, no string concatenation or boolean arithmetic.
 
 ```comp
 + - * /            // arithmetic
 == != < > <= >=    // comparison (return true/false)
 <>                 // three-way comparison (returns ~less ~equal ~greater)
-&& || !!           // logical (booleans only)
+:and :or :not      // logical (booleans only)
 |                  // pipeline
 |?                 // pipeline fallback
 ??                 // value fallback
@@ -213,7 +213,7 @@ through library functions, including powerful template formatting.
 
 The formatting functions in the library use `%(expression)` with an optional
 `[format]` suffix. A bare `%` without a following `(` is just a literal percent
-sign — no escaping needed in most cases. Use `%%(` for the rare case of a
+sign, no escaping needed in most cases. Use `%%(` for the rare case of a
 literal `%(`.
 
 ```comp
@@ -234,7 +234,7 @@ than used inside of the various blocks like `()` and `{}`. These declarations
 build the module's namespace and are fully resolved before any code executes.
 
 ```comp
-!import rio {comp "@gh/rio-dev/rio-comp"}   // import module
+!import rio comp "@gh/rio-dev/rio-comp"     // import module
 !shape todo ~{title~text complete~bool}     // define data shape
 !tag visibility {all active complete}       // define tag hierarchy
 !startup main (...)                         // define entry point
@@ -287,22 +287,16 @@ are in the [Functions](function.md) design document.
 
 ## Wrappers
 
-The `@` prefix attaches a wrapper to any statement. Wrappers are higher-order
-functions that receive the input, the wrapped block as a callable, and the
-parameters, controlling how the statement is executed. This is similar to
-Python's decorator concept but more powerful — wrappers can be applied to any
-expression or block, not just function definitions, and they control the full
-orchestration of how the inner expression runs.
+The `@` prefix attaches a wrapper to any statement. Wrappers control how the
+statement executes — they can modify results, retry on failure, collect multiple
+values, or apply template interpolation. Wrappers work on function definitions,
+inline expressions, and string literals alike.
 
 ```comp
 !pure tree-insert ~tree @update (...)  // merge result onto input
-!pure tree-values ~tree @flat (...)    // concatenate multiple results
 | map @update {name = ($name | upper)} // inline wrapper on expression
 @fmt"hello %(name)"                    // string template wrapper
 ```
 
-Common wrappers include `@update` (merge fields onto input), `@flat`
-(concatenate results), and `@fmt` (template interpolation). Libraries can define
-custom wrappers for retry logic, transactions, caching, and more. See
-[Structures](struct.md) for wrapper semantics and [Functions](function.md) for
-wrappers on function definitions.
+See [Functions](function.md) for wrapper semantics, the wrapper protocol, and
+how to define custom wrappers.

@@ -1,0 +1,65 @@
+/**
+Advent of Code 2025, Day 1 (part 1) 
+Parse dial movement instructions to find number of 0 landings.
+
+Highlights:
+- Parsing lines into simple relative offsets
+- No `%` modifier operator, but the math `divmod` functions works cleanly
+*/
+
+!func aoc-2025-day1 (
+    read-lines
+    | map :parse
+    | accumulate :50 :($ + $value)
+    | count :($ | divmod :100 | $ == 0)
+    | print
+)
+
+!pure parse ~text (
+    !let sign ($#0 == "R" | pick :1 :-1)
+    !let step ($ | slice :1 | parse-num)
+    sign * step
+)
+
+
+
+/**
+Advent of Code 2022, Day 7 (part 1) 
+No Space Left On Device
+Parse terminal output to reconstruct directory sizes.
+
+Highlights:
+- !let rebinding tracks mutable state (cwd) across map iterations
+- path-ancestors fans each file size to all parent directories in one step
+- No tree construction — paths as strings with group-by replaces recursion
+- The main pipeline reads as a recipe: parse, expand, group, filter, sum
+*/
+
+!startup main (
+    read-lines
+    | parse-entries
+    | map @flat :($path | path-ancestors | map :{path=$ size=$$size})
+    | group :($path) | sum :($size)
+    | where :($size <= 100000)
+    | sum :($size)
+    | print
+)
+
+!func parse-entries ~text{} (
+    !let cwd "/"
+    $ | map :(
+        !on $ | slice :0 :4
+        ~text<"$ ls"> skip
+        ~text<"dir "> skip
+        ~text<"$ cd"> (!let cwd ($ | slice :5 | path-resolve :cwd)   skip)
+        ~text {path=cwd size=($ | split-whitespace :limit=1 | $#0 | parse-num)}
+    )
+)
+
+/// All ancestor paths including self
+/// "/a/e" -> {"/" "/a" "/a/e"}
+!pure path-ancestors ~text (
+    $ | split :"/"
+    | accumulate :"" :($ | join :"/" :$value)
+    | map :($ | if-empty :"/")
+)

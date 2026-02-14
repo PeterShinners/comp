@@ -6,7 +6,7 @@ any mix of named and positional fields, accessed by name or position. Fields are
 always ordered. Every piece of data in Comp is either a simple type (number,
 text, boolean, tag) or a structure containing other values.
 
-Immutability is fundamental — structures cannot be modified after creation.
+Immutability is fundamental, structures cannot be modified after creation.
 Operations that appear to change data actually produce new structures with
 shared internals, similar to how Python handles strings.
 
@@ -35,7 +35,7 @@ users.#0.name                   // chained access
 
 ## Shapes
 
-Shapes define structural types — they are simultaneously a schema, a validator,
+Shapes define structural types, they are simultaneously a schema, a validator,
 and a constructor. Where other languages split these roles across dataclasses,
 pydantic models, and type hints, Comp shapes handle all three. A shape
 definition is also a callable: passing data to a shape validates and converts it.
@@ -59,7 +59,7 @@ shape" or "matches this type."
 ### Optional Fields and Defaults
 
 Optional fields use union types with `nil` and provide defaults. Fields without
-defaults are required — missing them causes a build-time or morphing error.
+defaults are required, missing them causes a build-time or morphing error.
 
 ```comp
 !shape config ~{
@@ -111,7 +111,7 @@ remaining individually usable.
 A tag's dual nature as value and type enables powerful patterns. As values,
 tags can be stored in fields, passed to functions, and compared. As types, tags
 constrain shapes to accept only values from a specific hierarchy. When used as a
-type, a parent tag means "any child of this tag" — the parent itself is not a
+type, a parent tag means "any child of this tag", the parent itself is not a
 valid value. `~bool` accepts `true` or `false`, never `bool` itself.
 
 Tags are the foundation of Comp's dispatch system. Function overloading,
@@ -145,29 +145,29 @@ exactly three, `{1,5}` for one to five, `{2,}` for two or more.
 !shape sprite ~{position~num{2} color~rgb layers~image{1,4}}
 ```
 
-Guards validate during morphing but don't persist on values — a number that
+Guards validate during morphing but don't persist on values, a number that
 passes `[min=0]` is still just a number. This is distinct from units, which
 attach to values and persist through operations.
 
 ## Wrappers
 
 The `@` prefix on a block or expression attaches a wrapper that controls how
-the result is interpreted. Wrappers are higher-order functions — they receive
+the result is interpreted. Wrappers are higher-order functions, they receive
 the input, the wrapped block as a callable, and the parameters, and decide the
 orchestration. This is fundamentally different from piping through a function;
 the wrapper controls whether and how the inner block executes.
 
 ```comp
 @update {name = ($name | upper)}   // merge result onto input
-@flat {($left | values) $value ($right | values)}  // concatenate results
+@flat {($left | values) {$value} ($right | values)}  // concatenate results
 @fmt"hello %(name)"                // template interpolation
 ```
 
 `@update` runs the block and merges the resulting fields onto the original
 input. `@flat` collects multiple expressions and concatenates them into a single
 sequence. `@fmt` activates template interpolation on a string. Libraries can
-define custom wrappers — `@retry[times=3]`, `@transact[scene]`,
-`@cache[ttl=60]` — without any special language support. The wrapper protocol
+define custom wrappers, `@retry[times=3]`, `@transact[scene]`,
+`@cache[ttl=60]`, without any special language support. The wrapper protocol
 is a standard function signature.
 
 Wrappers appear on function definitions to control the function's behavior for
@@ -188,16 +188,16 @@ are never equal. Named field order does not matter for equality, but positional
 order does.
 
 ```comp
-{x=1 y=2} == {y=2 x=1}   // true — named order irrelevant
-{1 2 3} == {1 2 3}         // true
-5 == 5.0                   // true — same numeric value
-5 == "5"                   // false — different types
+{x=1 y=2} == {y=2 x=1}   // true, named order irrelevant
+{1 2 3} == {1 2 3}       // true
+5 == 5.0                 // true, same numeric value
+5 == "5"                 // false, different types
 ```
 
 Ordering (`<`, `>`, `<=`, `>=`) provides total ordering across all types. Any
 two values can be compared with deterministic results. Types are ordered by
 priority: nil, empty struct, false, true, number, text, tag, struct. Within a
-type, values use their natural ordering — numeric for numbers, lexicographic for
+type, values use their natural ordering, numeric for numbers, lexicographic for
 text, field-by-field for structs.
 
 The three-way comparison `<>` returns a tag (`~less`, `~equal`, or `~greater`)
@@ -213,7 +213,7 @@ rather than a boolean, enabling clean dispatch over all three cases.
 ## Units
 
 Units extend number and text values with persistent type information. A number
-isn't just `12` — it's `12[inch]` or `12[second]`. The type system prevents
+isn't just `12`, it's `12[inch]` or `12[second]`. The type system prevents
 mixing incompatible units, and compatible units within the same family convert
 automatically.
 
@@ -224,12 +224,12 @@ height = 12[inch]
 width = 3[foot]
 timeout = 30[second]
 
-total = 12[inch] + 1[foot]         // 24[inch], auto-converts
-height[meter]                       // 0.3048
-mixed = 5[meter] + 3[second]       // ERROR — incompatible units
+total = 12[inch] + 1[foot]     // 24[inch], auto-converts
+height[meter]                  // 0.3048
+mixed = 5[meter] + 3[second]   // ERROR, incompatible units
 ```
 
-For text, units mark domain or format — a SQL query or HTML fragment carries its
+For text, units mark domain or format, a SQL query or HTML fragment carries its
 context through operations, enabling proper escaping during interpolation. Units
 are separate from guards: guards validate during morphing and don't persist,
 while units attach to values and flow through operations.

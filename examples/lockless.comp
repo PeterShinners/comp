@@ -13,7 +13,7 @@ Highlights:
   implementation
 */
 
-!import atomic {comp "atomic"}
+!import atomic comp "atomic"
 
 !shape node ~{value~text  next~node|nil}
 !shape stack ~{head~node|nil  version~num}

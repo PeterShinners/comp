@@ -29,9 +29,10 @@ with a deferred `{}` structure literal, but typically this is not as common.
 )
 
 !pure lookup-field ~struct (
-    :param field~text fallback~any
+    :param field~text 
+    :param fallback~any
 
-    $.'field' ?? fallback
+    $'field' ?? fallback
 )
 ```
 
@@ -50,6 +51,9 @@ constraint, and a default value. Parameters without defaults are required.
 Unlike defaults in shape definitions, these parameter definitions can use full
 expressions and pipelines that are only invoked if the parameter is not
 provided.
+
+`:params` declares a shape as a collection of parameters, individually applied
+to the functions.
 
 `:block` declares that the function accepts a deferred block as a parameter. The
 block declaration can define the input shape for the block and an optional

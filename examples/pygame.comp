@@ -15,7 +15,7 @@ using shape-based function overloading.
 
 */
 
-!import pg {comp "pygame-comp-spectacular@1.0.4"}
+!import pg comp "pygame-comp-spectacular@1.0.4"
 
 
 !shape state ~{

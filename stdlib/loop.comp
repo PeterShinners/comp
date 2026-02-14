@@ -18,7 +18,7 @@
     :param step~num=1
 
     !on (step == 0)
-    ~true (fail :"range step can!not be zero")
+    ~true (fail :"range step cannot be zero")
     ~false (
         unfold :seed=start (
             !on ($ >= end)
@@ -48,7 +48,7 @@
 /// Test if any element matches condition
 !pure any ~struct (
     :block test
-    $ | filter :test | empty | !not
+    $ | filter :test | !not empty
 )
 
 /// Test if all elements match condition
@@ -60,7 +60,7 @@
 /// Test if no elements match condition
 !pure none ~struct (
     :block test
-    $ | any :test | !not
+    $ | !not any :test
 )
 
 /// Count elements matching optional condition

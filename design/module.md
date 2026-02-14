@@ -3,31 +3,31 @@
 Comp modules are declarative namespaces that can be fully analyzed without
 executing any code. A module defines shapes, tags, functions, and metadata that
 become a fixed namespace resolved before runtime. This means the compiler knows
-every reference, every type, and every dependency at build time — preventing
+every reference, every type, and every dependency at build time, preventing
 entire categories of errors before your code ever runs.
 
 Modules can be single `.comp` files or directories of files. Both appear as a
 single namespace. There are no circular dependency concerns because the
-namespace is declarative — definitions can appear in any order across any files,
+namespace is declarative, definitions can appear in any order across any files,
 and the compiler resolves them all in one pass.
 
 ## Imports
 
 The `!import` operator assigns a local namespace and specifies the source. The
-source handler determines how the module is loaded — from the filesystem, a git
+source handler determines how the module is loaded, from the filesystem, a git
 repository, a Python package, or even an API specification.
 
 ```comp
-!import store {comp "std:store"}
-!import utils {comp "./lib/utils"}
-!import rio {comp "@gh/rio-dev/rio-comp"}
-!import numpy {python "numpy"}
-!import api {openapi "https://api.example.com/swagger.json"}
+!import store comp "core:store"
+!import utils comp "./lib/utils"
+!import rio comp "@gh/rio-dev/rio-comp"
+!import numpy python "numpy"
+!import api openapi "https://api.example.com/swagger.json"
 ```
 
 After import, the module's exports are accessed through the assigned namespace:
 `rio.button`, `numpy.array`, `api.users.get`. The namespace is fixed at build
-time — there is no dynamic module loading or runtime import modification.
+time, there is no dynamic module loading or runtime import modification.
 
 ### Import Sources
 
@@ -39,8 +39,8 @@ libraries. Each source handler translates external structure into Comp's type
 system, giving you build-time validation against external contracts.
 
 ```comp
-!import db {postgres "localhost/mydb?schema=public"}
-!import proto {protobuf "./messages.proto"}
+!import db postgres "localhost/mydb?schema=public"
+!import proto protobuf "./messages.proto"
 
 // Generated namespaces are typed and validated
 !let user api.users.get :id=123
@@ -55,21 +55,21 @@ dependencies the entire application uses, preventing version conflicts without
 explicit coordination.
 
 ```comp
-// In the main module — becomes the source for all libraries
-!import json {comp "git@github.com:fast/json.git#v2.0"}
+// In the main module, becomes the source for all libraries
+!import json comp "git@github.com:fast/json.git#v2.0"
 
-// In a library — automatically checks main first
-!import json {comp "std:json"}
-// Behaves as: main's json if available, otherwise std:json
+// In a library, automatically checks main first
+!import json comp "core:json"
+// Behaves as: main's json if available, otherwise core:json
 ```
 
 ## Namespace Resolution
 
 All names from a module's own definitions and its imports are combined into a
 single namespace. Within this namespace, any leaf name can be used as a shortcut
-when it is unambiguous. Given an import `!import web {comp "std:web"}` where the
-web module defines a tag hierarchy `status = {ok error timeout}`, all of these
-are equivalent references:
+when it is unambiguous. Given an import `!import web comp "core:web"` where the
+web module defines a tag hierarchy `!tag status {ok error timeout}`, all of
+these are equivalent references:
 
 ```comp
 web.status.ok       // fully qualified
@@ -132,12 +132,12 @@ exported to importers.
 `!alias` creates namespace entries that reference other definitions. See
 Aliases above.
 
-Module-level `!let` bindings define constants — values computed once and
+Module-level `!let` bindings define constants, values computed once and
 available throughout the module. These can use expressions and pure function
 calls.
 
 ```comp
-!import py {comp "python" stdlib}
+!import py comp "python" stdlib
 !shape handle-db ~{}
 !tag isolation {deferred exclusive immediate none}
 !tag fail {interface database operation integrity}
@@ -151,7 +151,7 @@ calls.
 ### Private Declarations
 
 Any module-level declaration can be marked private with a trailing `&` on its
-name. Private declarations participate fully within the module — they contribute
+name. Private declarations participate fully within the module, they contribute
 to overloaded dispatch, can be referenced by other definitions, and behave
 identically to public declarations. They are simply invisible to anyone
 importing the module.
@@ -167,7 +167,7 @@ hierarchy underneath.
 
 ## Package Metadata
 
-Comp modules contain their own package definition — no external configuration
+Comp modules contain their own package definition, no external configuration
 files. The `!package` operator defines versioning, authorship, and dependency
 information that tools can query without executing the module.
 
@@ -244,7 +244,7 @@ render.wasm.comp         // WebAssembly
 
 This works at both the module level (entire directory) and the file level
 (individual files within a module directory). No conditional compilation or
-platform-detection code is needed — the import system handles selection.
+platform-detection code is needed, the import system handles selection.
 
 ## Caching and Bundling
 

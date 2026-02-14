@@ -1,7 +1,7 @@
 /// Text operations
 /// Functions for manipulating and analyzing text strings.
 
-!import py {comp "python" stdlib}
+!import py comp "core:python"
 
 
 !tag trim {whitespace chars}

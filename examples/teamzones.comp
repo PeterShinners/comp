@@ -15,8 +15,8 @@ Highlights:
 
 */
 
-!import tz {comp "timezone"}
-!import table {comp "table"}
+!import tz comp "timezone"
+!import table comp "table"
 
 
 !shape member ~{name~text tz~timezone}

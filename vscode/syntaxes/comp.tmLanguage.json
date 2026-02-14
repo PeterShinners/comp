@@ -5,8 +5,10 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#module-declarations" },
+    { "include": "#signature-operators" },
     { "include": "#block-operators" },
-    { "include": "#decorators" },
+    { "include": "#wrappers" },
+    { "include": "#parameter-prefix" },
     { "include": "#strings" },
     { "include": "#numbers" },
     { "include": "#constants" },
@@ -21,6 +23,7 @@
     "comments": {
       "patterns": [
         {
+          "comment": "Block documentation comment /** */",
           "name": "comment.block.documentation.comp",
           "begin": "/\\*\\*(?!/)",
           "end": "\\*/",
@@ -29,6 +32,7 @@
           "patterns": [{ "include": "#comments" }]
         },
         {
+          "comment": "Block comment /* */ with nesting",
           "name": "comment.block.comp",
           "begin": "/\\*",
           "end": "\\*/",
@@ -58,12 +62,12 @@
           }
         },
         {
-          "comment": "!func name ~type — function with input shape",
-          "match": "(!(func|pure))\\s+([a-zA-Z_][a-zA-Z0-9_?-]*)\\s*(~[a-zA-Z_][a-zA-Z0-9_|-]*)?",
+          "comment": "!func/!pure name ~type — function with optional input shape",
+          "match": "(!(func|pure))\\s+([a-zA-Z_][a-zA-Z0-9_?-]*&?)\\s*(~[a-zA-Z_][a-zA-Z0-9_|-]*)?",
           "captures": {
             "1": { "name": "keyword.declaration.function.comp" },
-            "2": { "name": "entity.name.function.comp" },
-            "3": { "name": "storage.type.comp" }
+            "3": { "name": "entity.name.function.comp" },
+            "4": { "name": "storage.type.comp" }
           }
         },
         {
@@ -76,7 +80,7 @@
         },
         {
           "comment": "!shape name",
-          "match": "(!shape)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+          "match": "(!shape)\\s+([a-zA-Z_][a-zA-Z0-9_-]*&?)",
           "captures": {
             "1": { "name": "keyword.declaration.type.comp" },
             "2": { "name": "entity.name.type.comp" }
@@ -84,15 +88,24 @@
         },
         {
           "comment": "!tag name",
-          "match": "(!tag)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+          "match": "(!tag)\\s+([a-zA-Z_][a-zA-Z0-9_.-]*&?)",
           "captures": {
             "1": { "name": "keyword.declaration.type.comp" },
             "2": { "name": "entity.name.type.comp" }
           }
         },
         {
+          "comment": "!alias name — namespace alias",
+          "match": "(!alias)\\s+([a-zA-Z_][a-zA-Z0-9_-]*&?)\\s+([a-zA-Z_][a-zA-Z0-9_.-]*)",
+          "captures": {
+            "1": { "name": "keyword.declaration.module.comp" },
+            "2": { "name": "entity.name.tag.comp" },
+            "3": { "name": "entity.name.namespace.comp" }
+          }
+        },
+        {
           "comment": "!mod name",
-          "match": "(!mod)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+          "match": "(!mod)\\s+([a-zA-Z_][a-zA-Z0-9_.-]*)",
           "captures": {
             "1": { "name": "keyword.declaration.module.comp" },
             "2": { "name": "entity.name.namespace.comp" }
@@ -118,6 +131,37 @@
       ]
     },
 
+    "signature-operators": {
+      "patterns": [
+        {
+          "comment": ":param — individual parameter declaration",
+          "match": "(:param)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)(~[a-zA-Z_][a-zA-Z0-9_|-]*)?",
+          "captures": {
+            "1": { "name": "keyword.other.param.comp" },
+            "2": { "name": "variable.parameter.comp" },
+            "3": { "name": "storage.type.comp" }
+          }
+        },
+        {
+          "comment": ":params — shape-matched parameter group",
+          "match": "(:params)\\s*(~[a-zA-Z_][a-zA-Z0-9_|-]*)?",
+          "captures": {
+            "1": { "name": "keyword.other.params.comp" },
+            "2": { "name": "storage.type.comp" }
+          }
+        },
+        {
+          "comment": ":block — deferred block parameter declaration",
+          "match": "(:block)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)(~[a-zA-Z_][a-zA-Z0-9_|-]*)?",
+          "captures": {
+            "1": { "name": "keyword.other.block.comp" },
+            "2": { "name": "variable.parameter.comp" },
+            "3": { "name": "storage.type.comp" }
+          }
+        }
+      ]
+    },
+
     "block-operators": {
       "patterns": [
         {
@@ -131,24 +175,14 @@
           "match": "!let\\b"
         },
         {
-          "comment": "!do — side effect expression",
-          "name": "keyword.control.do.comp",
-          "match": "!do\\b"
+          "comment": "!defer — prevent automatic invocation",
+          "name": "keyword.control.defer.comp",
+          "match": "!defer\\b"
         },
         {
-          "comment": "!mods — modifier declaration in function body",
-          "name": "keyword.other.mods.comp",
-          "match": "!mods\\b"
-        },
-        {
-          "comment": "!input — input type declaration (legacy, now on !func line)",
-          "name": "keyword.other.input.comp",
-          "match": "!input\\b"
-        },
-        {
-          "comment": "!default — default value declaration",
-          "name": "keyword.other.default.comp",
-          "match": "!default\\b"
+          "comment": "!fail — raise failure value",
+          "name": "keyword.control.fail.comp",
+          "match": "!fail\\b"
         },
         {
           "comment": "!ctx — context binding",
@@ -168,15 +202,36 @@
       ]
     },
 
-    "decorators": {
+    "wrappers": {
       "patterns": [
         {
-          "comment": "@decorator on blocks/expressions",
-          "name": "meta.decorator.comp",
+          "comment": "@wrapper on blocks/expressions",
+          "name": "meta.wrapper.comp",
           "match": "(@)([a-zA-Z_][a-zA-Z0-9_-]*)",
           "captures": {
-            "1": { "name": "punctuation.decorator.comp" },
-            "2": { "name": "entity.name.function.decorator.comp" }
+            "1": { "name": "punctuation.definition.wrapper.comp" },
+            "2": { "name": "entity.name.function.wrapper.comp" }
+          }
+        }
+      ]
+    },
+
+    "parameter-prefix": {
+      "patterns": [
+        {
+          "comment": ":name=value — named parameter at call site",
+          "match": "(:)([a-zA-Z_][a-zA-Z0-9_-]*)(=)",
+          "captures": {
+            "1": { "name": "punctuation.definition.parameter.comp" },
+            "2": { "name": "variable.parameter.comp" },
+            "3": { "name": "keyword.operator.assignment.comp" }
+          }
+        },
+        {
+          "comment": ": — positional parameter prefix at call site",
+          "match": "(:)(?=[\\(\\{\"$0-9a-zA-Z_~!])",
+          "captures": {
+            "1": { "name": "punctuation.definition.parameter.comp" }
           }
         }
       ]
@@ -185,40 +240,61 @@
     "strings": {
       "patterns": [
         {
+          "comment": "Triple-quoted multiline string",
+          "name": "string.quoted.double.multiline.comp",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.comp" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.comp" } },
+          "patterns": [
+            { "include": "#string-interpolation" },
+            {
+              "name": "constant.character.escape.comp",
+              "match": "\\\\[\\\\\"nrt0]"
+            }
+          ]
+        },
+        {
           "name": "string.quoted.double.comp",
           "begin": "\"",
           "end": "\"",
           "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.comp" } },
           "endCaptures": { "0": { "name": "punctuation.definition.string.end.comp" } },
           "patterns": [
-            {
-              "comment": "Escaped percent — literal %(",
-              "name": "constant.character.escape.comp",
-              "match": "%%\\("
-            },
-            {
-              "comment": "String interpolation %(expr)",
-              "name": "meta.interpolation.comp",
-              "begin": "%\\(",
-              "end": "\\)(\\[[^\\]]*\\])?",
-              "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.comp" } },
-              "endCaptures": {
-                "0": { "name": "punctuation.section.interpolation.end.comp" },
-                "1": { "name": "string.interpolation.format.comp" }
-              },
-              "contentName": "source.comp.embedded",
-              "patterns": [
-                { "include": "#input-references" },
-                { "include": "#operators" },
-                { "include": "#numbers" },
-                { "include": "#constants" },
-                { "include": "#function-calls" }
-              ]
-            },
+            { "include": "#string-interpolation" },
             {
               "name": "constant.character.escape.comp",
               "match": "\\\\[\\\\\"nrt0]"
             }
+          ]
+        }
+      ]
+    },
+
+    "string-interpolation": {
+      "patterns": [
+        {
+          "comment": "Escaped percent — literal %(",
+          "name": "constant.character.escape.comp",
+          "match": "%%\\("
+        },
+        {
+          "comment": "String interpolation %(expr) with optional [format]",
+          "name": "meta.interpolation.comp",
+          "begin": "%\\(",
+          "end": "\\)(\\[[^\\]]*\\])?",
+          "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.comp" } },
+          "endCaptures": {
+            "0": { "name": "punctuation.section.interpolation.end.comp" },
+            "1": { "name": "string.interpolation.format.comp" }
+          },
+          "contentName": "source.comp.embedded",
+          "patterns": [
+            { "include": "#input-references" },
+            { "include": "#operators" },
+            { "include": "#numbers" },
+            { "include": "#constants" },
+            { "include": "#function-calls" }
           ]
         }
       ]
@@ -237,9 +313,14 @@
           "match": "\\b0b[01_]+\\b"
         },
         {
-          "comment": "Float or integer",
+          "comment": "Octal literal",
+          "name": "constant.numeric.octal.comp",
+          "match": "\\b0o[0-7_]+\\b"
+        },
+        {
+          "comment": "Float or integer with optional unit [unit]",
           "name": "constant.numeric.comp",
-          "match": "\\b\\d[\\d_]*(\\.[\\d_]+)?([eE][+-]?\\d+)?\\b"
+          "match": "\\b\\d[\\d_]*(\\.[\\d_]+)?([eE][+-]?\\d+)?(\\[[a-zA-Z_][a-zA-Z0-9_-]*\\])?\\b"
         }
       ]
     },
@@ -262,14 +343,24 @@
     "input-references": {
       "patterns": [
         {
-          "comment": "$$ — outer scope input",
+          "comment": "$$ — outer scope input with optional field access",
           "name": "variable.language.outer-input.comp",
-          "match": "\\$\\$(?:\\.[a-zA-Z_][a-zA-Z0-9_-]*)*"
+          "match": "\\$\\$[a-zA-Z_][a-zA-Z0-9_-]*(\\.[a-zA-Z_][a-zA-Z0-9_-]*)*"
         },
         {
-          "comment": "$ — pipeline input with optional field access",
+          "comment": "$$ — bare outer scope input",
+          "name": "variable.language.outer-input.comp",
+          "match": "\\$\\$(?![a-zA-Z_])"
+        },
+        {
+          "comment": "$field — input field access (no dot needed)",
           "name": "variable.language.input.comp",
-          "match": "\\$(?:\\.[a-zA-Z_][a-zA-Z0-9_-]*)*"
+          "match": "\\$[a-zA-Z_][a-zA-Z0-9_-]*(\\.[a-zA-Z_][a-zA-Z0-9_-]*)*"
+        },
+        {
+          "comment": "$ — bare pipeline input",
+          "name": "variable.language.input.comp",
+          "match": "\\$(?![a-zA-Z_$])"
         }
       ]
     },
@@ -287,14 +378,19 @@
     "operators": {
       "patterns": [
         {
+          "comment": "Pipeline fallback operator |?",
+          "name": "keyword.operator.fallback.comp",
+          "match": "\\|\\?"
+        },
+        {
           "comment": "Pipeline operator",
           "name": "keyword.operator.pipeline.comp",
           "match": "\\|(?!\\?)"
         },
         {
-          "comment": "Fallback operator |?",
-          "name": "keyword.operator.fallback.comp",
-          "match": "\\|\\?"
+          "comment": "Value fallback operator ??",
+          "name": "keyword.operator.fallback.value.comp",
+          "match": "\\?\\?"
         },
         {
           "comment": "Three-way comparison <> operator",
@@ -305,6 +401,11 @@
           "comment": "Comparison operators",
           "name": "keyword.operator.comparison.comp",
           "match": "==|!=|<=|>=|(?<!<)<(?!>)|(?<!<)>(?!>)"
+        },
+        {
+          "comment": "Logical operators",
+          "name": "keyword.operator.logical.comp",
+          "match": "&&|\\|\\||!!"
         },
         {
           "comment": "Assignment",
@@ -342,14 +443,14 @@
     "function-calls": {
       "patterns": [
         {
-          "comment": "Dotted function call — module.function followed by [ or (",
+          "comment": "Dotted function call — module.function",
           "name": "entity.name.function.comp",
-          "match": "[a-zA-Z_][a-zA-Z0-9_-]*\\.[a-zA-Z_][a-zA-Z0-9_.-]*(?=\\s*[\\[\\(\\{])"
+          "match": "[a-zA-Z_][a-zA-Z0-9_-]*\\.[a-zA-Z_][a-zA-Z0-9_.-]*(?=\\s*[:\\(\\{])"
         },
         {
-          "comment": "Function call — identifier followed by [ or (",
+          "comment": "Function call — identifier followed by : ( or {",
           "name": "entity.name.function.comp",
-          "match": "[a-zA-Z_][a-zA-Z0-9_?-]*(?=\\s*[\\[\\(\\{])"
+          "match": "[a-zA-Z_][a-zA-Z0-9_?-]*(?=\\s*[:\\(\\{])"
         }
       ]
     }

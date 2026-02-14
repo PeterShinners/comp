@@ -2,7 +2,7 @@
   "name": "comp-language-support",
   "displayName": "Comp Language Support",
   "description": "Syntax highlighting and language support for the Comp programming language",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "engines": {
     "vscode": "^1.74.0"
   },

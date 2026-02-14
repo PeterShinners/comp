@@ -11,10 +11,10 @@ Highlights:
 
 */
 
-!import http {comp "http-server"}
-!import redis {comp "redis"}
-!import url {comp "core/url"}
-!import template {comp "core/template"}
+!import http comp "http-server"
+!import redis comp "redis"
+!import url comp "core/url"
+!import template comp "core/template"
 
 !package name "shortly"
 !package version "1.0.0"

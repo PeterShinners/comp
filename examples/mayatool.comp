@@ -9,7 +9,7 @@ Highlights:
 - `!on` dispatches on `maya.exists` result, the "does this node exist" check becomes a branch rather than an if/else
 */
 
-!import maya {comp "maya-comp-spectacular@1.0.3"}
+!import maya comp "maya-comp-spectacular@1.0.3"
 
 
 /**
@@ -71,7 +71,7 @@ Based on https://github.com/nestrada2/bubbles
 }
 
 
-!func create-bubbles ~dag-paths (
+!func create-bubbles ~dag-path{1-} (
     :param config ~bubble-args
 
     !transact {maya.scene}

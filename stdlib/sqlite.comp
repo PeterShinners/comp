@@ -1,7 +1,7 @@
 /// Simple SQLite interface for Comp
 /// Basic database operations using Python's sqlite3 module.
 
-!import py {comp "python" stdlib}
+!import py comp "core:python"
 
 
 !shape handle-db ~{}

@@ -59,7 +59,7 @@
 !pure slice ~struct (
     :param start~num 
     :param end~num
-    $ | enumerate | filter :($index >= start && $index < end) | map :($value)
+    $ | enumerate | filter :($index >= start :and $index < end) | map :($value)
 )
 
 /// Get element at index (supports negative indexing)
@@ -71,7 +71,7 @@
         ~true (len + index)
         ~false index
     )
-    !on (target < 0 || target >= len)
+    !on (target < 0 :or target >= len)
     ~true (fail :"index out of bounds")
     ~false ($ | enumerate | find ($index == target) | $value)
 )
@@ -80,7 +80,7 @@
 !pure find ~struct (
     :block test
     $ | filter :(test) | first
-    |? fail :"!not found"
+    |? fail :"not found"
 )
 
 /// Check if struct contains value
