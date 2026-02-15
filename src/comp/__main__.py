@@ -88,47 +88,59 @@ def prettycop(cop, field=None, indent=0, show_pos=False):
 
 def prettyscan(module):
     """Scan a module and display metadata using the interpreter."""
-    scan = module.scan()
-    pkg_val = scan.field('pkg')
-    if pkg_val.data:
-        print("Package metadata:")
-        for item in pkg_val.data.values():
-            name = item.field('name').data
-            value = item.field('value').data
-            print(f"  {name} = {value!r}")
+    statements = module.statements()
+
+    # Display statements with their bodies
+    if statements:
+        print("Module Statements:")
+        for stmt in statements:
+            operator = stmt.get('operator', '?')
+            name = stmt.get('name', '?')
+            body = stmt.get('body', '')
+            pos = stmt.get('pos', ())
+            content_hash = stmt.get('hash', '')
+
+            # Format position - show full range (start and end)
+            pos_str = ""
+            if len(pos) >= 4:
+                pos_str = f" @ {pos[0]}:{pos[1]}-{pos[2]}:{pos[3]}"
+            elif len(pos) >= 2:
+                pos_str = f" @ {pos[0]}:{pos[1]}"
+
+            # Format body - show preview for long or multi-line bodies
+            body_preview = body.strip()
+            lines = body_preview.split('\n')
+
+            # If multi-line, show first line with ellipsis
+            if len(lines) > 1:
+                first_line = lines[0].strip()
+                if len(first_line) > 50:
+                    body_preview = first_line[:47] + "..."
+                else:
+                    body_preview = first_line + " ..."
+            # If single line but too long, truncate
+            elif len(body_preview) > 50:
+                body_preview = body_preview[:47] + "..."
+
+            # Format hash - show abbreviated version
+            hash_str = f" #{content_hash[:8]}" if content_hash else ""
+
+            # Display the statement
+            print(f"  !{operator} {name} {body_preview}{pos_str}{hash_str}")
         print()
 
-    # Display imports
-    try:
-        imports_val = scan.field('imports')
-        if imports_val.data:
-            print("Imports:")
-            for item in imports_val.data.values():
-                name = item.field('name').data
-                source = item.field('source').data
-                try:
-                    compiler = item.field('compiler').data
-                    compiler_str = f" ({compiler})" if compiler != 'comp' else ""
-                except (KeyError, AttributeError):
-                    compiler_str = ""
-                try:
-                    pos = item.field('pos')
-                    pos_vals = list(pos.data.values())
-                    pos_str = f" @ {pos_vals[0].data}:{pos_vals[1].data}"
-                except (KeyError, AttributeError, IndexError):
-                    pos_str = ""
-                print(f"  {name}: {source!r}{compiler_str}{pos_str}")
-            print()
-    except (KeyError, AttributeError):
-        pass
-
-    # Display docs
+    # Display comment summary
+    scan = module.scan()
     try:
         docs_val = scan.field('docs')
         if docs_val.data:
-            print("Documentation:")
+            print("Comments:")
             for item in docs_val.data.values():
                 content = item.field('content').data
+                try:
+                    comment_type = item.field('type').data
+                except (KeyError, AttributeError):
+                    comment_type = "unknown"
                 try:
                     pos = item.field('pos')
                     pos_vals = list(pos.data.values())
@@ -139,9 +151,10 @@ def prettyscan(module):
                 preview = lines[0][:60]
                 if len(lines) > 1 or len(lines[0]) > 60:
                     preview += "..."
-                print(f"  {preview!r}{pos_str}")
+                print(f"  [{comment_type}] {preview!r}{pos_str}")
             print()
-    except (KeyError, AttributeError):
+    except (KeyError, AttributeError) as e:
+        print(f"Error reading docs: {e}")
         pass
 
 
@@ -161,11 +174,16 @@ def prettyimports(module, visited=None, prefix=""):
         print(f"{prefix}└── {visited[module.source.location]} (CYCLIC)")
         return
 
-    # Print this module
-    scan = module.scan()
-    docs = scan.to_python("docs") or []
-    doc = docs[0].get("content", "").split("\n")[0][:50] if docs else ""
-    print(f'{prefix}{module.source.resource} "{doc}"' if doc else f"{prefix}{module.source.resource}")
+    # Print this module with its module-level comment
+    doc = module.comment(None)
+    # Show first line of comment, max 60 chars
+    if doc:
+        doc_preview = doc.split("\n")[0][:60]
+        if len(doc) > 60 or "\n" in doc:
+            doc_preview += "..."
+        print(f'{prefix}{module.source.resource} "{doc_preview}"')
+    else:
+        print(f"{prefix}{module.source.resource}")
 
     visited[module.source.location] = module.source.resource
 
@@ -229,15 +247,15 @@ def main():
     parser.add_argument("--pure", action="store_true", help="Evaluate pure function invokes at compile time")
 
     modes = parser.add_mutually_exclusive_group(required=True)
-    modes.add_argument("--larkscan", action="store_true", help="Show scan Lark parse tree")
-    modes.add_argument("--larkcomp", action="store_true", help="Show full Lark parse tree")
+    modes.add_argument("--scan", action="store_true", help="Show scan Lark parse tree")
+    modes.add_argument("--parse", action="store_true", help="Show full Lark parse tree")
 
     modes.add_argument("--cop", action="store_true", help="Report parsed cop structure")
     modes.add_argument("--unparse", action="store_true", help="Convert cop nodes back to source")
     modes.add_argument("--code", action="store_true", help="Build and show instruction code")
     modes.add_argument("--eval", action="store_true", help="Evaluate the expression and show the result")
     modes.add_argument("--trace", action="store_true", help="Show each instruction as it executes with its result")
-    modes.add_argument("--scan", action="store_true", help="Scan module metadata (pkg assignments, imports, docstrings). Use with --lark to show scan grammar tree.")
+    modes.add_argument("--module", action="store_true", help="Show module metadata (definitions, comments)")
     modes.add_argument("--imports", action="store_true", help="Show import dependency tree with module documentation")
     modes.add_argument("--namespace", action="store_true", help="Show the module's finalized namespace with all definitions")
     modes.add_argument("--definitions", action="store_true", help="Show list of module definition")
@@ -259,13 +277,13 @@ def main():
     else:
         mod = interp.module(args.source, anchor=os.getcwd())
 
-    if args.larkscan or args.larkcomp:
-        parser = comp._parse.lark_parser("scan" if args.larkscan else "comp")
+    if args.scan or args.parse:
+        parser = comp._parse.lark_parser("scan" if args.scan else "comp")
         tree = parser.parse(mod.source.content)
         prettylark(tree, show_positions=args.pos)
         return
 
-    if args.scan:
+    if args.module:
         prettyscan(mod)
         return
 
@@ -463,8 +481,8 @@ def main():
             return
 
     # Check if any output mode was specified
-    if not any([args.larkcomp, args.larkscan, args.cop, args.resolve, args.code, args.eval, args.trace, args.definitions, args.scan]):
-        parser.error("No output mode specified. Use --larkcomp, --larkscan, --cop, --resolve, --code, --eval, --trace, --scan, --imports, --definitions, or --namespace")
+    if not any([args.parse, args.scan, args.cop, args.resolve, args.code, args.eval, args.trace, args.definitions, args.module]):
+        parser.error("No output mode specified. Use --parse, --scan, --cop, --resolve, --code, --eval, --trace, --module, --imports, --definitions, or --namespace")
 
 
 if __name__ == "__main__":

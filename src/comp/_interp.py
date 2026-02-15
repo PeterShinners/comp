@@ -152,22 +152,64 @@ class Interp:
     def _new_module(self, module):
         """Internally scan and register module."""
         self.module_cache[module.token] = module
-        scan = module.scan()
-        imports = scan.to_python("imports") or []
+
+        # Get statements from the module scan
+        statements = module.statements()
+        import_stmts = [s for s in statements if s.get("operator") == "import"]
+
         children = {}
-        for imp in imports:
-            name = imp.get("name")
-            source = imp.get("source")
-            if not (name and source):
-                continue
+        for stmt in import_stmts:
+            name = stmt.get("name")
+            body = stmt.get("body", "").strip()
+
+            # Parse the import body: <compiler> "<source>"
+            # For now, we'll do simple parsing - later this should use the full parser
             try:
+                import_info = self._parse_import_body(body)
+                compiler = import_info.get("compiler")
+                source = import_info.get("source")
+
+                if not (name and source):
+                    continue
+
+                # Load the imported module
                 child = self.module(source, anchor=module.source.anchor)
                 err = None
             except (comp.ModuleNotFoundError, comp.ModuleError) as e:
                 child = None
                 err = e
+            except Exception as e:
+                # Catch parsing errors too
+                child = None
+                err = comp.ModuleError(f"Failed to parse import: {e}")
+
             children[name] = (child, err)
+
         module._register_imports(children, definitions=None, namespace=None)
+
+    def _parse_import_body(self, body):
+        """Parse import statement body: <compiler> "<source>"
+
+        Returns dict with 'compiler' and 'source' keys.
+        """
+        # For now, do simple token-based parsing
+        # Later this should use the full comp.lark parser
+        parts = body.split(None, 1)  # Split on first whitespace
+        if len(parts) < 2:
+            raise ValueError("Import body must have compiler and source")
+
+        compiler = parts[0]
+        source_part = parts[1].strip()
+
+        # Extract string literal (remove quotes)
+        if source_part.startswith('"') and source_part.endswith('"'):
+            source = source_part[1:-1]
+        elif source_part.startswith("'") and source_part.endswith("'"):
+            source = source_part[1:-1]
+        else:
+            raise ValueError("Import source must be a string literal")
+
+        return {"compiler": compiler, "source": source}
 
 
 class ExecutionFrame:

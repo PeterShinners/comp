@@ -54,25 +54,6 @@ Both GitHub Copilot and Claude Code reference these instructions.
 - The parser uses Lark with LALR mode
 - COP (Comp Operation) nodes represent the parsed AST
 
-## Project Structure
-
-```
-src/comp/
-  __init__.py      # Public API
-  _value.py        # Value class and operations
-  _parse.py        # Parser and COP node handling
-  _shape.py        # Shape definitions
-  _tag.py          # Tag definitions
-  _module.py       # Module handling
-  _ops.py          # Math and comparison operations
-  _func.py         # Function/block handling
-  _error.py        # Error types
-  _build.py        # Build utilities
-  _interp.py       # Interpreter
-  lark/            # Grammar files
-  run/             # (deprecated - ignore)
-```
-
 ## Project Philosophy
 
 - **Clarity over performance** - Optimize for understandability, not speed. Design for future efficiency but don't implement optimizations yet.

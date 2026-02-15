@@ -17,6 +17,9 @@ Highlights:
 
 */
 
+!import stdloop comp "loop"
+!import ststruct comp "struct"
+
 !shape item ~{name~text price~num quantity~num=1}
 !shape cart ~{items~item{} discount~num=0}
 

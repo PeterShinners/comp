@@ -59,18 +59,61 @@ class Module:
         This is a lightweight operation that extracts module metadata without
         doing a full parse. Useful for dependency resolution and tooling.
 
-        This parse is fairly resilient to simple syntax errors, and 
+        This parse is fairly resilient to simple syntax errors, and
         may be able to provide module information even when a full parse
         would fail.
 
         Results are cached.
-        
+
         Returns:
             ScanResult: Object with .imports(), .package(), .docs() methods
         """
         if self._scan is None:
             self._scan = comp._scan.scan(self.source.content)
         return self._scan
+
+    def statements(self):
+        """Get list of module-level statements from scan.
+
+        Each statement is a dict with:
+            - operator: str (e.g., "import", "func", "shape")
+            - name: str (the definition name)
+            - pos: tuple (line, col, end_line, end_col)
+            - body: str (the raw text after the name)
+            - hash: str (blake2s digest of body for change detection)
+
+        Returns:
+            list: List of statement dicts
+        """
+        scan_result = self.scan()
+        definitions = scan_result.to_python("definitions") or []
+        return definitions
+
+    def comment(self, context=None):
+        """Get comment for a given context.
+
+        Args:
+            context: Currently only None is supported (module-level comment)
+
+        Returns:
+            str: The comment text, or empty string if no comment found
+
+        For context=None, returns the first comment in the file (module-level documentation).
+        This is typically a doc comment (///) or block comment (/* */) at the top of the file.
+        """
+        if context is not None:
+            # Future: support getting comments for specific statements
+            return ""
+
+        # Get module-level comment (first comment in the file)
+        scan_result = self.scan()
+        docs = scan_result.to_python("docs") or []
+        if not docs:
+            return ""
+
+        # Return the first comment's content
+        first_comment = docs[0]
+        return first_comment.get("content", "")
 
     def imports(self):
         """Dictionary of imported modules with metadata.

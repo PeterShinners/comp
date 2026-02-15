@@ -161,11 +161,6 @@ def _locate_file(
             # Include dir_fd even if -1 (will fall back to path-based open)
             candidates.append((full_path, dir_fd, rel_name))
 
-            # Try as directory with __init__.comp
-            init_rel = os.path.join(resource, "__init__.comp")
-            init_full = os.path.join(search_path, init_rel)
-            candidates.append((init_full, dir_fd, init_rel))
-
     # Try each candidate
     for candidate_path, dir_fd, rel_path in candidates:
         try:

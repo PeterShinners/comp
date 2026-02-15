@@ -3,6 +3,7 @@
 __all__ = [
 ]
 
+import hashlib
 import lark
 import comp
 
@@ -11,195 +12,232 @@ def scan(source):
     """Scan source and extract module metadata as a Value.
 
     Returns a Value struct containing:
-    - pkg: list of (name, value, pos) cop nodes for pkg.* assignments
-    - imports: list of (name, source, compiler, pos) cop nodes for !import statements
-    - docs: list of (content, pos) cop nodes for --- blocks and -- line comments
+    - definitions: list of (operator, name, pos, body) for all module definitions
+    - docs: list of (content, pos) for comments (found anywhere in the tree)
 
     Uses the scan.lark grammar which is error-resilient.
     """
     parser = comp._parse.lark_parser("scan")
     tree = parser.parse(source)
 
-    pkg_list = []
-    import_list = []
+    definition_list = []
     doc_list = []
 
-    for item in tree.children:
-        if not isinstance(item, lark.Tree):
-            continue
+    # Walk tree recursively to find all definitions and comments
+    def walk(node):
+        # Skip tokens (like HASHBANG)
+        if isinstance(node, lark.Token):
+            return
 
-        if item.data == "import_stmt":
-            # !import name (source type)
-            imp = _scan_import(item)
-            if imp:
-                import_list.append(imp)
-        elif item.data == "assignment":
-            # Check if it's a pkg.* assignment
-            pkg = _scan_pkg_assignment(item)
-            if pkg:
-                pkg_list.append(pkg)
-        elif item.data == "doc_comment":
-            # --- doc block ---
-            doc = _scan_doc_comment(item)
+        if not isinstance(node, lark.Tree):
+            return
+
+        if node.data == "mod_definition":
+            # !operator name ...
+            defn = _scan_mod_definition(node, source)
+            if defn:
+                definition_list.append(defn)
+        elif node.data == "doc_comment":
+            # /// doc comment
+            doc = _scan_doc_comment(node)
             if doc:
                 doc_list.append(doc)
-        elif item.data == "line_comment":
-            # -- line comment
-            doc = _scan_line_comment(item)
+        elif node.data == "line_comment":
+            # // line comment
+            doc = _scan_line_comment(node)
             if doc:
                 doc_list.append(doc)
+        elif node.data == "block_comment":
+            # /* block comment */
+            doc = _scan_block_comment(node)
+            if doc:
+                doc_list.append(doc)
+
+        # Recursively walk children
+        for child in node.children:
+            walk(child)
+
+    walk(tree)
 
     # Create Value struct with the results
     result = {
-        "pkg": comp.Value.from_python(pkg_list),
-        "imports": comp.Value.from_python(import_list),
+        "definitions": comp.Value.from_python(definition_list),
         "docs": comp.Value.from_python(doc_list),
     }
     return comp.Value.from_python(result)
 
 
-def _scan_import(node):
-    """Extract import info from import_stmt node.
+def _scan_mod_definition(node, source):
+    """Extract module definition info from mod_definition node.
 
-    Returns cop node or None: (name~str source~str compiler~str pos~(num num num num))
+    Returns dict or None: (operator~str name~str pos~(num num num num) body~str)
     """
-    name_token = None
-    struct_node = None
-
-    for child in node.children:
-        if isinstance(child, lark.Token) and child.type == "TOKENFIELD":
-            name_token = child
-        elif isinstance(child, lark.Tree) and child.data == "struct":
-            struct_node = child
-
-    if not name_token or not struct_node:
+    if len(node.children) < 2:
         return None
 
-    # Extract source and compiler from struct
-    source_val = ""
-    compiler_val = ""
-
-    for child in struct_node.children:
-        if isinstance(child, lark.Tree):
-            if child.data == "text":
-                for tok in child.children:
-                    if isinstance(tok, lark.Token) and "TEXT_CONTENT" in tok.type:
-                        source_val = tok.value
-            elif child.data == "identifier":
-                for tok in child.children:
-                    if isinstance(tok, lark.Token) and tok.type == "TOKENFIELD":
-                        compiler_val = tok.value
-                        break
-        elif isinstance(child, lark.Token) and child.type == "TOKENFIELD":
-            if not compiler_val:
-                compiler_val = child.value
-
-    # Create cop node with position
-    pos = _pos_from_lark(name_token)
-    return {
-        "name": name_token.value,
-        "source": source_val,
-        "compiler": compiler_val,
-        "pos": pos,
-    }
-
-
-def _scan_pkg_assignment(node):
-    """Extract pkg assignment from assignment node.
-
-    Returns cop node or None: (name~str value~str pos~(num num num num))
-    """
-    if len(node.children) < 3:
+    # First child is the operator token (!import, !func, !shape, etc.)
+    operator_token = node.children[0]
+    if not isinstance(operator_token, lark.Token):
         return None
 
-    id_node = node.children[0]
-    value_node = node.children[2]
+    # Extract operator name (remove the ! prefix)
+    operator = operator_token.value[1:]  # Remove '!' prefix
 
-    if not isinstance(id_node, lark.Tree) or id_node.data != "identifier":
-        return None
+    # Second child should be the name (usually an identifier or token)
+    name_item = node.children[1]
+    name = None
+    name_end_line = None
+    name_end_col = None
 
-    # Get identifier parts
-    parts = []
-    for child in id_node.children:
-        if isinstance(child, lark.Token) and child.type == "TOKENFIELD":
-            parts.append(child.value)
-
-    if not parts or parts[0] != "pkg":
-        return None
-
-    name = ".".join(parts)
-
-    # Extract simple value
-    value = _scan_simple_value(value_node)
-    if value is None:
-        return None
-
-    pos = _pos_from_lark(id_node)
-    return {
-        "name": name,
-        "value": value,
-        "pos": pos,
-    }
-
-
-def _scan_simple_value(node):
-    """Extract simple value from node (text, number, or identifier)."""
-    if isinstance(node, lark.Token):
-        if node.type == "BLOB":
-            return node.value
-        return None
-
-    if isinstance(node, lark.Tree):
-        if node.data == "text":
-            for child in node.children:
-                if isinstance(child, lark.Token):
-                    # Token types are namespaced when imported from common.lark
-                    if "TEXT_CONTENT" in child.type:
-                        return child.value
-        elif node.data == "number":
-            for child in node.children:
-                if isinstance(child, lark.Token):
-                    return child.value
-        elif node.data == "identifier":
-            parts = []
-            for child in node.children:
+    if isinstance(name_item, lark.Token) and name_item.type == "TOKENFIELD":
+        name = name_item.value
+        name_end_line = name_item.end_line or name_item.line
+        name_end_col = name_item.end_column or name_item.column
+    elif isinstance(name_item, lark.Tree):
+        if name_item.data == "identifier":
+            # Extract first token from identifier
+            for child in name_item.children:
                 if isinstance(child, lark.Token) and child.type == "TOKENFIELD":
-                    parts.append(child.value)
-            return ".".join(parts) if parts else None
+                    name = child.value
+                    name_end_line = child.end_line or child.line
+                    name_end_col = child.end_column or child.column
+                    break
+        elif name_item.data == "text":
+            # For !package which might have text name
+            for child in name_item.children:
+                if isinstance(child, lark.Token) and "TEXT_CONTENT" in child.type:
+                    name = child.value
+                    name_end_line = child.end_line or child.line
+                    name_end_col = child.end_column or child.column
+                    break
 
-    return None
+    if not name:
+        return None
+
+    # Get position from the operator token through to the end of the node
+    # But exclude trailing comments - find the last non-comment child
+    last_non_comment = None
+    for child in reversed(node.children):
+        if isinstance(child, lark.Tree) and child.data in ("doc_comment", "line_comment", "block_comment"):
+            continue
+        last_non_comment = child
+        break
+
+    # Use the last non-comment child for the end position, or fall back to the full node
+    if last_non_comment:
+        end_pos = _pos_from_lark(last_non_comment)
+        pos = (
+            operator_token.line,
+            operator_token.column,
+            end_pos[2],  # end_line from last non-comment
+            end_pos[3],  # end_col from last non-comment
+        )
+    else:
+        pos = _pos_from_lark(node)
+
+    # Extract body text directly from source (preserves whitespace)
+    # Body starts right after the name and goes to the end of the definition
+    body = ""
+    if name_end_line and name_end_col:
+        # Convert to 0-indexed
+        source_lines = source.split('\n')
+        body_start_line = name_end_line - 1
+        body_start_col = name_end_col
+        body_end_line = pos[2] - 1  # pos is (line, col, end_line, end_col)
+        body_end_col = pos[3]
+
+        if body_start_line == body_end_line:
+            # Single line
+            body = source_lines[body_start_line][body_start_col:body_end_col]
+        else:
+            # Multi-line
+            lines = []
+            lines.append(source_lines[body_start_line][body_start_col:])
+            for i in range(body_start_line + 1, body_end_line):
+                lines.append(source_lines[i])
+            if body_end_line < len(source_lines):
+                lines.append(source_lines[body_end_line][:body_end_col])
+            body = '\n'.join(lines)
+
+    # Compute content hash for change detection
+    body_hash = hashlib.blake2s(body.encode('utf-8'), digest_size=8).hexdigest()
+
+    return {
+        "operator": operator,
+        "name": name,
+        "pos": pos,
+        "body": body,
+        "hash": body_hash,
+    }
 
 
 def _scan_doc_comment(node):
-    """Extract doc comment from doc_comment node (--- block ---).
-
-    Returns dict or None: (content~str pos~(num num num num))
-    """
-    for child in node.children:
-        if isinstance(child, lark.Token) and child.type == "DOC_CONTENT":
-            content = child.value.strip()
-            pos = _pos_from_lark(child)
-            return {
-                "content": content,
-                "pos": pos,
-            }
-    return None
-
-
-def _scan_line_comment(node):
-    """Extract line comment from line_comment node (-- line).
+    """Extract doc comment from doc_comment node (/// line).
 
     Returns dict or None: (content~str pos~(num num num num))
     """
     for child in node.children:
         if isinstance(child, lark.Token) and child.type == "LINE_CONTENT":
             content = child.value.strip()
-            pos = _pos_from_lark(child)
+            pos = _pos_from_lark(node)
             return {
                 "content": content,
                 "pos": pos,
+                "type": "doc",
             }
     return None
+
+
+def _scan_line_comment(node):
+    """Extract line comment from line_comment node (// line).
+
+    Returns dict or None: (content~str pos~(num num num num))
+    """
+    for child in node.children:
+        if isinstance(child, lark.Token) and child.type == "LINE_CONTENT":
+            content = child.value.strip()
+            pos = _pos_from_lark(node)
+            return {
+                "content": content,
+                "pos": pos,
+                "type": "line",
+            }
+    return None
+
+
+def _scan_block_comment(node):
+    """Extract block comment from block_comment node (/* block */).
+
+    Returns dict or None: (content~str pos~(num num num num))
+    """
+    for child in node.children:
+        if isinstance(child, lark.Token) and child.type == "BLOCK_COMMENT":
+            # Remove /* and */ delimiters
+            content = child.value[2:-2].strip()
+
+            # For JavaDoc-style /** comments, remove leading * and whitespace
+            if content.startswith('*'):
+                content = content[1:].lstrip()
+
+            pos = _pos_from_lark(node)
+            return {
+                "content": content,
+                "pos": pos,
+                "type": "block",
+            }
+    return None
+
+
+def _extract_text_from_tree(tree):
+    """Recursively extract all text content from a lark Tree."""
+    if isinstance(tree, lark.Token):
+        return tree.value
+    elif isinstance(tree, lark.Tree):
+        parts = []
+        for child in tree.children:
+            parts.append(_extract_text_from_tree(child))
+        return "".join(parts)
+    return ""
 
 
 def _pos_from_lark(treetoken):
