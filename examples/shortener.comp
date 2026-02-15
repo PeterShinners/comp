@@ -101,10 +101,7 @@ Highlights:
 
 
 /// Fetch details for a short URL id
-!func fetch-details
-{
-    !input ~text
-
+!func fetch-details ~text {
     {
         target = $ | fmt :mod.keys.target
         clicks = $ | fmt :mod.keys.counter
@@ -115,7 +112,7 @@ Highlights:
 
 
 /// Increment the click counter for a URL
-!func increment ~details ( 
+!func increment ~detail* ( 
     $id 
     | fmt :mod.keys.counter
     | redis.incr
@@ -129,8 +126,8 @@ Highlights:
     !let n $
 
     n | while :($ > 0
-        !let div $ | divmod :(charset | length)
-        !let result (charset | char-at-index :div.remainder) | join result
+        !let div ($ | divmod :(charset | length))
+        !let result ((charset | char-at-index :div.remainder) | join result)
         div.quotient
     )
 

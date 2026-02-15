@@ -45,7 +45,7 @@ Highlights:
     | print
 )
 
-!func parse-entries ~text{} (
+!func parse-entries ~texts (
     !let cwd "/"
     $ | map :(
         !on $ | slice :0 :4

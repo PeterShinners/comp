@@ -83,36 +83,55 @@ def _scan_mod_definition(node, source):
     # Extract operator name (remove the ! prefix)
     operator = operator_token.value[1:]  # Remove '!' prefix
 
-    # Second child should be the name (usually an identifier or token)
-    name_item = node.children[1]
-    name = None
+    # Extract name - can be dotted like "util.helper.format"
+    # Collect consecutive TOKENFIELD tokens separated by dots
+    name_parts = []
     name_end_line = None
     name_end_col = None
 
-    if isinstance(name_item, lark.Token) and name_item.type == "TOKENFIELD":
-        name = name_item.value
-        name_end_line = name_item.end_line or name_item.line
-        name_end_col = name_item.end_column or name_item.column
-    elif isinstance(name_item, lark.Tree):
-        if name_item.data == "identifier":
-            # Extract first token from identifier
-            for child in name_item.children:
-                if isinstance(child, lark.Token) and child.type == "TOKENFIELD":
-                    name = child.value
-                    name_end_line = child.end_line or child.line
-                    name_end_col = child.end_column or child.column
-                    break
-        elif name_item.data == "text":
-            # For !package which might have text name
-            for child in name_item.children:
-                if isinstance(child, lark.Token) and "TEXT_CONTENT" in child.type:
-                    name = child.value
-                    name_end_line = child.end_line or child.line
-                    name_end_col = child.end_column or child.column
-                    break
+    # Start from second child (first is operator)
+    i = 1
+    while i < len(node.children):
+        child = node.children[i]
 
-    if not name:
+        # Check for TOKENFIELD
+        if isinstance(child, lark.Token) and child.type == "TOKENFIELD":
+            name_parts.append(child.value)
+            name_end_line = child.end_line or child.line
+            name_end_col = child.end_column or child.column
+            i += 1
+
+            # Check if next is a dot (CONTENT_BLOB with '.')
+            if i < len(node.children):
+                next_child = node.children[i]
+                if isinstance(next_child, lark.Token) and next_child.type == "CONTENT_BLOB" and next_child.value == ".":
+                    i += 1  # Skip the dot
+                    continue
+            break
+        # Handle tree nodes (identifier, text, etc.)
+        elif isinstance(child, lark.Tree):
+            if child.data == "identifier":
+                for subchild in child.children:
+                    if isinstance(subchild, lark.Token) and subchild.type == "TOKENFIELD":
+                        name_parts.append(subchild.value)
+                        name_end_line = subchild.end_line or subchild.line
+                        name_end_col = subchild.end_column or subchild.column
+                        break
+            elif child.data == "text":
+                for subchild in child.children:
+                    if isinstance(subchild, lark.Token) and "TEXT_CONTENT" in subchild.type:
+                        name_parts.append(subchild.value)
+                        name_end_line = subchild.end_line or subchild.line
+                        name_end_col = subchild.end_column or subchild.column
+                        break
+            break
+        else:
+            break
+
+    if not name_parts:
         return None
+
+    name = ".".join(name_parts)
 
     # Get position from the operator token through to the end of the node
     # But exclude trailing comments - find the last non-comment child

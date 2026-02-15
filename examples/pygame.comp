@@ -70,7 +70,7 @@ using shape-based function overloading.
 
 
 /// Handle mouse up: retract fist
-!func handle pg.event[type==mouse.up] (
+!func handle ~pg.event<type==mouse.up> (
 	//x how to make value based types from fields like this?
 	:param state~state
 
@@ -83,7 +83,7 @@ using shape-based function overloading.
 
 
 /// Handle mouse move: track fist position
-!func handle ~pg.even[type==mouse.move] (
+!func handle ~pg.event<type==mouse.move> (
 	:param state~state
 	
 	state.fist | position :$position

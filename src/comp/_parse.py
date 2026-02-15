@@ -75,24 +75,33 @@ def create_cop_module(module):
         module.add_tag(tag_name, private=False)
 
 
-def lark_parser(name):
+def lark_parser(name, start=None):
     """Get globally shared lark parser.
 
     Args:
         name: (str) name of the grammar file (without .lark)
+        start: (str|None) optional start rule name (e.g., "start_import")
 
     Returns:
         (lark.Lark) Parser instance
     """
-    parser = _parsers.get(name)
+    # If start is specified, create a unique key for caching
+    cache_key = f"{name}:{start}" if start else name
+
+    parser = _parsers.get(cache_key)
     if parser is not None:
         return parser
 
     path = f"lark/{name}.lark"
-    parser = lark.Lark.open(
-        path, rel_to=__file__, parser="lalr", propagate_positions=True
-    )
-    _parsers[name] = parser
+    parser_kwargs = {
+        "parser": "lalr",
+        "propagate_positions": True
+    }
+    if start is not None:
+        parser_kwargs["start"] = start
+
+    parser = lark.Lark.open(path, rel_to=__file__, **parser_kwargs)
+    _parsers[cache_key] = parser
     return parser
 
 

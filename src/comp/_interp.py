@@ -172,6 +172,11 @@ class Interp:
                 if not (name and source):
                     continue
 
+                if compiler != "comp":
+                    err = comp.ModuleError(f"Unknown compiler '{compiler}' for {name} import.'")
+                    child = None
+                    continue
+
                 # Load the imported module
                 child = self.module(source, anchor=module.source.anchor)
                 err = None
@@ -192,22 +197,32 @@ class Interp:
 
         Returns dict with 'compiler' and 'source' keys.
         """
-        # For now, do simple token-based parsing
-        # Later this should use the full comp.lark parser
-        parts = body.split(None, 1)  # Split on first whitespace
-        if len(parts) < 2:
-            raise ValueError("Import body must have compiler and source")
+        import lark
 
-        compiler = parts[0]
-        source_part = parts[1].strip()
+        # Parse using start_import entry point
+        parser = comp._parse.lark_parser("comp", start="start_import")
+        try:
+            tree = parser.parse(body)
+        except Exception as e:
+            raise ValueError(f"Failed to parse import body: {e}")
 
-        # Extract string literal (remove quotes)
-        if source_part.startswith('"') and source_part.endswith('"'):
-            source = source_part[1:-1]
-        elif source_part.startswith("'") and source_part.endswith("'"):
-            source = source_part[1:-1]
-        else:
-            raise ValueError("Import source must be a string literal")
+        # Extract compiler (identifier) and source (text)
+        # Tree structure: start_import -> [identifier, text]
+        identifier_node = tree.children[0]  # identifier Tree
+        text_node = tree.children[1]        # text Tree
+
+        # Get compiler name: identifier -> tokenfield -> TOKENFIELD token
+        tokenfield_node = identifier_node.children[0]  # tokenfield Tree
+        compiler_token = tokenfield_node.children[0]   # TOKENFIELD Token
+        compiler = compiler_token.value
+
+        # Get source: text -> [DUBQUOTE, SHORT_TEXT_CONTENT, DUBQUOTE] or [SIXQUOTE, LONG_TEXT_CONTENT, SIXQUOTE]
+        # Find the content token (middle one)
+        source = ""
+        for child in text_node.children:
+            if isinstance(child, lark.Token) and "CONTENT" in child.type:
+                source = child.value
+                break
 
         return {"compiler": compiler, "source": source}
 

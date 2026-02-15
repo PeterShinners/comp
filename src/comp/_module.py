@@ -115,6 +115,40 @@ class Module:
         first_comment = docs[0]
         return first_comment.get("content", "")
 
+    def package(self):
+        """Get package metadata from !package statements.
+
+        Returns:
+            dict: Package metadata key-value pairs
+
+        Example:
+            !package name "shortly"
+            !package version "1.0.0"
+
+            Returns: {"name": "shortly", "version": "1.0.0"}
+        """
+        statements = self.statements()
+        package_stmts = [s for s in statements if s.get("operator") == "package"]
+
+        metadata = {}
+        for stmt in package_stmts:
+            key = stmt.get("name")
+            body = stmt.get("body", "").strip()
+
+            # Simple parsing: extract string literal value
+            # Body should be like: "value" or 'value'
+            if body.startswith('"') and body.endswith('"'):
+                value = body[1:-1]
+            elif body.startswith("'") and body.endswith("'"):
+                value = body[1:-1]
+            else:
+                # If not a string literal, store the raw body
+                value = body
+
+            metadata[key] = value
+
+        return metadata
+
     def imports(self):
         """Dictionary of imported modules with metadata.
 

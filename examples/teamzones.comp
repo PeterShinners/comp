@@ -45,7 +45,7 @@ Highlights:
 
 
 /// Convert member times to local timezone for an event
-!pure with-local-time ~member# (
+!pure with-local-time ~member* (
 	:param event~datetime
 
 	$ | map :{

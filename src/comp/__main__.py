@@ -86,8 +86,16 @@ def prettycop(cop, field=None, indent=0, show_pos=False):
         prettycop(child, field=field, indent=indent + 1, show_pos=show_pos)
 
 
-def prettyscan(module):
+def prettymodule(module):
     """Scan a module and display metadata using the interpreter."""
+    # Display package metadata if present
+    package_meta = module.package()
+    if package_meta:
+        print("Package:")
+        for key, value in package_meta.items():
+            print(f"  {key}: {value}")
+        print()
+
     statements = module.statements()
 
     # Display statements with their bodies
@@ -220,6 +228,60 @@ def prettynamespace(namespace):
         print(f"{name:18} {defs}")
 
 
+def prettylark_statements(module, show_positions=False):
+    """Parse each statement and show its Lark parse tree."""
+    statements = module.statements()
+
+    # Map operator to parser entry point
+    entry_points = {
+        "import": "start_import",
+        "package": "start_package",
+        "shape": "start_shape",
+        "mod": "start_mod",
+        "func": "start_func",
+        "pure": "start_func",  # pure uses same entry point as func
+        "tag": "start_tag",
+    }
+
+    for stmt in statements:
+        operator = stmt.get("operator", "?")
+        name = stmt.get("name", "?")
+        body = stmt.get("body", "")
+        pos = stmt.get("pos", ())
+
+        # Format position
+        pos_str = ""
+        if len(pos) >= 4:
+            pos_str = f" @ {pos[0]}:{pos[1]}-{pos[2]}:{pos[3]}"
+
+        print(f"!{operator} {name}{pos_str}")
+
+        # Check if we have a parser for this operator
+        entry_point = entry_points.get(operator)
+        if not entry_point:
+            print(f"  (no parser entry point for !{operator})")
+            print()
+            continue
+
+        # Try to parse the body
+        try:
+            parser = comp._parse.lark_parser("comp", start=entry_point)
+            tree = parser.parse(body)
+            prettylark(tree, indent=1, show_positions=show_positions)
+        except Exception as e:
+            # Adjust line numbers in error messages to reflect source file positions
+            error_line = getattr(e, 'line', None)
+            if error_line is not None and len(pos) >= 1:
+                # Body starts at pos[0], so error line needs offset
+                # Error reports line 1 as first line of body, which is actually pos[0] in source
+                actual_line = error_line + (pos[0] - 1)
+                error_msg = str(e).replace(f"line {error_line}", f"line {actual_line}")
+                print(f"  Parse error: {error_msg}")
+            else:
+                print(f"  Parse error: {e}")
+        print()
+
+
 def format_instruction(idx, instr, indent=0):
     """Format a single instruction for display using SSA style."""
     ind = "    " * indent
@@ -240,7 +302,8 @@ def main():
         prog="comp",
         description="Comp language command-line interface")
     parser.add_argument("source", help="Comp source to parse")
-    parser.add_argument("--text", action="store_true", help="Treat source as direct expression to be parsed")
+    parser.add_argument("--text", metavar="ENTRY",
+                        help="Parse source as direct text using grammar entry point (shape, func, statement, expression, module)")
     parser.add_argument("--pos", action="store_true", help="Show line:column positions for nodes")
     parser.add_argument("--resolve", action="store_true", help="Resolve cop references")
     parser.add_argument("--fold", action="store_true", help="Fold cop constants")
@@ -248,7 +311,7 @@ def main():
 
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--scan", action="store_true", help="Show scan Lark parse tree")
-    modes.add_argument("--parse", action="store_true", help="Show full Lark parse tree")
+    modes.add_argument("--lark", action="store_true", help="Show Lark parse tree for each parseable statement")
 
     modes.add_argument("--cop", action="store_true", help="Report parsed cop structure")
     modes.add_argument("--unparse", action="store_true", help="Convert cop nodes back to source")
@@ -271,20 +334,58 @@ def main():
 
     args = parser.parse_args(argv)
 
+    # Map user-friendly entry point names to grammar start rules
+    entry_point_map = {
+        "shape": "start_shape",
+        "func": "start_func",
+        "startup": "start_startup",
+        "statement": "statement_body",
+        "expression": "expression",
+        "module": None,  # Use module parsing (default)
+    }
+
     interp = comp.Interp()
     if args.text:
-        mod = interp.module_from_text(args.source)
+        if args.text not in entry_point_map:
+            print(f"Error: Unknown entry point '{args.text}'")
+            print(f"Valid entry points: {', '.join(entry_point_map.keys())}")
+            return 1
+
+        # For --text mode with --lark, parse directly with the specified entry point
+        if args.lark:
+            entry_point = entry_point_map[args.text]
+            if entry_point is None:
+                # Module entry point - parse as module
+                mod = interp.module_from_text(args.source)
+                prettylark_statements(mod, show_positions=args.pos)
+            else:
+                # Direct grammar entry point
+                lark_parser = comp._parse.lark_parser("comp", start=entry_point)
+                try:
+                    tree = lark_parser.parse(args.source)
+                    prettylark(tree, show_positions=args.pos)
+                except Exception as e:
+                    print(f"Parse error: {e}")
+                    return 1
+            return
+        else:
+            # For non-lark modes, always use module parsing
+            mod = interp.module_from_text(args.source)
     else:
         mod = interp.module(args.source, anchor=os.getcwd())
 
-    if args.scan or args.parse:
-        parser = comp._parse.lark_parser("scan" if args.scan else "comp")
+    if args.scan:
+        parser = comp._parse.lark_parser("scan")
         tree = parser.parse(mod.source.content)
         prettylark(tree, show_positions=args.pos)
         return
 
+    if args.lark:
+        prettylark_statements(mod, show_positions=args.pos)
+        return
+
     if args.module:
-        prettyscan(mod)
+        prettymodule(mod)
         return
 
     if args.imports:

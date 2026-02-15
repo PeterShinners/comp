@@ -25,7 +25,7 @@ Highlights:
 }
 
 !shape state ~{
-    todos~todo{} = {}
+    todos~todo* = {}
     input~text = ""
     filter~visibility = all
 }
@@ -67,11 +67,11 @@ Highlights:
         rio.row :{
             {all active complete}
             | map :(
-                rio.button[
+                rio.button :{
                     text = ($ | to-text)
                     variant = ($ == $$filter | pick :{"primary" "outline"})
                     on-click = (merge :filter=$)
-                ]
+                }
             )
         }
     }
@@ -84,7 +84,7 @@ Highlights:
         rio.checkbox :{
             checked = $complete
             on-change = (toggle-todo :$id)
-        ]
+        }
         rio.text :{
             text = $title
             flex = 1

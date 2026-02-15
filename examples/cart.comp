@@ -18,10 +18,10 @@ Highlights:
 */
 
 !import stdloop comp "loop"
-!import ststruct comp "struct"
+!import stdstruct comp "struct"
 
 !shape item ~{name~text price~num quantity~num=1}
-!shape cart ~{items~item{} discount~num=0}
+!shape cart ~{items~item* discount~num=0}
 
 !func main (
     {
@@ -42,7 +42,7 @@ Highlights:
 )
 
 /// Insert or update an item in a collection
-!pure upsert ~collection (
+!pure upsert ~any* (
     :param item ~item
     :block key ~item = pass
 

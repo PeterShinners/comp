@@ -4,9 +4,11 @@
 
 ?start: HASHBANG? top_item*
 
-// Top level can be module definitions or other tokens (including comments)
+// Top level can be module definitions or comments before first definition
 ?top_item: mod_definition
-         | other_token
+         | doc_comment
+         | line_comment
+         | block_comment
 
 // Hashbang line at start of file - ignored by scanner
 HASHBANG.8: /^#![^\r\n]*/

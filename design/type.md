@@ -310,37 +310,37 @@ the limits specify what range is acceptable.
 
 ## Collections
 
-Collection constraints use `{}` after a type to specify how many elements are
-expected. The base type defines what each element must match, and the braces
-define the count requirement. Field names on elements are not regarded during
+Collection constraints use `*` after a type to specify how many elements are
+expected. The base type defines what each element must match, and the star
+defines the count requirement. Field names on elements are not regarded during
 collection matching, only the count and element types matter.
 
 ```comp
-~num{3}            // exactly 3 numbers
-~text{1-}          // one or more text values
-~image{0-4}        // up to four images
-~uint8{3}          // exactly 3 uint8 values (e.g., RGB)
+~num*3             // exactly 3 numbers
+~text*1+           // one or more text values
+~image*0-4         // up to four images
+~uint8*3           // exactly 3 uint8 values (e.g., RGB)
 ```
 
 Sizing uses literal non-negative integers with `-` for ranges.
 
 ```comp
-{N}                // exactly N
-{N-}               // N or more, no upper bound
-{N-M}              // N to M inclusive
-{}                 // zero or more (the default, equivalent to {0-})
+*N                 // exactly N
+*N+                // N or more, no upper bound
+*N-M               // N to M inclusive
+*                  // zero or more (any count)
 ```
 
 Both bounds must be literal integers. When a range is used, the minimum is
-always required, `{-4}` is not valid, write `{0-4}`. A bare `{}` without
-any number is shorthand for "zero or more," which is the default for any
-unadorned collection type.
+always required, `*-4` is not valid, write `*0-4`. A bare `*` without
+any number means "zero or more," accepting any count of elements.
 
-Collection constraints combine naturally with units and limits. Each suffix
-addresses a different concern, the type says what, limits say how constrained,
-units say what kind, and braces say how many.
+Collection constraints combine naturally with limits. Each suffix addresses
+a different concern: the type says what, limits say how constrained, and star
+says how many.
 
 ```comp
-!shape rgb ~num<integer min=0 max=255>{3}
-!shape polygon ~point{3-}
-!shape temperature-series ~num[celsius]<above=-273.15>{1-}
+!shape rgb ~num<min=0 max=255>*3
+!shape polygon ~point*3-
+!shape temperature-series ~num<min=-273.15>*1+
+```

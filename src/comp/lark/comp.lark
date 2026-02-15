@@ -1,52 +1,121 @@
 // Comp Language Grammar
+// Entry points for statement-by-statement parsing
 
-start: module*
+// ===== MODULE STATEMENT ENTRY POINTS =====
+// Each entry point parses the body of a module-level statement
+// The operator name is already extracted by the scanner
 
-?module: import_stmt
-       | mod_field
-       | expression
+start_package: text                                    // !package name "value"
+start_import: identifier text                          // !import compiler "source"
+start_mod: expression                                  // !mod name value (allow structures)
+start_shape: shape                                     // !shape name ~spec
+start_func: func_body  // !func name [~type] [@wrapper] body
+func_body: shape wrapper* func_struct
+         | wrapper+ func_struct
+         | func_struct
+func_struct: statement | structure
+start_startup: startup_body  // !startup name [@wrapper] body
+startup_body: wrapper+ func_struct
+            | func_struct
+start_tag: (BRACE_OPEN tag_item* BRACE_CLOSE)?        // !tag name {items}
+tag_item: identifier (BRACE_OPEN tag_item* BRACE_CLOSE)?
 
-import_stmt: KEY_IMPORT simple_name structure
-simple_name: TOKENFIELD
-mod_field: identifier ASSIGN expression
+
+// ===== BASIC DELIMITERS =====
+// Highest priority to prevent text content from swallowing delimiters
+PAREN_OPEN.9: "("
+PAREN_CLOSE.9: ")"
+BRACE_OPEN.9: "{"
+BRACE_CLOSE.9: "}"
+ANGLE_OPEN.9: "<"
+ANGLE_CLOSE.9: ">"
 
 
-PAREN_OPEN.6: "("
-PAREN_CLOSE.6: ")"
-ASSIGN.7: "="
-COLON.4: ":"
+// ===== OPERATORS & PUNCTUATION =====
+// Higher priority than text content to prevent TEXT_CONTENT from matching operators
+EQUALS.5: "="
+COLON.5: ":"
+TILDE.5: "~"
+DOT.5: "."
+PIPE.5: "|"
+HASH.5: "#"
+DOLLAR.5: "$"
+AT.5: "@"
 
-// Shape
-TILDE.4: "~"
-COMMA.4: ","
-shape: TILDE shape_spec
-shape_spec: (identifier | paren_shape) guard_suffix? array_suffix?
-GUARD_OPEN.4: "["
-GUARD_CLOSE.4: "]"
-ARRAY_OPEN.4: "{"
-ARRAY_CLOSE.4: "}"
-guard_suffix: GUARD_OPEN struct_field+ GUARD_CLOSE
-array_suffix: ARRAY_OPEN (number (COMMA number?)?)? ARRAY_CLOSE
+// Comparison operators (priority 10 to beat delimiters and prevent splitting)
+EQ.10: "=="
+NE.10: "!="
+LE.10: "<="
+GE.10: ">="
+
+// Logical operators
+LNOT.6: "!!"
+LAND.6: "&&"
+LOR.6: "||"
+
+// Arithmetic operators
+PLUS.6: "+"
+MINUS.6: "-"
+KEBAB_MINUS.6: "+-"
+STAR.6: "*"
+SLASH.6: "/"
+
+// Pipeline operators
+PIPEFALLBACK.6: "|?"
+
+// Field expression delimiter
+QUOTE.6: "'"
+
+
+// ===== KEYWORDS & OPERATORS =====
+// Statement operators (high priority to match before standalone !)
+OP_LET.7: "!let"
+OP_TRANSACT.7: "!transact"
+OP_ON.7: "!on"
+OP_DEFER.7: "!defer"
+
+// Declaration keywords
+OP_PARAM.7: ":param"
+OP_BLOCK.7: ":block"
+
+
+// ===== SHAPES =====
+shape: TILDE shape_union
+shape_union: shape_atom (PIPE shape_atom)*
+shape_atom: (identifier | paren_shape | brace_shape) limit_suffix? array_suffix?
+
+limit_field: (identifier EQUALS)? simple_expr
+limit_suffix: ANGLE_OPEN limit_field+ ANGLE_CLOSE
+
+array_suffix: STAR array_count?
+array_count: number MINUS number    // range: *4-8
+           | number PLUS            // min-only: *4+
+           | number                 // exact: *4
+// Examples: *=any, *3=exactly 3, *3-5=range, *3+=min 3, *0-5=up to 5
+
 paren_shape: PAREN_OPEN shape_content PAREN_CLOSE
+brace_shape: BRACE_OPEN shape_content BRACE_CLOSE
 
-shape_content: shape_union | shape_field*
-shape_union: shape_spec (PIPE shape_spec)+
-shape_field: (TOKENFIELD | shape | TOKENFIELD shape) (ASSIGN field_default_value)?
-?field_default_value: simple_expr | structure
+shape_content: content_union | shape_field+
+content_union: shape_atom (PIPE shape_atom)+
+shape_field: (TOKENFIELD | shape | TOKENFIELD shape) (EQUALS field_default_value)?
+?field_default_value: simple_expr | statement | structure
 
 
-// Keywords (having custom syntaxes)
-// Priority 8 to be higher than BANG (7)
-KEY_IMPORT.8: "!import"
-KEY_TRANSACT.8: "!transact"
-KEY_GRAB.8: "!grab"
-KEY_DROP.8: "!drop"
-KEY_PUSH.8: "!push"
-KEY_PULL.8: "!pull"
-transaction: KEY_TRANSACT PAREN_OPEN identifier+ PAREN_CLOSE
+// ===== EXPRESSIONS =====
+// Expression hierarchy defines operator precedence
+
+wrapper: AT identifier
+
+transaction: OP_TRANSACT PAREN_OPEN identifier+ PAREN_CLOSE
+on_dispatch: OP_ON expression on_branch+
+on_branch: shape expression
+defer_expr: OP_DEFER expression
 
 ?expression: logic_or
            | transaction
+           | on_dispatch
+           | defer_expr
 
 ?logic_or: logic_and
          | logic_or LOR logic_and -> binary_op
@@ -54,33 +123,11 @@ transaction: KEY_TRANSACT PAREN_OPEN identifier+ PAREN_CLOSE
 ?logic_and: comparison
           | logic_and LAND comparison -> binary_op
 
-// Expressions
-EQ.6: "=="
-NE.6: "!="
-LT.6: "<"
-GT.6: ">"
-LE.6: "<="
-GE.6: ">="
-
-PIPE.4: "|"
-PIPEFALLBACK.4: "|?"
-
-BANG.7: "!"
-LNOT.5: "!!"
-LAND.5: "&&"
-LOR.5: "||"
-
-PLUS.3: "+"
-MINUS.3: "-"
-KEBAB_MINUS.3: "+-"
-STAR.3: "*"
-SLASH.3: "/"
-
 ?comparison: arithmetic
            | comparison EQ arithmetic -> compare_op
            | comparison NE arithmetic -> compare_op
-           | comparison LT arithmetic -> compare_op
-           | comparison GT arithmetic -> compare_op
+           | comparison ANGLE_OPEN arithmetic -> compare_op
+           | comparison ANGLE_CLOSE arithmetic -> compare_op
            | comparison LE arithmetic -> compare_op
            | comparison GE arithmetic -> compare_op
 
@@ -90,8 +137,11 @@ SLASH.3: "/"
 ?term: pipeline_expr
      | term (STAR | SLASH) pipeline_expr -> binary_op
 
-?pipeline_expr: unary
-              | unary ((PIPE | PIPEFALLBACK) unary)+ -> pipeline
+?pipeline_expr: binding_expr
+              | binding_expr ((PIPE | PIPEFALLBACK) binding_expr)+ -> pipeline
+
+?binding_expr: unary (COLON binding_value)*
+?binding_value: identifier EQUALS unary | unary
 
 ?unary: postfix
       | (PLUS | MINUS | LNOT) unary -> unary_op
@@ -100,55 +150,93 @@ postfield: nextfield (DOT nextfield)*
 ?postfix: atom
         | atom DOT postfield -> fieldaccess
 
-// Simplified expressions, for default values  (avoids ambiguity) 
+?atom: wrapper* (number | text | identifier | shape)
+     | statement  // Paren structure as expression
+     | structure  // Brace structure as expression
+
+
+// ===== SIMPLE EXPRESSIONS =====
+// Simplified expression hierarchy for use in default values and limits
+// Avoids ambiguity by not allowing comparison operators
+
 ?simple_expr: simple_term
              | simple_expr (PLUS | MINUS | KEBAB_MINUS | LAND | LOR) simple_term -> binary_op
+
 ?simple_term: simple_atom
             | simple_term (STAR | SLASH) simple_atom -> binary_op
-?simple_atom: number | text | identifier
+
+?simple_atom: wrapper* (number | text | identifier)
              | (PLUS | MINUS | LNOT) simple_atom -> unary_op
 
 
-// Structures and Blocks
-KEY_LET.8: "!let"
-block: COLON shape_field* structure
-structure: PAREN_OPEN struct_wrapper* (let_assign|struct_field)* PAREN_CLOSE
-struct_wrapper: PIPE identifier
-let_assign: KEY_LET identifier ASSIGN expression
-struct_field: (identifier ASSIGN)? expression
+// ===== STRUCTURES & STATEMENTS =====
+// Structures can contain statements
+// Brace structures can contain field statements (named or unnamed)
+
+statement: PAREN_OPEN statement_body PAREN_CLOSE
+structure: BRACE_OPEN structure_body BRACE_CLOSE
+
+statement_body: signature statement_item*
+              | statement_item*
+
+structure_body: signature structure_item*
+              | structure_item*
+
+statement_item: let_assign | expression
+structure_item: let_assign | field_or_expr
+
+field_or_expr: TOKENFIELD EQUALS expression -> named_field
+             | expression
+
+signature: (param_decl | block_decl)+
+param_decl: OP_PARAM identifier shape (EQUALS simple_expr)?
+block_decl: OP_BLOCK identifier shape (EQUALS identifier)?
+
+let_assign: OP_LET identifier expression
 
 
-// Identifiers and atoms
-DOT.6: "."
-HASH: "#"
-ONEQUOTE.7: "'"
-TOKENFIELD.4: /[a-zA-Z_][\w-]*(?!\.\d)/  //negative lookahead prevents matching sibling numbers without space
+// ===== IDENTIFIERS =====
+TOKENFIELD.4: /[a-zA-Z_][\w-]*(?!\.\d)/  // Negative lookahead prevents matching sibling numbers
+
 indexfield: HASH INTEGER
 indexprfield: HASH PAREN_OPEN simple_expr PAREN_CLOSE
-exprfield: ONEQUOTE expression ONEQUOTE
-?firstfield: TOKENFIELD -> tokenfield | exprfield
+dollarfield: DOLLAR nextfield?
+exprfield: QUOTE expression QUOTE
+
+?firstfield: TOKENFIELD -> tokenfield | dollarfield | exprfield
 ?nextfield: firstfield | indexfield | indexprfield | text -> textfield
+
 identifier: firstfield (DOT nextfield)*
 
-invoke: (text | identifier | number | block | invoke) (structure block* | block+)
+
+// ===== LITERALS =====
+
+// Text literals - double quotes only (single quotes reserved for field expressions)
+STRING.3: /[ubf]?r?"(?!"").*?(?<!\\)(\\\\)*?"/i
+LONG_STRING.4: /[ubf]?r?""".*?(?<!\\)(\\\\)*?"""/is
+
+text: STRING | LONG_STRING
+
+// Numeric literals - higher priority than text content
+INTBASE.3: /0[xXbBoO](_?[\da-zA-Z])+/  // Hex, binary, octal with underscores
+SCIENTIFIC.3: /[eE][+-]?\d(_?\d)*/
+
+INTEGER.3: INTBASE | /(([1-9](_?\d)*)|0(_?0)*)(?![a-zA-Z_"])/
+DECIMAL.3: /\d(_?\d)*\.(\d(_?\d)*)?(SCIENTIFIC)?(?![a-zA-Z_"])/  // 3.14, 5., 1.5e-10
+         | /\.\d(_?\d)*(SCIENTIFIC)?(?![a-zA-Z_])/             // .5, .123_456
+         | /\d(_?\d)*SCIENTIFIC(?![a-zA-Z_"])/                 // 1e5, 1_000e10
+
+number: INTEGER | DECIMAL
 
 
-?atom: number
-     | text
-     | identifier
-     | structure
-     | block
-     | shape
-     | invoke
-     // | atom (structure block* | block+) -> invokex
+// ===== COMMENTS & WHITESPACE =====
+// Comments are captured by the scanner but ignored during parsing
+// Priority 7 to be higher than SLASH operator
 
+COMMENT.7: /\/\/[^\r\n]*/        // Line comments: //
+BLOCK_COMMENT.7: /\/\*.*?\*\//s  // Block comments: /* */
+WS: /\s+/
 
-// Comments completely ignored in the full grammar parse. They are
-// captured in the scan.lark prepass.
-DOC_COMMENT.8: /---(.|\n)*?---/s
-LINE_COMMENT.8: /--[^\r\n]*/
-
-%import .common (text, number, INTEGER, WS)
 %ignore WS
-%ignore LINE_COMMENT
-%ignore DOC_COMMENT
+%ignore COMMENT
+%ignore BLOCK_COMMENT
