@@ -13,6 +13,7 @@ __all__ = [
     "shape_any",
     "shape_block",
     "shape_tag",
+    "shape_func",
     "shape_shape",
     "shape_union",
 ]
@@ -153,3 +154,4 @@ shape_union = Shape("union", False)
 
 # Internal shapes - used by implementation, not exposed to comp language
 shape_tag = Shape("tag", True)
+shape_func = Shape("func", True)

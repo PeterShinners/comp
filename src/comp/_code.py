@@ -61,17 +61,52 @@ def _module_definition(cop, module_id):
 
     # Determine definition shape from COP tag
     match value_tag:
-        case "value.block":
-            # Blocks (functions)
-            shape = comp.shape_block
+        case "function.define":
+            # Function definitions
+            shape = comp.shape_func
             uniqueify = True
+        case "value.block":
+            # Block values (might be functions too)
+            shape = comp.shape_func
+            uniqueify = True
+        case "value.wrapper":
+            # Wrapped value - unwrap to check inner type
+            # Wrappers on functions are still functions
+            # Access kids dict directly
+            try:
+                kids_field = cop_value.field("kids")
+                if hasattr(kids_field, 'data') and isinstance(kids_field.data, dict):
+                    # Find the "v" key in the dict
+                    for k, v in kids_field.data.items():
+                        key_str = k.data if hasattr(k, 'data') else str(k)
+                        if key_str == "v":
+                            inner_tag = comp.cop_tag(v)
+                            if inner_tag in ("function.define", "value.block"):
+                                shape = comp.shape_func
+                                uniqueify = True
+                            else:
+                                shape = comp.shape_struct
+                            break
+                    else:
+                        # No "v" key found
+                        shape = comp.shape_struct
+                else:
+                    shape = comp.shape_struct
+            except (KeyError, AttributeError):
+                shape = comp.shape_struct
         case "shape.define":
             # Shape definitions
             shape = comp.shape_shape
-        # What about unions, literals, ?
+        case "struct.define":
+            # Tags are struct.define, everything else is generic struct
+            # Check if this looks like a tag (list of identifiers)
+            kids = list(comp.cop_kids(cop_value))
+            if all(comp.cop_tag(k) == "value.identifier" for k in kids):
+                shape = comp.shape_tag
+            else:
+                shape = comp.shape_struct
         case _:
-            #raise comp.CodeError(f"Invalid module value: {value_tag} for {identifier}")
-            # All types are temporarily helpful for quick and minimal testing
+            # Generic struct for everything else
             shape = comp.shape_struct
 
     # Create Definition with original COP node

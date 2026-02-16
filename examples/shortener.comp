@@ -4,7 +4,7 @@ A simple URL shortener using Redis for storage.
 
 Highlights:
 
-- Redis key patterns use fmt with module constants, `$id | fmt :mod.keys.target` generates keys from a single template definition
+- Redis key patterns use fmt with module constants, `$.id | fmt :mod.keys.target` generates keys from a single template definition
 - `unless` acts as a guard clause, if the URL is invalid, the pipeline detours to an error template and never reaches `insert-url`
 - Computed field names with single quotes let expressions generate Redis keys inline, `'id | fmt :mod.keys.target' = $$`
 - `while` pipes its result back as the next iteration's input, loop state is just the pipeline value, no mutable counter
@@ -58,26 +58,26 @@ Highlights:
 
 /// Accept a URL submission and redirect to its detail page
 !func link-create ~http.request (
-    $form.url
-    unless :$ | url.parse | $scheme | in :{"http" "https"}) (
-        {error="Please enter a valid URL" url=$$form.url}
+    $.form.url
+    unless :$ | url.parse | $.scheme | in :{"http" "https"} :(
+        {error="Please enter a valid URL" url=$$.form.url}
         | response-template :"newurl.html"
     )
     | insert-url
-    | http.redirect :"/%($id).json"
+    | http.redirect :"/%($.id).json"
 )
 
 
 /// Redirect short URL to its target, incrementing click count
 !func link-redirect ~http.request (
-    $params.id | fetch-details | increment
-    http.redirect :$target
+    $.params.id | fetch-details | increment
+    http.redirect :$.target
 )
 
 
 /// Render detail page for a short URL
 !func link-details ~http.request (
-    $params.id | fetch-details | response-json
+    $.params.id | fetch-details | response-json
 )
 
 
@@ -113,7 +113,7 @@ Highlights:
 
 /// Increment the click counter for a URL
 !func increment ~detail* ( 
-    $id 
+    $.id 
     | fmt :mod.keys.counter
     | redis.incr
 )
@@ -131,5 +131,5 @@ Highlights:
         div.quotient
     )
 
-    $result | if-empty :(charset | first)
+    $.result | if-empty :(charset | first)
 )

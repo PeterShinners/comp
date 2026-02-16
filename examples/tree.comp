@@ -30,15 +30,15 @@ Highlights
 
     // which of these two forms is more idiomatic
     {value} | tree
-    tree :value=$value
+    tree :value=$.value
 )
 
 !pure tree-insert ~tree @update(
     :param value~num
 
-    !on value <> $value
-    ~less {left = ($left | tree-insert :value)}
-    ~else {right = ($right | tree-insert :value)}
+    !on value <> $.value
+    ~less {left = ($.left | tree-insert :value)}
+    ~else {right = ($.right | tree-insert :value)}
 )
 
 
@@ -52,9 +52,9 @@ Highlights
 !pure tree-contains ~tree (
     :param value~num
 
-    !on value <> $value
-    ~less ($left | tree-contains :value)
-    ~greater ($right | tree-contains :value)
+    !on value <> $.value
+    ~less ($.left | tree-contains :value)
+    ~greater ($.right | tree-contains :value)
     ~equal true
 )
 
@@ -64,7 +64,7 @@ Highlights
 }
 
 !pure tree-values ~tree @flat{
-    ($left | tree-values)
-    {$value}
-    ($right | tree-values)
+    ($.left | tree-values)
+    {$.value}
+    ($.right | tree-values)
 }

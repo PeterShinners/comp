@@ -221,9 +221,60 @@ class Module:
         if self._definitions is not None:
             return self._definitions
 
-        parser = comp.lark_parser("comp")
-        lark_tree = parser.parse(self.source.content)
-        cop_tree = comp._parse.lark_to_cop(lark_tree)
+        # Map statement operators to grammar entry points
+        entry_point_map = {
+            "func": "start_func",
+            "pure": "start_func",  # Same as func
+            "startup": "start_startup",
+            "shape": "start_shape",
+            "tag": "start_tag",
+            "mod": "start_mod",
+            "package": "start_package",
+            # "import" is handled separately by interpreter, not in definitions
+        }
+
+        # Get scanned statements
+        statements = self.statements()
+
+        # Parse each statement and build mod.namefield COP nodes
+        mod_fields = []
+        for stmt in statements:
+            operator = stmt.get("operator")
+            name = stmt.get("name")
+            body = stmt.get("body", "").strip()
+            pos = stmt.get("pos", ())
+
+            # Skip import and package statements (handled elsewhere)
+            if operator in ("import", "package"):
+                continue
+
+            # Get entry point for this operator
+            entry_point = entry_point_map.get(operator)
+            if not entry_point:
+                # Unknown operator - skip for now
+                continue
+
+            # Parse the statement body
+            parser = comp.lark_parser("comp", start=entry_point)
+            lark_tree = parser.parse(body)
+            value_cop = comp._parse.lark_to_cop(lark_tree)
+
+            # Create identifier COP for the name
+            name_cop = comp.create_cop("value.identifier", [
+                comp.create_cop("ident.token", [], value=name)
+            ])
+
+            # Create mod.namefield COP
+            field_cop = comp.create_cop("mod.namefield",
+                {"n": name_cop, "v": value_cop},
+                op="=",
+                pos=pos
+            )
+            mod_fields.append(field_cop)
+
+        # Create mod.define COP containing all fields
+        cop_tree = comp.create_cop("mod.define", mod_fields)
+
         self._definitions = comp.extract_definitions(cop_tree, self.token)
         return self._definitions
 

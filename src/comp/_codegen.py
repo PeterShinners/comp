@@ -173,9 +173,15 @@ class CodeGenContext:
             case "value.field":
                 return self._build_field_access(cop)
                 
+            case "function.define":
+                return self._build_function(cop)
+
             case "value.block":
                 return self._build_block(cop)
-                
+
+            case "statement.define":
+                return self._build_statement(cop)
+
             case "struct.define":
                 return self._build_struct(cop)
 
@@ -334,12 +340,132 @@ class CodeGenContext:
             body_instructions=body_ctx.instructions
         )
         return self.emit(instr)
-    
+
+    def _build_function(self, cop):
+        """Build function.define instructions."""
+        # function.define has: sig=function.signature (optional), body=statement.define/struct.define
+        kids_dict = cop.field("kids").data
+
+        # Extract function.signature (contains signature.input if present)
+        func_sig_cop = None
+        for k, v in kids_dict.items():
+            key_str = k.data if hasattr(k, 'data') else str(k)
+            if key_str == "sig":
+                func_sig_cop = v
+                break
+
+        # Extract body (statement.define or struct.define, possibly with sig=block.signature)
+        body_cop = None
+        for k, v in kids_dict.items():
+            key_str = k.data if hasattr(k, 'data') else str(k)
+            if key_str == "body":
+                body_cop = v
+                break
+
+        # Build combined signature from function.signature and body's block.signature
+        sig_kids = []
+
+        # Add signature.input from function.signature if present
+        if func_sig_cop:
+            func_sig_kids = _cop_kids(func_sig_cop)
+            sig_kids.extend(func_sig_kids)
+
+        # Check if body has block.signature (as a named field)
+        if body_cop:
+            try:
+                # Try to get the sig field from the body
+                body_sig = body_cop.field("sig")
+                if body_sig is not None:
+                    # It's a block.signature - add its kids to the combined signature
+                    block_sig_kids = _cop_kids(body_sig)
+                    sig_kids.extend(block_sig_kids)
+            except (KeyError, AttributeError):
+                pass
+
+        # Create combined signature
+        combined_sig = comp.create_cop("block.signature", sig_kids)
+
+        if body_cop is None:
+            body_cop = comp.create_cop("statement.define", [])
+
+        # Build body instructions
+        body_ctx = CodeGenContext()
+        body_ctx._build_value(body_cop)
+
+        instr = comp._interp.BuildBlock(
+            cop=cop,
+            signature_cop=combined_sig,
+            body_instructions=body_ctx.instructions
+        )
+        return self.emit(instr)
+
+    def _build_statement(self, cop):
+        """Build statement.define instructions."""
+        # statement.define contains statement.field children
+        # May also have optional sig=block.signature field (which we ignore here)
+        # Get positional kids (numeric keys), filtering out the "sig" field
+        kids_dict = cop.field("kids").data
+        positional_items = []
+
+        for k, v in kids_dict.items():
+            key_str = k.data if hasattr(k, 'data') else str(k)
+            if key_str != "sig":  # Skip the signature field
+                # Try to parse as integer for positional fields
+                try:
+                    idx = int(key_str)
+                    positional_items.append((idx, v))
+                except ValueError:
+                    # Not a numeric key, skip it
+                    pass
+
+        # Sort by index to maintain order
+        positional_items.sort(key=lambda x: x[0])
+        field_kids = [v for _, v in positional_items]
+
+        if not field_kids:
+            # Empty statement - return empty struct
+            instr = comp._interp.BuildStruct(cop=cop, fields=[])
+            return self.emit(instr)
+
+        # Build each statement field and return the last one
+        result = None
+        for kid in field_kids:
+            tag = comp.cop_tag(kid)
+            if tag == "statement.field":
+                # Unwrap the expression from statement.field
+                kid_kids = _cop_kids(kid)
+                if kid_kids:
+                    result = self._build_value_ensure_register(kid_kids[0])
+            else:
+                # Shouldn't happen, but handle it
+                result = self._build_value_ensure_register(kid)
+
+        return result if result is not None else self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
+
     def _build_struct(self, cop):
         """Build struct construction instructions."""
-        kids = _cop_kids(cop)
+        # struct.define may have optional sig=block.signature field (which we ignore here)
+        # Get positional kids (numeric keys), filtering out the "sig" field
+        kids_dict = cop.field("kids").data
+        positional_items = []
+
+        for k, v in kids_dict.items():
+            key_str = k.data if hasattr(k, 'data') else str(k)
+            if key_str != "sig":  # Skip the signature field
+                # Try to parse as integer for positional fields
+                try:
+                    idx = int(key_str)
+                    positional_items.append((idx, v))
+                except ValueError:
+                    # Not a numeric key, skip it
+                    pass
+
+        # Sort by index to maintain order
+        positional_items.sort(key=lambda x: x[0])
+        kids = [v for _, v in positional_items]
+
         fields = []
-        
+
         for kid in kids:
             tag = kid.positional(0).data.qualified
             

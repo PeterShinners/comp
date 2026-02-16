@@ -27,6 +27,8 @@ PAREN_OPEN.9: "("
 PAREN_CLOSE.9: ")"
 BRACE_OPEN.9: "{"
 BRACE_CLOSE.9: "}"
+BRACKET_OPEN.9: "["
+BRACKET_CLOSE.9: "]"
 ANGLE_OPEN.9: "<"
 ANGLE_CLOSE.9: ">"
 
@@ -39,12 +41,15 @@ TILDE.5: "~"
 DOT.5: "."
 PIPE.5: "|"
 HASH.5: "#"
+DOLLAR3.6: "$$$"
+DOLLAR2.6: "$$"
 DOLLAR.5: "$"
 AT.5: "@"
 
 // Comparison operators (priority 10 to beat delimiters and prevent splitting)
 EQ.10: "=="
 NE.10: "!="
+CMP.10: "<>"
 LE.10: "<="
 GE.10: ">="
 
@@ -80,9 +85,11 @@ OP_BLOCK.7: ":block"
 
 
 // ===== SHAPES =====
-shape: TILDE shape_union
-shape_union: shape_atom (PIPE shape_atom)*
-shape_atom: (identifier | paren_shape | brace_shape) limit_suffix? array_suffix?
+shape: TILDE shape_union shape_default?
+?shape_union: shape_atom (PIPE shape_atom)*
+shape_atom: (identifier | paren_shape | brace_shape) unit_suffix? limit_suffix? array_suffix?
+
+unit_suffix: BRACKET_OPEN identifier BRACKET_CLOSE
 
 limit_field: (identifier EQUALS)? simple_expr
 limit_suffix: ANGLE_OPEN limit_field+ ANGLE_CLOSE
@@ -98,7 +105,8 @@ brace_shape: BRACE_OPEN shape_content BRACE_CLOSE
 
 shape_content: content_union | shape_field+
 content_union: shape_atom (PIPE shape_atom)+
-shape_field: (TOKENFIELD | shape | TOKENFIELD shape) (EQUALS field_default_value)?
+shape_field: (TOKENFIELD | shape | TOKENFIELD shape) shape_default?
+shape_default: EQUALS field_default_value
 ?field_default_value: simple_expr | statement | structure
 
 
@@ -126,6 +134,7 @@ defer_expr: OP_DEFER expression
 ?comparison: arithmetic
            | comparison EQ arithmetic -> compare_op
            | comparison NE arithmetic -> compare_op
+           | comparison CMP arithmetic -> compare_op
            | comparison ANGLE_OPEN arithmetic -> compare_op
            | comparison ANGLE_CLOSE arithmetic -> compare_op
            | comparison LE arithmetic -> compare_op
@@ -151,6 +160,7 @@ postfield: nextfield (DOT nextfield)*
         | atom DOT postfield -> fieldaccess
 
 ?atom: wrapper* (number | text | identifier | shape)
+     | wrapper+   // Standalone wrapper(s) as a value
      | statement  // Paren structure as expression
      | structure  // Brace structure as expression
 
@@ -190,7 +200,7 @@ field_or_expr: TOKENFIELD EQUALS expression -> named_field
 
 signature: (param_decl | block_decl)+
 param_decl: OP_PARAM identifier shape (EQUALS simple_expr)?
-block_decl: OP_BLOCK identifier shape (EQUALS identifier)?
+block_decl: OP_BLOCK identifier shape (EQUALS simple_expr)?
 
 let_assign: OP_LET identifier expression
 
@@ -200,7 +210,7 @@ TOKENFIELD.4: /[a-zA-Z_][\w-]*(?!\.\d)/  // Negative lookahead prevents matching
 
 indexfield: HASH INTEGER
 indexprfield: HASH PAREN_OPEN simple_expr PAREN_CLOSE
-dollarfield: DOLLAR nextfield?
+dollarfield: DOLLAR3 | DOLLAR2 | DOLLAR
 exprfield: QUOTE expression QUOTE
 
 ?firstfield: TOKENFIELD -> tokenfield | dollarfield | exprfield

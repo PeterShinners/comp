@@ -10,13 +10,13 @@ Highlights:
 !func aoc-2025-day1 (
     read-lines
     | map :parse
-    | accumulate :50 :($ + $value)
+    | accumulate :50 :($ + $.value)
     | count :($ | divmod :100 | $ == 0)
     | print
 )
 
 !pure parse ~text (
-    !let sign ($#0 == "R" | pick :1 :-1)
+    !let sign ($.#0 == "R" | pick :1 :-1)
     !let step ($ | slice :1 | parse-num)
     sign * step
 )
@@ -38,10 +38,10 @@ Highlights:
 !startup main (
     read-lines
     | parse-entries
-    | map @flat :($path | path-ancestors | map :{path=$ size=$$size})
-    | group :($path) | sum :($size)
-    | where :($size <= 100000)
-    | sum :($size)
+    | map @flat :($.path | path-ancestors | map :{path=$ size=$$.size})
+    | group :($.path) | sum :($.size)
+    | where :($.size <= 100000)
+    | sum :($.size)
     | print
 )
 
@@ -52,7 +52,7 @@ Highlights:
         ~text<"$ ls"> skip
         ~text<"dir "> skip
         ~text<"$ cd"> (!let cwd ($ | slice :5 | path-resolve :cwd)   skip)
-        ~text {path=cwd size=($ | split-whitespace :limit=1 | $#0 | parse-num)}
+        ~text {path=cwd size=($ | split-whitespace :limit=1 | $.#0 | parse-num)}
     )
 )
 
@@ -60,6 +60,6 @@ Highlights:
 /// "/a/e" -> {"/" "/a" "/a/e"}
 !pure path-ancestors ~text (
     $ | split :"/"
-    | accumulate :"" :($ | join :"/" :$value)
+    | accumulate :"" :($ | join :"/" :$.value)
     | map :($ | if-empty :"/")
 )

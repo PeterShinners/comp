@@ -189,9 +189,9 @@ The three-way comparison operator `<>` returns a tag (`~less`, `~equal`,
 This is especially useful for binary tree operations and sorted data structures.
 
 ```comp
-!on (value <> $value)
-~less ($left | tree-contains :value)
-~greater ($right | tree-contains :value)
+!on (value <> $.value)
+~less ($.left | tree-contains :value)
+~greater ($.right | tree-contains :value)
 ~equal true
 ```
 

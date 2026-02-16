@@ -46,7 +46,7 @@ Like `"Full Name"`.
 These types of field names can be combined in a single identifier.
 
 ```comp
-records.#0."Owners".'$owner-name'.active?
+records.#0."Owners".'$.owner-name'.active?
 ```
 
 Although this does not work to reference the first level of a field name, only
@@ -109,7 +109,7 @@ that allow advanced type matching.
 {1 2 3}  // Ordered struct with three unnamed fields
 (1 2 3)  // Literal 3
 
-($name | uppercase)  // Block
+($.name | uppercase)  // Block
 {name="Alice" age=30 active=true}  // Struct literal with named fields
 
 sort :reverse  // Parameter on an invokable
@@ -157,7 +157,7 @@ risky-operation |? (log-error | safe-default)
 
 // Value fallback, catch failure on any expression
 config.optional-field ?? "default-value"
-$timeout ?? 30
+$.timeout ?? 30
 ```
 
 The distinction is scope: `|?` operates on the entire pipeline result up to that
@@ -177,10 +177,10 @@ of blocks inside a function.
 
 ```comp
 $              // entire input value
-$name          // input's "name" field (shorthand for $.name)
-$items.price   // nested field access still uses dots
+$.name          // input's "name" field (shorthand for $.name)
+$.items.price   // nested field access still uses dots
 $$             // outer scope's input (one level up)
-$$filter       // outer scope's field
+$$.filter       // outer scope's field
 ```
 
 ## Operators
@@ -220,7 +220,7 @@ literal `%(`.
 "hello %(name)"                      // interpolate from scope
 "price: %($ * 1.08)[.2]"             // expression with format
 "%(count)[04] items at 100% markup"  // format spec, literal %
-data | fmt :"row %($id): %($title)"  // fmt function for data templates
+data | fmt :"row %($.id): %($.title)"  // fmt function for data templates
 ```
 
 The `@fmt` wrapper applies interpolation directly from the current scope. The
@@ -257,7 +257,7 @@ That variable can be accessed using the defined name inside the function
 block and all its nested block definitions.
 
 ```comp
-!let base ($price * $quantity)
+!let base ($.price * $.quantity)
 !let cutoff (datetime.now - 1[week])
 ```
 
@@ -266,9 +266,9 @@ based on the type or tag of the result. See [Functions](function.md) for
 complete dispatch documentation.
 
 ```comp
-!on (value <> $value)
-~less ($left | tree-insert :value)
-~greater ($right | tree-insert :value)
+!on (value <> $.value)
+~less ($.left | tree-insert :value)
+~greater ($.right | tree-insert :value)
 ~equal $
 ```
 
@@ -294,7 +294,7 @@ inline expressions, and string literals alike.
 
 ```comp
 !pure tree-insert ~tree @update (...)  // merge result onto input
-| map @update {name = ($name | upper)} // inline wrapper on expression
+| map @update {name = ($.name | upper)} // inline wrapper on expression
 @fmt"hello %(name)"                    // string template wrapper
 ```
 

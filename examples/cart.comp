@@ -30,14 +30,14 @@ Highlights:
         {"Apple" 1.00 quantity=2}  // replaces previous apples
     }
     | map :(item)  // morph each simple structure into a full cart item
-    | reduce :(upsert :($name))
+    | reduce :(upsert :($.name))
     | cart :discount=0.2
     | total
     | print :"Total: %()"
 )
 
 !pure total ~cart ( 
-    $items | sum :($price * $quantity) * (1 - $discount)
+    $.items | sum :($.price * $.quantity) * (1 - $.discount)
     // Operator precedence applies the final multiplication to the sum
 )
 

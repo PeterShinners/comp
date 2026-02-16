@@ -38,7 +38,7 @@ Highlights:
 	!let next-call = ("2021-08-31 15:00:21 -05:00" | parse-datetime)
 
 	core-team
-	| with-local-time :event=$next-call
+	| with-local-time :event=$.next-call
 	| print :"For the next event on %(next-call)..."
 	| table.markdown
 )
@@ -49,8 +49,8 @@ Highlights:
 	:param event~datetime
 
 	$ | map :{
-		name = ($name | capitalize)
+		name = ($.name | capitalize)
 		time = (event.tz | isoformat)
-		tz = $tz
+		tz = $.tz
 	}
 )

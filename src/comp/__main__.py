@@ -393,34 +393,54 @@ def main():
         return
 
     if args.cop or args.unparse:
-        # The parse tree is normally not exposed directly like this, instead
-        # it gets divvied up into a series of Definitions for the module.
-        parser = comp.lark_parser("comp")
-        lark_tree = parser.parse(mod.source.content)
-        cop_tree = comp._parse.lark_to_cop(lark_tree)
+        # Display COP trees for each definition individually
+        # This shows the scanner-based approach: each statement parsed separately
+        defs = mod.definitions()
+
+        # Optionally resolve and optimize
         namespace = None
-        if args.resolve:
-            # Build namespace and resolve identifiers
-            defs = mod.definitions()
+        if args.resolve or args.pure:
             namespace = mod.namespace()
-            # Resolve and optionally fold
-            cop_tree = comp.coptimize(cop_tree, args.fold, namespace)
-        elif args.fold:
-            # Fold without namespace
-            cop_tree = comp.coptimize(cop_tree, True, None)
+            for name, definition in defs.items():
+                if not definition.resolved_cop:
+                    definition.resolved_cop = comp.coptimize(definition.original_cop, args.fold, namespace)
+
         if args.pure:
-            # Evaluate pure function invokes
-            if namespace is None:
-                defs = mod.definitions()
-                namespace = mod.namespace()
             comp.evaluate_pure_definitions(defs, namespace, interp)
             # Re-fold after pure evaluation
-            cop_tree = comp.coptimize(cop_tree, True, namespace)
+            if args.fold:
+                for name, definition in defs.items():
+                    definition.resolved_cop = comp.coptimize(definition.resolved_cop, True, namespace)
+
+        # Sort definitions by source position (line number)
+        def get_position(item):
+            name, definition = item
+            cop = definition.original_cop
+            try:
+                pos = cop.field("pos").data
+                if pos and len(pos) >= 2:
+                    return (pos[0], pos[1])  # (line, column)
+            except (KeyError, AttributeError):
+                pass
+            return (999999, 0)  # Unknown positions go to end
+
+        sorted_defs = sorted(defs.items(), key=get_position)
+
         if args.cop:
-            prettycop(cop_tree, show_pos=args.pos)
+            # Display each definition's COP tree separately
+            for name, definition in sorted_defs:
+                print(f"\n{'='*60}")
+                print(f"Definition: {name} ({definition.shape.qualified})")
+                print(f"{'='*60}")
+                # Show resolved or original COP
+                cop = definition.resolved_cop if (args.resolve or args.pure) else definition.original_cop
+                prettycop(cop, show_pos=args.pos)
         elif args.unparse:
-            source_text = comp.cop_unparse(cop_tree)
-            print(source_text)
+            # Unparse each definition
+            for name, definition in sorted_defs:
+                cop = definition.resolved_cop if (args.resolve or args.pure) else definition.original_cop
+                source_text = comp.cop_unparse(cop)
+                print(f"{name} = {source_text}")
         return
 
     if args.definitions:

@@ -66,7 +66,7 @@ default.
     // implementation
 )
 
-// Called as: data | reduce :initial=0 :($ + $accumulator)
+// Called as: data | reduce :initial=0 :($ + $.accumulator)
 ```
 
 ## Invocation Rules
@@ -89,7 +89,7 @@ the expression becomes a callable that the function invokes with its own data.
 ```comp
 | map :(uppercase)                    // block parameter, deferred
 | reduce :initial=nil (tree-insert)  // block parameter, deferred
-| where :($active)                    // block parameter, deferred
+| where :($.active)                    // block parameter, deferred
 ```
 
 The `!defer` operator explicitly prevents invocation, capturing a callable as a
@@ -110,9 +110,9 @@ the previous step as input.
 
 ```comp
 github.issue-list :repo=repo :fields=fields
-| where :($created-at >= cutoff)
-| map :($thumbs-up = $reaction-groups | count :($content == "thumbs-up"))
-| sort :reverse :($thumbs-up)
+| where :($.created-at >= cutoff)
+| map :($.thumbs-up = $.reaction-groups | count :($.content == "thumbs-up"))
+| sort :reverse :($.thumbs-up)
 | first :5
 ```
 
@@ -130,13 +130,13 @@ branch starts with a `~tag` or `~type` pattern. When scores tie, the branch
 listed first wins.
 
 ```comp
-!on (value <> $value)
-~less ($left | tree-contains :value)
-~greater ($right | tree-contains :value)
+!on (value <> $.value)
+~less ($.left | tree-contains :value)
+~greater ($.right | tree-contains :value)
 ~equal true
 
-!on ($id == id)
-~true @update {complete = !not $complete}
+!on ($.id == id)
+~true @update {complete = !not $.complete}
 ~false $
 ```
 
@@ -157,16 +157,16 @@ the input data's shape. Each overload can define its own parameters and body.
 )
 !pure tree-insert ~tree @update (
     :param value~num
-    !on (value <> $value)
-    ~less {left = ($left | tree-insert :value)}
-    ~greater {right = ($right | tree-insert :value)}
+    !on (value <> $.value)
+    ~less {left = ($.left | tree-insert :value)}
+    ~greater {right = ($.right | tree-insert :value)}
 )
 
 !pure tree-values ~nil {}
 !pure tree-values ~tree @flat (
-    ($left | tree-values)
-    {$value}
-    ($right | tree-values)
+    ($.left | tree-values)
+    {$.value}
+    ($.right | tree-values)
 )
 ```
 
@@ -216,7 +216,7 @@ reserved for field assignment. The binding name is followed by the expression
 whose value it captures.
 
 ```comp
-!let base ($price * $quantity)
+!let base ($.price * $.quantity)
 !let parent ($ | maya.get-parent)
 !let transform (parent | maya.create-node :config.layer-type)
 ```

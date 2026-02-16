@@ -5,7 +5,7 @@
 /// Filter only fields with defined names
 !pure named ~struct (
     $ | each (
-        !on ($field != nil)
+        !on ($.field != nil)
         ~true $
         ~false pass
     )
@@ -14,8 +14,8 @@
 /// Filter only fields without defined names
 !pure unnamed ~struct (
     $ | each (
-        !on ($field == nil)
-        ~true $value
+        !on ($.field == nil)
+        ~true $.value
         ~false pass
     )
 )
@@ -34,7 +34,7 @@
 /// Get index position of named field
 !pure field-index ~struct (
     :param field~text
-    $ | enumerate | find :($value.field == field) | $index
+    $ | enumerate | find :($.value.field == field) | $.index
     |? nil
 )
 
@@ -59,7 +59,7 @@
 !pure slice ~struct (
     :param start~num 
     :param end~num
-    $ | enumerate | filter :($index >= start :and $index < end) | map :($value)
+    $ | enumerate | filter :($.index >= start :and $.index < end) | map :($.value)
 )
 
 /// Get element at index (supports negative indexing)
@@ -73,7 +73,7 @@
     )
     !on (target < 0 :or target >= len)
     ~true (fail :"index out of bounds")
-    ~false ($ | enumerate | find ($index == target) | $value)
+    ~false ($ | enumerate | find ($.index == target) | $.value)
 )
 
 /// Find first element matching condition
@@ -92,7 +92,7 @@
 /// Get all items as field/value pairs
 !pure items ~struct (
     $ | each :(
-        {field=$field value=$value}
+        {field=$.field value=$.value}
     )
 )
 
@@ -116,23 +116,23 @@
 /// Remove specified fields
 !pure drop ~struct (
     :param fields~struct
-    $ | filter :(!not (fields | contains :$field))
+    $ | filter :(!not (fields | contains :$.field))
 )
 
 /// Keep only specified fields
 !pure select ~struct (
     :param fields~struct
-    fields | map :($field)
+    fields | map :($.field)
 )
 
 /// Extract just values
 !pure values ~struct (
-    $ | map :($value)
+    $ | map :($.value)
 )
 
 /// Extract just field names
 !pure fields ~struct (
-    $ | filter :($field != nil) | map :($field)
+    $ | filter :($.field != nil) | map :($.field)
 )
 
 /// Merge structs (right-biased)

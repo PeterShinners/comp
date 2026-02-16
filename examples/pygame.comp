@@ -39,12 +39,12 @@ using shape-based function overloading.
     }
 
     pg.loop :window :quit-on={event.quit key.escape} :(
-		!arg state~state // loop sets this up as context?
+		:param state~state // loop sets this up as context?
 
-        $events 
-		| each[handle]
+        $.events 
+		| each :handle
 
-		$draw
+		$.draw
         | clear :{0.7 0.9 0.7}
         | draw-cards :{state.chimp state.fist}
 	)
@@ -55,7 +55,7 @@ using shape-based function overloading.
 !func handle ~pg.event @update(
     :param state~state
 
-    $type ?? mouse.down | else (pass)
+    //x $.type ?? mouse.down | else (pass)
 
     !on {state.fist state.chimp} | intersect :overlap=5
     ~true {
@@ -86,5 +86,5 @@ using shape-based function overloading.
 !func handle ~pg.event<type==mouse.move> (
 	:param state~state
 	
-	state.fist | position :$position
+	state.fist | position :$.position
 )

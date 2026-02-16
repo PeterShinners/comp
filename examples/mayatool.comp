@@ -32,7 +32,7 @@ Based on https://github.com/TrevisanGMW/gt-tools
 !func create-inbetween (
     :param config~layer-config
 
-    !transact {maya.scene maya.preserve-selection}
+    //x !transact {maya.scene maya.preserve-selection}
     maya.selection
     | map :(
         !let parent ($ | maya.get-parent)
@@ -44,7 +44,7 @@ Based on https://github.com/TrevisanGMW/gt-tools
         | maya.set-attr :outliner-color=config.outliner-color
         | maya.parent :parent
 
-        | !let target !on config.parent-type == parent
+        !let target !on config.parent-type == parent
         ~true parent
         ~false $
 
@@ -74,18 +74,18 @@ Based on https://github.com/nestrada2/bubbles
 !func create-bubbles ~dag-path* (
     :param config ~bubble-args
 
-    !transact {maya.scene}
+    //x !transact {maya.scene}
 
     !let group ($ | maya.create-node :group :name="bubbles" | maya.select :replace)
 
-    !transact {maya.preserve-selection}
+    //x !transact {maya.preserve-selection}
 
     $ | map :(
         !let position = repeat :3 :(config.position-range | random)
         !let dag-path $
         | group
         | maya.poly-sphere
-            :name=@fmt"bubble-%($name)"
+            :name=@fmt"bubble-%($.name)"
             :radius=(config.radius-range | random)
         | maya.xform :position=position
     )

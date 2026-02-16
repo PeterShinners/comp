@@ -36,8 +36,8 @@ Highlights:
     param value ~text
 
     $ | atomic.swap :{
-        head = {value=$value next=$head}
-        version = $version + 1
+        head = {value=$.value next=$.head}
+        version = $.version + 1
         //x this isn't right? increment by one? that doesn't feel like it would catch conflicts?
     }
 )
@@ -47,7 +47,7 @@ Highlights:
 /// Fails if stack is empty
 !func stack-pop ~stack (
     $ | atomic.swap :{
-		head = $head.next
-		version = $version + 1
+		head = $.head.next
+		version = $.version + 1
     }
 )

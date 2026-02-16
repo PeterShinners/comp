@@ -158,8 +158,8 @@ orchestration. This is fundamentally different from piping through a function;
 the wrapper controls whether and how the inner block executes.
 
 ```comp
-@update {name = ($name | upper)}   // merge result onto input
-@flat {($left | values) {$value} ($right | values)}  // concatenate results
+@update {name = ($.name | upper)}   // merge result onto input
+@flat {($.left | values) {$.value} ($.right | values)}  // concatenate results
 @fmt"hello %(name)"                // template interpolation
 ```
 
@@ -178,7 +178,7 @@ all callers, or inline on individual expressions:
 !pure tree-insert ~tree @update (...)
 
 // Inline: just this one map applies update semantics
-| map @update {name = ($name | upper)}
+| map @update {name = ($.name | upper)}
 ```
 
 ## Comparison and Equality
@@ -204,9 +204,9 @@ The three-way comparison `<>` returns a tag (`~less`, `~equal`, or `~greater`)
 rather than a boolean, enabling clean dispatch over all three cases.
 
 ```comp
-!on (value <> $value)
-~less ($left | tree-insert[value])
-~greater ($right | tree-insert[value])
+!on (value <> $.value)
+~less ($.left | tree-insert[value])
+~greater ($.right | tree-insert[value])
 ~equal $
 ```
 

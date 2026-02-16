@@ -36,13 +36,13 @@
 /// Execute operation on each element (side effects)
 !func each ~struct (
     :block op
-    $ | enumerate | map :($value | op)
+    $ | enumerate | map :($.value | op)
 )
 
 /// Map operation over collection elements
 !pure map ~struct (
     :block op
-    $ | enumerate | map :($value | op)
+    $ | enumerate | map :($.value | op)
 )
 
 /// Test if any element matches condition
@@ -72,7 +72,7 @@
 /// Filter elements matching condition
 !pure filter ~struct (
     :block test
-    $ | enumerate | filter :($value | test) | map :($value)
+    $ | enumerate | filter :($.value | test) | map :($.value)
 )
 
 /// Group consecutive elements into fixed-size chunks

@@ -80,7 +80,7 @@
 !func execute ~{db~handle-db} (
     :param sql~text
 
-    !let cursor (py.call :method="cursor" {self=$db.private.py})
+    !let cursor (py.call :method="cursor" {self=$.db.private.py})
     !let exec (py.call :method="execute" :{self=cursor sql})
     !let cursor-vars (py.call :method="vars" :{self=cursor})
 
@@ -94,5 +94,5 @@
 
 /// Called automatically as handle is dropped
 !func drop-handle ~{db~handle-db} (
-    py.call :method="close" :{self=$db.private.py}
+    py.call :method="close" :{self=$.db.private.py}
 )
