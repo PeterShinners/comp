@@ -331,6 +331,28 @@ def cop_resolve(cop, namespace):
     return _resolve_to_references(cop, namespace)
 
 
+def _cop_get_named_kid(cop_node, name):
+    """Get a named kid from a cop node's kids dict.
+    
+    Args:
+        cop_node: COP node
+        name: Name of the kid to retrieve
+    
+    Returns:
+        Value or None if not found
+    """
+    try:
+        kids_dict = cop_node.field("kids").data
+        for key, value in kids_dict.items():
+            if isinstance(key, str) and key == name:
+                return value
+            elif hasattr(key, "data") and key.data == name:
+                return value
+        return None
+    except (KeyError, AttributeError):
+        return None
+
+
 def cop_unparse(cop):
     """Convert a COP tree back to source code text.
 
@@ -342,81 +364,449 @@ def cop_unparse(cop):
     """
     tag = cop_tag(cop)
     kids = cop_kids(cop)
+    
+    # Helper to get named kid from kids dict (uses outer cop)
+    def get_kid(name):
+        return _cop_get_named_kid(cop, name)
 
     match tag:
+        # Module structure
         case "mod.define":
             parts = []
             for kid in kids:
                 parts.append(cop_unparse(kid))
-            return '\n'.join(parts)
+            return "\n".join(parts)
+        
         case "mod.namefield":
-            if len(kids) >= 2:
-                name = cop_unparse(kids[0])
-                value = cop_unparse(kids[1])
-                return f"{name} = {value}"
-            return "<?>"
+            n = get_kid("n")
+            v = get_kid("v")
+            if n and v:
+                op = cop.to_python("op", "=")
+                return f"{cop_unparse(n)} {op} {cop_unparse(v)}"
+            return "<?mod.namefield?>"
+        
+        # Function structure
+        case "function.define":
+            parts = []
+            sig = get_kid("sig")
+            if sig:
+                parts.append(cop_unparse(sig))
+            
+            body = get_kid("body")
+            if body:
+                parts.append(cop_unparse(body))
+            
+            return " ".join(parts) if parts else "<?func?>"
+        
+        case "function.signature":
+            parts = []
+            for kid in kids:
+                parts.append(cop_unparse(kid))
+            return " ".join(parts)
+        
+        case "signature.input":
+            parts = []
+            for kid in kids:
+                parts.append(cop_unparse(kid))
+            return " ".join(parts)
+        
+        case "signature.param":
+            try:
+                name = cop.to_python("name", "")
+                parts = [":param"]
+                if name:
+                    parts.append(name)
+                for kid in kids:
+                    parts.append(cop_unparse(kid))
+                return " ".join(parts)
+            except (KeyError, AttributeError):
+                return "<?param?>"
+        
+        case "signature.block":
+            try:
+                name = cop.to_python("name", "")
+                parts = [":block"]
+                if name:
+                    parts.append(name)
+                for kid in kids:
+                    parts.append(cop_unparse(kid))
+                return " ".join(parts)
+            except (KeyError, AttributeError):
+                return "<?block?>"
+        
+        # Statement structure
+        case "statement.define":
+            parts = []
+            for kid in kids:
+                kid_str = cop_unparse(kid)
+                parts.append(kid_str)
+            if not parts:
+                return "()"
+            # Check if we need parens
+            if len(parts) == 1 and not parts[0].startswith("("):
+                return f"({parts[0]})"
+            return f"({' '.join(parts)})"
+        
+        case "statement.field":
+            if kids:
+                return cop_unparse(kids[0])
+            return "<?statement.field?>"
+        
+        # Block structure
+        case "block.signature":
+            parts = []
+            for kid in kids:
+                parts.append(cop_unparse(kid))
+            return " ".join(parts)
+        
+        case "value.block":
+            s = get_kid("s")
+            b = get_kid("b")
+            if s and b:
+                sig_str = cop_unparse(s)
+                body_str = cop_unparse(b)
+                if sig_str:
+                    return f":{sig_str}{body_str}"
+                else:
+                    return f":{body_str}"
+            return "<?block?>"
+        
+        # Value expressions
         case "value.identifier":
             parts = []
             for kid in kids:
                 kid_tag = cop_tag(kid)
-                if kid_tag in ("ident.token", "ident.text"):
+                if kid_tag == "ident.token":
                     parts.append(kid.field("value").data)
-            return '.'.join(parts) if parts else "<?>"
+                elif kid_tag == "ident.text":
+                    text = kid.field("value").data
+                    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+                    parts.append(f'"{escaped}"')
+                elif kid_tag == "ident.index":
+                    idx = kid.field("value").data
+                    parts.append(f"[{idx}]")
+                elif kid_tag == "ident.indexpr":
+                    expr = cop_unparse(kid.positional(0))
+                    parts.append(f"[{expr}]")
+                elif kid_tag == "ident.expr":
+                    expr = cop_unparse(kid.positional(0))
+                    parts.append(f"({expr})")
+            return ".".join(parts) if parts else "<?ident?>"
+        
+        case "ident.token":
+            try:
+                return cop.field("value").data
+            except (KeyError, AttributeError):
+                return "<?token?>"
+        
         case "value.reference":
-            # Get the qualified name from the reference
             try:
                 qualified = cop.field("qualified").data
-                # Try to get import namespace first (e.g., "cop.test")
                 try:
                     namespace = cop.field("namespace")
                     if namespace is not None:
                         return f"{namespace.data}.{qualified}"
                 except (KeyError, AttributeError):
                     pass
-                # Otherwise just use qualified name
                 return qualified
             except (KeyError, AttributeError):
-                return "<?>"
+                return "<?ref?>"
+        
         case "value.constant":
             try:
                 value = cop.field("value")
                 return str(value.data)
             except (KeyError, AttributeError):
-                return "<?>"
+                return "<?const?>"
+        
         case "value.number":
             try:
                 return cop.field("value").data
             except (KeyError, AttributeError):
-                return "<?>"
+                return "<?num?>"
+        
         case "value.text":
             try:
                 text = cop.field("value").data
-                # Escape quotes and backslashes
-                escaped = text.replace('\\', '\\\\').replace('"', '\\"')
+                escaped = text.replace("\\", "\\\\").replace('"', '\\"')
                 return f'"{escaped}"'
             except (KeyError, AttributeError):
-                return "<?>"
+                return "<?text?>"
+        
         case "value.nil":
             return "nil"
+        
+        # Math and logic operations
         case "value.math.unary":
-            if kids:
+            r = get_kid("r")
+            if r:
                 op = cop.to_python("op")
-                return f"{op}{cop_unparse(kids[0])}"
-            return "<?>"
+                return f"{op}{cop_unparse(r)}"
+            return "<?unary?>"
+        
+        case "value.logic.unary":
+            r = get_kid("r")
+            if r:
+                op = cop.to_python("op")
+                return f"{op}{cop_unparse(r)}"
+            return "<?logic.unary?>"
+        
         case "value.math.binary":
-            if len(kids) >= 2:
+            l = get_kid("l")
+            r = get_kid("r")
+            if l and r:
                 op = cop.to_python("op")
-                return f"{cop_unparse(kids[0])}{op}{cop_unparse(kids[1])}"
-            return "<?>"
-        case "shape.union":
-            parts = [cop_unparse(kid) for kid in kids]
-            return ' | '.join(parts)
-        case "struct.letassign":
+                return f"{cop_unparse(l)}{op}{cop_unparse(r)}"
+            return "<?binary?>"
+        
+        case "value.compare":
+            l = get_kid("l")
+            r = get_kid("r")
+            if l and r:
+                op = cop.to_python("op")
+                return f"{cop_unparse(l)} {op} {cop_unparse(r)}"
+            return "<?compare?>"
+        
+        case "value.fallback":
+            l = get_kid("l")
+            r = get_kid("r")
+            if l and r:
+                op = cop.to_python("op", "??")
+                return f"{cop_unparse(l)} {op} {cop_unparse(r)}"
+            return "<?fallback?>"
+        
+        # Pipeline
+        case "value.pipeline":
+            parts = []
+            for kid in kids:
+                parts.append(cop_unparse(kid))
+            return " | ".join(parts)
+        
+        # Binding (e.g., foo :bar, foo :x=1)
+        case "value.binding":
+            c = get_kid("c")
+            b = get_kid("b")
+            if c and b:
+                callable_part = cop_unparse(c)
+                
+                # Unparse binding arguments directly with : prefix
+                # Get children of the struct.define
+                binding_kids = cop_kids(b)
+                if not binding_kids:
+                    # Empty bindings
+                    return f"{callable_part} :"
+                
+                # Unparse each binding argument
+                binding_parts = []
+                for binding_kid in binding_kids:
+                    binding_tag = cop_tag(binding_kid)
+                    if binding_tag == "struct.posfield":
+                        # Positional binding: :value
+                        posfield_kids = cop_kids(binding_kid)
+                        if posfield_kids:
+                            binding_parts.append(f":{cop_unparse(posfield_kids[0])}")
+                    elif binding_tag == "struct.namefield":
+                        # Named binding: :name=value
+                        n = _cop_get_named_kid(binding_kid, "n")
+                        v = _cop_get_named_kid(binding_kid, "v")
+                        if n and v:
+                            op = binding_kid.to_python("op", "=")
+                            binding_parts.append(f":{cop_unparse(n)}{op}{cop_unparse(v)}")
+                    else:
+                        # Unknown binding type
+                        binding_parts.append(f":{cop_unparse(binding_kid)}")
+                
+                # Join with spaces
+                return f"{callable_part} {' '.join(binding_parts)}"
+            return "<?binding?>"
+        
+        # Field access
+        case "value.field":
+            l = get_kid("l")
+            f = get_kid("f")
+            if l and f:
+                return f"{cop_unparse(l)}.{cop_unparse(f)}"
+            return "<?field?>"
+        
+        # Invoke
+        case "value.invoke":
+            parts = []
+            for kid in kids:
+                parts.append(cop_unparse(kid))
+            if len(parts) >= 2:
+                return f"{parts[0]}({' '.join(parts[1:])})"
+            elif len(parts) == 1:
+                return f"{parts[0]}()"
+            return "<?invoke?>"
+        
+        # Wrapper
+        case "value.wrapper":
+            w = get_kid("w")
+            v = get_kid("v")
+            if w and v:
+                wrapper = cop_unparse(w)
+                value = cop_unparse(v)
+                return f"@{wrapper} {value}"
+            return "<?wrapper?>"
+        
+        # Structure
+        case "struct.define":
+            parts = []
+            for kid in kids:
+                parts.append(cop_unparse(kid))
+            return "{" + " ".join(parts) + "}"
+        
+        case "struct.namefield":
+            n = get_kid("n")
+            v = get_kid("v")
+            if n and v:
+                op = cop.to_python("op", "=")
+                return f"{cop_unparse(n)}{op}{cop_unparse(v)}"
+            return "<?namefield?>"
+        
+        case "struct.posfield":
+            if kids:
+                return cop_unparse(kids[0])
+            return "<?posfield?>"
+        
+        # Let statement
+        case "op.let":
             if len(kids) >= 2:
                 name = cop_unparse(kids[0])
                 value = cop_unparse(kids[1])
-                return f"!let {name} = {value}"
-            return "<?>"
+                return f"!let {name} {value}"
+            return "<?let?>"
+        
+        case "op.on":
+            # !on expression branch1 branch2 ...
+            # First kid is the expression, rest are branches
+            if not kids:
+                return "!on"
+            parts = ["!on", cop_unparse(kids[0])]
+            for branch in kids[1:]:
+                parts.append(cop_unparse(branch))
+            return " ".join(parts)
+        
+        case "op.on.branch":
+            # Branch is: ~shape expression
+            if len(kids) >= 2:
+                shape = cop_unparse(kids[0])
+                expr = cop_unparse(kids[1])
+                # Shape should already have ~ prefix from shape.define
+                return f"{shape} {expr}"
+            return "<?branch?>"
+        
+        # Shape
+        case "shape.define":
+            # Check if any children have name attributes (indicating struct fields)
+            has_named_fields = any(
+                comp.cop_tag(kid) == "shape.field" and kid.to_python("name", "") 
+                for kid in kids
+            )
+            
+            parts = []
+            for kid in kids:
+                parts.append(cop_unparse(kid))
+            
+            if len(parts) == 1 and not has_named_fields:
+                return f"~{parts[0]}"
+            elif has_named_fields:
+                return "~{" + " ".join(parts) + "}"
+            else:
+                return "~(" + " ".join(parts) + ")"
+        
+        case "shape.field":
+            # Try to get name attribute, but it may not exist for positional fields
+            try:
+                name = cop.to_python("name")
+            except (KeyError, AttributeError, comp.CodeError):
+                name = ""
+            
+            parts = []
+            
+            for i, kid in enumerate(kids):
+                kid_tag = cop_tag(kid)
+                unparsed = cop_unparse(kid)
+                
+                # Skip empty values and empty shape constants
+                if not unparsed or unparsed in ("~()", ""):
+                    continue
+                
+                # If this is a value.identifier as the first real child of a named field,
+                # it's the shape type and needs a ~ prefix
+                if name and i == 0 and kid_tag == "value.identifier":
+                    unparsed = f"~{unparsed}"
+                
+                parts.append(unparsed)
+            
+            # Format based on whether field has a name
+            if name:
+                # Named field: "name ~type[suffix]<limit>*repeat"
+                # Space between name and rest
+                rest = "".join(parts)
+                return f"{name} {rest}" if rest else name
+            else:
+                # Unnamed/positional field: "type[suffix]<limit>*repeat"
+                # No spaces between components
+                return "".join(parts) if parts else "<?shape.field?>"
+        
+        case "shape.union":
+            parts = []
+            for kid in kids:
+                parts.append(cop_unparse(kid))
+            return " | ".join(parts)
+        
+        case "shape.unit":
+            if kids:
+                return f"[{cop_unparse(kids[0])}]"
+            return "<?unit?>"
+        
+        case "shape.limit":
+            # shape.limit has 2 children: identifier and value
+            # Format as <name=value>
+            if len(kids) >= 2:
+                name = cop_unparse(kids[0])
+                value = cop_unparse(kids[1])
+                return f"<{name}={value}>"
+            elif len(kids) == 1:
+                return f"<{cop_unparse(kids[0])}>"
+            return "<>"
+        
+        case "shape.value":
+            parts = []
+            for kid in kids:
+                parts.append(cop_unparse(kid))
+            return " ".join(parts) if parts else "<?shape.value?>"
+        
+        case "shape.repeat":
+            try:
+                op = cop.to_python("op", "*")
+                parts = []
+                for kid in kids:
+                    parts.append(cop_unparse(kid))
+                
+                # Always start with *, then use op to join numbers
+                if len(parts) == 0:
+                    return "*"
+                elif len(parts) == 1:
+                    if op == "+":
+                        return f"*{parts[0]}+"
+                    else:
+                        # op == "=" or "*", both render as *N
+                        return f"*{parts[0]}"
+                elif len(parts) == 2:
+                    # op == "-" for range
+                    return f"*{parts[0]}-{parts[1]}"
+                return "*" + op.join(parts)
+            except (KeyError, AttributeError):
+                return "<?repeat?>"
+        
+        case "shape.default":
+            if kids:
+                return f" = {cop_unparse(kids[0])}"
+            return " ="
+        
+        # Catch-all
         case _:
             return f"<{tag}>"
 

@@ -240,6 +240,7 @@ def prettylark_statements(module, show_positions=False):
         "mod": "start_mod",
         "func": "start_func",
         "pure": "start_func",  # pure uses same entry point as func
+        "startup": "start_startup",
         "tag": "start_tag",
     }
 
@@ -351,9 +352,10 @@ def main():
             print(f"Valid entry points: {', '.join(entry_point_map.keys())}")
             return 1
 
+        entry_point = entry_point_map[args.text]
+        
         # For --text mode with --lark, parse directly with the specified entry point
         if args.lark:
-            entry_point = entry_point_map[args.text]
             if entry_point is None:
                 # Module entry point - parse as module
                 mod = interp.module_from_text(args.source)
@@ -368,8 +370,30 @@ def main():
                     print(f"Parse error: {e}")
                     return 1
             return
+        
+        # For --cop/--unparse modes with fragment entry points
+        elif (args.cop or args.unparse) and entry_point is not None:
+            # Parse fragment directly and convert to cop
+            lark_parser = comp._parse.lark_parser("comp", start=entry_point)
+            try:
+                tree = lark_parser.parse(args.source)
+                cop = comp._parse.lark_to_cop(tree)
+                
+                # Apply optimization/folding if requested
+                if args.fold:
+                    cop = comp.coptimize(cop, True, None)
+                
+                if args.cop:
+                    prettycop(cop, show_pos=args.pos)
+                elif args.unparse:
+                    print(comp.cop_unparse(cop))
+                return
+            except Exception as e:
+                print(f"Parse error: {e}")
+                return 1
+        
+        # For other modes or module entry point, use module parsing
         else:
-            # For non-lark modes, always use module parsing
             mod = interp.module_from_text(args.source)
     else:
         mod = interp.module(args.source, anchor=os.getcwd())

@@ -46,12 +46,15 @@ DOLLAR2.6: "$$"
 DOLLAR.5: "$"
 AT.5: "@"
 
-// Comparison operators (priority 10 to beat delimiters and prevent splitting)
+// Comparison operators
+// Note: >= and <= are NOT defined as single tokens
+// Instead, they are parsed as ANGLE_CLOSE + EQUALS or ANGLE_OPEN + EQUALS
+// This allows shape syntax like ~num<min=1>=2 to parse correctly without spaces
+// The parser recombines adjacent > + = into >= and < + = into <=
+// See lark_to_cop compare_op case for the merge logic
 EQ.10: "=="
 NE.10: "!="
 CMP.10: "<>"
-LE.10: "<="
-GE.10: ">="
 
 // Logical operators
 LNOT.6: "!!"
@@ -137,8 +140,8 @@ defer_expr: OP_DEFER expression
            | comparison CMP arithmetic -> compare_op
            | comparison ANGLE_OPEN arithmetic -> compare_op
            | comparison ANGLE_CLOSE arithmetic -> compare_op
-           | comparison LE arithmetic -> compare_op
-           | comparison GE arithmetic -> compare_op
+           | comparison ANGLE_CLOSE EQUALS arithmetic -> compare_op  // >= when adjacent
+           | comparison ANGLE_OPEN EQUALS arithmetic -> compare_op   // <= when adjacent
 
 ?arithmetic: term
            | arithmetic (PLUS | MINUS | KEBAB_MINUS) term -> binary_op

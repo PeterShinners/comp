@@ -55,6 +55,7 @@ def create_cop_module(module):
         "statement.field",  # (kids) single statement/expression in a sequence
         "op.let",  # (kids) 2 kids - name and value for !let assignment
         "op.on",  # (kids) expression and branches for !on dispatch
+        "op.on.branch",  # (kids) 2 kids - shape and expression for an !on branch
         "struct.define",  # (kids)
         "struct.posfield",  # (kids) 1 kid
         "struct.namefield",  # (op, kids) 2 kids (name value)
@@ -204,8 +205,45 @@ def lark_to_cop(tree):
 
         case "compare_op":
             left = lark_to_cop(kids[0])
-            right = lark_to_cop(kids[2])
-            op = kids[1].value
+            
+            # Handle >= and <= operators which split into separate tokens
+            # Since GE and LE are not defined in the grammar, >= becomes ANGLE_CLOSE + EQUALS
+            # This allows shape syntax like ~num<min=1>=2 to parse without requiring spaces
+            # We merge adjacent > + = into >= and < + = into <=
+            if len(kids) == 4:
+                # Split operator: kids[1] and kids[2] are the operator tokens
+                op_token1 = kids[1]
+                op_token2 = kids[2]
+                op1 = op_token1.value
+                op2 = op_token2.value
+                
+                # Check if tokens are adjacent (no whitespace)
+                # If there's a gap, the user wrote something like "x > = 5" which is likely an error
+                if hasattr(op_token1, "end_column") and hasattr(op_token2, "column"):
+                    gap = op_token2.column - op_token1.end_column
+                    if gap > 0:
+                        # There's whitespace between the operators
+                        raise comp.CodeError(
+                            f"Unexpected space in comparison operator. "
+                            f"Use '{op1}{op2}' not '{op1} {op2}'",
+                            tree
+                        )
+                
+                # Merge the tokens into a single operator
+                if op1 == ">" and op2 == "=":
+                    op = ">="
+                elif op1 == "<" and op2 == "=":
+                    op = "<="
+                else:
+                    # Shouldn't happen based on grammar, but handle gracefully
+                    op = op1 + op2
+                
+                right = lark_to_cop(kids[3])
+            else:
+                # Single operator token (==, !=, <>, <, >)
+                right = lark_to_cop(kids[2])
+                op = kids[1].value
+            
             return _parsed(tree, "value.compare", {"l": left, "r": right}, op=op)
 
         case "unary_op":
@@ -774,11 +812,23 @@ def lark_to_cop(tree):
             callable_cop = lark_to_cop(kids[0])
 
             # Collect binding values (skip COLON tokens)
+            # Note: binding_value nodes may be inlined due to ? prefix in grammar
             binding_cops = []
             for i in range(1, len(kids)):
                 kid = kids[i]
-                if isinstance(kid, lark.Tree) and kid.data == "binding_value":
-                    binding_cops.append(lark_to_cop(kid))
+                # Skip COLON tokens
+                if isinstance(kid, lark.Token) and kid.type == "COLON":
+                    continue
+                # Process tree nodes - may be binding_value or inlined content
+                if isinstance(kid, lark.Tree):
+                    if kid.data == "binding_value":
+                        # Explicit binding_value node
+                        binding_cops.append(lark_to_cop(kid))
+                    else:
+                        # Inlined binding value (single unary expression)
+                        # Wrap it as a positional field
+                        value_cop = lark_to_cop(kid)
+                        binding_cops.append(_parsed(kid, "struct.posfield", [value_cop]))
 
             # Build bindings structure
             bindings_struct = _parsed(tree, "struct.define", binding_cops)
@@ -888,13 +938,21 @@ def lark_to_cop(tree):
         case "on_branch":
             # on_branch: shape expression
             # Each branch is a pair: (shape, expression)
-            shape_cop = lark_to_cop(kids[0])
+            shape_lark = kids[0]
             expr_cop = lark_to_cop(kids[1])
-            # Store as a struct with two positional fields
-            return _parsed(tree, "struct.define", [
-                _parsed(tree, "struct.posfield", [shape_cop]),
-                _parsed(tree, "struct.posfield", [expr_cop])
-            ])
+            
+            # Parse the shape and wrap it in shape.define
+            # The shape rule extracts just the spec, so we need to wrap it
+            shape_spec = lark_to_cop(shape_lark)
+            
+            # Wrap the spec in shape.define (if it's not already wrapped)
+            if isinstance(shape_spec, list):
+                shape_cop = _parsed(shape_lark, "shape.define", shape_spec)
+            else:
+                shape_cop = _parsed(shape_lark, "shape.define", [shape_spec])
+            
+            # Create an op.on.branch node with shape and expression as kids
+            return _parsed(tree, "op.on.branch", [shape_cop, expr_cop])
 
         case "transaction":
             # transaction: OP_TRANSACT PAREN_OPEN identifier+ PAREN_CLOSE
