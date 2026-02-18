@@ -11,3 +11,4 @@ build/
 *.egg-info/
 
 .vscode/settings.json
+.claude/settings.local.json

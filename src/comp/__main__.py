@@ -93,7 +93,7 @@ def prettymodule(module):
     if package_meta:
         print("Package:")
         for key, value in package_meta.items():
-            print(f"  {key}: {value}")
+            print(f"  {key:10s}: {value.format():20s} ({value.shape.qualified})")
         print()
 
     statements = module.statements()
@@ -329,7 +329,7 @@ def main():
         import debugpy
         if debugpy.is_client_connected():
             print("Debugger attached.")
-            argv = ['sh=~(x~num) ov=:~num("digit") ov=:~text("letter") x=4|ov()', '--text', '--cop', '--resolve']
+            argv = ['minimal.comp', '--definitions']
     except ImportError:
         pass
 
@@ -470,11 +470,17 @@ def main():
     if args.definitions:
         defs = mod.definitions()
         for name, definition in sorted(defs.items()):
-            value = comp.cop_unparse(definition.original_cop)
-            if len(value) > 40:
-                value = value[:37] + "..."
+            unparse = comp.cop_unparse(definition.original_cop)
+            if len(unparse) > 40:
+                unparse = unparse[:37] + "..."
             shape_name = definition.shape.qualified #if hasattr(definition.shape, "qualified") else str(definition.shape)
-            print(f"{name:16}  ({shape_name}) {value}")
+            value = definition.value
+            if value is None:
+                value = ""
+            else:
+                value = f"{value.shape.qualified}"
+                value = value.format()
+            print(f"{name:16}  {f'({shape_name})':8s} {value} {unparse}")
         return
 
     # Handle --namespace mode separately (it's its own output mode)

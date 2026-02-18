@@ -154,7 +154,7 @@ class Value:
                     else:
                         fields.append(f"'{k.format()}'={v.format()}")
 
-            return "(" + " ".join(fields) + ")"
+            return "{" + " ".join(fields) + "}"
 
         return str(self.data)
 

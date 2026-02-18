@@ -5,7 +5,7 @@
 // Each entry point parses the body of a module-level statement
 // The operator name is already extracted by the scanner
 
-start_package: text                                    // !package name "value"
+start_package: field_default_value                     // !package name value
 start_import: identifier text                          // !import compiler "source"
 start_mod: expression                                  // !mod name value (allow structures)
 start_shape: shape                                     // !shape name ~spec
@@ -49,17 +49,17 @@ AT.5: "@"
 // Comparison operators
 // Note: >= and <= are NOT defined as single tokens
 // Instead, they are parsed as ANGLE_CLOSE + EQUALS or ANGLE_OPEN + EQUALS
-// This allows shape syntax like ~num<min=1>=2 to parse correctly without spaces
-// The parser recombines adjacent > + = into >= and < + = into <=
+// This allows shape syntax like ~num<min=1>=2 to parse correctly without 
+// spaces The parser recombines adjacent > + = into >= and < + = into <= 
 // See lark_to_cop compare_op case for the merge logic
 EQ.10: "=="
 NE.10: "!="
 CMP.10: "<>"
 
 // Logical operators
-LNOT.6: "!!"
-LAND.6: "&&"
-LOR.6: "||"
+LNOT.6: "!not"
+LAND.6: "!and"
+LOR.6: "!or"
 
 // Arithmetic operators
 PLUS.6: "+"

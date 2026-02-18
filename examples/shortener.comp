@@ -82,7 +82,7 @@ Highlights:
 
 
 /// Look up or create a short URL entry
-!func insert-url text (
+!func insert-url ~text (
     $ | fmt :mod.keys.reverse
     | redis.get
     | if-nil :(

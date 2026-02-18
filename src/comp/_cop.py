@@ -699,8 +699,14 @@ def cop_unparse(cop):
         # Shape
         case "shape.define":
             # Check if any children have name attributes (indicating struct fields)
+            def _has_name(kid):
+                try:
+                    return bool(kid.to_python("name"))
+                except (KeyError, TypeError):
+                    return False
+
             has_named_fields = any(
-                comp.cop_tag(kid) == "shape.field" and kid.to_python("name", "") 
+                comp.cop_tag(kid) == "shape.field" and _has_name(kid)
                 for kid in kids
             )
             

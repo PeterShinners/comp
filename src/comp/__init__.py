@@ -22,6 +22,5 @@ from ._pure import *
 from ._codegen import *
 from ._ops import *
 from ._import import *
-from ._code import *
 from ._scan import *
 from ._morph import *

@@ -81,7 +81,7 @@ Based on https://github.com/nestrada2/bubbles
     //x !transact {maya.preserve-selection}
 
     $ | map :(
-        !let position = repeat :3 :(config.position-range | random)
+        !let position repeat :3 :(config.position-range | random)
         !let dag-path $
         | group
         | maya.poly-sphere

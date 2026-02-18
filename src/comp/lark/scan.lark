@@ -60,5 +60,5 @@ TOKENFIELD.4: /[a-zA-Z_][\w-]*/
 BANG.2: "!"
 CONTENT_BLOB.1: /[^\s!\/a-zA-Z_]+|\/(?![\/\*])/
 
-%import .common (WS)
+WS: /\s+/
 %ignore WS

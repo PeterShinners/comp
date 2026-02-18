@@ -42,6 +42,9 @@ class Module:
         self._namespace = None
         self._finalized = False
 
+        # Module-level values (from !mod statements)
+        self._mod_values = None
+
     def __repr__(self):
         return f"Module<{self.token}>"
 
@@ -119,31 +122,29 @@ class Module:
         """Get package metadata from !package statements.
 
         Returns:
-            dict: Package metadata key-value pairs
-
-        Example:
-            !package name "shortly"
-            !package version "1.0.0"
-
-            Returns: {"name": "shortly", "version": "1.0.0"}
+            dict: {key: Value} package metadata key-value pairs
         """
         statements = self.statements()
-        package_stmts = [s for s in statements if s.get("operator") == "package"]
-
         metadata = {}
-        for stmt in package_stmts:
-            key = stmt.get("name")
-            body = stmt.get("body", "").strip()
 
-            # Simple parsing: extract string literal value
-            # Body should be like: "value" or 'value'
-            if body.startswith('"') and body.endswith('"'):
-                value = body[1:-1]
-            elif body.startswith("'") and body.endswith("'"):
-                value = body[1:-1]
+        for stmt in statements:
+            if stmt.get("operator") != "package":
+                continue
+
+            key = stmt.get("name")
+            body = stmt.get("body", "")
+            line_offset = stmt.get("pos", [1])[0]
+
+            parser = comp.lark_parser("comp", start="start_package")
+            lark_tree = parser.parse("\n" * (line_offset - 1) + body)
+            cop = comp._parse.lark_to_cop(lark_tree)
+            sys_ns = comp.get_internal_module("system").namespace()
+            folded = comp.coptimize(cop, fold=True, namespace=sys_ns)
+
+            if comp.cop_tag(folded) == "value.constant":
+                value = folded.field("value")
             else:
-                # If not a string literal, store the raw body
-                value = body
+                value = comp.Value.from_python(body.strip())
 
             metadata[key] = value
 
@@ -212,7 +213,7 @@ class Module:
 
         This is a cached dictionary of qualified name strings to Definitions.
         Initially the Definitions will contain only raw cop (ast) node
-        hierarchies. These definitions will be progressively refiend and
+        hierarchies. These definitions will be progressively refined and
         populated through the various build passes.
 
         Returns:
@@ -221,62 +222,158 @@ class Module:
         if self._definitions is not None:
             return self._definitions
 
-        # Map statement operators to grammar entry points
-        entry_point_map = {
-            "func": "start_func",
-            "pure": "start_func",  # Same as func
-            "startup": "start_startup",
-            "shape": "start_shape",
-            "tag": "start_tag",
-            "mod": "start_mod",
-            "package": "start_package",
-            # "import" is handled separately by interpreter, not in definitions
-        }
-
-        # Get scanned statements
+        self._definitions = {}
+        self._mod_values = {}
         statements = self.statements()
 
-        # Parse each statement and build mod.namefield COP nodes
-        mod_fields = []
+        # Process each statement by dispatching to operator-specific handlers
         for stmt in statements:
             operator = stmt.get("operator")
-            name = stmt.get("name")
-            body = stmt.get("body", "").strip()
-            pos = stmt.get("pos", ())
 
-            # Skip import and package statements (handled elsewhere)
-            if operator in ("import", "package"):
-                continue
+            # Dispatch to operator-specific handler
+            # Each handler updates module state directly
+            if operator in ("func", "pure"):
+                self._process_func_statement(stmt)
+            elif operator == "tag":
+                self._process_tag_statement(stmt)
+            elif operator == "shape":
+                self._process_shape_statement(stmt)
+            elif operator == "mod":
+                self._process_mod_statement(stmt)
+            else:
+                pass  # Handle import, package, startup separately
 
-            # Get entry point for this operator
-            entry_point = entry_point_map.get(operator)
-            if not entry_point:
-                # Unknown operator - skip for now
-                continue
-
-            # Parse the statement body
-            parser = comp.lark_parser("comp", start=entry_point)
-            lark_tree = parser.parse(body)
-            value_cop = comp._parse.lark_to_cop(lark_tree)
-
-            # Create identifier COP for the name
-            name_cop = comp.create_cop("value.identifier", [
-                comp.create_cop("ident.token", [], value=name)
-            ])
-
-            # Create mod.namefield COP
-            field_cop = comp.create_cop("mod.namefield",
-                {"n": name_cop, "v": value_cop},
-                op="=",
-                pos=pos
-            )
-            mod_fields.append(field_cop)
-
-        # Create mod.define COP containing all fields
-        cop_tree = comp.create_cop("mod.define", mod_fields)
-
-        self._definitions = comp.extract_definitions(cop_tree, self.token)
         return self._definitions
+
+    def _process_func_statement(self, stmt):
+        """Process a !func or !pure statement, adding definitions to self._definitions."""
+        name = stmt.get("name")
+        body = stmt.get("body", "")
+        line_offset = stmt.get("pos", [1])[0]
+        parser = comp.lark_parser("comp", start="start_func")
+        lark_tree = parser.parse("\n" * (line_offset - 1) + body)
+        cop_value = comp._parse.lark_to_cop(lark_tree)
+
+        # Determine shape - check if it's wrapped
+        shape = comp.shape_func
+        value_tag = comp.cop_tag(cop_value)
+        if value_tag == "value.wrapper":
+            # Check inner type
+            try:
+                kids_field = cop_value.field("kids")
+                if hasattr(kids_field, 'data') and isinstance(kids_field.data, dict):
+                    for k, v in kids_field.data.items():
+                        key_str = k.data if hasattr(k, 'data') else str(k)
+                        if key_str == "v":
+                            inner_tag = comp.cop_tag(v)
+                            if inner_tag not in ("function.define", "value.block"):
+                                shape = comp.shape_struct
+                            break
+            except (KeyError, AttributeError):
+                shape = comp.shape_struct
+
+        # Create base definition
+        definition = Definition(name, self.token, cop_value, shape)
+
+        # Handle overloading with auto-suffix
+        if not hasattr(self, '_overload_counters'):
+            self._overload_counters = {}
+
+        counter = self._overload_counters.get(name, 0) + 1
+        self._overload_counters[name] = counter
+        qualified_name = f"{name}.i{counter:03d}"
+        definition.qualified = qualified_name
+        definition.auto_suffix = True
+
+        self._definitions[qualified_name] = definition
+
+    def _process_tag_statement(self, stmt):
+        """Process a !tag statement, adding tag hierarchy to self._definitions."""
+        name = stmt.get("name")
+        body = stmt.get("body", "")
+        line_offset = stmt.get("pos", [1])[0]
+        parser = comp.lark_parser("comp", start="start_tag")
+        lark_tree = parser.parse("\n" * (line_offset - 1) + body)
+        cop_value = comp._parse.lark_to_cop(lark_tree)
+
+        # Create main tag definition
+        tag = comp.Tag(name, private=False)
+        main_def = Definition(name, self.token, original_cop=cop_value, shape=comp.shape_tag)
+        main_def.value = comp.Value.from_python(tag)
+        self._definitions[name] = main_def
+
+        # todo not sure full parent hierarchy is right, perhaps just immediate
+        # parent? this depends on how name hierarchy combines with functions
+        # or other statement identifiers
+
+        # Expand hierarchical parents
+        # For "does.exist", create "does"
+        parts = name.split('.')
+        for i in range(1, len(parts)):
+            parent_name = '.'.join(parts[:i])
+            if parent_name not in self._definitions:
+                parent_tag = comp.Tag(parent_name, private=False)
+                parent_def = Definition(parent_name, self.token, original_cop=None, shape=comp.shape_tag)
+                parent_def.value = comp.Value.from_python(parent_tag)
+                self._definitions[parent_name] = parent_def
+
+        # Expand children from cop_value
+        # For each child identifier in struct.define, create name.child
+        for child_cop in comp.cop_kids(cop_value):
+            child_tag = comp.cop_tag(child_cop)
+            if child_tag == "value.identifier":
+                # Extract child name
+                child_name = self._statement_identifier(child_cop)
+                child_qualified = f"{name}.{child_name}"
+
+                child_tag_obj = comp.Tag(child_qualified, private=False)
+                child_def = Definition(child_qualified, self.token, original_cop=None, shape=comp.shape_tag)
+                child_def.value = comp.Value.from_python(child_tag_obj)
+                self._definitions[child_qualified] = child_def
+
+    def _process_shape_statement(self, stmt):
+        """Process a !shape statement, adding shape definition to self._definitions."""
+        name = stmt.get("name")
+        body = stmt.get("body", "")
+        line_offset = stmt.get("pos", [1])[0]
+        parser = comp.lark_parser("comp", start="start_shape")
+        lark_tree = parser.parse("\n" * (line_offset - 1) + body)
+        cop_value = comp._parse.lark_to_cop(lark_tree)
+
+        # Create shape definition
+        definition = Definition(name, self.token, cop_value, comp.shape_shape)
+        self._definitions[name] = definition
+
+    def _process_mod_statement(self, stmt):
+        """Process a !mod statement, storing value in self._mod_values."""
+        name = stmt.get("name")
+        body = stmt.get("body", "").strip()
+        # Parse the mod body
+        parser = comp.lark_parser("comp", start="start_mod")
+        lark_tree = parser.parse(body)
+        cop_value = comp._parse.lark_to_cop(lark_tree)
+
+        # Store mod value separately (not as a definition)
+        # These are module-level configuration values, accessible via module.mod_values()
+        self._mod_values[name] = cop_value
+
+    def _statement_identifier(self, identifier_cop):
+        """Extract name from value.identifier COP node.
+
+        Args:
+            identifier_cop: value.identifier COP node
+
+        Returns:
+            str: Identifier name (e.g., "add" or "server.host")
+        """
+        # todo this needs to fail on non token/text types (like #2 or $ or expr)
+        # also this should be called on every statement type, not just tags
+        parts = []
+        for kid in comp.cop_kids(identifier_cop):
+            kid_tag = comp.cop_tag(kid)
+            if kid_tag in ("ident.token", "ident.text"):
+                parts.append(kid.field("value").data)
+        return '.'.join(parts) if parts else ""
 
     def namespace(self):
         """(dict) Resolved namespace dict for identifier lookups.

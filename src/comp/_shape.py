@@ -46,7 +46,7 @@ class Shape:
         self.fields = []
 
     def __repr__(self):
-        return f"Shape<{self.format()}>"
+        return f"Shape<{self.qualified}>"
 
     def __hash__(self):
         return hash((self.qualified, self.module))
