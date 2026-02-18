@@ -258,17 +258,13 @@ class Module:
         shape = comp.shape_func
         value_tag = comp.cop_tag(cop_value)
         if value_tag == "value.wrapper":
-            # Check inner type
+            # Check the wrapped inner value (first kid)
             try:
-                kids_field = cop_value.field("kids")
-                if hasattr(kids_field, 'data') and isinstance(kids_field.data, dict):
-                    for k, v in kids_field.data.items():
-                        key_str = k.data if hasattr(k, 'data') else str(k)
-                        if key_str == "v":
-                            inner_tag = comp.cop_tag(v)
-                            if inner_tag not in ("function.define", "value.block"):
-                                shape = comp.shape_struct
-                            break
+                inner_kids = comp.cop_kids(cop_value)
+                if inner_kids:
+                    inner_tag = comp.cop_tag(inner_kids[0])
+                    if inner_tag not in ("function.define", "value.block"):
+                        shape = comp.shape_struct
             except (KeyError, AttributeError):
                 shape = comp.shape_struct
 

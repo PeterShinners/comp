@@ -190,9 +190,11 @@ class SystemModule(comp.Module):
 
         # Builtin callables
         self._add_callable("incr", _builtin_incr)
+        self._add_callable("answer", _builtin_answer)
         self._add_callable("wrap", _builtin_wrap)
         self._add_callable("morph", _builtin_morph)
         self._add_callable("mask", _builtin_mask)
+        self._add_callable("abs", _builtin_abs)
 
         self.finalize()
 
@@ -234,6 +236,12 @@ def _builtin_incr(input_val, args_val, frame):
     val = input_val.as_scalar()
     n = val.to_python()
     return comp.Value.from_python(n + 1)
+
+
+def _builtin_answer(input_val, args_val, frame):
+    """Return the hardcoded constant 42. Useful for testing nullary calls."""
+    import decimal
+    return comp.Value.from_python(decimal.Decimal(42))
 
 
 def _builtin_wrap(input_val, args_val, frame):
@@ -344,6 +352,20 @@ def _builtin_mask(input_val, args_val, frame):
         "result": result_val
     })
 
+
+
+def _builtin_abs(input_val, args_val, frame):
+    """Return the absolute value of the first argument."""
+    val = args_val.positional(0)
+    if val is None:
+        raise ValueError("abs requires one argument")
+    scalar = val.as_scalar()
+    if scalar.shape != comp.shape_num:
+        raise TypeError(f"abs requires a number, got {scalar.format()}")
+    import decimal
+    n = scalar.data
+    result = n.copy_abs() if isinstance(n, decimal.Decimal) else abs(n)
+    return comp.Value(result)
 
 
 # Registry of internal modules

@@ -225,95 +225,37 @@ def _resolve_to_references(cop, namespace, param_names=None):
     elif tag == "value.block":
         kids_list = cop_kids(cop)
         if len(kids_list) >= 2:
-            signature_cop = kids_list[0]
-            body_cop = kids_list[1]
-
-            # Extract parameter names from signature
+            # kid[0] = signature, kid[1] = body
             new_param_names = param_names.copy()
-            # TODO: Parse signature to get actual param names
-            # For now, assume 'input' and 'args' are standard
             new_param_names.add('input')
             new_param_names.add('args')
-
-            # Recursively walk the body with updated param names
-            new_body = _resolve_to_references(body_cop, namespace, new_param_names)
-
-            # If body changed, create new block cop
-            if new_body is not body_cop:
-                kids_field = cop.field("kids")
-                new_kids_dict = kids_field.data.copy()
-                keys = list(new_kids_dict.keys())
-                if len(keys) >= 2:
-                    new_kids_dict[keys[1]] = new_body
-
-                    # Reconstruct the cop
-                    new_data = {}
-                    for key, value in cop.data.items():
-                        if isinstance(key, comp.Value) and key.data == "kids":
-                            new_data[key] = comp.Value.from_python(new_kids_dict)
-                        else:
-                            new_data[key] = value
-
-                    return comp.Value.from_python(new_data)
-
+            new_body = _resolve_to_references(kids_list[1], namespace, new_param_names)
+            if new_body is not kids_list[1]:
+                return cop_rebuild(cop, [kids_list[0], new_body])
         return cop
 
-    # Handle mod.namefield - only resolve the value child, not the name
+    # Handle mod.namefield - resolve value child (kid[1]) but not name child (kid[0])
     elif tag == "mod.namefield":
-        try:
-            modified = False
-            new_kids_dict = {}
-            for key, kid in cop.field("kids").data.items():
-                # Check if this is the name field (n=) or value field (v=)
-                # The name field should NOT be resolved
-                if key.data == "n":
-                    new_kids_dict[key] = kid
-                else:
-                    new_kid = _resolve_to_references(kid, namespace, param_names)
-                    new_kids_dict[key] = new_kid
-                    if new_kid is not kid:
-                        modified = True
-
-            # If any kids changed, create new cop
-            if modified:
-                new_data = {}
-                for key, value in cop.data.items():
-                    if isinstance(key, comp.Value) and key.data == "kids":
-                        new_data[key] = comp.Value.from_python(new_kids_dict)
-                    else:
-                        new_data[key] = value
-
-                return comp.Value.from_python(new_data)
-        except (KeyError, AttributeError):
-            pass
-
+        kids_list = cop_kids(cop)
+        if len(kids_list) >= 2:
+            new_value = _resolve_to_references(kids_list[1], namespace, param_names)
+            if new_value is not kids_list[1]:
+                return cop_rebuild(cop, [kids_list[0], new_value])
         return cop
 
     # For all other nodes, recursively walk kids
     else:
-        try:
-            modified = False
-            new_kids_dict = {}
-            for key, kid in cop.field("kids").data.items():
-                new_kid = _resolve_to_references(kid, namespace, param_names)
-                new_kids_dict[key] = new_kid
-                if new_kid is not kid:
-                    modified = True
-
-            # If any kids changed, create new cop
-            if modified:
-                new_data = {}
-                for key, value in cop.data.items():
-                    if isinstance(key, comp.Value) and key.data == "kids":
-                        new_data[key] = comp.Value.from_python(new_kids_dict)
-                    else:
-                        new_data[key] = value
-
-                return comp.Value.from_python(new_data)
-        except (KeyError, AttributeError):
-            pass
-
-    return cop
+        kids_list = cop_kids(cop)
+        new_kids = []
+        changed = False
+        for kid in kids_list:
+            new_kid = _resolve_to_references(kid, namespace, param_names)
+            new_kids.append(new_kid)
+            if new_kid is not kid:
+                changed = True
+        if changed:
+            return cop_rebuild(cop, new_kids)
+        return cop
 
 
 def cop_resolve(cop, namespace):
@@ -331,28 +273,6 @@ def cop_resolve(cop, namespace):
     return _resolve_to_references(cop, namespace)
 
 
-def _cop_get_named_kid(cop_node, name):
-    """Get a named kid from a cop node's kids dict.
-    
-    Args:
-        cop_node: COP node
-        name: Name of the kid to retrieve
-    
-    Returns:
-        Value or None if not found
-    """
-    try:
-        kids_dict = cop_node.field("kids").data
-        for key, value in kids_dict.items():
-            if isinstance(key, str) and key == name:
-                return value
-            elif hasattr(key, "data") and key.data == name:
-                return value
-        return None
-    except (KeyError, AttributeError):
-        return None
-
-
 def cop_unparse(cop):
     """Convert a COP tree back to source code text.
 
@@ -364,10 +284,6 @@ def cop_unparse(cop):
     """
     tag = cop_tag(cop)
     kids = cop_kids(cop)
-    
-    # Helper to get named kid from kids dict (uses outer cop)
-    def get_kid(name):
-        return _cop_get_named_kid(cop, name)
 
     match tag:
         # Module structure
@@ -378,24 +294,18 @@ def cop_unparse(cop):
             return "\n".join(parts)
         
         case "mod.namefield":
-            n = get_kid("n")
-            v = get_kid("v")
-            if n and v:
+            if len(kids) >= 2:
                 op = cop.to_python("op", "=")
-                return f"{cop_unparse(n)} {op} {cop_unparse(v)}"
+                return f"{cop_unparse(kids[0])} {op} {cop_unparse(kids[1])}"
             return "<?mod.namefield?>"
-        
+
         # Function structure
         case "function.define":
             parts = []
-            sig = get_kid("sig")
-            if sig:
-                parts.append(cop_unparse(sig))
-            
-            body = get_kid("body")
-            if body:
-                parts.append(cop_unparse(body))
-            
+            if kids:
+                parts.append(cop_unparse(kids[0]))       # signature
+            if len(kids) >= 2:
+                parts.append(cop_unparse(kids[1]))       # body
             return " ".join(parts) if parts else "<?func?>"
         
         case "function.signature":
@@ -460,15 +370,10 @@ def cop_unparse(cop):
             return " ".join(parts)
         
         case "value.block":
-            s = get_kid("s")
-            b = get_kid("b")
-            if s and b:
-                sig_str = cop_unparse(s)
-                body_str = cop_unparse(b)
-                if sig_str:
-                    return f":{sig_str}{body_str}"
-                else:
-                    return f":{body_str}"
+            if len(kids) >= 2:
+                sig_str = cop_unparse(kids[0])
+                body_str = cop_unparse(kids[1])
+                return f":{sig_str}{body_str}" if sig_str else f":{body_str}"
             return "<?block?>"
         
         # Value expressions
@@ -538,41 +443,33 @@ def cop_unparse(cop):
         
         # Math and logic operations
         case "value.math.unary":
-            r = get_kid("r")
-            if r:
+            if kids:
                 op = cop.to_python("op")
-                return f"{op}{cop_unparse(r)}"
+                return f"{op}{cop_unparse(kids[0])}"
             return "<?unary?>"
-        
+
         case "value.logic.unary":
-            r = get_kid("r")
-            if r:
+            if kids:
                 op = cop.to_python("op")
-                return f"{op}{cop_unparse(r)}"
+                return f"{op}{cop_unparse(kids[0])}"
             return "<?logic.unary?>"
-        
+
         case "value.math.binary":
-            l = get_kid("l")
-            r = get_kid("r")
-            if l and r:
+            if len(kids) >= 2:
                 op = cop.to_python("op")
-                return f"{cop_unparse(l)}{op}{cop_unparse(r)}"
+                return f"{cop_unparse(kids[0])}{op}{cop_unparse(kids[1])}"
             return "<?binary?>"
-        
+
         case "value.compare":
-            l = get_kid("l")
-            r = get_kid("r")
-            if l and r:
+            if len(kids) >= 2:
                 op = cop.to_python("op")
-                return f"{cop_unparse(l)} {op} {cop_unparse(r)}"
+                return f"{cop_unparse(kids[0])} {op} {cop_unparse(kids[1])}"
             return "<?compare?>"
-        
+
         case "value.fallback":
-            l = get_kid("l")
-            r = get_kid("r")
-            if l and r:
+            if len(kids) >= 2:
                 op = cop.to_python("op", "??")
-                return f"{cop_unparse(l)} {op} {cop_unparse(r)}"
+                return f"{cop_unparse(kids[0])} {op} {cop_unparse(kids[1])}"
             return "<?fallback?>"
         
         # Pipeline
@@ -584,18 +481,16 @@ def cop_unparse(cop):
         
         # Binding (e.g., foo :bar, foo :x=1)
         case "value.binding":
-            c = get_kid("c")
-            b = get_kid("b")
-            if c and b:
-                callable_part = cop_unparse(c)
-                
+            if len(kids) >= 2:
+                callable_part = cop_unparse(kids[0])
+
                 # Unparse binding arguments directly with : prefix
                 # Get children of the struct.define
-                binding_kids = cop_kids(b)
+                binding_kids = cop_kids(kids[1])
                 if not binding_kids:
                     # Empty bindings
                     return f"{callable_part} :"
-                
+
                 # Unparse each binding argument
                 binding_parts = []
                 for binding_kid in binding_kids:
@@ -607,25 +502,22 @@ def cop_unparse(cop):
                             binding_parts.append(f":{cop_unparse(posfield_kids[0])}")
                     elif binding_tag == "struct.namefield":
                         # Named binding: :name=value
-                        n = _cop_get_named_kid(binding_kid, "n")
-                        v = _cop_get_named_kid(binding_kid, "v")
-                        if n and v:
+                        namefield_kids = cop_kids(binding_kid)
+                        if len(namefield_kids) >= 2:
                             op = binding_kid.to_python("op", "=")
-                            binding_parts.append(f":{cop_unparse(n)}{op}{cop_unparse(v)}")
+                            binding_parts.append(f":{cop_unparse(namefield_kids[0])}{op}{cop_unparse(namefield_kids[1])}")
                     else:
                         # Unknown binding type
                         binding_parts.append(f":{cop_unparse(binding_kid)}")
-                
+
                 # Join with spaces
                 return f"{callable_part} {' '.join(binding_parts)}"
             return "<?binding?>"
         
         # Field access
         case "value.field":
-            l = get_kid("l")
-            f = get_kid("f")
-            if l and f:
-                return f"{cop_unparse(l)}.{cop_unparse(f)}"
+            if len(kids) >= 2:
+                return f"{cop_unparse(kids[0])}.{cop_unparse(kids[1])}"
             return "<?field?>"
         
         # Invoke
@@ -641,11 +533,9 @@ def cop_unparse(cop):
         
         # Wrapper
         case "value.wrapper":
-            w = get_kid("w")
-            v = get_kid("v")
-            if w and v:
-                wrapper = cop_unparse(w)
-                value = cop_unparse(v)
+            if len(kids) >= 2:
+                wrapper = cop_unparse(kids[0])
+                value = cop_unparse(kids[1])
                 return f"@{wrapper} {value}"
             return "<?wrapper?>"
         
@@ -657,11 +547,9 @@ def cop_unparse(cop):
             return "{" + " ".join(parts) + "}"
         
         case "struct.namefield":
-            n = get_kid("n")
-            v = get_kid("v")
-            if n and v:
+            if len(kids) >= 2:
                 op = cop.to_python("op", "=")
-                return f"{cop_unparse(n)}{op}{cop_unparse(v)}"
+                return f"{cop_unparse(kids[0])}{op}{cop_unparse(kids[1])}"
             return "<?namefield?>"
         
         case "struct.posfield":
@@ -706,7 +594,7 @@ def cop_unparse(cop):
                     return False
 
             has_named_fields = any(
-                comp.cop_tag(kid) == "shape.field" and _has_name(kid)
+                cop_tag(kid) == "shape.field" and _has_name(kid)
                 for kid in kids
             )
             

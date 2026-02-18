@@ -28,11 +28,14 @@ def generate_code_for_definition(cop):
     """
     # Create a code generation context
     ctx = CodeGenContext()
-    
+
     # Generate instructions for the definition's resolved COP
     # The result is left in a register, no final store needed
     result_reg = ctx.build_expression(cop)
-    
+
+    # Emit a final TryInvoke so nullary definitions are auto-called
+    ctx.emit(comp._interp.TryInvoke(cop=cop, value=result_reg))
+
     return ctx.instructions
 
 
@@ -72,12 +75,9 @@ class CodeGenContext:
         match tag:
             case "value.constant":
                 const_val = cop.field("value")
-                # If the constant is a Block, we need to emit BuildBlock
-                # to properly set up closure_env and body_instructions at runtime
+                # If the constant is a Block, emit BuildBlock at runtime
                 if isinstance(const_val.data, comp.Block):
                     block = const_val.data
-                    # Use existing body_instructions if available (from prepare_module),
-                    # otherwise generate from body COP
                     if block.body_instructions:
                         body_instructions = block.body_instructions
                     elif block.body is not None:
@@ -86,22 +86,12 @@ class CodeGenContext:
                         body_instructions = body_ctx.instructions
                     else:
                         body_instructions = []
-                    # Get signature from the block - either signature_cop attribute
-                    # or from the original cop if available
                     signature_cop = getattr(block, "signature_cop", None)
-                    if signature_cop is None and const_val.cop is not None:
-                        try:
-                            sig_cop = const_val.cop.field("kids").data
-                            sig_list = list(sig_cop.values())
-                            signature_cop = sig_list[0] if sig_list else None
-                        except (KeyError, AttributeError):
-                            pass
-                    instr = comp._interp.BuildBlock(
-                        cop=cop, 
-                        signature_cop=signature_cop, 
+                    return self.emit(comp._interp.BuildBlock(
+                        cop=cop,
+                        signature_cop=signature_cop,
                         body_instructions=body_instructions
-                    )
-                    return self.emit(instr)
+                    ))
                 return const_val
                 
             case "value.reference":
@@ -113,8 +103,9 @@ class CodeGenContext:
                         instr = comp._interp.LoadOverload(cop=cop, names=qualified_name)
                     else:
                         instr = comp._interp.LoadVar(cop=cop, name=qualified_name)
-                    return self.emit(instr)
-                    
+                    reg = self.emit(instr)
+                    return self.emit(comp._interp.TryInvoke(cop=cop, value=reg))
+
                 except (AttributeError, KeyError) as e:
                     raise comp.CodeError(f"Invalid reference: {e}", cop)
             
@@ -122,19 +113,19 @@ class CodeGenContext:
                 # Unresolved identifier - load as local/parameter variable
                 # This happens inside function bodies where parameters and locals
                 # haven't been resolved to qualified names
-                # 
+                #
                 # Multi-part identifiers like `in.a` need to:
                 # 1. Load the first part (in)
                 # 2. Extract fields for subsequent parts (.a)
                 kids = _cop_kids(cop)
                 if not kids:
                     raise comp.CodeError("Identifier has no token", cop)
-                
+
                 # First token is the variable name
                 token_cop = kids[0]  # ident.token
                 name = token_cop.to_python("value")
                 result = self.emit(comp._interp.LoadVar(cop=cop, name=name))
-                
+
                 # Subsequent tokens are field accesses
                 for i in range(1, len(kids)):
                     field_cop = kids[i]
@@ -144,8 +135,8 @@ class CodeGenContext:
                         result = self.emit(comp._interp.GetField(cop=cop, field=field_name, struct_reg=result))
                     else:
                         raise comp.CodeError(f"Unsupported field type in identifier: {field_tag}", cop)
-                
-                return result
+
+                return self.emit(comp._interp.TryInvoke(cop=cop, value=result))
             
             case "value.number":
                 # Inline constant
@@ -160,15 +151,21 @@ class CodeGenContext:
                 
             case "value.math.binary":
                 return self._build_binary_op(cop)
-                
+
             case "value.math.unary":
                 return self._build_unary_op(cop)
+
+            case "value.compare":
+                return self._build_compare_op(cop)
                 
             case "value.invoke":
                 return self._build_invoke(cop)
                 
             case "value.pipeline":
                 return self._build_pipeline(cop)
+
+            case "value.binding":
+                return self._build_binding(cop)
 
             case "value.field":
                 return self._build_field_access(cop)
@@ -203,13 +200,24 @@ class CodeGenContext:
         return self.emit(instr)
     
     def _build_unary_op(self, cop):
-        """Build unary operation instructions.""" 
+        """Build unary operation instructions."""
         op = cop.to_python("op")
         kids = _cop_kids(cop)
-        
+
         operand = self._build_value_ensure_register(kids[0])
-        
+
         instr = comp._interp.UnOp(cop=cop, op=op, operand=operand)
+        return self.emit(instr)
+
+    def _build_compare_op(self, cop):
+        """Build comparison operation instructions."""
+        op = cop.to_python("op")
+        kids = _cop_kids(cop)
+
+        left = self._build_value_ensure_register(kids[0])
+        right = self._build_value_ensure_register(kids[1])
+
+        instr = comp._interp.CmpOp(cop=cop, op=op, left=left, right=right)
         return self.emit(instr)
     
     def _build_invoke(self, cop):
@@ -218,7 +226,7 @@ class CodeGenContext:
         callable_cop = kids[0]
         
         # Build the callable
-        callable_idx = self._build_value_ensure_register(callable_cop)
+        callable_idx = self._build_callable_ensure_register(callable_cop)
         
         # Process each argument as a separate call
         result = callable_idx
@@ -248,7 +256,7 @@ class CodeGenContext:
                 # Piped invoke: callable(args) with piped input
                 invoke_kids = _cop_kids(stage_cop)
                 callable_cop = invoke_kids[0]
-                callable_idx = self._build_value_ensure_register(callable_cop)
+                callable_idx = self._build_callable_ensure_register(callable_cop)
                 
                 # Build args (remaining kids after callable)
                 if len(invoke_kids) > 1:
@@ -266,10 +274,38 @@ class CodeGenContext:
                 )
                 result = self.emit(instr)
             else:
-                # Non-invoke stage - just evaluate it (unusual but allowed)
-                result = self._build_value_ensure_register(stage_cop)
+                # Bare callable stage - PipeInvoke with empty args
+                callable_idx = self._build_callable_ensure_register(stage_cop)
+                arg_idx = self.emit(comp._interp.BuildStruct(cop=stage_cop, fields=[]))
+                instr = comp._interp.PipeInvoke(
+                    cop=stage_cop,
+                    callable=callable_idx,
+                    piped=result,
+                    args=arg_idx
+                )
+                result = self.emit(instr)
         
         return result
+
+    def _build_binding(self, cop):
+        """Build value.binding instructions.
+
+        Kids: [0] = callable expression, [1] = body (args struct).
+        Compiles to an Invoke: callable(args).
+        """
+        kids = _cop_kids(cop)
+        callable_cop = kids[0] if kids else None
+        body_cop = kids[1] if len(kids) > 1 else None
+
+        callable_idx = self._build_callable_ensure_register(callable_cop)
+
+        if body_cop is not None:
+            args_idx = self._build_value_ensure_register(body_cop)
+        else:
+            args_idx = self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
+
+        instr = comp._interp.Invoke(cop=cop, callable=callable_idx, args=args_idx)
+        return self.emit(instr)
 
     def _build_field_access(self, cop):
         """Build field access instructions.
@@ -332,7 +368,7 @@ class CodeGenContext:
         
         # Build body instructions in a separate context
         body_ctx = CodeGenContext()
-        body_ctx._build_value(body_cop)
+        body_ctx._build_value_ensure_register(body_cop)
         
         instr = comp._interp.BuildBlock(
             cop=cop,
@@ -343,54 +379,21 @@ class CodeGenContext:
 
     def _build_function(self, cop):
         """Build function.define instructions."""
-        # function.define has: sig=function.signature (optional), body=statement.define/struct.define
-        kids_dict = cop.field("kids").data
+        # Kids are positional: [0] = function.signature, [1] = body expression
+        kids = _cop_kids(cop)
+        func_sig_cop = kids[0] if kids else None
+        body_cop = kids[1] if len(kids) > 1 else None
 
-        # Extract function.signature (contains signature.input if present)
-        func_sig_cop = None
-        for k, v in kids_dict.items():
-            key_str = k.data if hasattr(k, 'data') else str(k)
-            if key_str == "sig":
-                func_sig_cop = v
-                break
-
-        # Extract body (statement.define or struct.define, possibly with sig=block.signature)
-        body_cop = None
-        for k, v in kids_dict.items():
-            key_str = k.data if hasattr(k, 'data') else str(k)
-            if key_str == "body":
-                body_cop = v
-                break
-
-        # Build combined signature from function.signature and body's block.signature
-        sig_kids = []
-
-        # Add signature.input from function.signature if present
-        if func_sig_cop:
-            func_sig_kids = _cop_kids(func_sig_cop)
-            sig_kids.extend(func_sig_kids)
-
-        # Check if body has block.signature (as a named field)
-        if body_cop:
-            try:
-                # Try to get the sig field from the body
-                body_sig = body_cop.field("sig")
-                if body_sig is not None:
-                    # It's a block.signature - add its kids to the combined signature
-                    block_sig_kids = _cop_kids(body_sig)
-                    sig_kids.extend(block_sig_kids)
-            except (KeyError, AttributeError):
-                pass
-
-        # Create combined signature
+        # Combined signature = kids of function.signature (signature.input etc.)
+        sig_kids = _cop_kids(func_sig_cop) if func_sig_cop else []
         combined_sig = comp.create_cop("block.signature", sig_kids)
 
         if body_cop is None:
             body_cop = comp.create_cop("statement.define", [])
 
-        # Build body instructions
+        # Build body instructions in a separate context
         body_ctx = CodeGenContext()
-        body_ctx._build_value(body_cop)
+        body_ctx._build_value_ensure_register(body_cop)
 
         instr = comp._interp.BuildBlock(
             cop=cop,
@@ -400,127 +403,64 @@ class CodeGenContext:
         return self.emit(instr)
 
     def _build_statement(self, cop):
-        """Build statement.define instructions."""
-        # statement.define contains statement.field children
-        # May also have optional sig=block.signature field (which we ignore here)
-        # Get positional kids (numeric keys), filtering out the "sig" field
-        kids_dict = cop.field("kids").data
-        positional_items = []
+        """Build statement.define instructions.
 
-        for k, v in kids_dict.items():
-            key_str = k.data if hasattr(k, 'data') else str(k)
-            if key_str != "sig":  # Skip the signature field
-                # Try to parse as integer for positional fields
-                try:
-                    idx = int(key_str)
-                    positional_items.append((idx, v))
-                except ValueError:
-                    # Not a numeric key, skip it
-                    pass
-
-        # Sort by index to maintain order
-        positional_items.sort(key=lambda x: x[0])
-        field_kids = [v for _, v in positional_items]
+        Each kid is a statement.field; evaluate the last one as the result.
+        The result is auto-invoked: if callable it is called with empty args,
+        otherwise it is returned as-is. This is how (four) calls four.
+        An empty statement produces an empty struct.
+        """
+        field_kids = _cop_kids(cop)
 
         if not field_kids:
-            # Empty statement - return empty struct
-            instr = comp._interp.BuildStruct(cop=cop, fields=[])
-            return self.emit(instr)
+            return self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
 
-        # Build each statement field and return the last one
         result = None
         for kid in field_kids:
-            tag = comp.cop_tag(kid)
-            if tag == "statement.field":
-                # Unwrap the expression from statement.field
-                kid_kids = _cop_kids(kid)
-                if kid_kids:
-                    result = self._build_value_ensure_register(kid_kids[0])
+            if comp.cop_tag(kid) == "statement.field":
+                inner = _cop_kids(kid)
+                if inner:
+                    result = self._build_value_ensure_register(inner[0])
             else:
-                # Shouldn't happen, but handle it
                 result = self._build_value_ensure_register(kid)
 
-        return result if result is not None else self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
+        if result is None:
+            return self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
+
+        return result
 
     def _build_struct(self, cop):
         """Build struct construction instructions."""
-        # struct.define may have optional sig=block.signature field (which we ignore here)
-        # Get positional kids (numeric keys), filtering out the "sig" field
-        kids_dict = cop.field("kids").data
-        positional_items = []
-
-        for k, v in kids_dict.items():
-            key_str = k.data if hasattr(k, 'data') else str(k)
-            if key_str != "sig":  # Skip the signature field
-                # Try to parse as integer for positional fields
-                try:
-                    idx = int(key_str)
-                    positional_items.append((idx, v))
-                except ValueError:
-                    # Not a numeric key, skip it
-                    pass
-
-        # Sort by index to maintain order
-        positional_items.sort(key=lambda x: x[0])
-        kids = [v for _, v in positional_items]
-
+        kids = _cop_kids(cop)
         fields = []
 
         for kid in kids:
-            tag = kid.positional(0).data.qualified
-            
+            tag = comp.cop_tag(kid)
+
             if tag == "struct.posfield":
-                # Positional field: (struct.posfield kids=(value))
-                field_kids = _cop_kids(kid)
-                if field_kids:
-                    value_idx = self._build_value_ensure_register(field_kids[0])
-                    fields.append((comp.Unnamed(), value_idx))
-                    
+                inner = _cop_kids(kid)
+                if inner:
+                    fields.append((comp.Unnamed(), self._build_value_ensure_register(inner[0])))
+
             elif tag == "struct.letassign":
-                # Local variable assignment: !let name=value
-                # Kids are positional: [name_cop, value_cop]
+                # Kids: [0]=name identifier, [1]=value expression
                 let_kids = _cop_kids(kid)
                 if len(let_kids) >= 2:
-                    name_cop = let_kids[0]  # value.identifier with the variable name
-                    value_cop = let_kids[1]  # expression for the value
-                    
-                    # Extract the variable name from the identifier
-                    name_kids = _cop_kids(name_cop)
-                    if name_kids:
-                        token_cop = name_kids[0]  # ident.token
-                        name = token_cop.to_python("value")
-                        
-                        # Generate code for the value
-                        value_idx = self._build_value_ensure_register(value_cop)
-                        
-                        # Store as local variable
-                        store_instr = comp._interp.StoreVar(
-                            cop=kid,
-                            name=name,
-                            source=value_idx
-                        )
-                        self.emit(store_instr)
-                # !let doesn't produce a field in the struct
-                
+                    name = _extract_name(let_kids[0])
+                    if name is not None:
+                        value_idx = self._build_value_ensure_register(let_kids[1])
+                        self.emit(comp._interp.StoreVar(cop=kid, name=name, source=value_idx))
+
             elif tag == "struct.namefield":
-                # Named field: name=value
-                # Kids are [name_cop, value_cop] (in order: n=, v=)
+                # Kids: [0]=name identifier, [1]=value expression
                 field_kids = _cop_kids(kid)
                 if len(field_kids) >= 2:
-                    name_cop = field_kids[0]  # value.identifier with the field name
-                    value_cop = field_kids[1]  # expression for the value
-                    
-                    # Extract the field name from the identifier
-                    name_kids = _cop_kids(name_cop)
-                    if name_kids:
-                        token_cop = name_kids[0]  # ident.token
-                        name = token_cop.to_python("value")
-                        
-                        value_idx = self._build_value_ensure_register(value_cop)
+                    name = _extract_name(field_kids[0])
+                    if name is not None:
+                        value_idx = self._build_value_ensure_register(field_kids[1])
                         fields.append((name, value_idx))
-        
-        instr = comp._interp.BuildStruct(cop=cop, fields=fields)
-        return self.emit(instr)
+
+        return self.emit(comp._interp.BuildStruct(cop=cop, fields=fields))
 
     def _build_shape(self, cop):
         """Build shape construction instructions."""
@@ -528,64 +468,41 @@ class CodeGenContext:
         fields = []
 
         for kid in kids:
-            tag = kid.positional(0).data.qualified
+            tag = comp.cop_tag(kid)
 
             if tag == "shape.union":
-                # Shape union - build each member and create union
-                union_kids = _cop_kids(kid)
-                member_indices = []
-                for ukid in union_kids:
-                    idx = self._build_value_ensure_register(ukid)
-                    member_indices.append(idx)
-                instr = comp._interp.BuildShapeUnion(cop=cop, member_indices=member_indices)
-                return self.emit(instr)
+                # Shape union — build each member kid and create union
+                member_indices = [self._build_value_ensure_register(m) for m in _cop_kids(kid)]
+                return self.emit(comp._interp.BuildShapeUnion(cop=cop, member_indices=member_indices))
 
             elif tag == "shape.field":
-                # Shape field: name, optional shape constraint, optional default
+                # Named field: name is a named attribute; shape/default are positional kids
                 name = None
-                shape_idx = None
-                default_idx = None
-
-                # Get the field name from attribute
                 try:
                     name = kid.to_python("name")
                 except (KeyError, AttributeError):
                     pass
 
-                # Get kids for shape constraint and default
-                # Structure is: first value.* kid is shape, second (if any) is default
+                shape_idx = None
+                default_idx = None
                 field_kids = _cop_kids(kid)
-                for i, fkid in enumerate(field_kids):
-                    fkid_tag = fkid.positional(0).data.qualified
-
-                    if fkid_tag == "field.shape":
-                        # Wrapped shape constraint
-                        shape_cop = fkid.field("shape")
-                        shape_idx = self._build_value_ensure_register(shape_cop)
-                    elif fkid_tag == "field.default":
-                        # Wrapped default value
-                        default_cop = fkid.field("value")
-                        default_idx = self._build_value_ensure_register(default_cop)
-                    elif fkid_tag.startswith("value."):
-                        # Direct value - first is shape, second is default
-                        if shape_idx is None:
-                            shape_idx = self._build_value_ensure_register(fkid)
-                        else:
-                            default_idx = self._build_value_ensure_register(fkid)
+                if len(field_kids) >= 1:
+                    shape_idx = self._build_value_ensure_register(field_kids[0])
+                if len(field_kids) >= 2:
+                    default_idx = self._build_value_ensure_register(field_kids[1])
 
                 fields.append((name, shape_idx, default_idx))
 
-        instr = comp._interp.BuildShape(cop=cop, fields=fields)
-        return self.emit(instr)
+        return self.emit(comp._interp.BuildShape(cop=cop, fields=fields))
 
     def _build_value_ensure_register(self, cop):
         """Build a value and ensure it's in a register (has an index).
-        
+
         If the value is a constant, emit a Const instruction to load it.
         Returns the instruction index.
         """
         result = self._build_value(cop)
-        
+
         if isinstance(result, int):
             # Already an instruction index
             return result
@@ -594,7 +511,59 @@ class CodeGenContext:
             instr = comp._interp.Const(cop=cop, value=result)
             return self.emit(instr)
 
+    def _build_callable_ensure_register(self, cop):
+        """Build a callable reference without auto-invoking it.
+
+        Use this for the callable position in Invoke/PipeInvoke instructions.
+        Emits LoadVar (no TryInvoke) for simple references and identifiers;
+        falls back to _build_value_ensure_register for complex expressions.
+        """
+        tag = cop.positional(0).data.qualified
+
+        if tag == "value.reference":
+            try:
+                qualified_name = cop.to_python("qualified")
+                if isinstance(qualified_name, list):
+                    instr = comp._interp.LoadOverload(cop=cop, names=qualified_name)
+                else:
+                    instr = comp._interp.LoadVar(cop=cop, name=qualified_name)
+                return self.emit(instr)
+            except (AttributeError, KeyError) as e:
+                raise comp.CodeError(f"Invalid callable reference: {e}", cop)
+
+        elif tag == "value.identifier":
+            kids = _cop_kids(cop)
+            if not kids:
+                raise comp.CodeError("Identifier has no token", cop)
+            name = kids[0].to_python("value")
+            result = self.emit(comp._interp.LoadVar(cop=cop, name=name))
+            for i in range(1, len(kids)):
+                field_cop = kids[i]
+                field_tag = comp.cop_tag(field_cop)
+                if field_tag == "ident.token":
+                    field_name = field_cop.to_python("value")
+                    result = self.emit(comp._interp.GetField(cop=cop, field=field_name, struct_reg=result))
+                else:
+                    raise comp.CodeError(f"Unsupported field type in callable identifier: {field_tag}", cop)
+            return result
+
+        else:
+            # Complex expression — build normally; the result is used as-is
+            return self._build_value_ensure_register(cop)
+
 
 def _cop_kids(cop):
     """Extract kids from a COP node (helper function)."""
     return list(cop.field("kids").data.values())
+
+
+def _extract_name(name_cop):
+    """Extract a plain string name from an ident.token or value.identifier kid."""
+    tag = comp.cop_tag(name_cop)
+    if tag == "ident.token":
+        return name_cop.to_python("value")
+    elif tag == "value.identifier":
+        kids = _cop_kids(name_cop)
+        if kids:
+            return kids[0].to_python("value")
+    return None

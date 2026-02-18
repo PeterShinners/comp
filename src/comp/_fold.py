@@ -113,6 +113,16 @@ def _coptimize_walk(cop, fold, namespace, locals, references):
 
     # --- Folding: evaluate constant expressions ---
     if fold:
+        # A paren expression with a single constant field reduces to that constant.
+        # This allows (four) to become 4 when four has been substituted inline.
+        if tag == "statement.define":
+            if len(new_kids) == 1 and comp.cop_tag(new_kids[0]) == "statement.field":
+                field_kids = list(comp.cop_kids(new_kids[0]))
+                if len(field_kids) == 1:
+                    const = _get_constant(field_kids[0])
+                    if const is not None:
+                        return _make_constant(cop, const)
+
         if tag == "value.math.unary":
             op = cop.to_python("op")
             if op == "+":
@@ -329,8 +339,9 @@ def _fold_reference(cop, namespace):
         definition_set = namespace.get(qualified)
         if definition_set is not None:
             defn = definition_set.scalar()
-            if defn is not None and defn.value is not None:
-                return _make_constant(cop, defn.value)
+            if defn is not None:
+                if defn.value is not None:
+                    return _make_constant(cop, defn.value)
     except (KeyError, AttributeError):
         pass
     return cop
@@ -406,7 +417,7 @@ def _fold_struct(cop, kids):
         kids: (list) Already-optimized children
 
     Returns:
-        (Value) Constant node or original struct
+        (Value) Constant node if all fields are constants, otherwise rebuilt node
     """
     struct = {}
     for field_cop in kids:
@@ -418,7 +429,7 @@ def _fold_struct(cop, kids):
             value = _get_constant(field_kids[0]) if field_kids else None
         elif field_tag == "struct.namefield":
             if len(field_kids) < 2:
-                return cop
+                return comp.cop_rebuild(cop, kids)
             key_cop = field_kids[0]
             value_cop = field_kids[1]
             # Extract name from identifier
@@ -432,10 +443,10 @@ def _fold_struct(cop, kids):
                         pass
             value = _get_constant(value_cop)
         else:
-            return cop
+            return comp.cop_rebuild(cop, kids)
 
         if key is None or value is None:
-            return cop
+            return comp.cop_rebuild(cop, kids)
         struct[key] = value
 
     return _make_constant(cop, comp.Value.from_python(struct))

@@ -378,11 +378,11 @@ def main():
             try:
                 tree = lark_parser.parse(args.source)
                 cop = comp._parse.lark_to_cop(tree)
-                
+
                 # Apply optimization/folding if requested
                 if args.fold:
                     cop = comp.coptimize(cop, True, None)
-                
+
                 if args.cop:
                     prettycop(cop, show_pos=args.pos)
                 elif args.unparse:
@@ -390,6 +390,66 @@ def main():
                 return
             except Exception as e:
                 print(f"Parse error: {e}")
+                return 1
+
+        # For --code mode with fragment entry points
+        elif args.code and entry_point is not None:
+            lark_parser = comp._parse.lark_parser("comp", start=entry_point)
+            try:
+                tree = lark_parser.parse(args.source)
+                cop = comp._parse.lark_to_cop(tree)
+
+                sys_ns = comp.get_internal_module("system").namespace()
+                cop = comp.coptimize(cop, args.fold, sys_ns)
+
+                instructions = comp.generate_code_for_definition(cop)
+                print(f"Source: {comp.cop_unparse(cop)}")
+                print("-" * 40)
+                for i, instr in enumerate(instructions):
+                    print(format_instruction(i, instr))
+                return
+            except Exception as e:
+                print(f"Error: {e}")
+                return 1
+
+        # For --eval/--trace mode with fragment entry points
+        elif (args.eval or args.trace) and entry_point is not None:
+            lark_parser = comp._parse.lark_parser("comp", start=entry_point)
+            try:
+                tree = lark_parser.parse(args.source)
+                cop = comp._parse.lark_to_cop(tree)
+
+                sys_mod = comp.get_internal_module("system")
+                sys_ns = sys_mod.namespace()
+                cop = comp.coptimize(cop, args.fold, sys_ns)
+
+                instructions = comp.generate_code_for_definition(cop)
+
+                # System definitions are resolved via namespace lookup, not pre-loaded into env,
+                # so that LoadVar auto-invoke semantics apply correctly.
+                env = {}
+
+                if args.trace:
+                    class TracingFrame(comp.ExecutionFrame):
+                        def __init__(self, env=None, interp=None, module=None, depth=0):
+                            super().__init__(env, interp, module)
+                            self.depth = depth
+                        def on_step(self, idx, instr, result):
+                            indent = "  " * self.depth
+                            result_str = result.format() if result else "(none)"
+                            print(f"{indent}{instr.format(idx)}  ->  {result_str}")
+                        def _make_child_frame(self, env, module=None):
+                            return TracingFrame(env=env, interp=self.interp,
+                                               module=module or self.module, depth=self.depth + 1)
+                    frame = TracingFrame(env, interp=interp, module=None, depth=0)
+                    result = frame.run(instructions)
+                else:
+                    result = interp.execute(instructions, env)
+
+                print(result.format())
+                return
+            except Exception as e:
+                print(f"Error: {e}")
                 return 1
         
         # For other modes or module entry point, use module parsing
@@ -423,7 +483,7 @@ def main():
 
         # Optionally resolve and optimize
         namespace = None
-        if args.resolve or args.pure:
+        if args.resolve or args.fold or args.pure:
             namespace = mod.namespace()
             for name, definition in defs.items():
                 if not definition.resolved_cop:
@@ -457,12 +517,12 @@ def main():
                 print(f"Definition: {name} ({definition.shape.qualified})")
                 print(f"{'='*60}")
                 # Show resolved or original COP
-                cop = definition.resolved_cop if (args.resolve or args.pure) else definition.original_cop
+                cop = definition.resolved_cop if (args.resolve or args.fold or args.pure) else definition.original_cop
                 prettycop(cop, show_pos=args.pos)
         elif args.unparse:
             # Unparse each definition
             for name, definition in sorted_defs:
-                cop = definition.resolved_cop if (args.resolve or args.pure) else definition.original_cop
+                cop = definition.resolved_cop if (args.resolve or args.fold or args.pure) else definition.original_cop
                 source_text = comp.cop_unparse(cop)
                 print(f"{name} = {source_text}")
         return

@@ -545,6 +545,57 @@ class ExecutionFrame:
 # Instruction Classes
 # ===================
 
+def _ensure_definition_value(defn, frame):
+    """Lazily populate a definition's value if needed."""
+    if defn.value is not None:
+        return defn.value
+    if defn.original_cop:
+        cop_tag = comp.cop_tag(defn.original_cop)
+        if cop_tag == "value.block":
+            defn.value = comp.create_blockdef(defn.qualified, False, defn.original_cop)
+            if defn.value and isinstance(defn.value.data, comp.Block):
+                defn.value.data.module = frame.interp.module_cache.get(defn.module_id)
+            return defn.value
+        elif cop_tag == "shape.define":
+            if frame.module:
+                ns = frame.module.namespace()
+                shape = comp.create_shape(defn.original_cop, ns)
+                defn.value = comp.Value.from_python(shape)
+                return defn.value
+    return None
+
+
+def _load_name(name, frame):
+    """Resolve a name to a Value, checking env, module namespace, and system builtins."""
+    if name in frame.env:
+        return frame.env[name]
+
+    if frame.module:
+        ns = frame.module.namespace()
+        if name in ns:
+            item = ns[name]
+            if isinstance(item, comp.DefinitionSet):
+                if len(item.definitions) == 1:
+                    defn = next(iter(item.definitions))
+                    value = _ensure_definition_value(defn, frame)
+                    if value:
+                        return value
+                for defn in item.definitions:
+                    _ensure_definition_value(defn, frame)
+                return comp.Value.from_python(item)
+            elif hasattr(item, "value"):
+                value = _ensure_definition_value(item, frame)
+                if value:
+                    return value
+
+    system = frame.interp.system
+    if system and name in system._definitions:
+        defn = system._definitions[name]
+        if defn.value:
+            return defn.value
+
+    raise NameError(f"Variable '{name}' not defined")
+
 class Instruction:
     """Base class for all instructions."""
     
@@ -571,82 +622,48 @@ class Const(Instruction):
 
 
 class LoadVar(Instruction):
-    """Load a variable from the environment."""
-    
+    """Load a variable from the environment or namespace.
+
+    This is a pure load — no auto-invocation. The codegen emits an explicit
+    TryInvoke instruction after LoadVar when the value is in a value position.
+    For callable positions (Invoke/PipeInvoke), no TryInvoke is emitted.
+    """
+
     def __init__(self, cop, name):
         super().__init__(cop)
         self.name = name
-    
-    def _ensure_definition_value(self, defn, frame):
-        """Lazily populate a definition's value if needed.
-        
-        For block definitions, creates the Block from the COP.
-        For shape definitions, creates the Shape from the COP.
-        """
-        if defn.value is not None:
-            return defn.value
-        
-        # Try to create value from the original COP
-        if defn.original_cop:
-            cop_tag = comp.cop_tag(defn.original_cop)
-            if cop_tag == "value.block":
-                # Create Block from COP
-                defn.value = comp.create_blockdef(defn.qualified, False, defn.original_cop)
-                # Set the module on the block
-                if defn.value and isinstance(defn.value.data, comp.Block):
-                    # Find the module that owns this definition
-                    defn.value.data.module = frame.interp.module_cache.get(defn.module_id)
-                return defn.value
-            elif cop_tag == "shape.define":
-                # Create Shape from COP - use the namespace to resolve references
-                if frame.module:
-                    ns = frame.module.namespace()
-                    shape = comp.create_shape(defn.original_cop, ns)
-                    defn.value = comp.Value.from_python(shape)
-                    return defn.value
-        
-        return None
-    
+
     def execute(self, frame):
-        # First check local environment
-        if self.name in frame.env:
-            value = frame.env[self.name]
-            return frame.set_result(value)
-        
-        # Check module namespace (includes imports and local definitions)
-        if frame.module:
-            ns = frame.module.namespace()
-            if self.name in ns:
-                item = ns[self.name]
-                # Namespace contains DefinitionSet objects
-                if isinstance(item, comp.DefinitionSet):
-                    # For single-definition sets, extract the value
-                    if len(item.definitions) == 1:
-                        defn = next(iter(item.definitions))
-                        value = self._ensure_definition_value(defn, frame)
-                        if value:
-                            return frame.set_result(value)
-                    # For multiple definitions, ensure all have values and return the set
-                    for defn in item.definitions:
-                        self._ensure_definition_value(defn, frame)
-                    return frame.set_result(comp.Value.from_python(item))
-                # Direct Definition object
-                elif hasattr(item, "value"):
-                    value = self._ensure_definition_value(item, frame)
-                    if value:
-                        return frame.set_result(value)
-        
-        # Fall back to system module for builtins
-        system = frame.interp.system
-        if system and self.name in system._definitions:
-            defn = system._definitions[self.name]
-            if defn.value:
-                return frame.set_result(defn.value)
-        
-        raise NameError(f"Variable '{self.name}' not defined")
-    
+        value = _load_name(self.name, frame)
+        return frame.set_result(value)
+
     def format(self, idx):
         return f"%{idx}  LoadVar '{self.name}'"
+
+
+class TryInvoke(Instruction):
+    """Invoke the value in a register with empty args if it is callable.
+
+    If the value is a Block, InternalCallable, or DefinitionSet, it is called
+    with no piped input and empty args. Otherwise the value passes through.
+
+    The codegen emits this explicitly after value-position references and at
+    the end of each definition's instruction sequence.
+    """
+
+    def __init__(self, cop, value):
+        super().__init__(cop)
+        self.value = value  # int register index
+
+    def execute(self, frame):
+        val = frame.get_value(self.value)
+        if isinstance(val.data, (comp.Block, comp.InternalCallable, comp.DefinitionSet)):
+            empty_args = comp.Value.from_python({})
+            val = frame.invoke_block(val, empty_args, piped=None)
+        return frame.set_result(val)
+
+    def format(self, idx):
+        return f"%{idx}  TryInvoke %{self.value}"
 
 
 class LoadOverload(Instruction):
@@ -721,19 +738,38 @@ class BinOp(Instruction):
 
 class UnOp(Instruction):
     """Unary arithmetic/logical operation."""
-    
+
     def __init__(self, cop, op, operand):
         super().__init__(cop)
         self.op = op
         self.operand = operand  # int index
-    
+
     def execute(self, frame):
         operand_val = frame.get_value(self.operand)
         result = comp._ops.math_unary(self.op, operand_val)
         return frame.set_result(result)
-    
+
     def format(self, idx):
         return f"%{idx}  UnOp '{self.op}' %{self.operand}"
+
+
+class CmpOp(Instruction):
+    """Comparison operation (==, !=, <, <=, >, >=)."""
+
+    def __init__(self, cop, op, left, right):
+        super().__init__(cop)
+        self.op = op
+        self.left = left    # int index
+        self.right = right  # int index
+
+    def execute(self, frame):
+        left_val = frame.get_value(self.left)
+        right_val = frame.get_value(self.right)
+        result = comp._ops.compare(self.op, left_val, right_val)
+        return frame.set_result(result)
+
+    def format(self, idx):
+        return f"%{idx}  CmpOp '{self.op}' %{self.left} %{self.right}"
 
 
 class GetField(Instruction):
