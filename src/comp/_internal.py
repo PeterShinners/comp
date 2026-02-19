@@ -195,6 +195,7 @@ class SystemModule(comp.Module):
         self._add_callable("morph", _builtin_morph)
         self._add_callable("mask", _builtin_mask)
         self._add_callable("abs", _builtin_abs)
+        self._add_callable("print", _builtin_print)
 
         self.finalize()
 
@@ -352,6 +353,12 @@ def _builtin_mask(input_val, args_val, frame):
         "result": result_val
     })
 
+
+
+def _builtin_print(input_val, args_val, frame):
+    """Print a value to stdout."""
+    print(input_val.format())
+    return input_val
 
 
 def _builtin_abs(input_val, args_val, frame):

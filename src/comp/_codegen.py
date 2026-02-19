@@ -110,23 +110,22 @@ class CodeGenContext:
                     raise comp.CodeError(f"Invalid reference: {e}", cop)
             
             case "value.identifier":
-                # Unresolved identifier - load as local/parameter variable
-                # This happens inside function bodies where parameters and locals
-                # haven't been resolved to qualified names
-                #
-                # Multi-part identifiers like `in.a` need to:
-                # 1. Load the first part (in)
-                # 2. Extract fields for subsequent parts (.a)
+                # Local variable — only reachable after coptimize if the name was
+                # NOT found in the namespace (i.e. it is a let-binding or parameter).
+                # Namespace references are always resolved to value.reference by
+                # coptimize; any value.identifier surviving to codegen is a local.
+                # If coptimize was not called with a namespace first, a namespace
+                # reference will arrive here and fail at runtime with
+                # "Undefined local variable", which surfaces the missing resolution step.
                 kids = _cop_kids(cop)
                 if not kids:
                     raise comp.CodeError("Identifier has no token", cop)
 
-                # First token is the variable name
                 token_cop = kids[0]  # ident.token
                 name = token_cop.to_python("value")
-                result = self.emit(comp._interp.LoadVar(cop=cop, name=name))
+                result = self.emit(comp._interp.LoadLocal(cop=cop, name=name))
 
-                # Subsequent tokens are field accesses
+                # Subsequent tokens are field accesses on the local
                 for i in range(1, len(kids)):
                     field_cop = kids[i]
                     field_tag = comp.cop_tag(field_cop)
@@ -187,6 +186,16 @@ class CodeGenContext:
 
             case "shape.define":
                 return self._build_shape(cop)
+
+            case "op.let":
+                # !let name expr — evaluate expr, store in frame env, return the value
+                kids = _cop_kids(cop)
+                name = _extract_name(kids[0]) if kids else None
+                value_cop = kids[1] if len(kids) > 1 else None
+                if name is None or value_cop is None:
+                    raise comp.CodeError("op.let requires a name and a value expression", cop)
+                value_idx = self._build_value_ensure_register(value_cop)
+                return self.emit(comp._interp.StoreLocal(cop=cop, name=name, source=value_idx))
 
             case _:
                 raise comp.CodeError(f"Unsupported COP tag: {tag}", cop)
@@ -407,10 +416,15 @@ class CodeGenContext:
 
     def _build_function(self, cop):
         """Build function.define instructions."""
-        # Kids are positional: [0] = function.signature, [1] = body expression
+        # Kids are positional: [function.signature?, body]
+        # Signature is optional - check the first kid's tag to distinguish
         kids = _cop_kids(cop)
-        func_sig_cop = kids[0] if kids else None
-        body_cop = kids[1] if len(kids) > 1 else None
+        if kids and comp.cop_tag(kids[0]) == "function.signature":
+            func_sig_cop = kids[0]
+            body_cop = kids[1] if len(kids) > 1 else None
+        else:
+            func_sig_cop = None
+            body_cop = kids[0] if kids else None
 
         # Combined signature = kids of function.signature (signature.input etc.)
         sig_kids = _cop_kids(func_sig_cop) if func_sig_cop else []
@@ -477,7 +491,7 @@ class CodeGenContext:
                     name = _extract_name(let_kids[0])
                     if name is not None:
                         value_idx = self._build_value_ensure_register(let_kids[1])
-                        self.emit(comp._interp.StoreVar(cop=kid, name=name, source=value_idx))
+                        self.emit(comp._interp.StoreLocal(cop=kid, name=name, source=value_idx))
 
             elif tag == "struct.namefield":
                 # Kids: [0]=name identifier, [1]=value expression

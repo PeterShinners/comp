@@ -270,6 +270,8 @@ class Module:
 
         # Create base definition
         definition = Definition(name, self.token, cop_value, shape)
+        if stmt.get("operator") == "pure":
+            definition.pure = True
 
         # Handle overloading with auto-suffix
         if not hasattr(self, '_overload_counters'):
@@ -374,6 +376,24 @@ class Module:
                 parts.append(kid.field("value").data)
         return '.'.join(parts) if parts else ""
 
+    def startup(self, name):
+        """Find and parse a !startup statement by name.
+
+        Args:
+            name: The startup function name (e.g., "main")
+
+        Returns:
+            Value: The parsed COP node for the startup body, or None if not found
+        """
+        for stmt in self.statements():
+            if stmt.get("operator") == "startup" and stmt.get("name") == name:
+                body = stmt.get("body", "")
+                line_offset = stmt.get("pos", [1])[0]
+                parser = comp.lark_parser("comp", start="start_startup")
+                lark_tree = parser.parse("\n" * (line_offset - 1) + body)
+                return comp._parse.lark_to_cop(lark_tree)
+        return None
+
     def namespace(self):
         """(dict) Resolved namespace dict for identifier lookups.
 
@@ -472,7 +492,7 @@ class Definition:
         auto_suffix: (bool) Whether the qualified name has an auto-generated suffix
 
     """
-    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "auto_suffix")
+    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "auto_suffix", "pure")
 
     def __init__(self, qualified, module_id, original_cop, shape, private=False, auto_suffix=False):
         self.qualified = qualified
@@ -481,6 +501,7 @@ class Definition:
         self.shape = shape
         self.private = private  # Whether this definition is private to the module
         self.auto_suffix = auto_suffix  # Whether qualified name has auto-generated suffix
+        self.pure = False  # Whether this is a !pure definition (evaluate at compile time)
         self.resolved_cop = None  # Filled during identifier resolution
         self.value = None  # Filled during constant folding
         self.instructions = None  # Filled during code generation

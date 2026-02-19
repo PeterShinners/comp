@@ -490,7 +490,7 @@ def main():
                     definition.resolved_cop = comp.coptimize(definition.original_cop, args.fold, namespace)
 
         if args.pure:
-            comp.evaluate_pure_definitions(defs, namespace, interp)
+            comp.evaluate_pure_definitions(defs, interp)
             # Re-fold after pure evaluation
             if args.fold:
                 for name, definition in defs.items():
@@ -616,7 +616,7 @@ def main():
         
         # Evaluate pure function invokes
         if args.pure:
-            comp.evaluate_pure_definitions(defs, namespace, interp)
+            comp.evaluate_pure_definitions(defs, interp)
             # Post-fold after pure evaluation (only if --fold specified)
             if args.fold:
                 for name, definition in defs.items():
@@ -652,23 +652,23 @@ def main():
             # Pass 2: Execute definitions in order
             # Build environment with all definition values
             env = {}
-            
+
             if args.trace:
                 # Create tracing frame subclass
                 class TracingFrame(comp.ExecutionFrame):
                     def __init__(self, env=None, interp=None, module=None, depth=0):
                         super().__init__(env, interp, module)
                         self.depth = depth
-                    
+
                     def on_step(self, idx, instr, result):
                         indent = "  " * self.depth
                         result_str = result.format() if result else "(none)"
                         print(f"{indent}{instr.format(idx)}  ->  {result_str}")
-                    
+
                     def _make_child_frame(self, env, module=None):
                         return TracingFrame(env=env, interp=self.interp, module=module or self.module, depth=self.depth + 1)
-                
-                # Execute with tracing
+
+                # Execute definitions with tracing
                 for name, definition in defs.items():
                     if definition.instructions:
                         print(f"\n-- {name} --")
@@ -676,19 +676,32 @@ def main():
                         result = frame.run(definition.instructions)
                         env[name] = result
             else:
-                # Normal execution
+                # Normal execution of definitions
                 for name, definition in defs.items():
                     if definition.instructions:
                         result = interp.execute(definition.instructions, env, module=mod)
                         env[name] = result
-            
-            # Print final values
-            print("\nResults:")
-            print("=" * 60)
-            for name, definition in sorted(defs.items()):
-                if name in env:
-                    value = env[name]
-                    print(f"{name} = {value.format()}")
+
+            # Look for !startup main and run it if present
+            startup_cop = mod.startup("main") if mod is not None else None
+            if startup_cop is not None:
+                resolved_startup = comp.coptimize(startup_cop, do_fold, namespace)
+                startup_instructions = comp.generate_code_for_definition(resolved_startup)
+
+                if args.trace:
+                    print(f"\n-- startup main --")
+                    frame = TracingFrame(env, interp=interp, module=mod, depth=0)
+                    frame.run(startup_instructions)
+                else:
+                    interp.execute(startup_instructions, env, module=mod)
+            else:
+                # No startup found - fall back to printing all definition values
+                print("\nResults:")
+                print("=" * 60)
+                for name, definition in sorted(defs.items()):
+                    if name in env:
+                        value = env[name]
+                        print(f"{name} = {value.format()}")
             return
 
     # Check if any output mode was specified

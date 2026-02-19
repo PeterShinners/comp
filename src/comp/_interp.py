@@ -683,6 +683,28 @@ class LoadVar(Instruction):
         return f"%{idx}  LoadVar '{self.name}'"
 
 
+class LoadLocal(Instruction):
+    """Load a local variable from the frame environment.
+
+    Used for let-bound locals and function parameters that are only known at
+    runtime. Unlike LoadVar, this never consults the module namespace — the
+    variable must already be present in frame.env (set by a StoreLocal).
+    """
+
+    def __init__(self, cop, name):
+        super().__init__(cop)
+        self.name = name
+
+    def execute(self, frame):
+        value = frame.env.get(self.name)
+        if value is None:
+            raise comp.CodeError(f"Undefined local variable: '{self.name}'")
+        return frame.set_result(value)
+
+    def format(self, idx):
+        return f"%{idx}  LoadLocal '{self.name}'"
+
+
 class TryInvoke(Instruction):
     """Invoke the value in a register with empty args if it is callable.
 
@@ -741,22 +763,25 @@ class LoadOverload(Instruction):
         return f"%{idx}  LoadOverload [{names_str}]"
 
 
-class StoreVar(Instruction):
-    """Store a value into the environment (no result register)."""
-    
+class StoreLocal(Instruction):
+    """Store a value into the local frame environment.
+
+    Used by op.let and struct.letassign to bind a name for subsequent
+    LoadLocal references within the same function body.
+    """
+
     def __init__(self, cop, name, source):
         super().__init__(cop)
         self.name = name
         self.source = source  # int index of source instruction
-    
+
     def execute(self, frame):
         value = frame.get_value(self.source)
         frame.env[self.name] = value
-        # StoreVar doesn't produce a result, but we still need to advance
         return frame.set_result(value)
-    
+
     def format(self, idx):
-        return f"%{idx}  StoreVar '{self.name}' = %{self.source}"
+        return f"%{idx}  StoreLocal '{self.name}' = %{self.source}"
 
 
 class BinOp(Instruction):

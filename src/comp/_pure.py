@@ -1,10 +1,16 @@
 """Pure function evaluation at compile time.
 
 This module handles evaluating pure functions during compilation:
-- Identify pure block definitions
+- Identify pure block definitions (marked with !pure)
 - Build bytecode for pure blocks
-- Evaluate pure invokes with constant arguments
-- Replace invoke COP nodes with constant results
+- Walk definition COPs looking for invocations of pure functions
+- Replace pure invocations with constant result nodes when arguments
+  are also constants
+
+The COP nodes handled:
+- value.reference to a pure function: implicit nullary call (TryInvoke semantics)
+- value.binding{pure_ref, const_args}: explicit call with constant arguments
+- value.pipeline: evaluate leading pure stages with constant inputs
 """
 
 __all__ = [
@@ -14,19 +20,16 @@ __all__ = [
 import comp
 
 
-def evaluate_pure_definitions(definitions, namespace, interp):
+def evaluate_pure_definitions(definitions, interp):
     """Evaluate pure function invokes at compile time.
 
-    This is a two-phase process:
-    1. Build bytecode for all pure block definitions
-    2. Walk each definition's COP tree and evaluate pure invokes
-
-    For pipelines, leading pure stages are evaluated until the first
-    non-pure stage is encountered.
+    Two-phase process:
+    1. Build Block bytecode for all !pure definitions
+    2. Walk each definition's COP tree and evaluate pure invocations
+       whose arguments are compile-time constants
 
     Args:
         definitions: Dict {qualified_name: Definition} to process
-        namespace: Namespace dict {name: DefinitionSet}
         interp: Interpreter instance for execution
 
     Returns:
@@ -36,24 +39,33 @@ def evaluate_pure_definitions(definitions, namespace, interp):
         - Compiles bytecode for pure block definitions
         - Replaces pure invoke COPs with value.constant COPs
     """
-    # Phase 1: Identify and compile pure blocks
-    pure_blocks = _compile_pure_blocks(definitions, namespace)
+    # Phase 1: Compile all pure definitions to get their Block objects
+    pure_blocks = _compile_pure_blocks(definitions, interp)
+
+    if not pure_blocks:
+        return definitions
 
     # Phase 2: Walk each definition and evaluate pure invokes
     for name, defn in definitions.items():
         if defn.resolved_cop is None:
             continue
-        defn.resolved_cop = _eval_pure_in_cop(defn.resolved_cop, pure_blocks, interp)
+        new_cop = _eval_pure_in_cop(defn.resolved_cop, pure_blocks, interp)
+        if new_cop is not defn.resolved_cop:
+            defn.resolved_cop = new_cop
 
     return definitions
 
 
-def _compile_pure_blocks(definitions, namespace):
-    """Find pure block definitions and compile their bytecode.
+def _compile_pure_blocks(definitions, interp):
+    """Find !pure definitions and compile their Block bytecode.
+
+    For each pure definition, generates the definition instructions and
+    executes just the BuildBlock instruction (not the final TryInvoke)
+    to obtain the Block object with its body_instructions populated.
 
     Args:
         definitions: Dict of definitions
-        namespace: Namespace dict
+        interp: Interpreter instance
 
     Returns:
         Dict {qualified_name: Block} of pure blocks with compiled bytecode
@@ -61,290 +73,295 @@ def _compile_pure_blocks(definitions, namespace):
     pure_blocks = {}
 
     for name, defn in definitions.items():
-        if defn.shape != comp.shape_block:
+        if not defn.pure:
+            continue
+        if defn.resolved_cop is None:
             continue
 
-        # Ensure definition is resolved and folded to get Block value
-        if defn.value is None:
-            if defn.resolved_cop is None:
-                defn.resolved_cop = comp.cop_resolve(defn.original_cop, namespace)
-            # Use fold_definition to create Block object
-            comp._module.fold_definition(defn)
-
-        if defn.value is None:
+        try:
+            instructions = comp.generate_code_for_definition(defn.resolved_cop)
+        except Exception:
             continue
 
-        block = defn.value.data
-        if not isinstance(block, comp.Block):
+        if not instructions:
             continue
 
-        if not block.pure:
-            continue
-
-        # Compile bytecode for this pure block
-        if block.body_instructions is None:
-            # Generate instructions for the block definition
-            block_cop = defn.resolved_cop or defn.original_cop
-            instructions = comp.generate_code_for_definition(block_cop)
-            # The instructions for a block definition create a BuildBlock
-            # We need to extract the body instructions from it
-            if instructions and len(instructions) == 1:
-                build_instr = instructions[0]
-                if hasattr(build_instr, "body_instructions"):
-                    block.body_instructions = build_instr.body_instructions
-                    block.closure_env = {}
-                    # Extract signature for parameter binding
-                    if hasattr(build_instr, "signature_cop"):
-                        block.signature_cop = build_instr.signature_cop
-
-        if block.body_instructions is not None:
-            pure_blocks[name] = block
+        # The instruction list for a function definition is [BuildBlock, TryInvoke].
+        # Execute just BuildBlock (instructions[:-1]) to get the Block object
+        # without invoking it (TryInvoke would invoke with empty args, which fails
+        # for parameterised functions).
+        try:
+            build_only = instructions[:-1]
+            block_val = interp.execute(build_only, {})
+            if block_val and isinstance(block_val.data, comp.Block):
+                pure_blocks[name] = block_val.data
+        except Exception:
+            pass
 
     return pure_blocks
 
 
 def _eval_pure_in_cop(cop, pure_blocks, interp):
-    """Walk COP tree and evaluate pure invokes.
+    """Walk COP tree and evaluate pure function invocations.
+
+    Processes bottom-up so that inner pure calls are folded before
+    checking outer nodes.
 
     Args:
         cop: COP tree to process
-        pure_blocks: Dict of pure blocks with compiled bytecode
+        pure_blocks: Dict {qualified_name: Block} of compiled pure blocks
         interp: Interpreter for execution
 
     Returns:
-        Modified COP tree with pure invokes replaced by constants
+        Modified COP tree with pure invokes replaced by value.constant nodes
     """
     tag = comp.cop_tag(cop)
 
-    # Handle pipelines specially - evaluate leading pure stages
+    # Pipelines are handled as a special unit (stage-by-stage evaluation)
     if tag == "value.pipeline":
         return _eval_pure_pipeline(cop, pure_blocks, interp)
 
-    # Handle invoke - check if it's a pure call with constant args
-    if tag == "value.invoke":
-        result = _try_eval_invoke(cop, pure_blocks, interp)
+    # Recurse into children first (bottom-up)
+    kids = comp.cop_kids(cop)
+    new_kids = []
+    changed = False
+    for kid in kids:
+        res = _eval_pure_in_cop(kid, pure_blocks, interp)
+        new_kids.append(res)
+        if res is not kid:
+            changed = True
+
+    if changed:
+        cop = comp.cop_rebuild(cop, new_kids)
+        kids = new_kids
+
+    # value.reference to a pure function — implicit nullary invocation
+    if tag == "value.reference":
+        result = _try_eval_reference(cop, pure_blocks, interp)
         if result is not None:
             return result
 
-    # Recursively process children
-    kids = []
-    changed = False
-    for kid in comp.cop_kids(cop):
-        res = _eval_pure_in_cop(kid, pure_blocks, interp)
-        if res is not kid:
-            kids.append(res)
-            changed = True
-        else:
-            kids.append(kid)
+    # value.binding{pure_ref, const_args} — explicit call with arguments
+    if tag == "value.binding":
+        result = _try_eval_binding(cop, kids, pure_blocks, interp)
+        if result is not None:
+            return result
 
-    if changed:
-        # Preserve original fields (like op, value, name, etc.) when rebuilding
-        return comp.cop_rebuild(cop, kids)
     return cop
 
 
-def _eval_pure_pipeline(cop, pure_blocks, interp):
-    """Evaluate leading pure stages of a pipeline.
+def _try_eval_reference(cop, pure_blocks, interp):
+    """Try to evaluate a reference to a pure function as a nullary call.
 
-    Evaluates stages from left to right until hitting a non-pure stage.
-    The accumulated value becomes a constant that feeds the remaining stages.
+    A value.reference to a pure function has TryInvoke semantics: it is
+    invoked with empty input and empty args.
+
+    Returns:
+        value.constant COP if evaluable, None otherwise
+    """
+    qualified = cop.to_python("qualified")
+    if not isinstance(qualified, str):
+        return None
+
+    block = pure_blocks.get(qualified)
+    if block is None:
+        return None
+
+    empty = comp.Value.from_python({})
+    try:
+        result = _execute_pure_block(block, empty, empty, interp)
+        return _make_constant(cop, result)
+    except Exception:
+        return None
+
+
+def _try_eval_binding(cop, kids, pure_blocks, interp):
+    """Try to evaluate value.binding if callable is pure and args are constant.
+
+    value.binding kids: [0] = callable expression, [1] = args struct.
+
+    Returns:
+        value.constant COP if evaluable, None otherwise
+    """
+    if len(kids) < 2:
+        return None
+
+    callable_cop = kids[0]
+    args_cop = kids[1]
+
+    # Callable must be a reference to a pure function
+    if comp.cop_tag(callable_cop) != "value.reference":
+        return None
+
+    qualified = callable_cop.to_python("qualified")
+    if not isinstance(qualified, str):
+        return None
+
+    block = pure_blocks.get(qualified)
+    if block is None:
+        return None
+
+    # Args must be a compile-time constant
+    args_const = _get_constant(args_cop)
+    if args_const is None:
+        return None
+
+    empty = comp.Value.from_python({})
+    try:
+        result = _execute_pure_block(block, empty, args_const, interp)
+        return _make_constant(cop, result)
+    except Exception:
+        return None
+
+
+def _eval_pure_pipeline(cop, pure_blocks, interp):
+    """Evaluate leading pure stages of a pipeline at compile time.
+
+    Evaluates pipeline stages left-to-right.  Each stage feeds its result
+    as piped input into the next.  Stops at the first non-pure stage or
+    non-constant intermediate value.
+
+    Pipeline stage formats:
+    - value.reference{pure_func}: function with piped input, no explicit args
+    - value.binding{reference{pure_func}, const_args}: function with piped input + args
 
     Args:
         cop: value.pipeline COP node
-        pure_blocks: Dict of pure blocks
+        pure_blocks: Dict of compiled pure blocks
         interp: Interpreter
 
     Returns:
-        Modified pipeline COP (possibly reduced to constant)
+        Modified pipeline COP (possibly reduced to a constant or shorter pipeline)
     """
     stages = list(comp.cop_kids(cop))
     if not stages:
         return cop
 
-    # First stage is the initial value - fold and try to get constant
-    first = stages[0]
-    first_folded = comp.coptimize(_eval_pure_in_cop(first, pure_blocks, interp), True, None)
-    current_value = _get_constant(first_folded)
+    # Recurse into first stage (the initial value being piped)
+    first = _eval_pure_in_cop(stages[0], pure_blocks, interp)
+    current_value = _get_constant(first)
 
     if current_value is None:
-        # First stage not constant, can't evaluate any pure stages
-        # Still recurse into remaining stages
-        kids = [first_folded]
-        changed = first_folded is not first
+        # First stage not constant — still recurse remaining stages for sub-pures
+        new_stages = [first]
+        changed = first is not stages[0]
         for stage in stages[1:]:
             res = _eval_pure_in_cop(stage, pure_blocks, interp)
-            kids.append(res)
+            new_stages.append(res)
             if res is not stage:
                 changed = True
         if changed:
-            return comp.create_cop("value.pipeline", kids)
+            return comp.cop_rebuild(cop, new_stages)
         return cop
 
     # Try to evaluate pure stages
     evaluated_up_to = 0
     for i, stage in enumerate(stages[1:], 1):
-        # Check if this is a pure invoke
-        block, args_cop = _get_invoke_parts(stage)
-        if block is None or not _is_pure_block(block, pure_blocks):
+        qualified, args_cop = _get_pipeline_stage_parts(stage)
+        if qualified is None or qualified not in pure_blocks:
+            # Stage not a pure function reference — stop
             break
+        block = pure_blocks[qualified]
 
-        # Check if args are constant (fold to ensure literals become constants)
-        args_folded = comp.coptimize(_eval_pure_in_cop(args_cop, pure_blocks, interp), True, None)
-        args_value = _get_constant(args_folded)
-        if args_value is None:
-            break
+        # Fold args for this stage
+        stage_evaled = _eval_pure_in_cop(args_cop, pure_blocks, interp) if args_cop is not None else None
+        args_value = _get_constant(stage_evaled) if stage_evaled is not None else comp.Value.from_python({})
+        if args_cop is not None and args_value is None:
+            break  # Args not constant
 
-        # Execute the pure function
         try:
-            result = _execute_pure_block(block, pure_blocks, current_value, args_value, interp)
-            current_value = result
+            current_value = _execute_pure_block(block, current_value, args_value, interp)
             evaluated_up_to = i
         except Exception:
-            # Execution failed, stop here
             break
 
-    # Build result
+    # Build the resulting COP
     if evaluated_up_to == len(stages) - 1:
-        # All stages evaluated - return constant
+        # All stages evaluated — return constant
         return _make_constant(cop, current_value)
 
     if evaluated_up_to > 0:
-        # Some stages evaluated - build reduced pipeline
+        # Some stages evaluated — replace evaluated prefix with constant
         const_cop = _make_constant(stages[0], current_value)
         remaining = [const_cop]
         for stage in stages[evaluated_up_to + 1:]:
             remaining.append(_eval_pure_in_cop(stage, pure_blocks, interp))
         if len(remaining) == 1:
             return remaining[0]
-        return comp.create_cop("value.pipeline", remaining)
+        return comp.cop_rebuild(cop, remaining)
 
-    # Nothing evaluated, return with recursed children
-    kids = [first_folded]
-    changed = first_folded is not first
+    # Nothing evaluated — return with recursed children
+    new_stages = [first]
+    changed = first is not stages[0]
     for stage in stages[1:]:
         res = _eval_pure_in_cop(stage, pure_blocks, interp)
-        kids.append(res)
+        new_stages.append(res)
         if res is not stage:
             changed = True
     if changed:
-        return comp.create_cop("value.pipeline", kids)
+        return comp.cop_rebuild(cop, new_stages)
     return cop
 
 
-def _try_eval_invoke(cop, pure_blocks, interp):
-    """Try to evaluate an invoke if it's pure with constant args.
+def _get_pipeline_stage_parts(stage_cop):
+    """Extract the Block and args COP from a pipeline stage.
 
-    Args:
-        cop: value.invoke COP node
-        pure_blocks: Dict of pure blocks
-        interp: Interpreter
-
-    Returns:
-        value.constant COP if evaluable, None otherwise
-    """
-    kids = list(comp.cop_kids(cop))
-    if len(kids) < 2:
-        return None
-
-    callable_cop = kids[0]
-    args_cop = kids[1]
-
-    # Get the block being called
-    block = _resolve_to_block(callable_cop, pure_blocks)
-    if block is None or not block.pure:
-        return None
-
-    # Check if args are constant
-    args_folded = comp.coptimize(args_cop, True, None)
-    args_value = _get_constant(args_folded)
-    if args_value is None:
-        return None
-
-    # No piped input for regular invoke
-    input_value = comp.Value.from_python({})
-
-    # Execute
-    try:
-        result = _execute_pure_block(block, pure_blocks, input_value, args_value, interp)
-        return _make_constant(cop, result)
-    except Exception:
-        return None
-
-
-def _get_invoke_parts(cop):
-    """Extract callable and args from an invoke COP.
+    Pipeline stages can be:
+    - value.reference{pure_func}: piped input only, no args  → (block, None)
+    - value.binding{reference{pure_func}, args}: piped + args → (block, args_cop)
 
     Returns:
-        (Block or None, args_cop) tuple
+        (Block or None, args_cop or None)
     """
-    tag = comp.cop_tag(cop)
-    if tag != "value.invoke":
-        return None, None
+    tag = comp.cop_tag(stage_cop)
+    kids = comp.cop_kids(stage_cop)
 
-    kids = list(comp.cop_kids(cop))
-    if len(kids) < 2:
-        return None, None
+    if tag == "value.reference":
+        qualified = stage_cop.to_python("qualified")
+        if not isinstance(qualified, str):
+            return None, None
+        # Return the block name; caller will look it up
+        return qualified, None
 
-    callable_cop = kids[0]
-    args_cop = kids[1]
-
-    # Try to resolve to a block
-    if comp.cop_tag(callable_cop) == "value.reference":
-        try:
-            qualified = callable_cop.field("qualified").data
-            # We don't have the block yet, just return the name
-            return qualified, args_cop
-        except (KeyError, AttributeError):
-            pass
+    if tag == "value.binding" and len(kids) >= 2:
+        callable_cop = kids[0]
+        args_cop = kids[1]
+        if comp.cop_tag(callable_cop) == "value.reference":
+            qualified = callable_cop.to_python("qualified")
+            if isinstance(qualified, str):
+                return qualified, args_cop
 
     return None, None
 
 
-def _is_pure_block(block_name, pure_blocks):
-    """Check if a block name refers to a pure block."""
-    if isinstance(block_name, str):
-        return block_name in pure_blocks
-    if isinstance(block_name, comp.Block):
-        return block_name.pure
-    return False
+def _execute_pure_block(block, input_value, args_value, interp):
+    """Execute a pure block with the given piped input and argument values.
 
-
-def _resolve_to_block(cop, pure_blocks):
-    """Resolve a COP to a Block if it's a pure block reference."""
-    tag = comp.cop_tag(cop)
-    if tag == "value.reference":
-        try:
-            qualified = cop.field("qualified").data
-            return pure_blocks.get(qualified)
-        except (KeyError, AttributeError):
-            pass
-    return None
-
-
-def _execute_pure_block(block, pure_blocks, input_value, args_value, interp):
-    """Execute a pure block with given input and args.
+    Sets up the parameter environment from the block's signature and
+    runs the body instructions.
 
     Args:
-        block: Block object or qualified name
-        pure_blocks: Dict of pure blocks
-        input_value: Piped input Value
-        args_value: Arguments Value
+        block: Block object with compiled body_instructions
+        input_value: Piped input Value (empty struct for no piped input)
+        args_value: Arguments Value (empty struct for no args)
         interp: Interpreter
 
     Returns:
         Result Value
-    """
-    if isinstance(block, str):
-        block = pure_blocks[block]
 
-    # Create execution frame
+    Raises:
+        RuntimeError: If body_instructions is not compiled
+    """
+    if block.body_instructions is None:
+        raise RuntimeError(f"Block {block.qualified!r} has no compiled body instructions")
+
     env = {}
     if block.input_name and block.arg_name:
         env[block.input_name] = input_value
         env[block.arg_name] = args_value
     elif block.input_name:
-        # Single param - gets input if piped, else args
-        if input_value.data:  # Non-empty input
+        # Single param: gets piped input if present, otherwise args
+        if input_value.data:
             env[block.input_name] = input_value
         else:
             env[block.input_name] = args_value
@@ -354,7 +371,7 @@ def _execute_pure_block(block, pure_blocks, input_value, args_value, interp):
 
 
 def _make_constant(original, value):
-    """Create a value.constant COP node preserving position info."""
+    """Create a value.constant COP node, preserving position info from original."""
     fields = {"value": value}
     try:
         pos = original.field("pos")
@@ -366,7 +383,7 @@ def _make_constant(original, value):
 
 
 def _get_constant(cop):
-    """Extract constant value from a value.constant COP node."""
+    """Extract the Value from a value.constant COP node, or None."""
     if comp.cop_tag(cop) == "value.constant":
         try:
             return cop.field("value")

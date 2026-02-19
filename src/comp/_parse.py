@@ -66,6 +66,7 @@ def create_cop_module(module):
         "value.identifier",  # (kids)
         "value.reference",  # (definition qualified namespace)
         "value.constant",  # (value) Constant value
+        "ident.input",  # (value)
         "ident.token",  # (value)
         "ident.index",  # (value)
         "ident.indexpr",  # (value)
@@ -192,11 +193,11 @@ def lark_to_cop(tree):
             op = kids[1].value
             if op in ("||", "&&"):
                 return _parsed(
-                    tree, "value.logic.binary", {"l": left, "r": right}, op=op
+                    tree, "value.logic.binary", [left, right], op=op
                 )
             if op == "??":
-                return _parsed(tree, "value.fallback", {"l": left, "r": right}, op=op)
-            return _parsed(tree, "value.math.binary", {"l": left, "r": right}, op=op)
+                return _parsed(tree, "value.fallback", [left, right], op=op)
+            return _parsed(tree, "value.math.binary", [left, right], op=op)
 
         case "pipeline":
             # Collect all pipeline stages (skip the | operators which are Token objects)
@@ -244,14 +245,14 @@ def lark_to_cop(tree):
                 right = lark_to_cop(kids[2])
                 op = kids[1].value
             
-            return _parsed(tree, "value.compare", {"l": left, "r": right}, op=op)
+            return _parsed(tree, "value.compare", [left, right], op=op)
 
         case "unary_op":
             right = lark_to_cop(kids[1])
             op = kids[0].value
             if op == "!!":
-                return _parsed(tree, "value.logic.unary", {"r": right}, op=op)
-            return _parsed(tree, "value.math.unary", {"r": right}, op=op)
+                return _parsed(tree, "value.logic.unary", [right], op=op)
+            return _parsed(tree, "value.math.unary", [right], op=op)
 
         case "invoke":
             fields = [lark_to_cop(kid) for kid in kids]
@@ -261,7 +262,7 @@ def lark_to_cop(tree):
             # kids are (source data, dot literal, field)
             left = lark_to_cop(kids[0])
             field = lark_to_cop(kids[2])
-            return _parsed(tree, "value.field", {"l": left, "f": field})
+            return _parsed(tree, "value.field", [left, field])
 
         case "postfield":
             fields = [lark_to_cop(k) for k in kids[::2]]
@@ -318,10 +319,9 @@ def lark_to_cop(tree):
                 # Convert it to block.signature
                 block_sig = _parsed(tree, "block.signature", list(comp.cop_kids(sig_cop)))
                 # Build kids dict with sig and positional fields
-                kids_dict = {"sig": block_sig}
-                for i, field in enumerate(field_cops):
-                    kids_dict[str(i)] = field
-                return _parsed(tree, "statement.define", kids_dict)
+                kids = [block_sig]
+                kids.extend(field_cops)
+                return _parsed(tree, "statement.define", kids)
             else:
                 # No signature - just statement.define
                 return _parsed(tree, "statement.define", field_cops)
@@ -392,7 +392,7 @@ def lark_to_cop(tree):
 
             value_cop = lark_to_cop(kids[2])  # Skip EQUALS at kids[1]
             name_cop = _parsed(tree, "ident.token", [], value=name)
-            return _parsed(tree, "struct.namefield", {"n": name_cop, "v": value_cop}, op="=")
+            return _parsed(tree, "struct.namefield", [name_cop, value_cop], op="=")
 
         case "struct_field":
             if len(kids) == 1:
@@ -401,7 +401,7 @@ def lark_to_cop(tree):
             name = lark_to_cop(kids[0])
             op = kids[1].value
             value = lark_to_cop(kids[2])
-            return _parsed(tree, "struct.namefield", {"n": name, "v": value}, op=op)
+            return _parsed(tree, "struct.namefield", [name, value], op=op)
 
         case "let_assign":
             # let_assign: OP_LET identifier expression
@@ -433,7 +433,7 @@ def lark_to_cop(tree):
                 body = lark_to_cop(structure)
 
             # Build the block
-            block_cop = _parsed(tree, "value.block", {"s": signature, "b": body})
+            block_cop = _parsed(tree, "value.block", [signature, body])
             
             if not wrapper_lark_nodes:
                 return block_cop
@@ -462,7 +462,7 @@ def lark_to_cop(tree):
             name = lark_to_cop(kids[0])
             op = kids[1].value
             value = lark_to_cop(kids[2])
-            return _parsed(tree, "mod.namefield", {"n": name, "v": value}, op=op)
+            return _parsed(tree, "mod.namefield", [name, value], op=op)
 
         case "shape":
             # TILDE shape_union shape_default?
@@ -738,10 +738,10 @@ def lark_to_cop(tree):
 
             # Create function.define with signature and wrapped body
             if func_sig_cop:
-                func_def = _parsed(tree, "function.define", {"sig": func_sig_cop, "body": body_cop})
+                func_def = _parsed(tree, "function.define", [func_sig_cop, body_cop])
             else:
                 # No input signature - just body
-                func_def = _parsed(tree, "function.define", {"body": body_cop})
+                func_def = _parsed(tree, "function.define", [body_cop])
 
             return func_def
 
@@ -797,7 +797,7 @@ def lark_to_cop(tree):
                     # Extract identifier from wrapper: AT identifier
                     wrapper_cop = lark_to_cop(wrapper_tree.children[1])
                     # Create value.wrapper node (kids as dict for named access)
-                    result = _parsed(tree, "value.wrapper", {"w": wrapper_cop, "v": result})
+                    result = _parsed(tree, "value.wrapper", [wrapper_cop, result])
                 return result
 
             return base_cop
@@ -835,7 +835,7 @@ def lark_to_cop(tree):
 
             # Build binding node (interpreter will determine if/when to invoke)
             # Kids as dict for named access
-            return _parsed(tree, "value.binding", {"c": callable_cop, "b": bindings_struct})
+            return _parsed(tree, "value.binding", [callable_cop,bindings_struct])
 
         case "binding_value":
             # binding_value: identifier EQUALS unary | unary
@@ -847,7 +847,7 @@ def lark_to_cop(tree):
                 # Named binding
                 name_cop = lark_to_cop(kids[0])
                 value_cop = lark_to_cop(kids[2])  # Skip EQUALS
-                return _parsed(tree, "struct.namefield", {"n": name_cop, "v": value_cop}, op="=")
+                return _parsed(tree, "struct.namefield", [name_cop, value_cop], op="=")
 
         case "signature":
             # signature: (param_decl | block_decl)+
@@ -917,7 +917,7 @@ def lark_to_cop(tree):
                 dollar_value = "$$"
             else:  # DOLLAR
                 dollar_value = "$"
-            return _parsed(tree, "ident.token", [], value=dollar_value)
+            return _parsed(tree, "ident.input", [], value=dollar_value)
 
         case "on_dispatch":
             # on_dispatch: OP_ON expression on_branch+
