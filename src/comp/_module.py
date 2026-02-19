@@ -294,6 +294,7 @@ class Module:
 
         # Create main tag definition
         tag = comp.Tag(name, private=False)
+        tag.module = self
         main_def = Definition(name, self.token, original_cop=cop_value, shape=comp.shape_tag)
         main_def.value = comp.Value.from_python(tag)
         self._definitions[name] = main_def
@@ -309,6 +310,7 @@ class Module:
             parent_name = '.'.join(parts[:i])
             if parent_name not in self._definitions:
                 parent_tag = comp.Tag(parent_name, private=False)
+                parent_tag.module = self
                 parent_def = Definition(parent_name, self.token, original_cop=None, shape=comp.shape_tag)
                 parent_def.value = comp.Value.from_python(parent_tag)
                 self._definitions[parent_name] = parent_def
@@ -323,6 +325,7 @@ class Module:
                 child_qualified = f"{name}.{child_name}"
 
                 child_tag_obj = comp.Tag(child_qualified, private=False)
+                child_tag_obj.module = self
                 child_def = Definition(child_qualified, self.token, original_cop=None, shape=comp.shape_tag)
                 child_def.value = comp.Value.from_python(child_tag_obj)
                 self._definitions[child_qualified] = child_def

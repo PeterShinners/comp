@@ -1,6 +1,6 @@
 """Runtime values for the generator-based engine."""
 
-__all__ = ["Value", "Unnamed", "validate"]
+__all__ = ["Value", "Unnamed", "validate", "materialize_handles"]
 
 import copy
 import decimal
@@ -8,9 +8,6 @@ import fractions
 import re
 
 import comp
-
-
-_emptyset = frozenset()
 
 
 class Value:
@@ -48,7 +45,10 @@ class Value:
         shape: (ShapeRef) Definition of represented data, or unit for basic types
         cop: Optional parsed cop that created this value (for errors and diags)
         private: Module-private data storage dict
-        handles: Frozenset of HandleInstance objects contained in this value
+        handles: Three-state handle tracker.
+            None      -- definitely contains no handles (fast path)
+            True      -- contains handles, frozenset not yet materialised
+            frozenset -- materialised set of HandleInstance objects, never empty
     """
 
     __slots__ = ("data", "cop", "private", "handles", "_guard")
@@ -70,16 +70,21 @@ class Value:
         # Maps module_id -> Value (structure containing private data) Used by
         # the & syntax for module-scoped private data
         self.private = None
-        # Value tracks (recursively) and references used, which are used to when
-        # cleaning up stack frames
-        self.handles = _emptyset
+        # Three-state handle tracker (see class docstring for states).
+        self.handles = None
 
         # Data may not be valid for a Comp Value here, but accept it as-is in
         # the name of efficiency. The `validate_value` method can be used for
         # stricter checking.
 
-        if isinstance(data, dict):
+        if isinstance(data, comp.HandleInstance):
+            # The value IS a handle — materialise immediately, never deferred.
+            self.handles = frozenset([data])
+        elif isinstance(data, dict):
             self._guard = iter(data)  # Used for validation
+            # Cheap bloom check: any field containing handles taints this struct.
+            if any(v.handles for v in data.values()):
+                self.handles = True
 
         self.data = data
 
@@ -130,6 +135,8 @@ class Value:
         if isinstance(self.data, comp.Tag):
             return f"{self.data.qualified}"
         if isinstance(self.data, comp.Block):
+            return self.data.format()
+        if isinstance(self.data, comp.HandleInstance):
             return self.data.format()
         if isinstance(self.data, comp.Shape):
             return self.data.format()
@@ -310,6 +317,10 @@ class Value:
         if isinstance(value, (comp.Tag, comp.Shape, comp.ShapeUnion, comp.Block, comp.DefinitionSet)):
             return cls(value)
 
+        # Allow HandleInstance objects to be wrapped directly
+        if isinstance(value, comp.HandleInstance):
+            return cls(value)
+
         raise TypeError(
             f"Cannot convert Python type {type(value).__name__} to Comp Value"
         )
@@ -447,9 +458,10 @@ def validate(value):
                 raise TypeError(f"Invalid field name for struct {val!r}")
             if not isinstance(val, Value):
                 raise TypeError(f"Invalid field value for struct {key!r}={val!r}")
-            if not val.handles.issubset(value.handles):
+            # A field with handles requires the parent to also have handles.
+            if val.handles and not value.handles:
                 raise comp.EvalError(
-                    f"Struct field {key!r} has invalid handles in value {val!r}"
+                    f"Struct field {key!r} has handles but parent value does not"
                 )
             # would be nice to pass some context to these, so the error describe
             # the path to where this error happened
@@ -464,5 +476,42 @@ def validate(value):
             # take it as a lightweight check.
             raise comp.EvalError(f"Struct data has been mutated")
 
-    if not isinstance(data, (comp.Tag, str, decimal.Decimal, fractions.Fraction)):
+    if not isinstance(data, (comp.Tag, str, decimal.Decimal, fractions.Fraction, comp.HandleInstance)):
         raise TypeError(f"Unknown internal type for value: {type(data).__name__}")
+
+
+def materialize_handles(value):
+    """Return the complete frozenset of HandleInstance objects inside value.
+
+    If value.handles is None, returns an empty frozenset without allocation.
+    If already a frozenset, returns it directly.
+    If True (deferred), walks the value tree once, caches, and returns the set.
+
+    Args:
+        value: (Value) Any runtime value
+
+    Returns:
+        (frozenset) All HandleInstance objects reachable from value
+    """
+    if value.handles is None:
+        return frozenset()
+    if isinstance(value.handles, frozenset):
+        return value.handles
+    # handles is True — compute and cache
+    collected = set()
+    _collect_handles_into(value, collected)
+    fs = frozenset(collected)
+    value.handles = fs
+    return fs
+
+
+def _collect_handles_into(value, result):
+    """Recursively collect HandleInstance objects from value into result set."""
+    if not value.handles:
+        return
+    if isinstance(value.data, comp.HandleInstance):
+        result.add(value.data)
+    elif isinstance(value.data, dict):
+        for v in value.data.values():
+            if v.handles:
+                _collect_handles_into(v, result)

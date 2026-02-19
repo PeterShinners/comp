@@ -240,13 +240,18 @@ class ExecutionFrame:
         env: Dict mapping variable names to Values
         interp: The interpreter instance (for nested calls)
         module: The module being executed (for definition lookups)
+        parent_frame: The frame that spawned this one (None for top-level)
+        live_handles: Set of HandleInstance objects grabbed by this frame
+            (None until the first !grab, to avoid allocating a set for every frame)
     """
 
-    def __init__(self, env=None, interp=None, module=None):
+    def __init__(self, env=None, interp=None, module=None, parent_frame=None):
         self.registers = []  # List indexed by instruction number
         self.env = env if env is not None else {}
         self.interp = interp
         self.module = module
+        self.parent_frame = parent_frame
+        self.live_handles = None  # Set[HandleInstance] | None
 
     def run(self, instructions):
         """Execute a list of instructions, return final result.
@@ -261,6 +266,7 @@ class ExecutionFrame:
         for idx, instr in enumerate(instructions):
             result = instr.execute(self)
             self.on_step(idx, instr, result)
+        _frame_exit_cleanup(self, result)
         return result
 
     def on_step(self, idx, instr, result):
@@ -539,11 +545,47 @@ class ExecutionFrame:
         Returns:
             New ExecutionFrame (or subclass)
         """
-        return ExecutionFrame(env=env, interp=self.interp, module=module or self.module)
+        return ExecutionFrame(env=env, interp=self.interp, module=module or self.module, parent_frame=self)
 
 
 # Instruction Classes
 # ===================
+
+
+def _frame_exit_cleanup(frame, result):
+    """Auto-drop handles that didn't escape, transfer those that did to parent.
+
+    Called at the end of every ExecutionFrame.run(). Does nothing unless the
+    frame actually grabbed at least one handle.
+
+    Args:
+        frame: (ExecutionFrame) The frame that is exiting
+        result: (Value | None) The return value of the frame
+    """
+    if not frame.live_handles:
+        return
+
+    # Materialise the set of handles that escaped through the return value.
+    if result is not None and result.handles:
+        escaped_set = comp.materialize_handles(result)
+    else:
+        escaped_set = frozenset()
+
+    escaped = frame.live_handles & escaped_set
+    leaked  = frame.live_handles - escaped_set
+
+    # Auto-drop handles that didn't escape (still owned, not returned).
+    for handle in leaked:
+        if not handle.released:
+            handle.released = True
+
+    # Transfer handles that escaped to the parent frame's ownership.
+    if escaped and frame.parent_frame is not None:
+        parent = frame.parent_frame
+        if parent.live_handles is None:
+            parent.live_handles = set(escaped)
+        else:
+            parent.live_handles.update(escaped)
 
 def _ensure_definition_value(defn, frame):
     """Lazily populate a definition's value if needed."""
@@ -1064,3 +1106,77 @@ class PipeInvoke(Instruction):
     def format(self, idx):
         return f"%{idx}  PipeInvoke %{self.callable} (%{self.piped} | %{self.args})"
 
+
+class GrabHandle(Instruction):
+    """Create a handle instance from a tag value (!grab)."""
+
+    def __init__(self, cop, tag_reg):
+        super().__init__(cop)
+        self.tag_reg = tag_reg  # Register containing the Tag value
+
+    def execute(self, frame):
+        tag_val = frame.get_value(self.tag_reg)
+        result = comp._tag.grab_handle(tag_val, frame)
+        # Register handle with this frame so it can be auto-dropped on exit.
+        handle = result.data
+        if frame.live_handles is None:
+            frame.live_handles = {handle}
+        else:
+            frame.live_handles.add(handle)
+        return frame.set_result(result)
+
+    def format(self, idx):
+        return f"%{idx}  GrabHandle %{self.tag_reg}"
+
+
+class DropHandle(Instruction):
+    """Release a handle, marking it as dropped (!drop)."""
+
+    def __init__(self, cop, handle_reg):
+        super().__init__(cop)
+        self.handle_reg = handle_reg  # Register containing the HandleInstance value
+
+    def execute(self, frame):
+        handle_val = frame.get_value(self.handle_reg)
+        result = comp._tag.drop_handle(handle_val, frame)
+        # Remove from live tracking so the frame exit doesn't double-drop it.
+        if frame.live_handles and isinstance(handle_val.data, comp.HandleInstance):
+            frame.live_handles.discard(handle_val.data)
+        return frame.set_result(result)
+
+    def format(self, idx):
+        return f"%{idx}  DropHandle %{self.handle_reg}"
+
+
+class PullHandle(Instruction):
+    """Get private data from a handle (!pull)."""
+
+    def __init__(self, cop, handle_reg):
+        super().__init__(cop)
+        self.handle_reg = handle_reg  # Register containing the HandleInstance value
+
+    def execute(self, frame):
+        handle_val = frame.get_value(self.handle_reg)
+        result = comp._tag.pull_handle(handle_val, frame)
+        return frame.set_result(result)
+
+    def format(self, idx):
+        return f"%{idx}  PullHandle %{self.handle_reg}"
+
+
+class PushHandle(Instruction):
+    """Store private data in a handle (!push)."""
+
+    def __init__(self, cop, handle_reg, data_reg):
+        super().__init__(cop)
+        self.handle_reg = handle_reg  # Register containing the HandleInstance value
+        self.data_reg = data_reg      # Register containing the data to store
+
+    def execute(self, frame):
+        handle_val = frame.get_value(self.handle_reg)
+        data_val = frame.get_value(self.data_reg)
+        result = comp._tag.push_handle(handle_val, data_val, frame)
+        return frame.set_result(result)
+
+    def format(self, idx):
+        return f"%{idx}  PushHandle %{self.handle_reg} %{self.data_reg}"

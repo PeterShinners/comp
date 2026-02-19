@@ -966,6 +966,31 @@ def lark_to_cop(tree):
             # For now, just return the expression
             return lark_to_cop(kids[1])
 
+        case "handle_grab":
+            # handle_grab: OP_GRAB expression
+            # kids[0] = OP_GRAB token, kids[1] = expression (tag/identifier)
+            target = lark_to_cop(kids[1])
+            return _parsed(tree, "value.handle", [target], op="grab")
+
+        case "handle_drop":
+            # handle_drop: OP_DROP expression
+            # kids[0] = OP_DROP token, kids[1] = handle expression
+            target = lark_to_cop(kids[1])
+            return _parsed(tree, "value.handle", [target], op="drop")
+
+        case "handle_pull":
+            # handle_pull: OP_PULL expression
+            # kids[0] = OP_PULL token, kids[1] = handle expression
+            target = lark_to_cop(kids[1])
+            return _parsed(tree, "value.handle", [target], op="pull")
+
+        case "handle_push":
+            # handle_push: OP_PUSH expression expression
+            # kids[0] = OP_PUSH token, kids[1] = handle expression, kids[2] = data expression
+            target = lark_to_cop(kids[1])
+            data = lark_to_cop(kids[2])
+            return _parsed(tree, "value.handle", [target, data], op="push")
+
         case "limit_suffix":
             # limit_suffix: ANGLE_OPEN limit_field+ ANGLE_CLOSE
             # TODO: Handle limit constraints properly

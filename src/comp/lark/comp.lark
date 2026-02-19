@@ -82,6 +82,12 @@ OP_TRANSACT.7: "!transact"
 OP_ON.7: "!on"
 OP_DEFER.7: "!defer"
 
+// Handle operators
+OP_GRAB.7: "!grab"
+OP_DROP.7: "!drop"
+OP_PULL.7: "!pull"
+OP_PUSH.7: "!push"
+
 // Declaration keywords
 OP_PARAM.7: ":param"
 OP_BLOCK.7: ":block"
@@ -122,11 +128,19 @@ transaction: OP_TRANSACT PAREN_OPEN identifier+ PAREN_CLOSE
 on_dispatch: OP_ON expression on_branch+
 on_branch: shape expression
 defer_expr: OP_DEFER expression
+handle_grab: OP_GRAB expression
+handle_drop: OP_DROP expression
+handle_pull: OP_PULL expression
+handle_push: OP_PUSH expression expression
 
 ?expression: logic_or
            | transaction
            | on_dispatch
            | defer_expr
+           | handle_grab
+           | handle_drop
+           | handle_pull
+           | handle_push
 
 ?logic_or: logic_and
          | logic_or LOR logic_and -> binary_op

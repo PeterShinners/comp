@@ -167,6 +167,9 @@ class CodeGenContext:
             case "value.binding":
                 return self._build_binding(cop)
 
+            case "value.handle":
+                return self._build_handle_op(cop)
+
             case "value.field":
                 return self._build_field_access(cop)
                 
@@ -306,6 +309,31 @@ class CodeGenContext:
 
         instr = comp._interp.Invoke(cop=cop, callable=callable_idx, args=args_idx)
         return self.emit(instr)
+
+    def _build_handle_op(self, cop):
+        """Build handle operator instructions (!grab, !drop, !pull, !push)."""
+        op = cop.to_python("op")
+        kids = _cop_kids(cop)
+
+        if op == "grab":
+            tag_reg = self._build_value_ensure_register(kids[0])
+            return self.emit(comp._interp.GrabHandle(cop=cop, tag_reg=tag_reg))
+
+        elif op == "drop":
+            handle_reg = self._build_value_ensure_register(kids[0])
+            return self.emit(comp._interp.DropHandle(cop=cop, handle_reg=handle_reg))
+
+        elif op == "pull":
+            handle_reg = self._build_value_ensure_register(kids[0])
+            return self.emit(comp._interp.PullHandle(cop=cop, handle_reg=handle_reg))
+
+        elif op == "push":
+            handle_reg = self._build_value_ensure_register(kids[0])
+            data_reg = self._build_value_ensure_register(kids[1])
+            return self.emit(comp._interp.PushHandle(cop=cop, handle_reg=handle_reg, data_reg=data_reg))
+
+        else:
+            raise comp.CodeError(f"Unknown handle operator: {op!r}", cop)
 
     def _build_field_access(self, cop):
         """Build field access instructions.
