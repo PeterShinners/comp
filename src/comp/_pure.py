@@ -8,7 +8,7 @@ This module handles evaluating pure functions during compilation:
   are also constants
 
 The COP nodes handled:
-- value.reference to a pure function: implicit nullary call (TryInvoke semantics)
+- value.reference to a pure function: implicit callables (TryInvoke semantics)
 - value.binding{pure_ref, const_args}: explicit call with constant arguments
 - value.pipeline: evaluate leading pure stages with constant inputs
 """
@@ -135,7 +135,7 @@ def _eval_pure_in_cop(cop, pure_blocks, interp):
         cop = comp.cop_rebuild(cop, new_kids)
         kids = new_kids
 
-    # value.reference to a pure function — implicit nullary invocation
+    # value.reference to a pure function — implicit callabes
     if tag == "value.reference":
         result = _try_eval_reference(cop, pure_blocks, interp)
         if result is not None:
@@ -151,7 +151,7 @@ def _eval_pure_in_cop(cop, pure_blocks, interp):
 
 
 def _try_eval_reference(cop, pure_blocks, interp):
-    """Try to evaluate a reference to a pure function as a nullary call.
+    """Try to evaluate a reference to a pure function as a callable.
 
     A value.reference to a pure function has TryInvoke semantics: it is
     invoked with empty input and empty args.

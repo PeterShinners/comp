@@ -2,8 +2,18 @@
 
 This module handles compile-time evaluation of COP trees:
 - Literal conversion: text/number nodes to value.constant
-- Identifier resolution: value.identifier to value.reference
+- Identifier resolution: value.identifier to value.local or value.namespace
 - Constant folding: Evaluate operators and structs at compile time
+
+After coptimize runs, every value.identifier in the original tree has been
+resolved to one of:
+  value.local     -- a name bound by op.let or a block parameter
+  value.namespace -- a name found in the module/system namespace
+  value.identifier -- unresolved (namespace was None, or name not found)
+
+The last case is intentionally left as value.identifier so that a separate
+validation pass can report it cleanly without mixing concerns into the
+optimization walk.
 """
 
 __all__ = [
@@ -14,15 +24,16 @@ import decimal
 import comp
 
 
-def coptimize(cop, fold, namespace, references=None):
+def coptimize(cop, fold, namespace, references=None, locals_defined=None):
     """Optimize a COP tree with optional folding and identifier resolution.
 
     Always converts literal nodes (value.text, value.number) to value.constant.
-    
-    If namespace is provided, validates identifiers and converts them to
-    value.reference nodes. Unresolved identifiers are left as-is for later
-    error reporting.
-    
+
+    If namespace is provided, resolves identifiers:
+      - Names in the local scope (op.let bindings, block params) become value.local
+      - Names found in the namespace become value.namespace
+      - Unresolved names remain as value.identifier
+
     If fold is True, evaluates constant expressions at compile time:
     - Unary/binary math on constants
     - Struct literals with all constant fields
@@ -33,26 +44,29 @@ def coptimize(cop, fold, namespace, references=None):
         fold: (bool) Whether to fold constant expressions
         namespace: (dict | None) Namespace for identifier resolution
         references: (set | None) If provided, collects qualified names of all
-            resolved references discovered during optimization
+            resolved namespace references discovered during optimization
+        locals_defined: (set | None) If provided, collects names of all local
+            variables defined by op.let statements in the tree
 
     Returns:
         (Value) Optimized COP tree
     """
     if references is None:
         references = set()
-    return _coptimize_walk(cop, fold, namespace, set(), references)
+    return _coptimize_walk(cop, fold, namespace, set(), references, locals_defined)
 
 
-def _coptimize_walk(cop, fold, namespace, locals, references):
+def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=None):
     """Internal recursive optimizer with local variable tracking.
 
     Args:
         cop: (Value) COP node to optimize
         fold: (bool) Whether to fold constants
         namespace: (dict | None) Namespace for lookups
-        locals: (set) Local variable names to skip during resolution
-        references: (set) Collects discovered reference names
-    
+        locals: (set) Local variable names to resolve as value.local
+        references: (set) Collects discovered namespace reference names
+        locals_defined: (set | None) Collects names defined by op.let
+
     Returns:
         (Value) Optimized COP node
     """
@@ -71,58 +85,52 @@ def _coptimize_walk(cop, fold, namespace, locals, references):
         value = decimal.Decimal(literal)
         return _make_constant(cop, comp.Value.from_python(value))
 
-    # --- Identifiers: resolve to references if namespace provided ---
+    # --- Identifiers: resolve to value.local, value.namespace, or leave as-is ---
     if tag == "value.identifier":
         ref = _resolve_identifier(cop, namespace, locals, references)
         if ref is cop:
-            return cop  # No change
-        # If we created a reference, try to fold it
+            return cop  # Unresolved — leave as value.identifier
+        # If we created a namespace reference, try to fold it
         ref_tag = comp.cop_tag(ref)
         if fold and namespace is not None:
-            if ref_tag == "value.reference":
-                return _fold_reference(ref, namespace)
+            if ref_tag == "value.namespace":
+                return _fold_namespace(ref, namespace)
             if ref_tag == "value.field":
                 # Recursively optimize the field access (which may fold)
-                return _coptimize_walk(ref, fold, namespace, locals, references)
+                return _coptimize_walk(ref, fold, namespace, locals, references, locals_defined)
         return ref
 
-    # --- References: record and optionally fold to constant ---
-    if tag == "value.reference":
+    # --- Already-resolved references: record and optionally fold ---
+    if tag in ("value.reference", "value.namespace"):
         _record_reference(cop, references)
         if fold and namespace is not None:
-            return _fold_reference(cop, namespace)
+            return _fold_namespace(cop, namespace)
         return cop
 
     # --- Blocks: track parameter names as locals ---
     if tag == "value.block":
-        return _optimize_block(cop, fold, namespace, locals, references)
+        return _optimize_block(cop, fold, namespace, locals, references, locals_defined)
+
+    # --- Sequential statements: track op.let bindings across statements ---
+    if tag == "statement.define":
+        return _optimize_sequential(cop, fold, namespace, locals, references, locals_defined)
 
     # --- Named fields: only optimize value, not name ---
     if tag in ("mod.namefield", "struct.namefield"):
-        return _optimize_namefield(cop, fold, namespace, locals, references)
+        return _optimize_namefield(cop, fold, namespace, locals, references, locals_defined)
 
     # --- Recursively optimize children ---
     kids = comp.cop_kids(cop)
     new_kids = []
     changed = False
     for kid in kids:
-        new_kid = _coptimize_walk(kid, fold, namespace, locals, references)
+        new_kid = _coptimize_walk(kid, fold, namespace, locals, references, locals_defined)
         new_kids.append(new_kid)
         if new_kid is not kid:
             changed = True
 
     # --- Folding: evaluate constant expressions ---
     if fold:
-        # A paren expression with a single constant field reduces to that constant.
-        # This allows (four) to become 4 when four has been substituted inline.
-        if tag == "statement.define":
-            if len(new_kids) == 1 and comp.cop_tag(new_kids[0]) == "statement.field":
-                field_kids = list(comp.cop_kids(new_kids[0]))
-                if len(field_kids) == 1:
-                    const = _get_constant(field_kids[0])
-                    if const is not None:
-                        return _make_constant(cop, const)
-
         if tag == "value.math.unary":
             op = cop.to_python("op")
             if op == "+":
@@ -171,19 +179,19 @@ def _coptimize_walk(cop, fold, namespace, locals, references):
                 # Extract fields from identifier
                 field_cop = new_kids[1]
                 field_tag = comp.cop_tag(field_cop)
-                
+
                 # Handle single field vs identifier with multiple fields
                 if field_tag == "value.identifier":
                     field_kids = comp.cop_kids(field_cop)
                 else:
                     # Single field (ident.token, ident.index, etc.)
                     field_kids = [field_cop]
-                
+
                 # Chain field accesses
                 result = struct_val
                 for field_token in field_kids:
                     field_tag = comp.cop_tag(field_token)
-                    
+
                     if field_tag == "ident.token":
                         # Named field access
                         field_name = field_token.to_python("value")
@@ -214,30 +222,134 @@ def _coptimize_walk(cop, fold, namespace, locals, references):
     return cop
 
 
-def _resolve_identifier(cop, namespace, locals, references):
-    """Convert value.identifier to value.reference if resolvable.
+def _optimize_sequential(cop, fold, namespace, locals, references, locals_defined):
+    """Optimize a statement.define, tracking op.let bindings across statements.
 
-    If the full identifier (e.g., "pair.b") doesn't resolve, tries progressively
-    shorter prefixes (e.g., "pair") and wraps in access nodes for remaining parts.
+    Each statement.field is processed in order. After a field containing an
+    op.let, the bound name is added to the active locals set so that subsequent
+    statements in the same sequence resolve that identifier as value.local.
+
+    Args:
+        cop: (Value) statement.define COP node
+        fold: (bool) Whether to fold
+        namespace: (dict | None) Namespace
+        locals: (set) Inherited locals from outer scope
+        references: (set) Collects discovered namespace reference names
+        locals_defined: (set | None) Collects names defined by op.let
+
+    Returns:
+        (Value) Optimized statement.define node
+    """
+    kids = comp.cop_kids(cop)
+    current_locals = locals.copy()
+    new_kids = []
+    changed = False
+
+    for kid in kids:
+        new_kid = _coptimize_walk(kid, fold, namespace, current_locals, references, locals_defined)
+        new_kids.append(new_kid)
+        if new_kid is not kid:
+            changed = True
+
+        # After processing, check if this statement binds a new local name
+        let_name = _extract_let_name(new_kid)
+        if let_name:
+            current_locals.add(let_name)
+            if locals_defined is not None:
+                locals_defined.add(let_name)
+
+    # Apply statement.define constant folding
+    if fold:
+        if len(new_kids) == 1 and comp.cop_tag(new_kids[0]) == "statement.field":
+            field_kids = list(comp.cop_kids(new_kids[0]))
+            if len(field_kids) == 1:
+                const = _get_constant(field_kids[0])
+                if const is not None:
+                    return _make_constant(cop, const)
+
+    if changed:
+        return comp.cop_rebuild(cop, new_kids)
+    return cop
+
+
+def _extract_let_name(cop):
+    """Extract the bound variable name from an op.let node, possibly inside statement.field.
+
+    Args:
+        cop: (Value) COP node (op.let or statement.field wrapping one)
+
+    Returns:
+        (str | None) The bound name, or None if not an op.let
+    """
+    tag = comp.cop_tag(cop)
+    if tag == "statement.field":
+        kids = comp.cop_kids(cop)
+        if kids:
+            return _extract_let_name(kids[0])
+        return None
+    if tag == "op.let":
+        kids = comp.cop_kids(cop)
+        if kids:
+            return _get_ident_name(kids[0])
+    return None
+
+
+def _get_ident_name(cop):
+    """Get the string name from an ident.token or value.identifier COP node.
+
+    Args:
+        cop: (Value) COP node
+
+    Returns:
+        (str | None) The identifier name string, or None
+    """
+    tag = comp.cop_tag(cop)
+    if tag == "ident.token":
+        try:
+            return cop.field("value").data
+        except (KeyError, AttributeError):
+            return None
+    if tag == "value.identifier":
+        kids = comp.cop_kids(cop)
+        if kids and comp.cop_tag(kids[0]) == "ident.token":
+            try:
+                return kids[0].field("value").data
+            except (KeyError, AttributeError):
+                return None
+    return None
+
+
+def _resolve_identifier(cop, namespace, locals, references):
+    """Convert value.identifier to value.local, value.namespace, or leave unchanged.
+
+    Resolution order:
+    1. If the first name part is in `locals`, create a value.local node.
+       Remaining parts (field access) are kept as kids on the local node.
+    2. If the full (or prefix) name is in the namespace, create a value.namespace
+       node and record the qualified name in `references`.
+    3. Otherwise return cop unchanged (stays as value.identifier).
+
+    For namespace lookup, progressively shorter prefixes are tried so that
+    "pair.b" resolves to a value.namespace for "pair" plus a field access on "b".
 
     Args:
         cop: (Value) Identifier COP node
         namespace: (dict | None) Namespace for lookups
-        locals: (set) Local names to skip
-        references: (set | None) Collects discovered reference names
+        locals: (set) Local names that resolve to value.local
+        references: (set | None) Collects discovered namespace reference names
 
     Returns:
-        (Value) Reference node, access node, or original identifier
+        (Value) value.local, value.namespace, value.field, or original cop
     """
     # Extract name parts from identifier
     # Only ident.token and ident.text can be part of namespace resolution
     # Other field types (ident.index, ident.indexpr, ident.expr) must become access
     kids = comp.cop_kids(cop)
-    
+
     # Separate resolvable prefix from non-resolvable suffix
     resolvable_parts = []  # (name_string, kid_cop) tuples
     first_non_resolvable_idx = None
-    
+
     for i, kid in enumerate(kids):
         kid_tag = comp.cop_tag(kid)
         if kid_tag in ("ident.token", "ident.text"):
@@ -255,51 +367,55 @@ def _resolve_identifier(cop, namespace, locals, references):
     if not resolvable_parts:
         return cop
 
-    # Skip if no namespace
-    if namespace is None:
-        return cop
+    # Check if first name part is a local variable
+    first_name = resolvable_parts[0][0]
+    if first_name in locals:
+        # Remaining kids become field access on the local
+        remaining = [p[1] for p in resolvable_parts[1:]]
+        if first_non_resolvable_idx is not None:
+            remaining.extend(kids[first_non_resolvable_idx:])
+        return _make_local(cop, first_name, remaining)
 
-    # Skip local variables (check first part only for locals)
-    if resolvable_parts[0][0] in locals:
+    # Skip namespace resolution if no namespace provided
+    if namespace is None:
         return cop
 
     # Try full resolvable name first, then progressively shorter prefixes
     for prefix_len in range(len(resolvable_parts), 0, -1):
         name = ".".join(p[0] for p in resolvable_parts[:prefix_len])
-        
+
         definition_set = namespace.get(name)
         if definition_set is None:
             continue
-        
-        # Found a match - create reference
+
+        # Found a match - create namespace reference
         scalar = definition_set.scalar()
         invokables = definition_set.invokables() if scalar is None else None
-        
+
         if scalar is not None:
-            ref = _make_reference(cop, scalar.qualified, scalar.module_id)
+            ref = _make_namespace(cop, scalar.qualified, scalar.module_id)
             _record_reference(ref, references)
         elif invokables is not None and len(invokables) > 0:
             qualified_names = [d.qualified for d in invokables]
             module_id = invokables[0].module_id
-            ref = _make_reference(cop, qualified_names, module_id)
+            ref = _make_namespace(cop, qualified_names, module_id)
             _record_reference(ref, references)
         else:
             continue  # Ambiguous, try shorter prefix
-        
+
         # Collect remaining kids that need to become field access
-        # This includes: unmatched resolvable parts + all non-resolvable parts
         remaining_kids = [p[1] for p in resolvable_parts[prefix_len:]]
         if first_non_resolvable_idx is not None:
             remaining_kids.extend(kids[first_non_resolvable_idx:])
-        
+
         # If there are remaining parts, wrap in access node
         if remaining_kids:
             field_ident = comp.create_cop("value.identifier", remaining_kids)
             return comp.create_cop("value.field", [ref, field_ident])
-        
+
         return ref
 
-    # Nothing resolved - leave as identifier
+    # Nothing resolved — leave as value.identifier
     return cop
 
 
@@ -307,7 +423,7 @@ def _record_reference(cop, references):
     """Record reference qualified name(s) in the references set.
 
     Args:
-        cop: (Value) Reference COP node
+        cop: (Value) value.reference or value.namespace COP node
         references: (set) Set to add to
     """
     try:
@@ -320,11 +436,13 @@ def _record_reference(cop, references):
         pass
 
 
-def _fold_reference(cop, namespace):
-    """Fold a reference to its constant value if available.
+def _fold_namespace(cop, namespace):
+    """Fold a namespace reference to its constant value if available.
+
+    Works for both value.reference (legacy) and value.namespace nodes.
 
     Args:
-        cop: (Value) Reference COP node
+        cop: (Value) Reference/namespace COP node
         namespace: (dict) Namespace for lookups
 
     Returns:
@@ -347,15 +465,16 @@ def _fold_reference(cop, namespace):
     return cop
 
 
-def _optimize_block(cop, fold, namespace, locals, references):
-    """Optimize a block, tracking parameter names as locals.
+def _optimize_block(cop, fold, namespace, locals, references, locals_defined=None):
+    """Optimize a block, extracting parameter names as locals for the body.
 
     Args:
-        cop: (Value) Block COP node
+        cop: (Value) Block COP node (value.block)
         fold: (bool) Whether to fold
         namespace: (dict | None) Namespace
-        locals: (set) Current locals
-        references: (set | None) Collects discovered reference names
+        locals: (set) Inherited locals from outer scope
+        references: (set | None) Collects discovered namespace reference names
+        locals_defined: (set | None) Collects all locally-defined names
 
     Returns:
         (Value) Optimized block
@@ -367,13 +486,35 @@ def _optimize_block(cop, fold, namespace, locals, references):
     signature_cop = kids[0]
     body_cop = kids[1]
 
-    # Extract parameter names from signature
+    # Build a fresh locals set for the block body, inherited from outer scope
     block_locals = locals.copy()
+
+    # Extract parameter names from the block signature (block.signature node)
+    # Its children are signature.param and signature.block nodes, each with a
+    # `name` attribute holding the parameter name string.
+    sig_tag = comp.cop_tag(signature_cop)
+    if sig_tag == "block.signature":
+        for field_cop in comp.cop_kids(signature_cop):
+            field_tag = comp.cop_tag(field_cop)
+            if field_tag in ("signature.param", "signature.block"):
+                try:
+                    param_name = field_cop.to_python("name")
+                    if param_name:
+                        block_locals.add(param_name)
+                        if locals_defined is not None:
+                            locals_defined.add(param_name)
+                except (KeyError, AttributeError):
+                    pass
+
+    # Ensure the conventional parameter names are always available as locals
+    # even when the signature uses positional forms without explicit names.
     block_locals.add("input")
     block_locals.add("args")
-    # TODO: Parse signature for actual param names
+    block_locals.add("$")
+    block_locals.add("$$")
+    block_locals.add("$$$")
 
-    new_body = _coptimize_walk(body_cop, fold, namespace, block_locals, references)
+    new_body = _coptimize_walk(body_cop, fold, namespace, block_locals, references, locals_defined)
 
     if new_body is body_cop:
         return cop
@@ -381,7 +522,7 @@ def _optimize_block(cop, fold, namespace, locals, references):
     return comp.cop_rebuild(cop, [signature_cop, new_body])
 
 
-def _optimize_namefield(cop, fold, namespace, locals, references):
+def _optimize_namefield(cop, fold, namespace, locals, references, locals_defined=None):
     """Optimize a namefield, only processing the value child.
 
     Args:
@@ -389,7 +530,8 @@ def _optimize_namefield(cop, fold, namespace, locals, references):
         fold: (bool) Whether to fold
         namespace: (dict | None) Namespace
         locals: (set) Current locals
-        references: (set | None) Collects discovered reference names
+        references: (set | None) Collects discovered namespace reference names
+        locals_defined: (set | None) Collects all locally-defined names
 
     Returns:
         (Value) Optimized namefield
@@ -401,7 +543,7 @@ def _optimize_namefield(cop, fold, namespace, locals, references):
     name_cop = kids[0]
     value_cop = kids[1]
 
-    new_value = _coptimize_walk(value_cop, fold, namespace, locals, references)
+    new_value = _coptimize_walk(value_cop, fold, namespace, locals, references, locals_defined)
 
     if new_value is value_cop:
         return cop
@@ -473,8 +615,55 @@ def _make_constant(original, value):
     return comp.create_cop("value.constant", [], **fields)
 
 
+def _make_local(original, name, remaining_kids):
+    """Create a value.local COP node for a resolved local variable reference.
+
+    Args:
+        original: (Value) Original identifier COP node for position
+        name: (str) Local variable name
+        remaining_kids: (list) Additional ident.token etc. nodes for field access
+
+    Returns:
+        (Value) value.local COP node
+    """
+    fields = {"name": name}
+    if original:
+        try:
+            pos = original.field("pos")
+            if pos is not None:
+                fields["pos"] = pos
+        except (KeyError, AttributeError):
+            pass
+    return comp.create_cop("value.local", remaining_kids, **fields)
+
+
+def _make_namespace(original, qualified, module_id):
+    """Create a value.namespace COP node for a resolved namespace reference.
+
+    Args:
+        original: (Value) Original COP node for position
+        qualified: (str | list) Qualified name(s) of the definition(s)
+        module_id: (str) Module identifier
+
+    Returns:
+        (Value) value.namespace COP node
+    """
+    fields = {"qualified": qualified, "module_id": module_id}
+    if original:
+        try:
+            pos = original.field("pos")
+            if pos is not None:
+                fields["pos"] = pos
+        except (KeyError, AttributeError):
+            pass
+    return comp.create_cop("value.namespace", [], **fields)
+
+
 def _make_reference(original, qualified, module_id):
-    """Create a value.reference COP node.
+    """Create a value.reference COP node (legacy — used by cop_resolve).
+
+    Prefer _make_namespace for new code; this exists for backward compatibility
+    with cop_resolve in _cop.py.
 
     Args:
         original: (Value) Original COP node for position
@@ -482,7 +671,7 @@ def _make_reference(original, qualified, module_id):
         module_id: (str) Module identifier
 
     Returns:
-        (Value) Reference COP node
+        (Value) value.reference COP node
     """
     fields = {"qualified": qualified, "module_id": module_id}
     if original:
@@ -510,4 +699,3 @@ def _get_constant(cop):
         except (KeyError, AttributeError):
             pass
     return None
-

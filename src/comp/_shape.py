@@ -54,11 +54,16 @@ class Shape:
     def format(self):
         """Format to literal string representation.
 
+        Named shapes (builtins and user-defined) render as ~name.
+        Anonymous structural shapes render as ~(field ...).
+
         Returns:
-            str: Formatted shape literal like "~(x y)" or "~(x~num y~text)"
+            str: Formatted shape literal like "~num" or "~{x~num y~text}"
         """
+        if self.qualified and self.qualified != "anonymous":
+            return f"~{self.qualified}"
         fields = [f.format() for f in self.fields]
-        return "~(" + " ".join(fields) + ")"
+        return "~{" + " ".join(fields) + "}"
 
 
 class ShapeUnion:

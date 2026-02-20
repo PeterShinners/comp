@@ -33,8 +33,13 @@ def generate_code_for_definition(cop):
     # The result is left in a register, no final store needed
     result_reg = ctx.build_expression(cop)
 
-    # Emit a final TryInvoke so nullary definitions are auto-called
-    ctx.emit(comp._interp.TryInvoke(cop=cop, value=result_reg))
+    # function.define: the Block IS the value — don't auto-invoke.
+    # shape.define: the Shape IS the value — no invokes allowed in shapes.
+    # For everything else (expressions), emit TryInvoke to evaluate
+    # callables and pass non-callable values through unchanged.
+    _no_invoke_tags = {"function.define", "shape.define"}
+    if comp.cop_tag(cop) not in _no_invoke_tags:
+        ctx.emit(comp._interp.TryInvoke(cop=cop, value=result_reg))
 
     return ctx.instructions
 
@@ -94,47 +99,50 @@ class CodeGenContext:
                     ))
                 return const_val
                 
-            case "value.reference":
-                # Load from namespace/environment using qualified name
+            case "value.namespace":
+                # Explicit namespace reference produced by coptimize
                 try:
                     qualified_name = cop.to_python("qualified")
-                    # Check if this is an overloaded reference (list of names)
                     if isinstance(qualified_name, list):
                         instr = comp._interp.LoadOverload(cop=cop, names=qualified_name)
                     else:
                         instr = comp._interp.LoadVar(cop=cop, name=qualified_name)
                     reg = self.emit(instr)
                     return self.emit(comp._interp.TryInvoke(cop=cop, value=reg))
+                except (AttributeError, KeyError) as e:
+                    raise comp.CodeError(f"Invalid namespace reference: {e}", cop)
 
+            case "value.local":
+                # Explicit local variable reference produced by coptimize
+                name = cop.to_python("name")
+                result = self.emit(comp._interp.LoadLocal(cop=cop, name=name))
+                result = _apply_field_access(self, cop, result, _cop_kids(cop))
+                return self.emit(comp._interp.TryInvoke(cop=cop, value=result))
+
+            case "value.reference":
+                # Legacy resolved namespace reference (from cop_resolve or older paths)
+                try:
+                    qualified_name = cop.to_python("qualified")
+                    if isinstance(qualified_name, list):
+                        instr = comp._interp.LoadOverload(cop=cop, names=qualified_name)
+                    else:
+                        instr = comp._interp.LoadVar(cop=cop, name=qualified_name)
+                    reg = self.emit(instr)
+                    return self.emit(comp._interp.TryInvoke(cop=cop, value=reg))
                 except (AttributeError, KeyError) as e:
                     raise comp.CodeError(f"Invalid reference: {e}", cop)
-            
+
             case "value.identifier":
-                # Local variable — only reachable after coptimize if the name was
-                # NOT found in the namespace (i.e. it is a let-binding or parameter).
-                # Namespace references are always resolved to value.reference by
-                # coptimize; any value.identifier surviving to codegen is a local.
-                # If coptimize was not called with a namespace first, a namespace
-                # reference will arrive here and fail at runtime with
-                # "Undefined local variable", which surfaces the missing resolution step.
+                # Unresolved identifier — coptimize was not run or the name could
+                # not be resolved.  Treat the first token as a plain local name so
+                # that code still runs when called without a namespace (e.g. blocks
+                # compiled before the full namespace is available).
                 kids = _cop_kids(cop)
                 if not kids:
                     raise comp.CodeError("Identifier has no token", cop)
-
-                token_cop = kids[0]  # ident.token
-                name = token_cop.to_python("value")
+                name = kids[0].to_python("value")
                 result = self.emit(comp._interp.LoadLocal(cop=cop, name=name))
-
-                # Subsequent tokens are field accesses on the local
-                for i in range(1, len(kids)):
-                    field_cop = kids[i]
-                    field_tag = comp.cop_tag(field_cop)
-                    if field_tag == "ident.token":
-                        field_name = field_cop.to_python("value")
-                        result = self.emit(comp._interp.GetField(cop=cop, field=field_name, struct_reg=result))
-                    else:
-                        raise comp.CodeError(f"Unsupported field type in identifier: {field_tag}", cop)
-
+                result = _apply_field_access(self, cop, result, kids[1:])
                 return self.emit(comp._interp.TryInvoke(cop=cop, value=result))
             
             case "value.number":
@@ -264,20 +272,20 @@ class CodeGenContext:
         for stage_cop in kids[1:]:
             stage_tag = stage_cop.positional(0).data.qualified
             
-            if stage_tag == "value.invoke":
-                # Piped invoke: callable(args) with piped input
-                invoke_kids = _cop_kids(stage_cop)
-                callable_cop = invoke_kids[0]
+            if stage_tag in ("value.invoke", "value.binding"):
+                # Piped invoke/binding: callable(args) with piped input.
+                # value.invoke kids: [callable, args_struct]
+                # value.binding kids: [callable, bindings_struct]
+                # Both share the same layout, so handled identically here.
+                stage_kids = _cop_kids(stage_cop)
+                callable_cop = stage_kids[0]
                 callable_idx = self._build_callable_ensure_register(callable_cop)
-                
-                # Build args (remaining kids after callable)
-                if len(invoke_kids) > 1:
-                    arg_idx = self._build_value_ensure_register(invoke_kids[1])
+
+                if len(stage_kids) > 1:
+                    arg_idx = self._build_value_ensure_register(stage_kids[1])
                 else:
-                    # Empty args struct
                     arg_idx = self.emit(comp._interp.BuildStruct(cop=stage_cop, fields=[]))
-                
-                # PipeInvoke passes result as piped input
+
                 instr = comp._interp.PipeInvoke(
                     cop=stage_cop,
                     callable=callable_idx,
@@ -505,7 +513,12 @@ class CodeGenContext:
         return self.emit(comp._interp.BuildStruct(cop=cop, fields=fields))
 
     def _build_shape(self, cop):
-        """Build shape construction instructions."""
+        """Build shape construction instructions.
+
+        Shape type constraints are passed as name strings (resolved at execute time),
+        not as register indices — so no LoadVar/TryInvoke is emitted for them.
+        Defaults are simple constant expressions compiled to register indices.
+        """
         kids = _cop_kids(cop)
         fields = []
 
@@ -513,27 +526,27 @@ class CodeGenContext:
             tag = comp.cop_tag(kid)
 
             if tag == "shape.union":
-                # Shape union — build each member kid and create union
-                member_indices = [self._build_value_ensure_register(m) for m in _cop_kids(kid)]
-                return self.emit(comp._interp.BuildShapeUnion(cop=cop, member_indices=member_indices))
+                # Shape union — members are shape name strings or register indices
+                member_refs = [_shape_ref_or_reg(self, m) for m in _cop_kids(kid)]
+                return self.emit(comp._interp.BuildShapeUnion(cop=cop, member_refs=member_refs))
 
             elif tag == "shape.field":
-                # Named field: name is a named attribute; shape/default are positional kids
+                # Named field: name attribute; first kid is shape type, second is default
                 name = None
                 try:
                     name = kid.to_python("name")
                 except (KeyError, AttributeError):
                     pass
 
-                shape_idx = None
+                shape_ref = None
                 default_idx = None
                 field_kids = _cop_kids(kid)
                 if len(field_kids) >= 1:
-                    shape_idx = self._build_value_ensure_register(field_kids[0])
+                    shape_ref = _shape_ref_or_reg(self, field_kids[0])
                 if len(field_kids) >= 2:
                     default_idx = self._build_value_ensure_register(field_kids[1])
 
-                fields.append((name, shape_idx, default_idx))
+                fields.append((name, shape_ref, default_idx))
 
         return self.emit(comp._interp.BuildShape(cop=cop, fields=fields))
 
@@ -557,12 +570,13 @@ class CodeGenContext:
         """Build a callable reference without auto-invoking it.
 
         Use this for the callable position in Invoke/PipeInvoke instructions.
-        Emits LoadVar (no TryInvoke) for simple references and identifiers;
-        falls back to _build_value_ensure_register for complex expressions.
+        Emits the appropriate load instruction (no TryInvoke) for references,
+        locals, and simple identifiers; falls back to _build_value_ensure_register
+        for complex expressions.
         """
         tag = cop.positional(0).data.qualified
 
-        if tag == "value.reference":
+        if tag in ("value.namespace", "value.reference"):
             try:
                 qualified_name = cop.to_python("qualified")
                 if isinstance(qualified_name, list):
@@ -573,21 +587,20 @@ class CodeGenContext:
             except (AttributeError, KeyError) as e:
                 raise comp.CodeError(f"Invalid callable reference: {e}", cop)
 
+        elif tag == "value.local":
+            name = cop.to_python("name")
+            result = self.emit(comp._interp.LoadLocal(cop=cop, name=name))
+            return _apply_field_access(self, cop, result, _cop_kids(cop))
+
         elif tag == "value.identifier":
+            # Legacy unresolved identifier in callable position — use LoadLocal
+            # (consistent with the value-position handling above)
             kids = _cop_kids(cop)
             if not kids:
                 raise comp.CodeError("Identifier has no token", cop)
             name = kids[0].to_python("value")
-            result = self.emit(comp._interp.LoadVar(cop=cop, name=name))
-            for i in range(1, len(kids)):
-                field_cop = kids[i]
-                field_tag = comp.cop_tag(field_cop)
-                if field_tag == "ident.token":
-                    field_name = field_cop.to_python("value")
-                    result = self.emit(comp._interp.GetField(cop=cop, field=field_name, struct_reg=result))
-                else:
-                    raise comp.CodeError(f"Unsupported field type in callable identifier: {field_tag}", cop)
-            return result
+            result = self.emit(comp._interp.LoadLocal(cop=cop, name=name))
+            return _apply_field_access(self, cop, result, kids[1:])
 
         else:
             # Complex expression — build normally; the result is used as-is
@@ -597,6 +610,33 @@ class CodeGenContext:
 def _cop_kids(cop):
     """Extract kids from a COP node (helper function)."""
     return list(cop.field("kids").data.values())
+
+
+def _shape_ref_or_reg(ctx, cop):
+    """Return a shape name string for static shape references, or a register index.
+
+    For value.namespace and value.identifier nodes that refer to a shape by name,
+    returns the name string so BuildShape/BuildShapeUnion can resolve it at execute
+    time without emitting LoadVar/TryInvoke instructions.
+    For anything else, falls back to compiling to a register.
+    """
+    tag = comp.cop_tag(cop)
+    if tag == "value.namespace":
+        try:
+            qualified = cop.to_python("qualified")
+            if isinstance(qualified, str):
+                return qualified
+        except (KeyError, AttributeError):
+            pass
+    elif tag == "value.identifier":
+        kids = _cop_kids(cop)
+        if kids:
+            try:
+                return kids[0].to_python("value")
+            except (KeyError, AttributeError):
+                pass
+    # Fallback: compile to a register (shouldn't occur for well-formed shape defs)
+    return ctx._build_value_ensure_register(cop)
 
 
 def _extract_name(name_cop):
@@ -609,3 +649,31 @@ def _extract_name(name_cop):
         if kids:
             return kids[0].to_python("value")
     return None
+
+
+def _apply_field_access(ctx, cop, result, field_kids):
+    """Apply a sequence of field/index access tokens to a register result.
+
+    Used by value.local (and the legacy value.identifier path) to emit
+    GetField/GetIndex instructions for each token in the remaining kids.
+
+    Args:
+        ctx: (CodeGenContext) Code generation context
+        cop: (Value) Source COP node for error reporting
+        result: (int) Register index of the base value
+        field_kids: (list) ident.token / ident.index COP nodes to apply
+
+    Returns:
+        (int) Register index of the final result after all accesses
+    """
+    for kid in field_kids:
+        field_tag = comp.cop_tag(kid)
+        if field_tag == "ident.token":
+            field_name = kid.to_python("value")
+            result = ctx.emit(comp._interp.GetField(cop=cop, field=field_name, struct_reg=result))
+        elif field_tag == "ident.index":
+            index_str = kid.to_python("value")
+            result = ctx.emit(comp._interp.GetIndex(cop=cop, struct_reg=result, index=int(index_str)))
+        else:
+            raise comp.CodeError(f"Unsupported field access token: {field_tag}", cop)
+    return result

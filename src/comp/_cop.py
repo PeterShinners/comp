@@ -416,6 +416,35 @@ def cop_unparse(cop):
                 return qualified
             except (KeyError, AttributeError):
                 return "<?ref?>"
+
+        case "value.namespace":
+            try:
+                qualified = cop.field("qualified").data
+                if isinstance(qualified, list):
+                    return "|".join(qualified)
+                return qualified
+            except (KeyError, AttributeError):
+                return "<?ns?>"
+
+        case "value.local":
+            try:
+                name = cop.field("name").data
+            except (KeyError, AttributeError):
+                name = "<?local?>"
+            field_kids = cop_kids(cop)
+            if not field_kids:
+                return name
+            parts = [name]
+            for kid in field_kids:
+                kid_tag = cop_tag(kid)
+                if kid_tag == "ident.token":
+                    parts.append(kid.field("value").data)
+                elif kid_tag == "ident.index":
+                    idx = kid.field("value").data
+                    parts.append(f"[{idx}]")
+                else:
+                    parts.append("<?field?>")
+            return ".".join(parts)
         
         case "value.constant":
             try:

@@ -414,7 +414,8 @@ class ExecutionFrame:
             args = comp.Value.from_python({})
         
         # Apply morph/mask to parameters based on shapes
-        input_val = piped if piped is not None else comp.Value.from_python({})
+        _nil = comp.Value.from_python(comp.tag_nil)
+        input_val = piped if piped is not None else _nil
         args_val = args
 
         # Morph piped input to input shape
@@ -442,6 +443,11 @@ class ExecutionFrame:
                 new_env[block.input_name] = input_val
             else:
                 new_env[block.input_name] = args_val
+
+        # Always bind $ to current input (nil if no piped), shifting $→$$ and $$→$$$
+        new_env["$$$"] = new_env.get("$$", _nil)
+        new_env["$$"] = new_env.get("$", _nil)
+        new_env["$"] = input_val
         
         # Lazily compile body instructions if needed
         if block.body_instructions is None and block.body:
@@ -951,22 +957,69 @@ class BuildBlock(Instruction):
                             param_shape = defn.value.data
                     break
 
-            if param_name:
-                if i == 0:
+            if i == 0:
+                if param_name:
                     block.input_name = param_name
+                if param_shape is not None:
                     block.input_shape = param_shape
-                elif i == 1:
+            elif i == 1:
+                if param_name:
                     block.arg_name = param_name
+                if param_shape is not None:
                     block.arg_shape = param_shape
         
         result = comp.Value(block)
         return frame.set_result(result)
 
     def _build_shape_from_cop(self, shape_cop, frame):
-        """Build a Shape object from a shape.define COP node."""
+        """Build a Shape object from a shape.define COP node.
+
+        If the shape.define contains a single value.namespace or value.identifier
+        child (not shape.field children), it's a reference to a named shape —
+        look it up and return it directly.
+        """
+        kids = list(comp.cop_kids(shape_cop))
+
+        # Check for a reference to a named shape: shape.define[value.namespace "foo"]
+        if kids and not any(comp.cop_tag(k) == "shape.field" for k in kids):
+            for kid in kids:
+                kid_tag = comp.cop_tag(kid)
+                ref_name = None
+                if kid_tag == "value.namespace":
+                    try:
+                        ref_name = kid.to_python("qualified")
+                        if isinstance(ref_name, list):
+                            ref_name = None  # overloads don't resolve to a single shape
+                    except (KeyError, AttributeError):
+                        pass
+                elif kid_tag == "value.identifier":
+                    id_kids = comp.cop_kids(kid)
+                    if id_kids:
+                        try:
+                            ref_name = id_kids[0].to_python("value")
+                        except (KeyError, AttributeError):
+                            pass
+                if ref_name:
+                    # Check frame env first (evaluated definitions live here)
+                    if hasattr(frame, "env") and ref_name in frame.env:
+                        env_val = frame.env[ref_name]
+                        if hasattr(env_val, "data") and isinstance(env_val.data, comp.Shape):
+                            return env_val.data
+                    # Fall back to namespace definition value
+                    defn = frame.lookup(ref_name) if hasattr(frame, "lookup") else None
+                    if defn is not None:
+                        if isinstance(defn, comp.DefinitionSet):
+                            defs = list(defn.definitions)
+                            defn = defs[0] if defs else None
+                        if defn is not None and hasattr(defn, "value") and defn.value is not None:
+                            resolved = defn.value.data
+                            if isinstance(resolved, comp.Shape):
+                                return resolved
+            # Reference not resolved — fall through to anonymous shape
+
         shape = comp.Shape("anonymous", private=False)
 
-        for kid in comp.cop_kids(shape_cop):
+        for kid in kids:
             kid_tag = comp.cop_tag(kid)
             if kid_tag != "shape.field":
                 continue
@@ -1040,26 +1093,33 @@ class BuildShape(Instruction):
 
     def __init__(self, cop, fields):
         super().__init__(cop)
-        self.fields = fields  # List of (name, shape_idx, default_idx) tuples
+        self.fields = fields  # List of (name, shape_ref, default_idx) tuples
+        # shape_ref is either a string (name to look up) or int (register index)
 
     def execute(self, frame):
         shape = comp.Shape("anonymous", private=False)
 
-        for name, shape_idx, default_idx in self.fields:
+        for name, shape_ref, default_idx in self.fields:
             # Get shape constraint if provided
             shape_constraint = None
-            if shape_idx is not None:
-                shape_val = frame.get_value(shape_idx)
-                if shape_val and shape_val.data:
-                    shape_constraint = shape_val.data
+            if shape_ref is not None:
+                if isinstance(shape_ref, str):
+                    # Static name reference — look up in frame
+                    shape_val = frame.lookup(shape_ref)
+                    if shape_val and hasattr(shape_val, "data"):
+                        shape_constraint = shape_val.data
+                    elif shape_val and isinstance(shape_val, comp.Shape):
+                        shape_constraint = shape_val
+                else:
+                    shape_val = frame.get_value(shape_ref)
+                    if shape_val and shape_val.data:
+                        shape_constraint = shape_val.data
 
             # Get default if provided
             default_val = None
             if default_idx is not None:
                 default_val = frame.get_value(default_idx)
 
-            # Create ShapeField - store resolved values in shape/default
-            # The morph code will check for both COP nodes and resolved values
             field = comp.ShapeField(name=name, shape=shape_constraint, default=default_val)
             shape.fields.append(field)
 
@@ -1067,31 +1127,50 @@ class BuildShape(Instruction):
         return frame.set_result(result)
 
     def format(self, idx):
-        parts = [f"{n or '_'}" for n, s, d in self.fields]
+        parts = []
+        for name, shape_ref, default_idx in self.fields:
+            part = name or "_"
+            if shape_ref is not None:
+                if isinstance(shape_ref, str):
+                    part += f"~{shape_ref}"
+                else:
+                    part += f"~%{shape_ref}"
+            if default_idx is not None:
+                part += f"=%{default_idx}"
+            parts.append(part)
         return f"%{idx}  BuildShape ({' '.join(parts)})"
 
 
 class BuildShapeUnion(Instruction):
     """Build a shape union from member shapes."""
 
-    def __init__(self, cop, member_indices):
+    def __init__(self, cop, member_refs):
         super().__init__(cop)
-        self.member_indices = member_indices  # List of instruction indices
+        self.member_refs = member_refs  # List of name strings or register indices
 
     def execute(self, frame):
         shapes = []
-        for idx in self.member_indices:
-            val = frame.get_value(idx)
-            if val and val.data:
-                shapes.append(val.data)
+        for ref in self.member_refs:
+            if isinstance(ref, str):
+                shape_val = frame.lookup(ref)
+                if shape_val and hasattr(shape_val, "data"):
+                    shapes.append(shape_val.data)
+                elif shape_val and isinstance(shape_val, comp.Shape):
+                    shapes.append(shape_val)
+            else:
+                val = frame.get_value(ref)
+                if val and val.data:
+                    shapes.append(val.data)
 
         union = comp.ShapeUnion(shapes)
         result = comp.Value(union)
         return frame.set_result(result)
 
     def format(self, idx):
-        members = ' '.join(f'%{m}' for m in self.member_indices)
-        return f"%{idx}  BuildShapeUnion ({members})"
+        parts = []
+        for ref in self.member_refs:
+            parts.append(ref if isinstance(ref, str) else f"%{ref}")
+        return f"%{idx}  BuildShapeUnion ({' '.join(parts)})"
 
 
 class Invoke(Instruction):

@@ -196,6 +196,7 @@ class SystemModule(comp.Module):
         self._add_callable("mask", _builtin_mask)
         self._add_callable("abs", _builtin_abs)
         self._add_callable("print", _builtin_print)
+        self._add_callable("fmt", _builtin_fmt)
 
         self.finalize()
 
@@ -240,7 +241,7 @@ def _builtin_incr(input_val, args_val, frame):
 
 
 def _builtin_answer(input_val, args_val, frame):
-    """Return the hardcoded constant 42. Useful for testing nullary calls."""
+    """Return the hardcoded constant 42. Useful for testing callables."""
     import decimal
     return comp.Value.from_python(decimal.Decimal(42))
 
@@ -359,6 +360,36 @@ def _builtin_print(input_val, args_val, frame):
     """Print a value to stdout."""
     print(input_val.format())
     return input_val
+
+
+def _builtin_fmt(input_val, args_val, frame):
+    """Format a value using a format string.
+
+    Takes a format string as its first argument (via binding syntax).
+    Substitutes %(ref) and $(name) tokens with values drawn from the piped input.
+
+    Token syntax:
+      %()     — the whole input value
+      %(#N)   — Nth unnamed (positional) field, 1-based
+      %(name) — named struct field 'name'
+
+    Example:
+      12 | fmt :"%()"               → "12"
+      {name="pete" 3} | fmt :"%(#1) $(name)"  → "3 pete"
+    """
+    import comp._fmt as _fmt
+
+    fmt_val = args_val.positional(0)
+    if fmt_val is None:
+        raise comp.CodeError("fmt requires a format string argument")
+    if fmt_val.shape is not comp.shape_text:
+        raise comp.CodeError(
+            f"fmt expects a text argument, got {fmt_val.format()}"
+        )
+
+    parsed = _fmt.parse_format_text(fmt_val.data)
+    result = _fmt.apply_format(parsed, input_val)
+    return comp.Value.from_python(result)
 
 
 def _builtin_abs(input_val, args_val, frame):

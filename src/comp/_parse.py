@@ -65,6 +65,8 @@ def create_cop_module(module):
         "value.identassign",  # (kids)  same as identifier, but in an assignment
         "value.identifier",  # (kids)
         "value.reference",  # (definition qualified namespace)
+        "value.local",      # (name, kids) resolved local variable; name=str, kids=field access tokens
+        "value.namespace",  # (qualified, module_id) resolved namespace reference
         "value.constant",  # (value) Constant value
         "ident.input",  # (value)
         "ident.token",  # (value)
