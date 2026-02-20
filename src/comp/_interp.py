@@ -217,12 +217,18 @@ class Interp:
         compiler = compiler_token.value
 
         # Get source: text -> [DUBQUOTE, SHORT_TEXT_CONTENT, DUBQUOTE] or [SIXQUOTE, LONG_TEXT_CONTENT, SIXQUOTE]
+        # Or text -> [STRING] where STRING includes quotes
         # Find the content token (middle one)
         source = ""
         for child in text_node.children:
-            if isinstance(child, lark.Token) and "CONTENT" in child.type:
-                source = child.value
-                break
+            if isinstance(child, lark.Token):
+                if "CONTENT" in child.type:
+                    source = child.value
+                    break
+                if child.type == "STRING":
+                    # STRING token includes quotes, strip them
+                    source = child.value[1:-1]
+                    break
 
         return {"compiler": compiler, "source": source}
 
@@ -495,8 +501,8 @@ class ExecutionFrame:
                 shape_defn = defn
                 continue
                 
-            # Skip if not a block definition or not folded yet
-            if defn.shape is not comp.shape_block:
+            # Skip if not a block/func definition or not folded yet
+            if defn.shape is not comp.shape_block and defn.shape is not comp.shape_func:
                 continue
             if defn.value is None:
                 continue
@@ -746,17 +752,13 @@ class LoadOverload(Instruction):
     def execute(self, frame):
         definition_set = comp.DefinitionSet()
         for name in self.names:
-            # First check local environment for the definition
-            if name in frame.env:
-                value = frame.env[name]
-                # If it's already a block value, we need to wrap it
-                # This shouldn't normally happen - env usually has Values
-                continue
-            
-            # Look up definition from module definitions
+            # Look up definition from module namespace
             defn = frame.lookup(name)
             if defn is not None:
-                definition_set.definitions.add(defn)
+                if isinstance(defn, comp.DefinitionSet):
+                    definition_set.definitions.update(defn.definitions)
+                elif isinstance(defn, comp.Definition):
+                    definition_set.definitions.add(defn)
         
         if not definition_set.definitions:
             raise NameError(f"No overloads found for '{self.names}'")
@@ -985,7 +987,15 @@ class BuildBlock(Instruction):
             for kid in kids:
                 kid_tag = comp.cop_tag(kid)
                 ref_name = None
-                if kid_tag == "value.namespace":
+                # Handle folded constant containing a Shape directly
+                if kid_tag == "value.constant":
+                    try:
+                        const_val = kid.field("value")
+                        if isinstance(const_val.data, comp.Shape):
+                            return const_val.data
+                    except (KeyError, AttributeError):
+                        pass
+                elif kid_tag == "value.namespace":
                     try:
                         ref_name = kid.to_python("qualified")
                         if isinstance(ref_name, list):

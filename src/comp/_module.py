@@ -590,9 +590,12 @@ class DefinitionSet:
         return shapes[0]
 
     def invokables(self):
-        """Get all invokeable (blocks and/or a single shape) or empty list"""
+        """Get all invokeable (blocks, funcs, and/or a single shape) or empty list"""
         shapes = [d for d in self.definitions if d.shape is comp.shape_shape]
-        blocks = [d for d in self.definitions if d.shape is comp.shape_block]
+        blocks = [
+            d for d in self.definitions
+            if d.shape is comp.shape_block or d.shape is comp.shape_func
+        ]
         if len(shapes) > 1:
             return None
         if len(blocks) + len(shapes) != len(self.definitions):

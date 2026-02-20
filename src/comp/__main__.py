@@ -694,6 +694,7 @@ def main():
             for name, definition in defs.items():
                 if definition.instructions:
                     result = interp.execute(definition.instructions, env, module=mod)
+                    definition.value = result
                     env[name] = result
 
             # Look for !startup main and run it if present
