@@ -126,7 +126,7 @@ replacing method chaining and nested function calls from other languages.
 {5 3 8 1 7 9}
 | reduce :initial=nil :(tree-insert)
 | tree-values
-| print
+| output
 ```
 
 The syntax treats it like any binary operator which can be packed into a single

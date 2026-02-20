@@ -5,9 +5,9 @@ the contents of a shopping cart.
 
 Highlights:
 
-- Entire module compiles to a single constant print statement, all functions are
-  pure and all inputs are literals, so the compiler folds everything at build
-  time 
+- Entire module compiles to a single constant output statement, all functions 
+  are pure and all inputs are literals, so the compiler folds everything at 
+  build time 
 - `upsert` combines replace with `else` fallback to express "update or insert"
   as a single pipeline
 - Shape constructors like `item` and `cart` work as pipeline functions, data
@@ -33,7 +33,7 @@ Highlights:
     | reduce :(upsert :($.name))
     | cart :discount=0.2
     | total
-    | print :"Total: %()"
+    | output :"Total: %()"
 )
 
 !pure total ~cart ( 

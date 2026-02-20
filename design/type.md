@@ -99,6 +99,40 @@ The format specifiers inside `[]` follow Python-style conventions for numeric
 formatting (`.2f`, `04d`) and can also reference Comp functions (`upper`,
 `trim`) for string transformations.
 
+### Output Styling
+
+The default way to output text with comp is the builtin `output` function. This
+will apply Comp's formatting to a simple string and write it to the configured
+output stream (usually standard out).
+
+The output function can also apply simple coloring to the output when
+appropriate, and avoid it when not desired.
+
+Colors are applied to a string using a backlash followed by letters surrounded
+be dashes. Each letter applies a color or font style.
+
+Syntax:
+    \\-r-  red        \\-g-  green      \\-b-  blue       \\-y-  yellow
+    \\-c-  cyan       \\-m-  magenta    \\-w-  white      \\-k-  black
+    \\-s-  strong (bold/bright)         \\-d-  dim
+    \\-n-  normal (reset all)
+
+Multiple letters can be combined into one expression like `\-gb- for bold green
+text. Each format code completely resets the color and style for the following
+text.
+
+This colorization is used by default for terminal outputs, and can be
+controlled with the standard `$NO_COLOR` environment variable.
+
+```comp
+"Hello, \-s-World" | output
+
+"\-s-Bold text\-n- normal"         // strong (bold)
+"\-r-Red error\-n-"                // red color
+"\-rs-Bold red alert\-n-"          // combined: red + strong
+"\-g-Success\-n- \-d-details\-n-"  // multiple regions
+```
+
 ## Booleans
 
 The values `true` and `false` are predefined tags in the `bool` hierarchy. They

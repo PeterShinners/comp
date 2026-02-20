@@ -8,7 +8,9 @@ __all__ = [
 ]
 
 import inspect
+import sys
 import comp
+import comp._colorize
 
 
 def _make_constant_cop(value):
@@ -195,7 +197,7 @@ class SystemModule(comp.Module):
         self._add_callable("morph", _builtin_morph)
         self._add_callable("mask", _builtin_mask)
         self._add_callable("abs", _builtin_abs)
-        self._add_callable("print", _builtin_print)
+        self._add_callable("output", _builtin_output)
         self._add_callable("fmt", _builtin_fmt)
 
         self.finalize()
@@ -356,9 +358,31 @@ def _builtin_mask(input_val, args_val, frame):
 
 
 
-def _builtin_print(input_val, args_val, frame):
-    """Print a value to stdout."""
-    print(input_val.format())
+# Global flag for colorization - will be replaced by context system later
+_should_colorize = None
+
+def _builtin_output(input_val, args_val, frame):
+    """Output a value to stdout with optional colorization.
+    
+    Applies ANSI color codes from \\-X- markup when outputting to TTY.
+    Respects NO_COLOR environment variable.
+    """
+    global _should_colorize
+    
+    # Initialize should_colorize on first use
+    if _should_colorize is None:
+        _should_colorize = comp._colorize.should_use_color(sys.stdout)
+    
+    # Format the value
+    text = input_val.format()
+    
+    # Apply or strip color codes
+    if _should_colorize:
+        output_text = comp._colorize.apply_ansi(text)
+    else:
+        output_text = comp._colorize.strip_codes(text)
+    
+    print(output_text)
     return input_val
 
 

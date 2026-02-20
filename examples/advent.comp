@@ -12,7 +12,7 @@ Highlights:
     | map :parse
     | accumulate :50 :($ + $.value)
     | count :($ | divmod :100 | $ == 0)
-    | print
+    | output
 )
 
 !pure parse ~text (
@@ -42,7 +42,7 @@ Highlights:
     | group :($.path) | sum :($.size)
     | where :($.size <= 100000)
     | sum :($.size)
-    | print
+    | output
 )
 
 !func parse-entries ~texts (

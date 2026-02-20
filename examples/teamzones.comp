@@ -39,7 +39,7 @@ Highlights:
 
 	core-team
 	| with-local-time :event=$.next-call
-	| print :"For the next event on %(next-call)..."
+	| output :"For the next event on %(next-call)..."
 	| table.markdown
 )
 

@@ -187,7 +187,7 @@ flow through the entire call chain.
     {5 3 8 1 7 9}
     | reduce :initial=nil :(tree-insert)
     | tree-values
-    | print
+    | output
 )
 
 !startup rio {

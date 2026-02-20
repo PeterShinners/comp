@@ -25,9 +25,9 @@ Highlights:
     | stack-push :"second"
     | stack-push :"third"
 	| forever :(
-		stack-pop | print :"Popped: %()" |? break
+		stack-pop | output :"Popped: %()" |? break
     )
-    | print :"Stack empty, done"
+    | output :"Stack empty, done"
 )
 
 
