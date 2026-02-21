@@ -54,6 +54,7 @@ def create_cop_module(module):
         "statement.define",  # (kids) sequence of statements
         "statement.field",  # (kids) single statement/expression in a sequence
         "op.let",  # (kids) 2 kids - name and value for !let assignment
+        "op.ctx",  # (kids) 2 kids - name and value for !ctx (like !let, also updates frame context)
         "op.on",  # (kids) expression and branches for !on dispatch
         "op.on.branch",  # (kids) 2 kids - shape and expression for an !on branch
         "struct.define",  # (kids)
@@ -351,10 +352,10 @@ def lark_to_cop(tree):
             items = []
             for kid in kids[start_idx:]:
                 item = lark_to_cop(kid)
-                # If item is not already a field wrapper (struct.namefield or op.let),
-                # wrap it in struct.posfield
+                # If item is not already a field wrapper (struct.namefield, op.let,
+                # or op.ctx), wrap it in struct.posfield
                 item_tag = comp.cop_tag(item)
-                if item_tag not in ("struct.namefield", "op.let"):
+                if item_tag not in ("struct.namefield", "op.let", "op.ctx"):
                     item = _parsed(kid, "struct.posfield", [item])
                 items.append(item)
 
@@ -411,6 +412,13 @@ def lark_to_cop(tree):
             name = lark_to_cop(kids[1])
             value = lark_to_cop(kids[2])
             return _parsed(tree, "op.let", [name, value])
+
+        case "ctx_assign":
+            # ctx_assign: OP_CTX identifier expression
+            # kids[0] = OP_CTX, kids[1] = identifier, kids[2] = expression
+            name = lark_to_cop(kids[1])
+            value = lark_to_cop(kids[2])
+            return _parsed(tree, "op.ctx", [name, value])
 
         case "block":
             # Signature is shape_fields (all kids except first COLON and last structure)
@@ -878,7 +886,9 @@ def lark_to_cop(tree):
                     name_str = first_kid.field("value").data
 
             # Build signature.param field
-            field_kids = [shape_cop]
+            # shape_cop may be a list [type_spec, shape.default] when the shape
+            # grammar rule consumed an inline default (e.g. ~num=4).  Spread it.
+            field_kids = list(shape_cop) if isinstance(shape_cop, list) else [shape_cop]
             if default_cop:
                 field_kids.append(default_cop)
             return _parsed(tree, "signature.param", field_kids, name=name_str)
@@ -903,7 +913,9 @@ def lark_to_cop(tree):
                     name_str = first_kid.field("value").data
 
             # Build signature.block field with optional default
-            field_kids = [shape_cop]
+            # shape_cop may be a list [type_spec, shape.default] when the shape
+            # grammar rule consumed an inline default.  Spread it.
+            field_kids = list(shape_cop) if isinstance(shape_cop, list) else [shape_cop]
             if default_cop:
                 field_kids.append(default_cop)
             return _parsed(tree, "signature.block", field_kids, name=name_str)

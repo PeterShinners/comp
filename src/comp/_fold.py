@@ -217,6 +217,14 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
         if tag == "struct.define":
             return _fold_struct(cop, new_kids)
 
+        if tag == "op.on":
+            cond_val = _get_constant(new_kids[0])
+            if cond_val is not None:
+                for branch_cop in new_kids[1:]:
+                    result_cop = _try_fold_on_branch(cond_val, branch_cop)
+                    if result_cop is not None:
+                        return result_cop
+
     if changed:
         return comp.cop_rebuild(cop, new_kids)
     return cop
@@ -287,7 +295,7 @@ def _extract_let_name(cop):
         if kids:
             return _extract_let_name(kids[0])
         return None
-    if tag == "op.let":
+    if tag in ("op.let", "op.ctx"):
         kids = comp.cop_kids(cop)
         if kids:
             return _get_ident_name(kids[0])
@@ -689,6 +697,52 @@ def _make_reference(original, qualified, module_id):
         except (KeyError, AttributeError):
             pass
     return comp.create_cop("value.reference", [], **fields)
+
+
+def _try_fold_on_branch(cond_val, branch_cop):
+    """Try to constant-fold one op.on branch against a known condition value.
+
+    Works when the branch pattern is a simple shape.define wrapping a single
+    constant Tag or Shape (e.g. ~true, ~false, ~text) that has already been
+    folded by _fold_namespace.
+
+    Args:
+        cond_val: (Value) The constant condition value
+        branch_cop: (Value) The op.on.branch COP node (already walked)
+
+    Returns:
+        (Value | None) The result COP node if the branch matches, else None
+    """
+    branch_kids = comp.cop_kids(branch_cop)
+    if len(branch_kids) < 2:
+        return None
+    pattern_cop, result_cop = branch_kids[0], branch_kids[1]
+
+    # Only handle shape.define patterns
+    if comp.cop_tag(pattern_cop) != "shape.define":
+        return None
+    shape_kids = comp.cop_kids(pattern_cop)
+    if len(shape_kids) != 1:
+        return None  # Structural shape with multiple fields — skip
+
+    inner_val = _get_constant(shape_kids[0])
+    if inner_val is None:
+        return None  # Pattern not folded to a constant — can't fold at compile time
+
+    pattern_data = inner_val.data
+    if not isinstance(pattern_data, (comp.Tag, comp.Shape, comp.ShapeUnion)):
+        return None
+
+    # morph() works with frame=None for Tag and primitive Shape patterns
+    # (frame is only used for struct default values, which aren't involved here)
+    try:
+        morph_result = comp._morph.morph(cond_val, pattern_data, None)
+        if not morph_result.failure_reason:
+            return result_cop
+    except (AttributeError, TypeError):
+        pass
+
+    return None
 
 
 def _get_constant(cop):

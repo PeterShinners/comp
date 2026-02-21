@@ -78,6 +78,7 @@ QUOTE.6: "'"
 // ===== KEYWORDS & OPERATORS =====
 // Statement operators (high priority to match before standalone !)
 OP_LET.7: "!let"
+OP_CTX.7: "!ctx"
 OP_TRANSACT.7: "!transact"
 OP_ON.7: "!on"
 OP_DEFER.7: "!defer"
@@ -209,8 +210,8 @@ statement_body: signature statement_item*
 structure_body: signature structure_item*
               | structure_item*
 
-statement_item: let_assign | expression
-structure_item: let_assign | field_or_expr
+statement_item: let_assign | ctx_assign | expression
+structure_item: let_assign | ctx_assign | field_or_expr
 
 field_or_expr: TOKENFIELD EQUALS expression -> named_field
              | expression
@@ -220,6 +221,7 @@ param_decl: OP_PARAM identifier shape (EQUALS simple_expr)?
 block_decl: OP_BLOCK identifier shape (EQUALS simple_expr)?
 
 let_assign: OP_LET identifier expression
+ctx_assign: OP_CTX identifier expression
 
 
 // ===== IDENTIFIERS =====

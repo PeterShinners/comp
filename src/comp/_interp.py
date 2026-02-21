@@ -249,15 +249,18 @@ class ExecutionFrame:
         parent_frame: The frame that spawned this one (None for top-level)
         live_handles: Set of HandleInstance objects grabbed by this frame
             (None until the first !grab, to avoid allocating a set for every frame)
+        context: Dict of name->Value pairs that flow down into called functions
+            as implicit named argument defaults (!ctx bindings)
     """
 
-    def __init__(self, env=None, interp=None, module=None, parent_frame=None):
+    def __init__(self, env=None, interp=None, module=None, parent_frame=None, context=None):
         self.registers = []  # List indexed by instruction number
         self.env = env if env is not None else {}
         self.interp = interp
         self.module = module
         self.parent_frame = parent_frame
         self.live_handles = None  # Set[HandleInstance] | None
+        self.context = context if context is not None else {}
 
     def run(self, instructions):
         """Execute a list of instructions, return final result.
@@ -431,6 +434,12 @@ class ExecutionFrame:
                 raise comp.CodeError(f"Input morph failed: {morph_result.failure_reason}", block_val.cop)
             input_val = morph_result.value
 
+        # Inject context values as implicit defaults for named arg-shape fields
+        # not explicitly provided by the caller.  The mask step that follows will
+        # validate types and apply real shape defaults when needed.
+        if block.arg_shape and isinstance(block.arg_shape, comp.Shape) and self.context:
+            args_val = _inject_context(args_val, block.arg_shape, self)
+
         # Mask arguments to arg shape
         if block.arg_shape and isinstance(block.arg_shape, comp.Shape):
             masked_val, error = comp.mask(args_val, block.arg_shape, self)
@@ -449,6 +458,17 @@ class ExecutionFrame:
                 new_env[block.input_name] = input_val
             else:
                 new_env[block.input_name] = args_val
+
+        # Spread signature.param names individually into the environment.
+        # These come from :param declarations such as ":param timeout ~num=4".
+        # After mask(), args_val is a named struct like {timeout: 4}; each
+        # field is bound directly so the body can use `timeout` as a local.
+        if block.param_names and isinstance(args_val.data, dict):
+            param_set = set(block.param_names)
+            for k, v in args_val.data.items():
+                fname = comp._morph._get_field_key(k)
+                if fname is not None and fname in param_set:
+                    new_env[fname] = v
 
         # Always bind $ to current input (nil if no piped), shifting $→$$ and $$→$$$
         new_env["$$$"] = new_env.get("$$", _nil)
@@ -557,11 +577,76 @@ class ExecutionFrame:
         Returns:
             New ExecutionFrame (or subclass)
         """
-        return ExecutionFrame(env=env, interp=self.interp, module=module or self.module, parent_frame=self)
+        return ExecutionFrame(env=env, interp=self.interp, module=module or self.module, parent_frame=self, context=dict(self.context))
 
 
 # Instruction Classes
 # ===================
+
+
+def _inject_context(args_val, arg_shape, frame):
+    """Augment args_val with context values for named shape fields not yet provided.
+
+    For each named field declared in arg_shape that is absent from the explicit
+    args struct, check whether the frame context carries a value under that name.
+    If so, and the value passes the shape field's type constraint, inject it as an
+    additional named field.  The mask step that follows will pick it up in phase-1
+    (named matching) exactly like an explicitly-passed argument.
+
+    Args:
+        args_val: (Value) The caller-supplied argument struct
+        arg_shape: (Shape) The function's argument shape
+        frame: (ExecutionFrame) The calling frame whose context is consulted
+
+    Returns:
+        (Value) Possibly-augmented args struct (original if nothing was injected)
+    """
+    # Collect the names already present in explicit args, and count positionals
+    explicit_names = set()
+    positional_count = 0
+    if isinstance(args_val.data, dict):
+        for k in args_val.data:
+            field_name = comp._morph._get_field_key(k)
+            if field_name is not None:
+                explicit_names.add(field_name)
+            else:
+                positional_count += 1
+
+    # Count how many shape fields could still be satisfied by positional matching
+    # (those not already provided by name).  If positionals could cover all of them,
+    # context injection would just override what the caller intended.  Skip injection
+    # for those fields so the mask positional-matching pass handles them instead.
+    unnamed_fillable = [
+        sf for sf in arg_shape.fields
+        if sf.name not in explicit_names
+    ]
+    positionals_will_fill = min(positional_count, len(unnamed_fillable))
+
+    injections = {}
+    unfilled_by_positional = 0  # track fields context may still fill
+    for shape_field in arg_shape.fields:
+        name = shape_field.name
+        if name is None or name in explicit_names:
+            continue
+        # If this field would be covered by a positional arg, skip context injection
+        if unfilled_by_positional < positionals_will_fill:
+            unfilled_by_positional += 1
+            continue
+        unfilled_by_positional += 1
+        ctx_val = frame.context.get(name)
+        if ctx_val is None:
+            continue
+        # Only inject if the value satisfies the field's type constraint
+        constraint = comp._morph._resolve_shape_field(shape_field, frame)
+        if constraint is None or comp._morph._check_type(ctx_val, constraint, frame):
+            injections[comp.Value.from_python(name)] = ctx_val
+
+    if not injections:
+        return args_val
+
+    new_data = dict(args_val.data) if isinstance(args_val.data, dict) else {}
+    new_data.update(injections)
+    return comp.Value(new_data)
 
 
 def _frame_exit_cleanup(frame, result):
@@ -771,6 +856,29 @@ class LoadOverload(Instruction):
         return f"%{idx}  LoadOverload [{names_str}]"
 
 
+class SetContext(Instruction):
+    """Evaluate an expression, store in local env, and add to frame context (!ctx).
+
+    Like StoreLocal but also updates frame.context so the binding flows down
+    as an implicit named argument default into any function called from this
+    frame or its descendants.
+    """
+
+    def __init__(self, cop, name, source):
+        super().__init__(cop)
+        self.name = name
+        self.source = source  # int index of source instruction
+
+    def execute(self, frame):
+        value = frame.get_value(self.source)
+        frame.env[self.name] = value
+        frame.context[self.name] = value
+        return frame.set_result(value)
+
+    def format(self, idx):
+        return f"%{idx}  SetContext '{self.name}' = %{self.source}"
+
+
 class StoreLocal(Instruction):
     """Store a value into the local frame environment.
 
@@ -929,49 +1037,175 @@ class BuildBlock(Instruction):
         block.body_instructions = self.body_instructions
         block.closure_env = dict(frame.env)
         block.signature_cop = self.signature_cop
-        
-        # Parse signature to extract parameter names and shapes
-        # shape.define contains shape.field children with name="paramname" attribute
-        sig_kids = comp.cop_kids(self.signature_cop)
-        for i, field_cop in enumerate(sig_kids):
-            # shape.field has name attribute directly
-            try:
-                param_name = field_cop.to_python("name")
-            except (KeyError, AttributeError):
-                param_name = None
 
-            # Extract shape from field children
-            param_shape = None
-            field_kids = comp.cop_kids(field_cop)
-            for fkid in field_kids:
-                fkid_tag = comp.cop_tag(fkid)
-                if fkid_tag == "shape.define":
-                    # Build the shape from the nested shape.define
-                    param_shape = self._build_shape_from_cop(fkid, frame)
-                    break
-                elif fkid_tag == "value.identifier":
-                    # Direct reference like ~num - look it up
-                    id_kids = comp.cop_kids(fkid)
-                    if id_kids:
-                        ref_name = id_kids[0].to_python("value")
-                        defn = frame.lookup(ref_name) if hasattr(frame, "lookup") else None
-                        if defn and defn.value:
-                            param_shape = defn.value.data
-                    break
+        # Parse signature to extract parameter names and shapes.
+        # Two formats may appear depending on origin:
+        #
+        #   block.signature from _build_function:
+        #     kids are tagged signature.input / signature.param / signature.block
+        #
+        #   shape.define from _build_block (inline block):
+        #     kids are shape.field nodes with a "name" attribute (legacy format)
+        #
+        # We dispatch on each kid's COP tag.  signature.param kids accumulate into
+        # an arg Shape with named ShapeFields; legacy shape.field kids use the old
+        # i==0 (input) / i==1 (arg) index convention.
+        sig_kids = list(comp.cop_kids(self.signature_cop))
+        param_fields = []  # accumulated ShapeField objects for signature.param nodes
+        legacy_index = 0   # fallback counter for shape.field kids
 
-            if i == 0:
-                if param_name:
-                    block.input_name = param_name
-                if param_shape is not None:
-                    block.input_shape = param_shape
-            elif i == 1:
-                if param_name:
-                    block.arg_name = param_name
-                if param_shape is not None:
-                    block.arg_shape = param_shape
-        
+        for field_cop in sig_kids:
+            field_tag = comp.cop_tag(field_cop)
+
+            if field_tag == "signature.input":
+                # --- Input shape declaration (no binding name) ---
+                inner_kids = list(comp.cop_kids(field_cop))
+                for fkid in inner_kids:
+                    fkid_tag = comp.cop_tag(fkid)
+                    if fkid_tag == "shape.define":
+                        block.input_shape = self._build_shape_from_cop(fkid, frame)
+                        break
+                    elif fkid_tag in ("value.identifier", "value.constant"):
+                        resolved = self._resolve_shape_ref(fkid, frame)
+                        if resolved is not None:
+                            block.input_shape = resolved
+                        break
+
+            elif field_tag in ("signature.param", "signature.block"):
+                # --- Named arg param declaration ---
+                try:
+                    param_name = field_cop.to_python("name")
+                except (KeyError, AttributeError):
+                    param_name = None
+
+                inner_kids = list(comp.cop_kids(field_cop))
+                param_type_shape = None
+                param_default = None
+
+                for fkid in inner_kids:
+                    fkid_tag = comp.cop_tag(fkid)
+                    if fkid_tag == "shape.default":
+                        # Extract the default value expression
+                        default_kids = list(comp.cop_kids(fkid))
+                        if default_kids:
+                            dk = default_kids[0]
+                            dk_tag = comp.cop_tag(dk)
+                            if dk_tag == "value.constant":
+                                try:
+                                    param_default = dk.field("value")
+                                except (KeyError, AttributeError):
+                                    pass
+                            # Non-constant defaults are not yet supported here;
+                            # leave param_default as None (mask will apply None which
+                            # means the field is required — add COP eval later).
+                    elif fkid_tag == "shape.define":
+                        param_type_shape = self._build_shape_from_cop(fkid, frame)
+                    else:
+                        resolved = self._resolve_shape_ref(fkid, frame)
+                        if resolved is not None:
+                            param_type_shape = resolved
+
+                sf = comp.ShapeField(name=param_name, shape=param_type_shape, default=param_default)
+                param_fields.append(sf)
+
+            else:
+                # --- Legacy shape.field format (inline blocks) ---
+                try:
+                    param_name = field_cop.to_python("name")
+                except (KeyError, AttributeError):
+                    param_name = None
+
+                param_shape = None
+                field_kids = list(comp.cop_kids(field_cop))
+                for fkid in field_kids:
+                    fkid_tag = comp.cop_tag(fkid)
+                    if fkid_tag == "shape.define":
+                        param_shape = self._build_shape_from_cop(fkid, frame)
+                        break
+                    elif fkid_tag in ("value.identifier", "value.constant", "value.namespace"):
+                        resolved = self._resolve_shape_ref(fkid, frame)
+                        if resolved is not None:
+                            param_shape = resolved
+                        break
+
+                if legacy_index == 0:
+                    if param_name:
+                        block.input_name = param_name
+                    if param_shape is not None:
+                        block.input_shape = param_shape
+                elif legacy_index == 1:
+                    if param_name:
+                        block.arg_name = param_name
+                    if param_shape is not None:
+                        block.arg_shape = param_shape
+                legacy_index += 1
+
+        # Build arg Shape from accumulated signature.param fields
+        if param_fields:
+            arg_shape = comp.Shape("args", private=False)
+            arg_shape.fields = param_fields
+            block.arg_shape = arg_shape
+            block.param_names = [f.name for f in param_fields if f.name]
+
         result = comp.Value(block)
         return frame.set_result(result)
+
+    def _resolve_shape_ref(self, fkid, frame):
+        """Resolve a COP node that references a shape by name (value.identifier etc.).
+
+        Args:
+            fkid: (Value) COP node — value.identifier, value.namespace, or value.constant
+            frame: (ExecutionFrame) Frame for env/namespace lookup
+
+        Returns:
+            (Shape | Tag | ShapeUnion | None) Resolved shape, or None if not resolvable
+        """
+        fkid_tag = comp.cop_tag(fkid)
+        if fkid_tag == "value.constant":
+            try:
+                const_val = fkid.field("value")
+                if isinstance(const_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                    return const_val.data
+            except (KeyError, AttributeError):
+                pass
+            return None
+
+        ref_name = None
+        if fkid_tag == "value.identifier":
+            id_kids = comp.cop_kids(fkid)
+            if id_kids:
+                try:
+                    ref_name = id_kids[0].to_python("value")
+                except (KeyError, AttributeError):
+                    pass
+        elif fkid_tag == "value.namespace":
+            try:
+                ref_name = fkid.to_python("qualified")
+                if isinstance(ref_name, list):
+                    ref_name = None
+            except (KeyError, AttributeError):
+                pass
+
+        if not ref_name:
+            return None
+
+        # Check frame env first
+        if hasattr(frame, "env") and ref_name in frame.env:
+            env_val = frame.env[ref_name]
+            if hasattr(env_val, "data") and isinstance(env_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                return env_val.data
+
+        # Fall back to namespace definition
+        defn = frame.lookup(ref_name) if hasattr(frame, "lookup") else None
+        if defn is not None:
+            if isinstance(defn, comp.DefinitionSet):
+                defs = list(defn.definitions)
+                defn = defs[0] if defs else None
+            if defn is not None and hasattr(defn, "value") and defn.value is not None:
+                resolved = defn.value.data
+                if isinstance(resolved, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                    return resolved
+        return None
 
     def _build_shape_from_cop(self, shape_cop, frame):
         """Build a Shape object from a shape.define COP node.
@@ -1294,3 +1528,56 @@ class PushHandle(Instruction):
 
     def format(self, idx):
         return f"%{idx}  PushHandle %{self.handle_reg} %{self.data_reg}"
+
+
+class DispatchOn(Instruction):
+    """Pattern-dispatch operator (!on).
+
+    Evaluates the condition value, then tests each branch pattern (a Shape)
+    in order via morph. Returns the result of the first matching branch.
+    Raises CodeError if no branch matches.
+
+    Each branch is a pair of instruction lists:
+      - pattern_instructions: produces the Shape to match against
+      - result_instructions: produces the value to return on match
+
+    Both lists are run in child frames that share the current
+    lexical environment so that !let bindings remain accessible.
+    """
+
+    def __init__(self, cop, condition, branches):
+        super().__init__(cop)
+        self.condition = condition  # int register index of the condition value
+        self.branches = branches  # list of (pattern_instructions, result_instructions)
+
+    def execute(self, frame):
+        condition_val = frame.get_value(self.condition)
+
+        for pattern_instructions, result_instructions in self.branches:
+            # Build the shape/tag pattern in a child frame sharing current env
+            pattern_frame = frame._make_child_frame(dict(frame.env), module=frame.module)
+            pattern_val = pattern_frame.run(pattern_instructions)
+
+            if pattern_val is None:
+                continue
+
+            pattern_data = pattern_val.data
+
+            # morph() accepts Shape, ShapeUnion, and Tag — pass the raw data object.
+            # For anything else (e.g. a bare constant), fall back to equality.
+            if isinstance(pattern_data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                morph_result = comp.morph(condition_val, pattern_data, frame)
+                matched = not morph_result.failure_reason
+            else:
+                # Direct equality: the condition must produce the same value
+                matched = (comp._ops.compare("==", condition_val, pattern_val).data is comp.tag_true)
+
+            if matched:
+                result_frame = frame._make_child_frame(dict(frame.env), module=frame.module)
+                result = result_frame.run(result_instructions)
+                return frame.set_result(result)
+
+        raise comp.CodeError("No branch matched in !on dispatch", self.cop)
+
+    def format(self, idx):
+        return f"%{idx}  DispatchOn %{self.condition} ({len(self.branches)} branches)"

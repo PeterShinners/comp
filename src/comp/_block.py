@@ -30,6 +30,7 @@ class Block:
         body_instructions: (list) Compiled bytecode for the body
         closure_env: (dict) Captured environment from definition site
         signature_cop: (Value) Original signature COP node
+        param_names: (list) Names from signature.param nodes for individual env binding
     """
 
     __slots__ = (
@@ -47,6 +48,7 @@ class Block:
         "body_instructions",
         "closure_env",
         "signature_cop",
+        "param_names",
     )
 
     def __init__(self, qualified, private):
@@ -63,6 +65,7 @@ class Block:
         self.body_instructions = None
         self.closure_env = {}
         self.signature_cop = None
+        self.param_names = []
 
     def __repr__(self):
         return f"Block<{self.qualified}>"

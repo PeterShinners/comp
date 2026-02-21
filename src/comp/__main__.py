@@ -324,6 +324,9 @@ def main():
     modes.add_argument("--namespace", action="store_true", help="Show the module's finalized namespace with all definitions")
     modes.add_argument("--definitions", action="store_true", help="Show list of module definition")
 
+    parser.add_argument("--startup", metavar="NAME", default="main",
+                        help="Entry point to run (default: main)")
+
     argv = None
     try:
         import debugpy
@@ -431,8 +434,8 @@ def main():
 
                 if args.trace:
                     class TracingFrame(comp.ExecutionFrame):
-                        def __init__(self, env=None, interp=None, module=None, depth=0):
-                            super().__init__(env, interp, module)
+                        def __init__(self, env=None, interp=None, module=None, depth=0, context=None):
+                            super().__init__(env, interp, module, context=context)
                             self.depth = depth
                         def on_step(self, idx, instr, result):
                             indent = "  " * self.depth
@@ -440,7 +443,8 @@ def main():
                             print(f"{indent}{instr.format(idx)}  ->  {result_str}")
                         def _make_child_frame(self, env, module=None):
                             return TracingFrame(env=env, interp=self.interp,
-                                               module=module or self.module, depth=self.depth + 1)
+                                               module=module or self.module, depth=self.depth + 1,
+                                               context=dict(self.context))
                     frame = TracingFrame(env, interp=interp, module=None, depth=0)
                     result = frame.run(instructions)
                 else:
@@ -520,13 +524,14 @@ def main():
                 cop = definition.resolved_cop if (args.resolve or args.fold or args.pure) else definition.original_cop
                 prettycop(cop, show_pos=args.pos)
 
-            # Also show !startup main if present
-            startup_cop = mod.startup("main") if mod is not None else None
+            # Also show !startup if present
+            startup_name = args.startup
+            startup_cop = mod.prepare_startup(startup_name)[0] if mod is not None else None
             if startup_cop is not None:
                 if args.resolve or args.fold or args.pure:
                     startup_cop = comp.coptimize(startup_cop, args.fold, namespace)
                 print(f"\n{'='*60}")
-                print(f"!startup main")
+                print(f"!startup {startup_name}")
                 print(f"{'='*60}")
                 prettycop(startup_cop, show_pos=args.pos)
 
@@ -658,12 +663,13 @@ def main():
                 else:
                     print("  (no instructions)")
 
-            # Also show !startup main if present
-            startup_cop = mod.startup("main") if mod is not None else None
+            # Also show !startup if present
+            startup_name = args.startup
+            startup_cop = mod.prepare_startup(startup_name)[0] if mod is not None else None
             if startup_cop is not None:
                 resolved_startup = comp.coptimize(startup_cop, do_fold, namespace)
                 startup_instructions = comp.generate_code_for_definition(resolved_startup)
-                print(f"\n!startup main")
+                print(f"\n!startup {startup_name}")
                 print(f"Source: {comp.cop_unparse(startup_cop)}")
                 print("-" * 40)
                 for i, instr in enumerate(startup_instructions):
@@ -678,8 +684,8 @@ def main():
             if args.trace:
                 # Create tracing frame subclass (used only for startup execution)
                 class TracingFrame(comp.ExecutionFrame):
-                    def __init__(self, env=None, interp=None, module=None, depth=0):
-                        super().__init__(env, interp, module)
+                    def __init__(self, env=None, interp=None, module=None, depth=0, context=None):
+                        super().__init__(env, interp, module, context=context)
                         self.depth = depth
 
                     def on_step(self, idx, instr, result):
@@ -688,7 +694,7 @@ def main():
                         print(f"{indent}{instr.format(idx)}  ->  {result_str}")
 
                     def _make_child_frame(self, env, module=None):
-                        return TracingFrame(env=env, interp=self.interp, module=module or self.module, depth=self.depth + 1)
+                        return TracingFrame(env=env, interp=self.interp, module=module or self.module, depth=self.depth + 1, context=dict(self.context))
 
             # Execute definitions silently (definitions are setup, not the traced program)
             for name, definition in defs.items():
@@ -697,25 +703,27 @@ def main():
                     definition.value = result
                     env[name] = result
 
-            # Look for !startup main and run it if present
-            startup_cop = mod.startup("main") if mod is not None else None
+            # Look for the named !startup and run it if present
+            startup_name = args.startup
+            startup_cop, context = mod.prepare_startup(startup_name) if mod is not None else (None, None)
             if startup_cop is not None:
                 resolved_startup = comp.coptimize(startup_cop, do_fold, namespace)
                 startup_instructions = comp.generate_code_for_definition(resolved_startup)
 
                 if args.trace:
-                    print(f"\n-- startup main --")
+                    print(f"\n-- startup {startup_name} --")
                     frame = TracingFrame(env, interp=interp, module=mod, depth=0)
                     startup_block = frame.run(startup_instructions)
                     # function.define returns the Block; invoke it explicitly
                     if startup_block is not None and isinstance(startup_block.data, comp.Block):
-                        frame.invoke_block(startup_block, comp.Value.from_python({}), piped=None)
+                        frame.invoke_block(startup_block, context, piped=None)
                 else:
                     startup_block = interp.execute(startup_instructions, env, module=mod)
                     # function.define returns the Block; invoke it explicitly
                     if startup_block is not None and isinstance(startup_block.data, comp.Block):
                         startup_frame = comp.ExecutionFrame(env, interp=interp, module=mod)
-                        startup_frame.invoke_block(startup_block, comp.Value.from_python({}), piped=None)
+                        result = startup_frame.invoke_block(startup_block, context, piped=None)
+                        print(result.format())
             else:
                 # No startup found - fall back to printing all definition values
                 print("\nResults:")

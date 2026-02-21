@@ -205,6 +205,19 @@ class CodeGenContext:
                 value_idx = self._build_value_ensure_register(value_cop)
                 return self.emit(comp._interp.StoreLocal(cop=cop, name=name, source=value_idx))
 
+            case "op.ctx":
+                # !ctx name expr — like !let but also adds to the running frame context
+                kids = _cop_kids(cop)
+                name = _extract_name(kids[0]) if kids else None
+                value_cop = kids[1] if len(kids) > 1 else None
+                if name is None or value_cop is None:
+                    raise comp.CodeError("op.ctx requires a name and a value expression", cop)
+                value_idx = self._build_value_ensure_register(value_cop)
+                return self.emit(comp._interp.SetContext(cop=cop, name=name, source=value_idx))
+
+            case "op.on":
+                return self._build_on_op(cop)
+
             case _:
                 raise comp.CodeError(f"Unsupported COP tag: {tag}", cop)
     
@@ -327,6 +340,52 @@ class CodeGenContext:
         instr = comp._interp.Invoke(cop=cop, callable=callable_idx, args=args_idx)
         return self.emit(instr)
 
+    def _build_on_op(self, cop):
+        """Build !on dispatch instructions.
+
+        Evaluates a condition expression and dispatches to the first branch
+        whose pattern (shape) successfully morphs the condition value.
+
+        Structure of op.on kids:
+          kids[0]   : condition expression
+          kids[1:]  : op.on.branch nodes, each with:
+                        kids[0] = shape pattern (shape.define)
+                        kids[1] = result expression
+        """
+        kids = _cop_kids(cop)
+        if not kids:
+            raise comp.CodeError("op.on requires at least a condition expression", cop)
+
+        # Build the condition expression into a register
+        condition_idx = self._build_value_ensure_register(kids[0])
+
+        # Build each branch as a pair of instruction lists
+        branches = []
+        for branch_cop in kids[1:]:
+            if comp.cop_tag(branch_cop) != "op.on.branch":
+                raise comp.CodeError(f"Expected op.on.branch, got {comp.cop_tag(branch_cop)}", branch_cop)
+
+            branch_kids = _cop_kids(branch_cop)
+            if len(branch_kids) < 2:
+                raise comp.CodeError("op.on.branch requires a pattern and a result expression", branch_cop)
+
+            # Compile the branch pattern in a fresh sub-context.
+            # The pattern is typically a shape.define. When it wraps a single
+            # identifier (e.g. ~true, ~false), we load it as a name reference so
+            # that DispatchOn receives the actual Tag/Shape object for morph.
+            pattern_ctx = self.__class__()
+            _compile_on_pattern(pattern_ctx, branch_kids[0])
+            pattern_instructions = pattern_ctx.instructions
+
+            # Compile the result expression in a fresh sub-context
+            result_ctx = self.__class__()
+            result_ctx._build_value_ensure_register(branch_kids[1])
+            result_instructions = result_ctx.instructions
+
+            branches.append((pattern_instructions, result_instructions))
+
+        return self.emit(comp._interp.DispatchOn(cop=cop, condition=condition_idx, branches=branches))
+
     def _build_handle_op(self, cop):
         """Build handle operator instructions (!grab, !drop, !pull, !push)."""
         op = cop.to_python("op")
@@ -435,7 +494,17 @@ class CodeGenContext:
             body_cop = kids[0] if kids else None
 
         # Combined signature = kids of function.signature (signature.input etc.)
-        sig_kids = _cop_kids(func_sig_cop) if func_sig_cop else []
+        # plus any signature.param nodes from a leading block.signature in the body.
+        sig_kids = list(_cop_kids(func_sig_cop)) if func_sig_cop else []
+
+        # If the body is a statement.define whose first kid is a block.signature,
+        # extract the param nodes from it and fold them into the combined signature.
+        if body_cop and comp.cop_tag(body_cop) == "statement.define":
+            body_field_kids = _cop_kids(body_cop)
+            if body_field_kids and comp.cop_tag(body_field_kids[0]) == "block.signature":
+                body_sig_kids = _cop_kids(body_field_kids[0])
+                sig_kids = sig_kids + list(body_sig_kids)
+
         combined_sig = comp.create_cop("block.signature", sig_kids)
 
         if body_cop is None:
@@ -467,6 +536,8 @@ class CodeGenContext:
 
         result = None
         for kid in field_kids:
+            if comp.cop_tag(kid) == "block.signature":
+                continue  # metadata: param declarations consumed by _build_function
             if comp.cop_tag(kid) == "statement.field":
                 inner = _cop_kids(kid)
                 if inner:
@@ -491,6 +562,14 @@ class CodeGenContext:
                 inner = _cop_kids(kid)
                 if inner:
                     fields.append((comp.Unnamed(), self._build_value_ensure_register(inner[0])))
+
+            elif tag == "op.let":
+                # !let binding — side effect only, does not contribute a field
+                self._build_value_ensure_register(kid)
+
+            elif tag == "op.ctx":
+                # !ctx binding — side effect only, does not contribute a field
+                self._build_value_ensure_register(kid)
 
             elif tag == "struct.letassign":
                 # Kids: [0]=name identifier, [1]=value expression
@@ -605,6 +684,36 @@ class CodeGenContext:
         else:
             # Complex expression — build normally; the result is used as-is
             return self._build_value_ensure_register(cop)
+
+
+def _compile_on_pattern(ctx, pattern_cop):
+    """Compile an op.on.branch pattern COP into pattern_ctx instructions.
+
+    For simple type-reference patterns like ~true or ~false (a shape.define
+    wrapping a single identifier), emits a LoadVar so that DispatchOn receives
+    the actual Tag or Shape object to morph against.  For complex shapes with
+    fields (struct patterns), builds the full shape definition instead.
+
+    Args:
+        ctx: (CodeGenContext) The pattern sub-context to emit instructions into
+        pattern_cop: (Value) The shape.define COP node for the branch pattern
+
+    Returns:
+        (int) Register index of the pattern value (Tag, Shape, or ShapeUnion)
+    """
+    tag = comp.cop_tag(pattern_cop)
+    if tag == "shape.define":
+        kids = _cop_kids(pattern_cop)
+        # Single identifier child → type/tag reference (e.g. ~true, ~false, ~text)
+        if len(kids) == 1 and comp.cop_tag(kids[0]) in ("value.identifier", "value.namespace", "value.reference"):
+            ref = _shape_ref_or_reg(ctx, kids[0])
+            if isinstance(ref, str):
+                # Static name — emit LoadVar to get the Tag/Shape value at runtime
+                return ctx.emit(comp._interp.LoadVar(cop=pattern_cop, name=ref))
+            # _shape_ref_or_reg already emitted instructions; ref is a register index
+            return ref
+    # Fallback: compile fully (struct-pattern shapes, unions, etc.)
+    return ctx._build_value_ensure_register(pattern_cop)
 
 
 def _cop_kids(cop):

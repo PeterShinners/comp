@@ -394,6 +394,47 @@ class Module:
                 return comp._parse.lark_to_cop(lark_tree)
         return None
 
+    def startup_names(self):
+        """Return names of all !startup statements in this module.
+
+        Returns:
+            (list) Names of all startup entry points, in source order
+        """
+        return [
+            stmt["name"]
+            for stmt in self.statements()
+            if stmt.get("operator") == "startup" and stmt.get("name")
+        ]
+
+    def prepare_startup(self, name):
+        """Prepare a named !startup for execution.
+
+        Parses the startup body into COP nodes (not yet optimized) and builds
+        an initial argument struct that will be passed to the startup block.
+
+        The initial struct is assembled from top-level contributions across all
+        modules.  For now it contains a single hardcoded placeholder field so
+        the mechanism has something concrete to evolve from.
+
+        Args:
+            name: (str) Name of the startup entry point (e.g. "main")
+
+        Returns:
+            (tuple) ``(cop, initial_struct)`` or ``(None, None)`` if not found.
+
+            cop: (Value) Parsed COP node for the startup body (un-optimized)
+            initial_struct: (Value) Starting struct for the startup invocation
+        """
+        cop = self.startup(name)
+        if cop is None:
+            return None, None
+
+        # Build the initial struct that is handed to the startup block.
+        # Eventually each contributing module will add fields here.  For now
+        # we include one placeholder field so the struct is non-empty.
+        initial_value = comp.Value.from_python({"timeout": 10})
+        return cop, initial_value
+
     def namespace(self):
         """(dict) Resolved namespace dict for identifier lookups.
 
