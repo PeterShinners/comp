@@ -101,8 +101,8 @@ shape. Each field can also be assigned an optional default value, which must
 be a simple expression. The `~` shape can be used to reference shapes or
 build unioned types, but with the curly braces defines a literal shape.
 
-**Square brackets `[]`** are type modifiers. These can be applied to types
-inside of a shape definition. This defines a set of "guards" or "conditions"
+**Square brackets `[]`** defint type limits. These can be applied to types
+inside of any shape definition. This defines a set of "guards" or "conditions"
 that allow advanced type matching.
 
 ```comp

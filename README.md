@@ -1,18 +1,25 @@
 # Comp Language
 
-This project explores a programming language that could improve on the ideas
-that make Python so great to work with. I enjoy my decades of experience with
-Python, but I find writing clean and composable code requires clumsy repetition
-and ceremeny and boilerplate. The type hints, the dataclasses, the defensive
-checks and repetitive declarations are getting in the way. What if robust
-patterns and designs could be the default instead?
+Comp is an experimental project to build a general purpose, high level
+programming language that works inside and alongside Python. It is definitely
+inspired by Python with substantial new concepts. The goal is a developer
+focused language that makes development better.
 
-A language should be its own best example. The Comp standard libraries should
-reflect what your own good code should look like.
+- **Lightweight syntax** Flexible syntax that with no delimiters, not line or
+  indentation based, and avoids nesting.
+- **Declarative** Defined namespaces avoid circular puzzles and moves problems
+  to build-time, not run-time.
+- **Builtin Schemas** Define your own shapes and data types, then use them to
+  validate and transform your data.
+- **Data Driven** Functions run on any compatible data; like having methods
+  without the classes or casting hurdles.
+- **Flow Control Functions** The standard library provides conditionals loops,
+  and more. Or define and or extend your own.
+- **Immutable values** Nothing is modified once it exists. The language has
+  the tools to define modifications the easy and safe way.
 
-Comp runs inside Python, comfortably operating in both directions. The syntax
-and interpreter are still evolving, but if language design interests you or
-you've wanted a CoffeeScript for Python, there might be something here.
+One measure of a great developer language is how well the standard libraries
+represent idiomatic and clean code. Comp aims for this excellence.
 
 ## Example
 
@@ -20,15 +27,14 @@ you've wanted a CoffeeScript for Python, there might be something here.
 /// Display recent starred issues from a GitHub repository.
 // Inspired by https://julianhofer.eu/blog/2025/nushell/
 
-!import gh {comp "github-comp@1.0.2"}
-!import table {comp "table"}
+!import gh comp "github-comp@1.0.2"
+!import table comp "table-formatter"
 
 !startup main (
-    !let repo "nushell/nushell"
+    !ctx repo "nushell/nushell"
     !let cutoff (datetime.now - 1[week])
-    !let fields {"created-at" "reaction-groups" "title" "url"}
 
-    gh.issue-list :repo=repo :fields=fields
+    gh.issue-list :fields={"created-at" "reaction-groups" "title" "url"}
     | where :($created-at >= cutoff)
     | map :($thumbs-up = $reaction-groups | count :($content == "thumbs-up"))
     | sort :reverse :($thumbs-up)
@@ -38,52 +44,61 @@ you've wanted a CoffeeScript for Python, there might be something here.
 )
 ```
 
-## Concepts
+## Additional Concepts
 
-Comp is exploring for the correct primitives to reduce scaffolding and improve
-the developer experience.
+Comp's novel features have been carefully assembled into a language that
+minimizes developer friction and maximizes composability.
 
-**Types are validation** In Python, you define a dataclass, add pydantic for
-validation, add type hints for the checker. In Comp, [shapes](design/struct.md)
-do all three: definition, validation, documentation. Data matches a shape or it
-doesn't, whether it comes from literals, JSON, network requests, or databases.
+- **Struct** The structure container works as an array and a mapping.
+- **Tags** Predefined, hierarchical enumerations.
+- **Failures** Easier to handle than traditional exceptions.
+- **Contexts** Tracked data that work like typed environment variables at any level of the language.
+- **Documentation** Comments follow Rust rules for identifying documentation.
+- **Overloadeds** Alternative implementations avoid conditional nests.
+- **Wrappers** Like decorators but for statements, not just functions.
+- **Blocks** Any statement is a deferred block and passed to functions for evaluation.
+- **Imports** Powerful import system integrates with downloads, caching, and more.
+- **Compilers** Multiple compilers allow compile time access to other languages and data formats.
+- **Formatting** Rich text formatting functions are built in.
+- **Purity** Simple functions with no side effects, that integrate with language features.
+- **Kebab Case** Use idiomatic `kebab-case` for identifiers and fields.
+- **Functional** Practical and composable pipelines.
+- **Numbers** Represented as hardware independent values of lossless precision.
+- **Units** Extensible subtypes attached to values, like units of measurement.
+- **Limits** Extensible type requirements like minimum values, managed at build time.
 
-**Immutable by default** No more defensive copies, no wondering if a function
-mutated your data, no `frozen=True` with its gotchas. Everything in Comp is
-immutable. The language provides several mechanisms to make complex overrides
-feel safe and natural.
+## Discover
 
-**Lightweight syntax** A refined and lightweight syntax that is not stuck on
-indentation or line based statements. Get rid of the separators and noise. The
-language has no keywords to get in the way of working with fields and data.
+There [examples](examples/) provide a variety of lightweight, real-world concepts.
 
-**Namespaces are declarative** No circular import tangles or import order
-puzzles. No evaluating code to know what a module contains. Comp's
-[modules](design/module.md) are declarative. Everything is known at build time,
-references resolve before execution. Combined with [pure
-functions](design/function.md), much of the language allows convenient
-build-time validation.
+The [design](design/) documents go into all these concepts in further detail.
 
-**Flow control is functions** Use general library functions for flow control,
-iteration, and more. Extend the ones that are there, build entirely new
-conveniences for conditionals. The language provides minimal conditionals based
-on type dispatch; you build the rest (or not). The language embraces pipelines
-and puts data at the center instead of itself.
-
-There are many novel and borrowed ideas joined together in a way that fits.
-
-## Go Further
-
-If this resonates, look at the [examples](examples/). The syntax is still
-shifting, but the concepts are taking shape.
-
-- [**Syntax and Style**](design/syntax.md) brackets, operators, formatting,
-  the grammar rules
-- [**Structures and Shapes**](design/struct.md) immutable data, type system,
-  tags, decorators
-- [**Functions and Blocks**](design/function.md) pipelines, dispatch, streams,
-  invocation
-- [**Modules and Imports**](design/module.md) namespaces, dependencies, schema
-  imports
+- [**Syntax and Style**](design/syntax.md) brackets, operators, formatting, the grammar rules
+- [**Structures and Shapes**](design/struct.md) immutable data, type system, tags, decorators
+- [**Functions and Blocks**](design/function.md) pipelines, dispatch, streams, invocation
+- [**Modules and Imports**](design/module.md) namespaces, dependencies, schema imports
 - [**Core Types**](design/type.md) numbers, text, booleans, comparison, units
 
+## Design
+
+What a fantastic journey this has been. There's so much potential for Comp, but it
+still has a long way to go. Along the way I've been introduced to a massive amount
+of great ideas. I'll call out a few special acknowledgements.
+
+- **Python** is where I get the most out of my development.
+- **Nushell** such a spectacular job with their syntax and approachability
+- **Rhombus** showing me all these functional ideas in a style I appreciate
+- **Cue** really kicked off so many ideas of merging data and definition
+
+## Getting Started
+
+Any Python interpreter is a home for Comp. The runtime and tools run as regular
+Python modules themselves.
+
+```bash
+$ uv install comp-lang
+$ uv run comp hello.comp
+```
+
+> Unfortunately, comp hasn't landed in Pypi yet, so for now that means
+  clone the git repository for yourself.
