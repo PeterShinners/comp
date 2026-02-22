@@ -459,15 +459,28 @@ class ExecutionFrame:
             else:
                 new_env[block.input_name] = args_val
 
-        # Spread signature.param names individually into the environment.
+        # Spread :param names individually into the environment, TryInvoking each
+        # value so that zero-arg callables are resolved to their result.
         # These come from :param declarations such as ":param timeout ~num=4".
-        # After mask(), args_val is a named struct like {timeout: 4}; each
-        # field is bound directly so the body can use `timeout` as a local.
+        # After mask(), args_val is a named struct like {timeout: 4}.
         if block.param_names and isinstance(args_val.data, dict):
             param_set = set(block.param_names)
+            _empty = comp.Value.from_python({})
             for k, v in args_val.data.items():
                 fname = comp._morph._get_field_key(k)
                 if fname is not None and fname in param_set:
+                    # TryInvoke: if the bound value is callable, call it with no args
+                    if isinstance(v.data, (comp.Block, comp.InternalCallable, comp.DefinitionSet)):
+                        v = self.invoke_block(v, _empty, piped=None)
+                    new_env[fname] = v
+
+        # Spread :block names into the environment as-is (no TryInvoke).
+        # These come from :block declarations; the callable is intentional.
+        if block.block_names and isinstance(args_val.data, dict):
+            block_set = set(block.block_names)
+            for k, v in args_val.data.items():
+                fname = comp._morph._get_field_key(k)
+                if fname is not None and fname in block_set:
                     new_env[fname] = v
 
         # Always bind $ to current input (nil if no piped), shifting $→$$ and $$→$$$
@@ -1022,6 +1035,93 @@ class BuildStruct(Instruction):
         return f"%{idx}  BuildStruct ({' '.join(parts)})"
 
 
+class BuildInvokeData(Instruction):
+    """Build an invoke-data struct from the current frame state and a statement value.
+
+    Captures:
+      statement — the value in statement_reg (a Block, text, or anything else)
+      input     — the current piped value (frame.env["$"], or nil)
+      locals    — all frame env bindings except the $ family
+      context   — the frame context dict
+
+    This is emitted by the codegen for every @wrapper expression and for
+    wrapper-annotated function definitions, so the wrapper function receives
+    the full call-site context.
+    """
+
+    def __init__(self, cop, statement_reg):
+        super().__init__(cop)
+        self.statement_reg = statement_reg
+
+    def execute(self, frame):
+        statement_val = frame.get_value(self.statement_reg)
+
+        # Wrap callable statements in StatementHandle to prevent TryInvoke from
+        # auto-calling them if a wrapper function accesses $.statement.
+        # Non-callable values (text, numbers, structs) are stored as-is.
+        if isinstance(statement_val.data, (comp.Block, comp.InternalCallable, comp.DefinitionSet)):
+            statement_stored = comp.Value(comp.StatementHandle(statement_val))
+        else:
+            statement_stored = statement_val
+
+        # Current piped input ($)
+        _nil = comp.Value.from_python(comp.tag_nil)
+        input_val = frame.env.get("$", _nil)
+
+        # locals: env bindings that are actual user-defined locals (no $ vars,
+        # no namespace-qualified names like onfunc.i001)
+        local_data = {}
+        for k, v in frame.env.items():
+            if not k.startswith("$") and "." not in k:
+                local_data[comp.Value.from_python(k)] = v
+        locals_val = comp.Value(local_data)
+
+        # context dict
+        ctx_data = {}
+        for k, v in frame.context.items():
+            ctx_data[comp.Value.from_python(k)] = v
+        context_val = comp.Value(ctx_data)
+
+        _k = comp.Value.from_python
+        result = comp.Value({
+            _k("statement"): statement_stored,
+            _k("input"):     input_val,
+            _k("locals"):    locals_val,
+            _k("context"):   context_val,
+        })
+        return frame.set_result(result)
+
+    def format(self, idx):
+        return f"%{idx}  BuildInvokeData stmt=%{self.statement_reg}"
+
+
+class UnwrapStatementHandle(Instruction):
+    """Unwrap a StatementHandle, returning the inner callable value.
+
+    If the input register holds a StatementHandle, sets the result to the
+    inner value (the original callable).  Otherwise passes the value through
+    unchanged.
+
+    Emitted by _build_function immediately after the PipeInvoke that calls a
+    definition-time wrapper, so that a pass-through wrapper (one that returns
+    $.statement) causes the definition to store the original Block rather than
+    the opaque handle.
+    """
+
+    def __init__(self, cop, value):
+        super().__init__(cop)
+        self.value = value  # int register index
+
+    def execute(self, frame):
+        val = frame.get_value(self.value)
+        if isinstance(val.data, comp.StatementHandle):
+            return frame.set_result(val.data.val)
+        return frame.set_result(val)
+
+    def format(self, idx):
+        return f"%{idx}  UnwrapStatementHandle %{self.value}"
+
+
 class BuildBlock(Instruction):
     """Build a block/function value."""
     
@@ -1051,8 +1151,9 @@ class BuildBlock(Instruction):
         # an arg Shape with named ShapeFields; legacy shape.field kids use the old
         # i==0 (input) / i==1 (arg) index convention.
         sig_kids = list(comp.cop_kids(self.signature_cop))
-        param_fields = []  # accumulated ShapeField objects for signature.param nodes
-        legacy_index = 0   # fallback counter for shape.field kids
+        param_fields = []   # accumulated ShapeField objects for signature.param nodes
+        block_fields = []   # accumulated ShapeField objects for signature.block nodes
+        legacy_index = 0    # fallback counter for shape.field kids
 
         for field_cop in sig_kids:
             field_tag = comp.cop_tag(field_cop)
@@ -1072,7 +1173,7 @@ class BuildBlock(Instruction):
                         break
 
             elif field_tag in ("signature.param", "signature.block"):
-                # --- Named arg param declaration ---
+                # --- Named :param or :block declaration ---
                 try:
                     param_name = field_cop.to_python("name")
                 except (KeyError, AttributeError):
@@ -1105,8 +1206,17 @@ class BuildBlock(Instruction):
                         if resolved is not None:
                             param_type_shape = resolved
 
-                sf = comp.ShapeField(name=param_name, shape=param_type_shape, default=param_default)
-                param_fields.append(sf)
+                if field_tag == "signature.block":
+                    # :block — callable arg, bound as-is (no TryInvoke).
+                    # The declared shape (e.g. ~num) describes the type flowing through
+                    # the callable, not the type of the callable itself.  Use shape_any
+                    # for mask validation so that any callable passes the type check.
+                    sf = comp.ShapeField(name=param_name, shape=comp.shape_any, default=param_default)
+                    block_fields.append(sf)
+                else:
+                    # :param — value arg, TryInvoked when bound in invoke_block
+                    sf = comp.ShapeField(name=param_name, shape=param_type_shape, default=param_default)
+                    param_fields.append(sf)
 
             else:
                 # --- Legacy shape.field format (inline blocks) ---
@@ -1140,12 +1250,15 @@ class BuildBlock(Instruction):
                         block.arg_shape = param_shape
                 legacy_index += 1
 
-        # Build arg Shape from accumulated signature.param fields
-        if param_fields:
+        # Build arg Shape from accumulated :param and :block fields.
+        # Both contribute to the arg shape (for mask validation); only their
+        # binding semantics in invoke_block differ (:param TryInvokes, :block keeps as-is).
+        if param_fields or block_fields:
             arg_shape = comp.Shape("args", private=False)
-            arg_shape.fields = param_fields
+            arg_shape.fields = param_fields + block_fields
             block.arg_shape = arg_shape
             block.param_names = [f.name for f in param_fields if f.name]
+            block.block_names = [f.name for f in block_fields if f.name]
 
         result = comp.Value(block)
         return frame.set_result(result)

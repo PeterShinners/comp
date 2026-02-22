@@ -134,6 +134,8 @@ class Value:
             return "false"
         if isinstance(self.data, comp.Tag):
             return f"{self.data.qualified}"
+        if isinstance(self.data, comp.StatementHandle):
+            return self.data.val.format()
         if isinstance(self.data, comp.Block):
             return self.data.format()
         if isinstance(self.data, comp.HandleInstance):

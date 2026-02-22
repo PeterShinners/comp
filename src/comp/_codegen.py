@@ -174,6 +174,9 @@ class CodeGenContext:
             case "value.binding":
                 return self._build_binding(cop)
 
+            case "value.wrapper":
+                return self._build_wrapper(cop)
+
             case "value.handle":
                 return self._build_handle_op(cop)
 
@@ -194,6 +197,21 @@ class CodeGenContext:
 
             case "shape.define":
                 return self._build_shape(cop)
+
+            case "op.defer":
+                # !defer expr — wrap expr in a zero-argument anonymous Block.
+                # The Block is NOT auto-invoked here; TryInvoke fires later when
+                # the local holding the Block is accessed in a value position.
+                kids = _cop_kids(cop)
+                inner_cop = kids[0]
+                body_ctx = self.__class__()
+                body_ctx._build_value_ensure_register(inner_cop)
+                sig_cop = comp.create_cop("block.signature", [])
+                return self.emit(comp._interp.BuildBlock(
+                    cop=cop,
+                    signature_cop=sig_cop,
+                    body_instructions=body_ctx.instructions,
+                ))
 
             case "op.let":
                 # !let name expr — evaluate expr, store in frame env, return the value
@@ -260,14 +278,15 @@ class CodeGenContext:
         
         # Build the callable
         callable_idx = self._build_callable_ensure_register(callable_cop)
-        
-        # Process each argument as a separate call
+
+        # Process each argument as a separate call.
+        # Args are built without TryInvoke so callables can reach :block params.
         result = callable_idx
         for arg_cop in kids[1:]:
-            arg_idx = self._build_value_ensure_register(arg_cop)
+            arg_idx = self._build_args_struct(arg_cop)
             instr = comp._interp.Invoke(cop=cop, callable=result, args=arg_idx)
             result = self.emit(instr)
-            
+
         return result
     
     def _build_pipeline(self, cop):
@@ -295,7 +314,8 @@ class CodeGenContext:
                 callable_idx = self._build_callable_ensure_register(callable_cop)
 
                 if len(stage_kids) > 1:
-                    arg_idx = self._build_value_ensure_register(stage_kids[1])
+                    # Build args without TryInvoke so callables reach :block params
+                    arg_idx = self._build_args_struct(stage_kids[1])
                 else:
                     arg_idx = self.emit(comp._interp.BuildStruct(cop=stage_cop, fields=[]))
 
@@ -333,7 +353,8 @@ class CodeGenContext:
         callable_idx = self._build_callable_ensure_register(callable_cop)
 
         if body_cop is not None:
-            args_idx = self._build_value_ensure_register(body_cop)
+            # Build the args struct without TryInvoke so callables can reach :block params
+            args_idx = self._build_args_struct(body_cop)
         else:
             args_idx = self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
 
@@ -481,6 +502,40 @@ class CodeGenContext:
         )
         return self.emit(instr)
 
+    def _build_wrapper(self, cop):
+        """Build value.wrapper instructions.
+
+        @wrapper expr compiles to:
+          1. Evaluate expr WITHOUT auto-invoke (passed as raw statement data)
+          2. BuildInvokeData — capture statement + current frame state
+          3. Load wrapper callable
+          4. PipeInvoke: invoke-data | wrapper()
+
+        The wrapper function receives invoke-data as its piped input ($) and
+        may call `apply` to execute the statement, inspect it, ignore it, or
+        invoke it multiple times.
+        """
+        kids = _cop_kids(cop)
+        wrapper_cop = kids[0]   # @name identifier
+        inner_cop   = kids[1]   # wrapped statement
+
+        # Compile the inner value without auto-invoke so the wrapper receives
+        # the raw thing (Block, text, etc.) rather than its called result.
+        inner_reg = self._build_callable_ensure_register(inner_cop)
+
+        # Capture current frame state around the statement
+        invoke_data_reg = self.emit(comp._interp.BuildInvokeData(cop=cop, statement_reg=inner_reg))
+
+        # Load wrapper callable and call with invoke-data piped in
+        wrapper_reg = self._build_callable_ensure_register(wrapper_cop)
+        empty_args  = self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
+        return self.emit(comp._interp.PipeInvoke(
+            cop=cop,
+            callable=wrapper_reg,
+            piped=invoke_data_reg,
+            args=empty_args,
+        ))
+
     def _build_function(self, cop):
         """Build function.define instructions."""
         # Kids are positional: [function.signature?, body]
@@ -496,6 +551,16 @@ class CodeGenContext:
         # Combined signature = kids of function.signature (signature.input etc.)
         # plus any signature.param nodes from a leading block.signature in the body.
         sig_kids = list(_cop_kids(func_sig_cop)) if func_sig_cop else []
+
+        # Peel a wrapper off the body before compiling the block.
+        # The parser places @wrapper inside body_cop as value.wrapper(name, actual-body).
+        # We want the wrapper applied to the *compiled Block* at definition time, not
+        # baked into the block's body (which would fire it on every call).
+        func_wrapper_cop = None
+        if body_cop and comp.cop_tag(body_cop) == "value.wrapper":
+            wrapper_kids = _cop_kids(body_cop)
+            func_wrapper_cop = wrapper_kids[0]   # the @name identifier
+            body_cop         = wrapper_kids[1]   # the actual body (statement.define)
 
         # If the body is a statement.define whose first kid is a block.signature,
         # extract the param nodes from it and fold them into the combined signature.
@@ -514,12 +579,32 @@ class CodeGenContext:
         body_ctx = CodeGenContext()
         body_ctx._build_value_ensure_register(body_cop)
 
-        instr = comp._interp.BuildBlock(
+        block_reg = self.emit(comp._interp.BuildBlock(
             cop=cop,
             signature_cop=combined_sig,
-            body_instructions=body_ctx.instructions
-        )
-        return self.emit(instr)
+            body_instructions=body_ctx.instructions,
+        ))
+
+        # If there was a wrapper, apply it to the compiled Block at definition time:
+        #   invoke-data | wrapper()
+        # Whatever the wrapper returns becomes this definition's value.
+        if func_wrapper_cop is not None:
+            invoke_data_reg = self.emit(comp._interp.BuildInvokeData(
+                cop=cop, statement_reg=block_reg
+            ))
+            wrapper_reg = self._build_callable_ensure_register(func_wrapper_cop)
+            empty_args  = self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
+            pipe_result = self.emit(comp._interp.PipeInvoke(
+                cop=cop,
+                callable=wrapper_reg,
+                piped=invoke_data_reg,
+                args=empty_args,
+            ))
+            # If the wrapper returned the statement handle (pass-through case),
+            # unwrap it so the definition stores the original Block, not the handle.
+            return self.emit(comp._interp.UnwrapStatementHandle(cop=cop, value=pipe_result))
+
+        return block_reg
 
     def _build_statement(self, cop):
         """Build statement.define instructions.
@@ -644,6 +729,57 @@ class CodeGenContext:
             # Constant value - emit Const instruction
             instr = comp._interp.Const(cop=cop, value=result)
             return self.emit(instr)
+
+    def _build_args_struct(self, cop):
+        """Build a struct for function arguments without TryInvoke on field values.
+
+        Identical to the struct.define path in _build_struct except that each
+        field value is compiled with _build_callable_ensure_register instead of
+        _build_value_ensure_register. This preserves callables (Blocks) as-is so
+        they can be received by :block parameters without being auto-invoked.
+
+        Used by _build_binding, _build_invoke, and _build_pipeline in place of
+        _build_value_ensure_register when building the args struct.
+        """
+        tag = comp.cop_tag(cop)
+        if tag not in ("struct.define", "statement.define"):
+            # Not a struct node — compile as a callable reference
+            return self._build_callable_ensure_register(cop)
+
+        kids = _cop_kids(cop)
+        fields = []
+
+        for kid in kids:
+            kid_tag = comp.cop_tag(kid)
+
+            if kid_tag == "struct.posfield":
+                inner = _cop_kids(kid)
+                if inner:
+                    fields.append((comp.Unnamed(), self._build_callable_ensure_register(inner[0])))
+
+            elif kid_tag in ("op.let", "op.ctx"):
+                # Side-effect bindings — must still evaluate with full semantics
+                self._build_value_ensure_register(kid)
+
+            elif kid_tag == "struct.letassign":
+                let_kids = _cop_kids(kid)
+                if len(let_kids) >= 2:
+                    name = _extract_name(let_kids[0])
+                    if name is not None:
+                        value_idx = self._build_value_ensure_register(let_kids[1])
+                        self.emit(comp._interp.StoreLocal(cop=kid, name=name, source=value_idx))
+
+            elif kid_tag == "struct.namefield":
+                field_kids = _cop_kids(kid)
+                if len(field_kids) >= 2:
+                    name = _extract_name(field_kids[0])
+                    if name is not None:
+                        # Use _build_callable_ensure_register so that a callable
+                        # value (Block) is NOT auto-invoked before being passed
+                        value_idx = self._build_callable_ensure_register(field_kids[1])
+                        fields.append((name, value_idx))
+
+        return self.emit(comp._interp.BuildStruct(cop=cop, fields=fields))
 
     def _build_callable_ensure_register(self, cop):
         """Build a callable reference without auto-invoking it.

@@ -3,7 +3,7 @@
 import comp
 
 
-__all__ = ["Block", "create_blockdef"]
+__all__ = ["Block", "StatementHandle", "create_blockdef"]
 
 
 class Block:
@@ -49,6 +49,7 @@ class Block:
         "closure_env",
         "signature_cop",
         "param_names",
+        "block_names",
     )
 
     def __init__(self, qualified, private):
@@ -66,6 +67,7 @@ class Block:
         self.closure_env = {}
         self.signature_cop = None
         self.param_names = []
+        self.block_names = []
 
     def __repr__(self):
         return f"Block<{self.qualified}>"
@@ -110,6 +112,27 @@ class Block:
         sig_str = " ".join(sig)
         body_str = " ".join(body_parts)
         return f":{sig_str}({body_str})"
+
+
+class StatementHandle:
+    """Wraps a callable Value to prevent auto-invocation by TryInvoke.
+
+    BuildInvokeData stores callable statements (Block, InternalCallable,
+    DefinitionSet) inside a StatementHandle so that a wrapper function
+    accessing $.statement receives the callable as a value rather than
+    accidentally auto-invoking it via TryInvoke.
+
+    The `apply` builtin and the UnwrapStatementHandle instruction both know
+    how to reach through this wrapper to the inner callable.
+    """
+
+    __slots__ = ("val",)
+
+    def __init__(self, val):
+        self.val = val
+
+    def __repr__(self):
+        return f"StatementHandle({self.val!r})"
 
 
 def create_blockdef(qualified_name, private, cop_node):

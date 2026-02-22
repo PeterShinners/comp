@@ -55,6 +55,7 @@ def create_cop_module(module):
         "statement.field",  # (kids) single statement/expression in a sequence
         "op.let",  # (kids) 2 kids - name and value for !let assignment
         "op.ctx",  # (kids) 2 kids - name and value for !ctx (like !let, also updates frame context)
+        "op.defer",  # (kids) 1 kid - expression wrapped in a deferred (zero-arg) Block
         "op.on",  # (kids) expression and branches for !on dispatch
         "op.on.branch",  # (kids) 2 kids - shape and expression for an !on branch
         "struct.define",  # (kids)
@@ -976,9 +977,10 @@ def lark_to_cop(tree):
 
         case "defer_expr":
             # defer_expr: OP_DEFER expression
-            # TODO: Implement proper defer COP structure
-            # For now, just return the expression
-            return lark_to_cop(kids[1])
+            # Wraps the expression in op.defer so codegen produces an anonymous
+            # Block that executes expr when called, rather than calling it now.
+            inner_cop = lark_to_cop(kids[1])
+            return _parsed(tree, "op.defer", [inner_cop])
 
         case "handle_grab":
             # handle_grab: OP_GRAB expression

@@ -190,6 +190,16 @@ class SystemModule(comp.Module):
         self._add_shape("any", comp.shape_any)
         self._add_shape("func", comp.shape_block)
 
+        # invoke-data shape — build here to avoid circular-import issues
+        _invoke_data = comp.Shape("invoke-data", private=False)
+        _invoke_data.fields = [
+            comp.ShapeField(name="statement", shape=comp.shape_any,    default=None),
+            comp.ShapeField(name="input",     shape=comp.shape_any,    default=None),
+            comp.ShapeField(name="locals",    shape=comp.shape_struct, default=None),
+            comp.ShapeField(name="context",   shape=comp.shape_struct, default=None),
+        ]
+        self._add_shape("invoke-data", _invoke_data)
+
         # Builtin callables
         self._add_callable("incr", _builtin_incr)
         self._add_callable("answer", _builtin_answer)
@@ -199,6 +209,7 @@ class SystemModule(comp.Module):
         self._add_callable("abs", _builtin_abs)
         self._add_callable("output", _builtin_output)
         self._add_callable("fmt", _builtin_fmt)
+        self._add_callable("apply", _builtin_apply)
 
         self.finalize()
 
@@ -386,23 +397,81 @@ def _builtin_output(input_val, args_val, frame):
     return input_val
 
 
+def _builtin_apply(input_val, args_val, frame):
+    """Invoke an invoke-data struct: call $.statement with $.input piped in.
+
+    This is the counterpart to the wrapper mechanism.  A wrapper receives
+    invoke-data as its piped input ($) and may call `apply` to actually
+    execute the wrapped statement.
+
+    If $.statement is callable (Block, InternalCallable, DefinitionSet) it is
+    invoked with $.input as the piped value and an empty args struct.
+    Non-callable statements are returned as-is.
+    """
+    ctx = input_val.data
+    if not isinstance(ctx, dict):
+        raise comp.CodeError("apply requires invoke-data as piped input")
+
+    _key = comp.Value.from_python
+    statement = ctx.get(_key("statement"))
+    input_v   = ctx.get(_key("input"))
+    params    = ctx.get(_key("params")) or comp.Value.from_python({})
+
+    if statement is None:
+        return comp.Value.from_python(comp.tag_nil)
+
+    # Unwrap StatementHandle (used to prevent TryInvoke inside wrapper functions)
+    if isinstance(statement.data, comp.StatementHandle):
+        statement = statement.data.val
+
+    if isinstance(statement.data, (comp.Block, comp.InternalCallable, comp.DefinitionSet)):
+        return frame.invoke_block(statement, params, piped=input_v)
+    return statement
+
+
 def _builtin_fmt(input_val, args_val, frame):
     """Format a value using a format string.
 
-    Takes a format string as its first argument (via binding syntax).
-    Substitutes %(ref) and $(name) tokens with values drawn from the piped input.
+    Two modes:
+
+    Wrapper mode — invoked via @fmt "template":
+      input_val is an invoke-data struct.  The format string is taken from
+      $.statement and substitutions use $.locals for $(name) tokens and
+      $.input for %(ref) tokens.
+
+    Pipeline mode — invoked via value | fmt :"template":
+      input_val is the value to format.  The format string is the first
+      positional argument.  %(ref) tokens draw from input_val; $(name)
+      tokens have no locals source (produce empty string).
 
     Token syntax:
-      %()     — the whole input value
-      %(#N)   — Nth unnamed (positional) field, 1-based
-      %(name) — named struct field 'name'
+      %()     — the whole piped input
+      %(#N)   — Nth unnamed positional field of the piped input, 1-based
+      %(name) — named field 'name' of the piped input
+      $(name) — local variable 'name' captured from the call site (wrapper mode)
 
-    Example:
-      12 | fmt :"%()"               → "12"
-      {name="pete" 3} | fmt :"%(#1) $(name)"  → "3 pete"
+    Examples:
+      12 | fmt :"%()"                         → "12"
+      {x=5} | fmt :"x is %(x)"               → "x is 5"
+      @fmt "x is $(x)"  (with !let x 5 above) → "x is 5"
     """
     import comp._fmt as _fmt
 
+    # Wrapper mode: input is invoke-data (has a "statement" key)
+    if isinstance(input_val.data, dict):
+        stmt_key = comp.Value.from_python("statement")
+        if stmt_key in input_val.data:
+            stmt = input_val.data[stmt_key]
+            if stmt is None or stmt.shape is not comp.shape_text:
+                raise comp.CodeError("@fmt requires a text statement")
+            locals_val = input_val.data.get(comp.Value.from_python("locals"))
+            parsed = _fmt.parse_format_text(stmt.data)
+            # In wrapper mode, %(name) resolves from the current scope (locals).
+            scope = locals_val if locals_val is not None else comp.Value.from_python({})
+            result = _fmt.apply_format(parsed, scope, locals_val=locals_val)
+            return comp.Value.from_python(result)
+
+    # Pipeline mode: value | fmt :"template"
     fmt_val = args_val.positional(0)
     if fmt_val is None:
         raise comp.CodeError("fmt requires a format string argument")
@@ -410,7 +479,6 @@ def _builtin_fmt(input_val, args_val, frame):
         raise comp.CodeError(
             f"fmt expects a text argument, got {fmt_val.format()}"
         )
-
     parsed = _fmt.parse_format_text(fmt_val.data)
     result = _fmt.apply_format(parsed, input_val)
     return comp.Value.from_python(result)

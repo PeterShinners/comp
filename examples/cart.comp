@@ -23,7 +23,7 @@ Highlights:
 !shape item ~{name~text price~num quantity~num=1}
 !shape cart ~{items~item* discount~num=0}
 
-!func main (
+!startup main (
     {
         {"Apple" price=1.00}
         {"Banana" price=0.50 quantity=2}

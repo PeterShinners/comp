@@ -56,12 +56,29 @@ class FmtToken:
     spec: Optional[str] = None
 
 
+@dataclass
+class LocalsToken:
+    """A $(name) substitution token that looks up a name in the locals dict.
+
+    Used when a format string is applied via the wrapper mechanism (@fmt),
+    where the local variable bindings captured at the call site are available
+    as invoke-data.locals.
+
+    Attributes:
+        name: variable name to look up
+        spec: format specifier — reserved for future use
+    """
+    name: str
+    spec: Optional[str] = None
+
+
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
 
-# Matches %(inner) tokens.
-_TOKEN_RE = re.compile(r'%\(([^)]*)\)')
+# Matches %(inner) tokens and $(name) tokens.
+# Group 1: %(inner) content; Group 2: $(name) content.
+_TOKEN_RE = re.compile(r'%\(([^)]*)\)|\$\(([^)]+)\)')
 
 
 def _parse_ref(inner: str) -> FmtRef:
@@ -81,20 +98,25 @@ def _parse_ref(inner: str) -> FmtRef:
 
 
 def parse_format_text(s: str) -> list:
-    """Parse a format text into an ordered list of literals and FmtTokens.
+    """Parse a format text into an ordered list of literals and tokens.
 
     Returns a list where each element is either:
-      str       — literal text to pass through unchanged
-      FmtToken  — a substitution token to be resolved at runtime
+      str         — literal text to pass through unchanged
+      FmtToken    — a %(ref) substitution resolved from piped input
+      LocalsToken — a $(name) substitution resolved from locals dict
     """
     result = []
     pos = 0
     for m in _TOKEN_RE.finditer(s):
         if m.start() > pos:
             result.append(s[pos:m.start()])
-        inner = m.group(1) if m.group(1) is not None else m.group(2)
-        ref = _parse_ref(inner)
-        result.append(FmtToken(ref=ref))
+        if m.group(2) is not None:
+            # $(name) syntax — looks up in locals
+            result.append(LocalsToken(name=m.group(2)))
+        else:
+            # %(inner) syntax — looks up in piped input
+            ref = _parse_ref(m.group(1))
+            result.append(FmtToken(ref=ref))
         pos = m.end()
     if pos < len(s):
         result.append(s[pos:])
@@ -170,17 +192,24 @@ def format_fmt_value(val, spec: Optional[str] = None) -> str:
 # Top-level apply
 # ---------------------------------------------------------------------------
 
-def apply_format(parsed: list, input_val) -> str:
+def apply_format(parsed: list, input_val, locals_val=None) -> str:
     """Apply a parsed format text to input_val, returning the result text.
 
-    parsed:    result of parse_format_text
-    input_val: the Value piped into fmt
+    parsed:     result of parse_format_text
+    input_val:  the Value piped into fmt (used for %(ref) tokens)
+    locals_val: optional Value struct of local bindings (used for $(name) tokens)
     """
     parts = []
     for segment in parsed:
         if isinstance(segment, str):
             parts.append(segment)
-        else:  # FmtToken
+        elif isinstance(segment, FmtToken):
             val = resolve_fmt_ref(input_val, segment.ref)
             parts.append(format_fmt_value(val, segment.spec))
+        elif isinstance(segment, LocalsToken):
+            val = None
+            if locals_val is not None and isinstance(locals_val.data, dict):
+                key = comp.Value.from_python(segment.name)
+                val = locals_val.data.get(key)
+            parts.append(format_fmt_value(val, segment.spec) if val is not None else "")
     return "".join(parts)
