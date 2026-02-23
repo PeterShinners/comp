@@ -11,7 +11,7 @@ __all__ = [
 ]
 
 
-def generate_code_for_definition(cop):
+def generate_code_for_definition(cop, dispatch_own_name=None, dispatch_set_name=None):
     """Generate instruction sequence for a single definition.
     
     This is the main entry point for code generation. Takes a Definition
@@ -22,12 +22,14 @@ def generate_code_for_definition(cop):
     
     Args:
         cop: (Value) cop nodes
+        dispatch_own_name: (str | None) Qualified name of this definition (for !forward)
+        dispatch_set_name: (str | None) Base name for DefinitionSet lookup (for !forward)
         
     Returns:
         List[Instruction]: Instruction sequence to compute the value
     """
     # Create a code generation context
-    ctx = CodeGenContext()
+    ctx = CodeGenContext(dispatch_own_name=dispatch_own_name, dispatch_set_name=dispatch_set_name)
 
     # Generate instructions for the definition's resolved COP
     # The result is left in a register, no final store needed
@@ -35,9 +37,10 @@ def generate_code_for_definition(cop):
 
     # function.define: the Block IS the value — don't auto-invoke.
     # shape.define: the Shape IS the value — no invokes allowed in shapes.
+    # shape.union: the ShapeUnion IS the value — same as shape.define.
     # For everything else (expressions), emit TryInvoke to evaluate
     # callables and pass non-callable values through unchanged.
-    _no_invoke_tags = {"function.define", "shape.define"}
+    _no_invoke_tags = {"function.define", "shape.define", "shape.union"}
     if comp.cop_tag(cop) not in _no_invoke_tags:
         ctx.emit(comp._interp.TryInvoke(cop=cop, value=result_reg))
 
@@ -51,8 +54,10 @@ class CodeGenContext:
     Operand references are integers pointing to previous instruction indices.
     """
     
-    def __init__(self):
+    def __init__(self, dispatch_own_name=None, dispatch_set_name=None):
         self.instructions = []
+        self.dispatch_own_name = dispatch_own_name
+        self.dispatch_set_name = dispatch_set_name
     
     def emit(self, instr):
         """Emit an instruction and return its index (the implicit result register)."""
@@ -198,6 +203,9 @@ class CodeGenContext:
             case "shape.define":
                 return self._build_shape(cop)
 
+            case "shape.union":
+                return self._build_top_shape_union(cop)
+
             case "op.defer":
                 # !defer expr — wrap expr in a zero-argument anonymous Block.
                 # The Block is NOT auto-invoked here; TryInvoke fires later when
@@ -215,23 +223,47 @@ class CodeGenContext:
 
             case "op.let":
                 # !let name expr — evaluate expr, store in frame env, return the value
+                # Supports dotted paths: !let abc.xyz 4  → deep-set abc["xyz"] = 4
                 kids = _cop_kids(cop)
-                name = _extract_name(kids[0]) if kids else None
+                name_cop = kids[0] if kids else None
                 value_cop = kids[1] if len(kids) > 1 else None
-                if name is None or value_cop is None:
+                if name_cop is None or value_cop is None:
                     raise comp.CodeError("op.let requires a name and a value expression", cop)
+                path = _extract_path_segments(name_cop)
                 value_idx = self._build_value_ensure_register(value_cop)
+                if path and len(path) > 1:
+                    return self.emit(comp._interp.DeepSetLocal(
+                        cop=cop, base_name=path[0], path=path[1:], value_reg=value_idx
+                    ))
+                name = _extract_name(name_cop)
+                if name is None:
+                    raise comp.CodeError("op.let requires a name", cop)
                 return self.emit(comp._interp.StoreLocal(cop=cop, name=name, source=value_idx))
 
             case "op.ctx":
                 # !ctx name expr — like !let but also adds to the running frame context
+                # Supports dotted paths: !ctx abc.xyz 4  → deep-set abc["xyz"] = 4
                 kids = _cop_kids(cop)
-                name = _extract_name(kids[0]) if kids else None
+                name_cop = kids[0] if kids else None
                 value_cop = kids[1] if len(kids) > 1 else None
-                if name is None or value_cop is None:
+                if name_cop is None or value_cop is None:
                     raise comp.CodeError("op.ctx requires a name and a value expression", cop)
+                path = _extract_path_segments(name_cop)
                 value_idx = self._build_value_ensure_register(value_cop)
+                if path and len(path) > 1:
+                    # Deep ctx: set the path in the base local and update context for base name
+                    return self.emit(comp._interp.DeepSetLocal(
+                        cop=cop, base_name=path[0], path=path[1:], value_reg=value_idx,
+                        update_context=True,
+                    ))
+                name = _extract_name(name_cop)
+                if name is None:
+                    raise comp.CodeError("op.ctx requires a name", cop)
                 return self.emit(comp._interp.SetContext(cop=cop, name=name, source=value_idx))
+
+            case "op.forward":
+                # Standalone !forward — re-dispatch using $ as piped input
+                return self.emit(comp._interp.Forward(cop=cop, piped_reg=None))
 
             case "op.on":
                 return self._build_on_op(cop)
@@ -327,16 +359,20 @@ class CodeGenContext:
                 )
                 result = self.emit(instr)
             else:
-                # Bare callable stage - PipeInvoke with empty args
-                callable_idx = self._build_callable_ensure_register(stage_cop)
-                arg_idx = self.emit(comp._interp.BuildStruct(cop=stage_cop, fields=[]))
-                instr = comp._interp.PipeInvoke(
-                    cop=stage_cop,
-                    callable=callable_idx,
-                    piped=result,
-                    args=arg_idx
-                )
-                result = self.emit(instr)
+                # Bare callable stage — special-case !forward, otherwise PipeInvoke
+                if stage_tag == "op.forward":
+                    # !forward as a pipeline stage: re-dispatch with explicit piped input
+                    result = self.emit(comp._interp.Forward(cop=stage_cop, piped_reg=result))
+                else:
+                    callable_idx = self._build_callable_ensure_register(stage_cop)
+                    arg_idx = self.emit(comp._interp.BuildStruct(cop=stage_cop, fields=[]))
+                    instr = comp._interp.PipeInvoke(
+                        cop=stage_cop,
+                        callable=callable_idx,
+                        piped=result,
+                        args=arg_idx
+                    )
+                    result = self.emit(instr)
         
         return result
 
@@ -583,6 +619,8 @@ class CodeGenContext:
             cop=cop,
             signature_cop=combined_sig,
             body_instructions=body_ctx.instructions,
+            dispatch_own_name=self.dispatch_own_name,
+            dispatch_set_name=self.dispatch_set_name,
         ))
 
         # If there was a wrapper, apply it to the compiled Block at definition time:
@@ -690,8 +728,8 @@ class CodeGenContext:
             tag = comp.cop_tag(kid)
 
             if tag == "shape.union":
-                # Shape union — members are shape name strings or register indices
-                member_refs = [_shape_ref_or_reg(self, m) for m in _cop_kids(kid)]
+                # Shape union — unwrap shape.field kids to get the type references
+                member_refs = [_shape_ref_or_reg(self, _cop_kids(m)[0]) for m in _cop_kids(kid)]
                 return self.emit(comp._interp.BuildShapeUnion(cop=cop, member_refs=member_refs))
 
             elif tag == "shape.field":
@@ -713,6 +751,28 @@ class CodeGenContext:
                 fields.append((name, shape_ref, default_idx))
 
         return self.emit(comp._interp.BuildShape(cop=cop, fields=fields))
+
+    def _build_top_shape_union(self, cop):
+        """Build a top-level shape union definition (e.g. !shape foo ~num|text = 0).
+
+        Separates shape.field member kids from the optional shape.default kid.
+        """
+        kids = _cop_kids(cop)
+        member_refs = []
+        default_idx = None
+
+        for kid in kids:
+            tag = comp.cop_tag(kid)
+            if tag == "shape.field":
+                field_kids = _cop_kids(kid)
+                if field_kids:
+                    member_refs.append(_shape_ref_or_reg(self, field_kids[0]))
+            elif tag == "shape.default":
+                default_kids = _cop_kids(kid)
+                if default_kids:
+                    default_idx = self._build_value_ensure_register(default_kids[0])
+
+        return self.emit(comp._interp.BuildShapeUnion(cop=cop, member_refs=member_refs, default_idx=default_idx))
 
     def _build_value_ensure_register(self, cop):
         """Build a value and ensure it's in a register (has an index).
@@ -885,14 +945,48 @@ def _shape_ref_or_reg(ctx, cop):
 
 
 def _extract_name(name_cop):
-    """Extract a plain string name from an ident.token or value.identifier kid."""
+    """Extract a plain string name from an identifier COP node."""
     tag = comp.cop_tag(name_cop)
     if tag == "ident.token":
         return name_cop.to_python("value")
+    elif tag == "value.local":
+        return name_cop.to_python("name")
     elif tag == "value.identifier":
         kids = _cop_kids(name_cop)
         if kids:
             return kids[0].to_python("value")
+    return None
+
+
+def _extract_path_segments(name_cop):
+    """Extract all path segments from an identifier COP.
+
+    Returns a list of str (named field) or int (positional index) segments,
+    or None if the COP is not a supported identifier form.
+
+    Examples:
+        ident.token("abc")          → ["abc"]
+        value.local name="abc"      → ["abc"]
+        value.identifier([abc,xyz]) → ["abc", "xyz"]
+        value.identifier([abc,#1])  → ["abc", 1]
+    """
+    tag = comp.cop_tag(name_cop)
+    if tag == "ident.token":
+        return [name_cop.to_python("value")]
+    if tag == "value.local":
+        name = name_cop.to_python("name")
+        return [name] if name else None
+    if tag == "value.identifier":
+        segments = []
+        for kid in _cop_kids(name_cop):
+            kid_tag = comp.cop_tag(kid)
+            if kid_tag == "ident.token":
+                segments.append(kid.to_python("value"))
+            elif kid_tag == "ident.index":
+                segments.append(int(kid.to_python("value")))
+            else:
+                return None  # unsupported segment type (expr field, dollar, etc.)
+        return segments if segments else None
     return None
 
 

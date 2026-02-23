@@ -367,11 +367,14 @@ class ExecutionFrame:
             input_val = piped if piped is not None else args
             return callable_obj.func(input_val, args, self)
         
-        # Handle Shape (morph input to shape)
-        if isinstance(callable_obj, comp.Shape):
+        # Handle Shape or ShapeUnion (morph input to shape, return result only)
+        if isinstance(callable_obj, (comp.Shape, comp.ShapeUnion)):
             input_val = piped if piped is not None else args
             morph_result = comp.morph(input_val, callable_obj, self)
             if morph_result.failure_reason:
+                # Fall back to the union's default value if one was defined
+                if isinstance(callable_obj, comp.ShapeUnion) and callable_obj.default is not None:
+                    return callable_obj.default
                 raise comp.CodeError(
                     f"Shape morph failed: {morph_result.failure_reason}",
                     block_val.cop if hasattr(block_val, "cop") else None
@@ -398,6 +401,8 @@ class ExecutionFrame:
         # Create a new environment for the function
         # Start with the closure environment (captured at block definition)
         new_env = dict(block.closure_env)
+        # Bind __self__ so !forward can locate the current overload
+        new_env["__self__"] = comp.Value(block)
         
         # For single-parameter blocks (input only, no arg), treat args as piped input
         # This allows `up(5)` to work the same as `5|up()` for `:n(n+1)`
@@ -508,7 +513,7 @@ class ExecutionFrame:
         # Return the final result
         return result if result is not None else comp.Value.from_python(None)
 
-    def _dispatch_overload(self, definition_set, args, piped):
+    def _dispatch_overload(self, definition_set, args, piped, skip_name=None):
         """Find the best-matching block from a DefinitionSet.
 
         Tries each definition's block input shape against the piped input 
@@ -519,6 +524,7 @@ class ExecutionFrame:
             definition_set: (DefinitionSet) Set of overloaded definitions
             args: (Value) Arguments struct
             piped: (Value | None) Piped input value
+            skip_name: (str | None) Qualified name of the definition to skip (for !forward)
 
         Returns:
             (Block | Value | None) Best matching block, morphed Value from shape, or None
@@ -529,6 +535,9 @@ class ExecutionFrame:
         
         # Iterate through definitions in the set
         for defn in definition_set.definitions:
+            # Skip the currently-executing overload (used by !forward)
+            if skip_name and defn.qualified == skip_name:
+                continue
             # Track shape definition for fallback
             if defn.shape is comp.shape_shape:
                 shape_defn = defn
@@ -576,6 +585,9 @@ class ExecutionFrame:
             morph_result = comp.morph(input_val, shape, self)
             if not morph_result.failure_reason:
                 return morph_result.value
+            # If morph failed but shape is a union with a default, use it
+            if isinstance(shape, comp.ShapeUnion) and shape.default is not None:
+                return shape.default
         
         return None
     def _make_child_frame(self, env, module=None):
@@ -913,6 +925,92 @@ class StoreLocal(Instruction):
         return f"%{idx}  StoreLocal '{self.name}' = %{self.source}"
 
 
+class DeepSetLocal(Instruction):
+    """Read-modify-write a local variable at a deep field path.
+
+    Loads base_name from frame.env (creating an empty struct if absent or
+    non-struct), deep-sets path=value building new immutable structs at each
+    level, then stores the resulting root value back to base_name.
+
+    Optionally also updates frame.context (used by !ctx deep assignments).
+
+    Args:
+        base_name:      Top-level local variable name (str)
+        path:           Remaining path segments; each is a str (named field)
+                        or int (positional index)
+        value_reg:      Register index of the new value to set at the leaf
+        update_context: If True, also write the new root value to frame.context
+    """
+
+    def __init__(self, cop, base_name, path, value_reg, update_context=False):
+        super().__init__(cop)
+        self.base_name = base_name
+        self.path = path
+        self.value_reg = value_reg
+        self.update_context = update_context
+
+    def execute(self, frame):
+        base = frame.env.get(self.base_name)
+        if base is None or not isinstance(base.data, dict):
+            base = comp.Value.from_python({})
+        new_value = frame.get_value(self.value_reg)
+        result = _deep_set_value(base, self.path, new_value)
+        frame.env[self.base_name] = result
+        if self.update_context:
+            frame.context[self.base_name] = result
+        return frame.set_result(result)
+
+    def format(self, idx):
+        path_str = ".".join(str(s) for s in self.path)
+        return f"%{idx}  DeepSetLocal '{self.base_name}.{path_str}' = %{self.value_reg}"
+
+
+def _deep_set_value(base, path, new_value):
+    """Immutably set new_value at path inside a struct, returning the new root.
+
+    Navigates the path creating empty structs for any missing or non-struct
+    intermediate values.  Each level is a new comp.Value so the originals
+    remain unmodified.
+
+    Args:
+        base:      (comp.Value) The struct to update at this level
+        path:      (list[str|int]) Remaining path segments
+        new_value: (comp.Value) The value to set at the leaf
+
+    Returns:
+        (comp.Value) New root struct with the value updated at path
+    """
+    if not path:
+        return new_value
+
+    segment = path[0]
+    remaining = path[1:]
+
+    base_data = base.data if isinstance(base.data, dict) else {}
+
+    if isinstance(segment, int):
+        # Positional index access
+        items = list(base_data.items())
+        if segment < 0 or segment >= len(items):
+            raise comp.CodeError(
+                f"Index {segment} out of range for deep assignment "
+                f"(struct has {len(items)} fields)"
+            )
+        key, current = items[segment]
+    else:
+        # Named field access
+        key = comp.Value.from_python(segment)
+        current = base_data.get(key, comp.Value.from_python({}))
+
+    if remaining and not isinstance(current.data, dict):
+        current = comp.Value.from_python({})
+
+    new_field_value = _deep_set_value(current, remaining, new_value)
+    new_data = dict(base_data)
+    new_data[key] = new_field_value
+    return comp.Value(new_data)
+
+
 class BinOp(Instruction):
     """Binary arithmetic/logical operation."""
     
@@ -1125,10 +1223,12 @@ class UnwrapStatementHandle(Instruction):
 class BuildBlock(Instruction):
     """Build a block/function value."""
     
-    def __init__(self, cop, signature_cop, body_instructions):
+    def __init__(self, cop, signature_cop, body_instructions, dispatch_own_name=None, dispatch_set_name=None):
         super().__init__(cop)
         self.signature_cop = signature_cop
         self.body_instructions = body_instructions
+        self.dispatch_own_name = dispatch_own_name
+        self.dispatch_set_name = dispatch_set_name
     
     def execute(self, frame):
         # Create a Block object and store the execution data
@@ -1137,6 +1237,8 @@ class BuildBlock(Instruction):
         block.body_instructions = self.body_instructions
         block.closure_env = dict(frame.env)
         block.signature_cop = self.signature_cop
+        block.dispatch_own_name = self.dispatch_own_name
+        block.dispatch_set_name = self.dispatch_set_name
 
         # Parse signature to extract parameter names and shapes.
         # Two formats may appear depending on origin:
@@ -1360,19 +1462,17 @@ class BuildBlock(Instruction):
                     # Check frame env first (evaluated definitions live here)
                     if hasattr(frame, "env") and ref_name in frame.env:
                         env_val = frame.env[ref_name]
-                        if hasattr(env_val, "data") and isinstance(env_val.data, comp.Shape):
+                        if hasattr(env_val, "data") and isinstance(env_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
                             return env_val.data
-                    # Fall back to namespace definition value
-                    defn = frame.lookup(ref_name) if hasattr(frame, "lookup") else None
-                    if defn is not None:
-                        if isinstance(defn, comp.DefinitionSet):
-                            defs = list(defn.definitions)
-                            defn = defs[0] if defs else None
-                        if defn is not None and hasattr(defn, "value") and defn.value is not None:
-                            resolved = defn.value.data
-                            if isinstance(resolved, comp.Shape):
-                                return resolved
-            # Reference not resolved — fall through to anonymous shape
+                    # Fall back to namespace / system lookup via _load_name
+                    try:
+                        name_val = _load_name(ref_name, frame)
+                        if hasattr(name_val, "data") and isinstance(name_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                            return name_val.data
+                    except (NameError, Exception):
+                        pass
+                    # Reference not resolved — return None so input_shape stays unset
+                    return None
 
         shape = comp.Shape("anonymous", private=False)
 
@@ -1401,9 +1501,12 @@ class BuildBlock(Instruction):
                             id_kids = comp.cop_kids(fkid)
                             if id_kids:
                                 ref_name = id_kids[0].to_python("value")
-                                defn = frame.lookup(ref_name) if hasattr(frame, "lookup") else None
-                                if defn and defn.value:
-                                    field_shape = defn.value.data
+                                try:
+                                    name_val = _load_name(ref_name, frame)
+                                    if hasattr(name_val, "data") and isinstance(name_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                                        field_shape = name_val.data
+                                except (NameError, Exception):
+                                    pass
                         # Mark that we've seen the shape, even if lookup failed
                         if field_shape is None:
                             field_shape = comp.shape_any  # fallback
@@ -1462,14 +1565,15 @@ class BuildShape(Instruction):
             if shape_ref is not None:
                 if isinstance(shape_ref, str):
                     # Static name reference — look up in frame
-                    shape_val = frame.lookup(shape_ref)
-                    if shape_val and hasattr(shape_val, "data"):
+                    try:
+                        shape_val = _load_name(shape_ref, frame)
+                    except NameError:
+                        shape_val = None
+                    if shape_val and isinstance(shape_val.data, comp.Shape):
                         shape_constraint = shape_val.data
-                    elif shape_val and isinstance(shape_val, comp.Shape):
-                        shape_constraint = shape_val
                 else:
                     shape_val = frame.get_value(shape_ref)
-                    if shape_val and shape_val.data:
+                    if shape_val and isinstance(shape_val.data, comp.Shape):
                         shape_constraint = shape_val.data
 
             # Get default if provided
@@ -1501,25 +1605,31 @@ class BuildShape(Instruction):
 class BuildShapeUnion(Instruction):
     """Build a shape union from member shapes."""
 
-    def __init__(self, cop, member_refs):
+    def __init__(self, cop, member_refs, default_idx=None):
         super().__init__(cop)
         self.member_refs = member_refs  # List of name strings or register indices
+        self.default_idx = default_idx  # Optional register index for default value
 
     def execute(self, frame):
         shapes = []
         for ref in self.member_refs:
             if isinstance(ref, str):
-                shape_val = frame.lookup(ref)
-                if shape_val and hasattr(shape_val, "data"):
+                try:
+                    shape_val = _load_name(ref, frame)
+                except NameError:
+                    shape_val = None
+                if shape_val and isinstance(shape_val.data, comp.Shape):
                     shapes.append(shape_val.data)
-                elif shape_val and isinstance(shape_val, comp.Shape):
-                    shapes.append(shape_val)
             else:
                 val = frame.get_value(ref)
-                if val and val.data:
+                if val and isinstance(val.data, comp.Shape):
                     shapes.append(val.data)
 
-        union = comp.ShapeUnion(shapes)
+        default_val = None
+        if self.default_idx is not None:
+            default_val = frame.get_value(self.default_idx)
+
+        union = comp.ShapeUnion(shapes, default=default_val)
         result = comp.Value(union)
         return frame.set_result(result)
 
@@ -1527,7 +1637,76 @@ class BuildShapeUnion(Instruction):
         parts = []
         for ref in self.member_refs:
             parts.append(ref if isinstance(ref, str) else f"%{ref}")
+        if self.default_idx is not None:
+            parts.append(f"default=%{self.default_idx}")
         return f"%{idx}  BuildShapeUnion ({' '.join(parts)})"
+
+
+class Forward(Instruction):
+    """Re-dispatch the current call to the next less-specific overload.
+
+    Reads __self__ from the frame env to find the currently-executing Block,
+    looks up its DefinitionSet by dispatch_set_name, then re-runs dispatch
+    skipping this block's own definition (dispatch_own_name).
+
+    piped_reg: int register index for the piped input, or None to use $ from env.
+    """
+
+    def __init__(self, cop, piped_reg):
+        super().__init__(cop)
+        self.piped_reg = piped_reg
+
+    def execute(self, frame):
+        # Resolve piped input
+        if self.piped_reg is not None:
+            piped_val = frame.get_value(self.piped_reg)
+        else:
+            piped_val = frame.env.get("$")
+
+        # Locate the current Block via __self__
+        self_val = frame.env.get("__self__")
+        if self_val is None or not isinstance(self_val.data, comp.Block):
+            raise comp.CodeError("!forward used outside of a !func body", self.cop)
+        current_block = self_val.data
+
+        dispatch_set_name = getattr(current_block, "dispatch_set_name", None)
+        dispatch_own_name = getattr(current_block, "dispatch_own_name", None)
+        if not dispatch_set_name:
+            raise comp.CodeError("!forward: current function has no dispatch context", self.cop)
+
+        # Look up the DefinitionSet via module namespace directly.
+        # _load_name checks frame.env first, which may only have the resolved
+        # shape Value (not the full DefinitionSet), so bypass env here.
+        defn_set = None
+        if frame.module:
+            ns = frame.module.namespace()
+            item = ns.get(dispatch_set_name)
+            if isinstance(item, comp.DefinitionSet):
+                defn_set = item
+        if defn_set is None:
+            raise comp.CodeError(
+                f"!forward: '{dispatch_set_name}' has no other overloads",
+                self.cop,
+            )
+
+        # Re-dispatch skipping our own definition
+        _empty = comp.Value.from_python({})
+        result = frame._dispatch_overload(defn_set, _empty, piped_val, skip_name=dispatch_own_name)
+        if result is None:
+            raise comp.CodeError(
+                f"!forward: no other overload of '{dispatch_set_name}' matched",
+                self.cop,
+            )
+        if isinstance(result, comp.Value):
+            return frame.set_result(result)
+        # Got a Block — invoke it with the same piped input
+        block_val = comp.Value(result)
+        return frame.set_result(frame.invoke_block(block_val, _empty, piped=piped_val))
+
+    def format(self, idx):
+        if self.piped_reg is not None:
+            return f"%{idx}  Forward (piped=%{self.piped_reg})"
+        return f"%{idx}  Forward (piped=$)"
 
 
 class Invoke(Instruction):

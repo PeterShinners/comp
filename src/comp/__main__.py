@@ -584,7 +584,13 @@ def main():
             for name, definition in module_defs.items():
                 if not definition.instructions:
                     try:
-                        definition.instructions = comp.generate_code_for_definition(definition.resolved_cop)
+                        _set_name = (definition.qualified.rsplit('.', 1)[0]
+                                     if definition.auto_suffix else definition.qualified)
+                        definition.instructions = comp.generate_code_for_definition(
+                            definition.resolved_cop,
+                            dispatch_own_name=definition.qualified,
+                            dispatch_set_name=_set_name,
+                        )
                     except Exception as e:
                         print(f"Code generation error for {module.token}:{name}: {e}")
                         raise
@@ -642,7 +648,13 @@ def main():
         for name, definition in defs.items():
             try:
                 # Generate and store instructions
-                definition.instructions = comp.generate_code_for_definition(definition.resolved_cop)
+                _set_name = (definition.qualified.rsplit('.', 1)[0]
+                             if definition.auto_suffix else definition.qualified)
+                definition.instructions = comp.generate_code_for_definition(
+                    definition.resolved_cop,
+                    dispatch_own_name=definition.qualified,
+                    dispatch_set_name=_set_name,
+                )
             except Exception as e:
                 print(f"Code generation error for {name}: {e}")
                 return

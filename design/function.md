@@ -175,6 +175,11 @@ handle the recursive case. When `tree-insert` is called, the runtime examines
 the input, if it's `nil`, the first definition runs; if it's a `~tree` shape,
 the second runs. Overloads must be unambiguous or the compiler reports an error.
 
+Inside an overload body, `!forward` re-dispatches the current call to the next
+less-specific overload in the same family, skipping the one currently running.
+This lets a specialized overload handle its specific case and then hand off to
+the broader handler without recursing into the current running function.
+
 ## Wrappers
 
 The `@` wrapper between the function name and its body wraps the function's

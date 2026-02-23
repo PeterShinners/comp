@@ -56,6 +56,7 @@ def create_cop_module(module):
         "op.let",  # (kids) 2 kids - name and value for !let assignment
         "op.ctx",  # (kids) 2 kids - name and value for !ctx (like !let, also updates frame context)
         "op.defer",  # (kids) 1 kid - expression wrapped in a deferred (zero-arg) Block
+        "op.forward",  # (kids) 0 kids - re-dispatch to next less-specific overload
         "op.on",  # (kids) expression and branches for !on dispatch
         "op.on.branch",  # (kids) 2 kids - shape and expression for an !on branch
         "struct.define",  # (kids)
@@ -360,6 +361,11 @@ def lark_to_cop(tree):
                     item = _parsed(kid, "struct.posfield", [item])
                 items.append(item)
 
+            # Merge same-name struct.namefield entries whose values are both
+            # struct.define (produced by deep assignment like one.a=1 + one.b=2
+            # → one = {a:1, b:2}).  Simple non-struct values keep last-write semantics.
+            items = _merge_same_name_namefields(items)
+
             if sig_cop:
                 # Has signature - add block.signature to struct.define kids
                 # sig_cop is shape.define, convert to block.signature
@@ -384,7 +390,7 @@ def lark_to_cop(tree):
 
         case "named_field":
             # named_field: TOKENFIELD EQUALS expression
-            # kids[0] should be TOKENFIELD token
+            # kids[0] is a TOKENFIELD token (simple single-segment name)
             name_token = kids[0]
             if isinstance(name_token, lark.Token):
                 name = name_token.value
@@ -397,6 +403,35 @@ def lark_to_cop(tree):
             value_cop = lark_to_cop(kids[2])  # Skip EQUALS at kids[1]
             name_cop = _parsed(tree, "ident.token", [], value=name)
             return _parsed(tree, "struct.namefield", [name_cop, value_cop], op="=")
+
+        case "deep_named_field":
+            # deep_named_field: DOTTED_PATH EQUALS expression
+            # kids[0] = DOTTED_PATH token  e.g. "one.two.three"
+            # kids[1] = EQUALS token
+            # kids[2] = expression
+            path_str = str(kids[0])           # "one.two.three" (Token is a str subclass)
+            segments = path_str.split(".")    # ["one", "two", "three"]
+            value_cop = lark_to_cop(kids[2])
+
+            # Build nested struct COPs from right to left so that
+            #   one.two.three = val  becomes  struct.namefield(one, {two: {three: val}})
+            current = value_cop
+            for seg in reversed(segments[1:]):
+                seg_cop = _parsed(kids[0], "ident.token", [], value=seg)
+                namefield = _parsed(tree, "struct.namefield", [seg_cop, current], op="=")
+                current = _parsed(tree, "struct.define", [namefield])
+
+            root_cop = _parsed(kids[0], "ident.token", [], value=segments[0])
+            return _parsed(tree, "struct.namefield", [root_cop, current], op="=")
+
+        case "dotted_path_atom":
+            # dotted_path_atom: DOTTED_PATH
+            # kids[0] = DOTTED_PATH token  e.g. "one.two.three"
+            # Represent as a value.identifier so codegen treats it as LoadLocal + GetField chain
+            path_str = str(kids[0])
+            segments = path_str.split(".")
+            segment_cops = [_parsed(kids[0], "ident.token", [], value=seg) for seg in segments]
+            return _parsed(tree, "value.identifier", segment_cops)
 
         case "struct_field":
             if len(kids) == 1:
@@ -679,9 +714,16 @@ def lark_to_cop(tree):
         # Entry point pass-through rules (extract first child)
         case "start_shape":
             # start_shape: shape
-            # If shape returns a list (e.g., with default), wrap in shape.field
+            # If shape returns a list (e.g., with default), handle appropriately
             result = lark_to_cop(kids[0])
             if isinstance(result, list):
+                # If first element is a shape.union, add extra kids (e.g. shape.default) into it
+                if result and comp.cop_tag(result[0]) == "shape.union":
+                    union_cop = result[0]
+                    extra_kids = result[1:]
+                    existing_kids = list(comp.cop_kids(union_cop))
+                    return _parsed(kids[0], "shape.union", existing_kids + extra_kids)
+                # Otherwise (single-type with default), wrap in shape.field
                 return _parsed(tree, "shape.field", result)
             return result
 
@@ -982,6 +1024,11 @@ def lark_to_cop(tree):
             inner_cop = lark_to_cop(kids[1])
             return _parsed(tree, "op.defer", [inner_cop])
 
+        case "forward_expr":
+            # forward_expr: OP_FORWARD
+            # Re-dispatch to the next less-specific overload (no kids).
+            return _parsed(tree, "op.forward", [])
+
         case "handle_grab":
             # handle_grab: OP_GRAB expression
             # kids[0] = OP_GRAB token, kids[1] = expression (tag/identifier)
@@ -1040,6 +1087,69 @@ def lark_to_cop(tree):
 
         case _:
             raise ValueError(f"Unhandled grammar rule: {tree.data}")
+
+
+def _merge_same_name_namefields(items):
+    """Merge struct.namefield items sharing a name when both values are struct.define.
+
+    Deep assignments like ``one.a = 1`` and ``one.b = 2`` each produce a
+    ``struct.namefield(one, struct.define([...]))`` COP.  When two or more of
+    these share the same base name, we combine their inner struct.define
+    children into a single struct.define so the result is ``one = {a:1, b:2}``
+    rather than last-write-wins ``one = {b:2}``.
+
+    Non-struct or non-namefield items are left unchanged.  The merged item
+    occupies the position of the FIRST occurrence of that name.
+    """
+    # Find names that appear more than once as struct.namefield with struct.define value
+    name_positions = {}  # name → list of (index-in-result, item)
+    for item in items:
+        if comp.cop_tag(item) != "struct.namefield":
+            continue
+        item_kids = list(comp.cop_kids(item))
+        if len(item_kids) < 2:
+            continue
+        name_kid = item_kids[0]
+        if comp.cop_tag(name_kid) != "ident.token":
+            continue
+        if comp.cop_tag(item_kids[1]) != "struct.define":
+            continue
+        name = name_kid.to_python("value")
+        name_positions.setdefault(name, []).append(item)
+
+    # Only names with 2+ struct.define contributions need merging
+    to_merge = {n: v for n, v in name_positions.items() if len(v) > 1}
+    if not to_merge:
+        return items
+
+    # Build output: replace first occurrence of each mergeable name with the
+    # combined item; drop subsequent occurrences.
+    seen = set()
+    result = []
+    for item in items:
+        if comp.cop_tag(item) == "struct.namefield":
+            item_kids = list(comp.cop_kids(item))
+            if (len(item_kids) >= 2
+                    and comp.cop_tag(item_kids[0]) == "ident.token"
+                    and comp.cop_tag(item_kids[1]) == "struct.define"):
+                name = item_kids[0].to_python("value")
+                if name in to_merge:
+                    if name in seen:
+                        continue  # skip duplicate; already merged into first
+                    seen.add(name)
+                    # Combine all struct.define children for this name
+                    combined_kids = []
+                    for src_item in to_merge[name]:
+                        src_kids = list(comp.cop_kids(src_item))
+                        combined_kids.extend(list(comp.cop_kids(src_kids[1])))
+                    merged_struct = comp.create_cop("struct.define", combined_kids)
+                    merged_item = comp.create_cop(
+                        "struct.namefield", [item_kids[0], merged_struct], op="="
+                    )
+                    result.append(merged_item)
+                    continue
+        result.append(item)
+    return result
 
 
 # cached lark parsers

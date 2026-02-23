@@ -73,15 +73,18 @@ class ShapeUnion:
 
     Args:
         shapes: (list) List of shape COPs or Shape objects in the union
+        default: (Value | None) Default value for the union, or None
 
     Attributes:
         shapes: (list) List of shape COPs or Shape objects in the union
+        default: (Value | None) Default value for the union
     """
 
-    __slots__ = ("shapes",)
+    __slots__ = ("shapes", "default")
 
-    def __init__(self, shapes):
+    def __init__(self, shapes, default=None):
         self.shapes = list(shapes)
+        self.default = default
 
     def __repr__(self):
         return f"ShapeUnion<{self.format()}>"

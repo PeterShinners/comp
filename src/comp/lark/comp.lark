@@ -82,6 +82,7 @@ OP_CTX.7: "!ctx"
 OP_TRANSACT.7: "!transact"
 OP_ON.7: "!on"
 OP_DEFER.7: "!defer"
+OP_FORWARD.7: "!forward"
 
 // Handle operators
 OP_GRAB.7: "!grab"
@@ -129,6 +130,7 @@ transaction: OP_TRANSACT PAREN_OPEN identifier+ PAREN_CLOSE
 on_dispatch: OP_ON expression on_branch+
 on_branch: shape expression
 defer_expr: OP_DEFER expression
+forward_expr: OP_FORWARD
 handle_grab: OP_GRAB expression
 handle_drop: OP_DROP expression
 handle_pull: OP_PULL expression
@@ -177,10 +179,13 @@ postfield: nextfield (DOT nextfield)*
 ?postfix: atom
         | atom DOT postfield -> fieldaccess
 
-?atom: wrapper* (number | text | identifier | shape)
+?atom: wrapper* (number | text | identifier | dotted_path_atom | shape)
      | wrapper+   // Standalone wrapper(s) as a value
      | statement  // Paren structure as expression
      | structure  // Brace structure as expression
+     | forward_expr
+
+dotted_path_atom: DOTTED_PATH
 
 
 // ===== SIMPLE EXPRESSIONS =====
@@ -213,7 +218,8 @@ structure_body: signature structure_item*
 statement_item: let_assign | ctx_assign | expression
 structure_item: let_assign | ctx_assign | field_or_expr
 
-field_or_expr: TOKENFIELD EQUALS expression -> named_field
+field_or_expr: DOTTED_PATH EQUALS expression -> deep_named_field
+             | TOKENFIELD EQUALS expression -> named_field
              | expression
 
 signature: (param_decl | block_decl)+
@@ -225,6 +231,11 @@ ctx_assign: OP_CTX identifier expression
 
 
 // ===== IDENTIFIERS =====
+// Dotted path: two or more TOKENFIELD segments separated by dots (e.g. one.two.three)
+// Priority 7 > TOKENFIELD.4 — only matched when the contextual lexer considers it valid,
+// i.e., at the start of field_or_expr (deep assignment LHS) or inside an expression atom.
+DOTTED_PATH.7: /[a-zA-Z_][\w-]*(\.[a-zA-Z_][\w-]*)+/
+
 TOKENFIELD.4: /[a-zA-Z_][\w-]*(?!\.\d)/  // Negative lookahead prevents matching sibling numbers
 
 indexfield: HASH INTEGER

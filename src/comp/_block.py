@@ -50,6 +50,8 @@ class Block:
         "signature_cop",
         "param_names",
         "block_names",
+        "dispatch_own_name",
+        "dispatch_set_name",
     )
 
     def __init__(self, qualified, private):
@@ -68,6 +70,8 @@ class Block:
         self.signature_cop = None
         self.param_names = []
         self.block_names = []
+        self.dispatch_own_name = None
+        self.dispatch_set_name = None
 
     def __repr__(self):
         return f"Block<{self.qualified}>"

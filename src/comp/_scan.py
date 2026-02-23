@@ -163,7 +163,7 @@ def _scan_mod_definition(node, source):
         body_start_line = name_end_line - 1
         body_start_col = name_end_col
         body_end_line = pos[2] - 1  # pos is (line, col, end_line, end_col)
-        body_end_col = pos[3]
+        body_end_col = pos[3] - 1  # Lark end_column is 1-based exclusive; convert to 0-based exclusive
 
         if body_start_line == body_end_line:
             # Single line
