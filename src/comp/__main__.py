@@ -323,6 +323,7 @@ def main():
     modes.add_argument("--imports", action="store_true", help="Show import dependency tree with module documentation")
     modes.add_argument("--namespace", action="store_true", help="Show the module's finalized namespace with all definitions")
     modes.add_argument("--definitions", action="store_true", help="Show list of module definition")
+    modes.add_argument("--describe", metavar="NAME", help="Describe a named definition as a markdown report (supports overloads)")
 
     parser.add_argument("--startup", metavar="NAME", default="main",
                         help="Entry point to run (default: main)")
@@ -557,6 +558,12 @@ def main():
                 value = f"{value.shape.qualified}"
                 value = value.format()
             print(f"{name:16}  {f'({shape_name})':8s} {value} {unparse}")
+        return
+
+    if args.describe:
+        description = comp._describe.describe_name(mod, args.describe)
+        report = comp._describe.format_describe_markdown(description)
+        print(report)
         return
 
     # Handle --namespace mode separately (it's its own output mode)

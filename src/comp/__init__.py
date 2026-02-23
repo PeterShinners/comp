@@ -25,3 +25,4 @@ from ._import import *
 from ._scan import *
 from ._morph import *
 from ._py import *
+from ._describe import *
