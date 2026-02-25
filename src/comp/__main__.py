@@ -447,10 +447,13 @@ def main():
                                                module=module or self.module, depth=self.depth + 1,
                                                context=dict(self.context))
                     frame = TracingFrame(env, interp=interp, module=None, depth=0)
-                    result = frame.run(instructions)
                 else:
-                    result = interp.execute(instructions, env)
+                    frame = comp.ExecutionFrame(env, interp=interp, module=None)
 
+                result = frame.run(instructions)
+                if frame.failure is not None:
+                    print(f"!fail {frame.failure.format()}", file=sys.stderr)
+                    sys.exit(1)
                 print(result.format())
                 return
             except Exception as e:
@@ -735,14 +738,21 @@ def main():
                     startup_block = frame.run(startup_instructions)
                     # function.define returns the Block; invoke it explicitly
                     if startup_block is not None and isinstance(startup_block.data, comp.Block):
-                        frame.invoke_block(startup_block, context, piped=None)
+                        try:
+                            frame.invoke_block(startup_block, context, piped=None)
+                        except comp._interp.CompFail as e:
+                            print(f"\n!fail {e.value.format()}", file=sys.stderr)
+                            sys.exit(1)
                 else:
                     startup_block = interp.execute(startup_instructions, env, module=mod)
                     # function.define returns the Block; invoke it explicitly
                     if startup_block is not None and isinstance(startup_block.data, comp.Block):
                         startup_frame = comp.ExecutionFrame(env, interp=interp, module=mod)
-                        result = startup_frame.invoke_block(startup_block, context, piped=None)
-                        print(result.format())
+                        try:
+                            result = startup_frame.invoke_block(startup_block, context, piped=None)
+                        except comp._interp.CompFail as e:
+                            print(f"!fail {e.value.format()}", file=sys.stderr)
+                            sys.exit(1)
             else:
                 # No startup found - fall back to printing all definition values
                 print("\nResults:")

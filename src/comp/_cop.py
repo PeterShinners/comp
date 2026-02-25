@@ -497,8 +497,7 @@ def cop_unparse(cop):
 
         case "value.fallback":
             if len(kids) >= 2:
-                op = cop.to_python("op", "??")
-                return f"{cop_unparse(kids[0])} {op} {cop_unparse(kids[1])}"
+                return " ?? ".join(cop_unparse(k) for k in kids)
             return "<?fallback?>"
         
         # Pipeline
@@ -507,6 +506,11 @@ def cop_unparse(cop):
             for kid in kids:
                 parts.append(cop_unparse(kid))
             return " | ".join(parts)
+
+        case "value.pipeline_fallback":
+            if kids:
+                return f"|? {cop_unparse(kids[0])}"
+            return "|?"
         
         # Binding (e.g., foo :bar, foo :x=1)
         case "value.binding":
@@ -603,6 +607,11 @@ def cop_unparse(cop):
             for branch in kids[1:]:
                 parts.append(cop_unparse(branch))
             return " ".join(parts)
+
+        case "op.fail":
+            if kids:
+                return f"!fail {cop_unparse(kids[0])}"
+            return "!fail"
         
         case "op.on.branch":
             # Branch is: ~shape expression

@@ -89,7 +89,9 @@ def create_cop_module(module):
         "value.logic.unary",  # (op, kids)  1 kids
         "value.invoke",  # (kids)  kids 2+ kids; callable, argsandblocks [DEPRECATED - will be removed]
         "value.pipeline",  # (kids) pipeline stages
-        "value.fallback",  # (kids)
+        "value.pipeline_fallback",  # (kids) |? handler stage (wraps one stage cop)
+        "value.fallback",  # (left, right) ?? operator
+        "op.fail",  # (expr) !fail — raise a failure value
         "value.field",  # field access: (left, field)
         "value.on",  # (expr, branches) on-dispatch with expression and branch list
         "value.transact",  # (kids)
@@ -200,13 +202,41 @@ def lark_to_cop(tree):
                 return _parsed(
                     tree, "value.logic.binary", [left, right], op=op
                 )
-            if op == "??":
-                return _parsed(tree, "value.fallback", [left, right], op=op)
             return _parsed(tree, "value.math.binary", [left, right], op=op)
 
+        case "value_fallback":
+            left = lark_to_cop(kids[0])
+            right = lark_to_cop(kids[2])  # kids[1] is the ?? token
+            # Flatten right-recursive nesting into a single chain
+            if comp.cop_tag(right) == "value.fallback":
+                all_kids = [left] + list(comp.cop_kids(right))
+            else:
+                all_kids = [left, right]
+            return _parsed(tree, "value.fallback", all_kids, op="??")
+
+        case "fail_expr":
+            # fail_expr: OP_FAIL expression — kids[0]=token, kids[1]=expression
+            expr_cop = lark_to_cop(kids[1])
+            return _parsed(tree, "op.fail", [expr_cop])
+
         case "pipeline":
-            # Collect all pipeline stages (skip the | operators which are Token objects)
-            stages = [lark_to_cop(kid) for kid in kids if isinstance(kid, lark.Tree)]
+            # Walk kids: Tree=stage, Token=operator (| or |?)
+            # Wrap |? stages in value.pipeline_fallback so codegen can distinguish them.
+            stages = []
+            for i, kid in enumerate(kids):
+                if not isinstance(kid, lark.Tree):
+                    continue
+                cop = lark_to_cop(kid)
+                if not stages:
+                    stages.append(cop)
+                else:
+                    # Preceding sibling should be the operator token
+                    prev = kids[i - 1] if i > 0 else None
+                    op_val = prev.value if isinstance(prev, lark.Token) else "|"
+                    if op_val == "|?":
+                        stages.append(_parsed(kid, "value.pipeline_fallback", [cop]))
+                    else:
+                        stages.append(cop)
             return _parsed(tree, "value.pipeline", stages)
 
         case "compare_op":

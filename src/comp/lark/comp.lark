@@ -70,6 +70,7 @@ SLASH.6: "/"
 
 // Pipeline operators
 PIPEFALLBACK.6: "|?"
+FALLBACK.6: "??"
 
 // Field expression delimiter
 QUOTE.6: "'"
@@ -83,6 +84,7 @@ OP_TRANSACT.7: "!transact"
 OP_ON.7: "!on"
 OP_DEFER.7: "!defer"
 OP_FORWARD.7: "!forward"
+OP_FAIL.7: "!fail"
 
 // Handle operators
 OP_GRAB.7: "!grab"
@@ -140,10 +142,13 @@ handle_push: OP_PUSH expression expression
            | transaction
            | on_dispatch
            | defer_expr
+           | fail_expr
            | handle_grab
            | handle_drop
            | handle_pull
            | handle_push
+
+fail_expr: OP_FAIL expression
 
 ?logic_or: logic_and
          | logic_or LOR logic_and -> binary_op
@@ -151,14 +156,17 @@ handle_push: OP_PUSH expression expression
 ?logic_and: comparison
           | logic_and LAND comparison -> binary_op
 
-?comparison: arithmetic
-           | comparison EQ arithmetic -> compare_op
-           | comparison NE arithmetic -> compare_op
-           | comparison CMP arithmetic -> compare_op
-           | comparison ANGLE_OPEN arithmetic -> compare_op
-           | comparison ANGLE_CLOSE arithmetic -> compare_op
-           | comparison ANGLE_CLOSE EQUALS arithmetic -> compare_op  // >= when adjacent
-           | comparison ANGLE_OPEN EQUALS arithmetic -> compare_op   // <= when adjacent
+?comparison: fallback_expr
+           | comparison EQ fallback_expr -> compare_op
+           | comparison NE fallback_expr -> compare_op
+           | comparison CMP fallback_expr -> compare_op
+           | comparison ANGLE_OPEN fallback_expr -> compare_op
+           | comparison ANGLE_CLOSE fallback_expr -> compare_op
+           | comparison ANGLE_CLOSE EQUALS fallback_expr -> compare_op  // >= when adjacent
+           | comparison ANGLE_OPEN EQUALS fallback_expr -> compare_op   // <= when adjacent
+
+?fallback_expr: arithmetic
+              | arithmetic FALLBACK fallback_expr -> value_fallback
 
 ?arithmetic: term
            | arithmetic (PLUS | MINUS | KEBAB_MINUS) term -> binary_op

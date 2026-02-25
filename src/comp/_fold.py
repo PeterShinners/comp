@@ -119,6 +119,17 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
     if tag in ("mod.namefield", "struct.namefield"):
         return _optimize_namefield(cop, fold, namespace, locals, references, locals_defined)
 
+    # --- Let/ctx bindings: name child is a declaration, not a reference ---
+    # kids[0] is the binding name (ident.token / value.identifier used as lvalue)
+    # kids[1] is the value expression to optimize normally
+    if tag in ("op.let", "op.ctx"):
+        kids = comp.cop_kids(cop)
+        if len(kids) >= 2:
+            new_value = _coptimize_walk(kids[1], fold, namespace, locals, references, locals_defined)
+            if new_value is not kids[1]:
+                return comp.cop_rebuild(cop, [kids[0], new_value])
+        return cop
+
     # --- Recursively optimize children ---
     kids = comp.cop_kids(cop)
     new_kids = []
@@ -137,39 +148,54 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
                 return new_kids[0]
             operand = _get_constant(new_kids[0])
             if operand is not None:
-                result = comp.math_unary(op, operand)
-                return _make_constant(cop, result)
+                try:
+                    result = comp.math_unary(op, operand)
+                    return _make_constant(cop, result)
+                except (TypeError, ValueError, ZeroDivisionError, ArithmeticError) as e:
+                    return _make_fail_cop(cop, str(e))
 
         if tag == "value.math.binary":
             op = cop.to_python("op")
             left = _get_constant(new_kids[0])
             right = _get_constant(new_kids[1])
             if left is not None and right is not None:
-                result = comp.math_binary(op, left, right)
-                return _make_constant(cop, result)
+                try:
+                    result = comp.math_binary(op, left, right)
+                    return _make_constant(cop, result)
+                except (TypeError, ValueError, ZeroDivisionError, ArithmeticError) as e:
+                    return _make_fail_cop(cop, str(e))
 
         if tag == "value.logic.unary":
             op = cop.to_python("op")
             operand = _get_constant(new_kids[0])
             if operand is not None:
-                result = comp.logic_unary(op, operand)
-                return _make_constant(cop, result)
+                try:
+                    result = comp.logic_unary(op, operand)
+                    return _make_constant(cop, result)
+                except (TypeError, ValueError) as e:
+                    return _make_fail_cop(cop, str(e))
 
         if tag == "value.logic.binary":
             op = cop.to_python("op")
             left = _get_constant(new_kids[0])
             right = _get_constant(new_kids[1])
             if left is not None and right is not None:
-                result = comp.logic_binary(op, left, right)
-                return _make_constant(cop, result)
+                try:
+                    result = comp.logic_binary(op, left, right)
+                    return _make_constant(cop, result)
+                except (TypeError, ValueError) as e:
+                    return _make_fail_cop(cop, str(e))
 
         if tag == "value.compare":
             op = cop.to_python("op")
             left = _get_constant(new_kids[0])
             right = _get_constant(new_kids[1])
             if left is not None and right is not None:
-                result = comp.compare(op, left, right)
-                return _make_constant(cop, result)
+                try:
+                    result = comp.compare(op, left, right)
+                    return _make_constant(cop, result)
+                except (TypeError, ValueError) as e:
+                    return _make_fail_cop(cop, str(e))
 
         if tag == "value.field":
             # Field access: struct.field or struct.#N
@@ -628,6 +654,25 @@ def _make_constant(original, value):
         except (KeyError, AttributeError):
             pass
     return comp.create_cop("value.constant", [], **fields)
+
+
+def _make_fail_cop(original, message):
+    """Create an op.fail COP node wrapping a {fail: message} constant.
+
+    Used by constant folding when an operation raises a Python exception at
+    compile time (e.g. 3 + "four").  The resulting node signals a failure at
+    runtime instead of crashing the compiler.
+
+    Args:
+        original: (Value) Original COP node for position info
+        message: (str) Human-readable error message
+
+    Returns:
+        (Value) op.fail COP node
+    """
+    fail_val = comp.Value.from_python({"fail": message})
+    inner = _make_constant(original, fail_val)
+    return comp.create_cop("op.fail", [inner])
 
 
 def _make_local(original, name, remaining_kids):

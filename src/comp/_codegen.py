@@ -265,6 +265,31 @@ class CodeGenContext:
                 # Standalone !forward — re-dispatch using $ as piped input
                 return self.emit(comp._interp.Forward(cop=cop, piped_reg=None))
 
+            case "op.fail":
+                # !fail expr — evaluate expr, set as failure, fast-forward
+                kids = _cop_kids(cop)
+                if not kids:
+                    raise comp.CodeError("op.fail requires a value expression", cop)
+                value_idx = self._build_value_ensure_register(kids[0])
+                return self.emit(comp._interp.RaiseFail(cop=cop, value_reg=value_idx))
+
+            case "value.fallback":
+                # expr ?? h1 ?? h2 — chain of Fallback instructions
+                # kids[0] is the initial expression; each remaining kid is a handler
+                kids = _cop_kids(cop)
+                if len(kids) < 2:
+                    raise comp.CodeError("value.fallback requires left and right expressions", cop)
+                result = self._build_value_ensure_register(kids[0])
+                for handler_cop in kids[1:]:
+                    handler_ctx = self.__class__()
+                    handler_ctx._build_value_ensure_register(handler_cop)
+                    result = self.emit(comp._interp.Fallback(
+                        cop=cop,
+                        test_reg=result,
+                        handler_instructions=handler_ctx.instructions,
+                    ))
+                return result
+
             case "op.on":
                 return self._build_on_op(cop)
 
@@ -336,7 +361,37 @@ class CodeGenContext:
         for stage_cop in kids[1:]:
             stage_tag = stage_cop.positional(0).data.qualified
             
-            if stage_tag in ("value.invoke", "value.binding"):
+            if stage_tag == "value.pipeline_fallback":
+                # |? handler — catch failure from pipeline; invoke handler with failure as piped input.
+                # Compile callable and args of the inner stage into fresh sub-contexts so they
+                # run cleanly when the failure is being handled (not contaminated by failure state).
+                inner_cop = _cop_kids(stage_cop)[0]
+                inner_tag = comp.cop_tag(inner_cop)
+
+                if inner_tag in ("value.invoke", "value.binding"):
+                    inner_kids = _cop_kids(inner_cop)
+                    callable_cop = inner_kids[0]
+                    args_cop = inner_kids[1] if len(inner_kids) > 1 else None
+                else:
+                    callable_cop = inner_cop
+                    args_cop = None
+
+                callable_ctx = self.__class__()
+                callable_ctx._build_callable_ensure_register(callable_cop)
+
+                args_ctx = self.__class__()
+                if args_cop is not None:
+                    args_ctx._build_args_struct(args_cop)
+                else:
+                    args_ctx.emit(comp._interp.BuildStruct(cop=stage_cop, fields=[]))
+
+                result = self.emit(comp._interp.PipeFallback(
+                    cop=stage_cop,
+                    piped_reg=result,
+                    callable_instructions=callable_ctx.instructions,
+                    args_instructions=args_ctx.instructions,
+                ))
+            elif stage_tag in ("value.invoke", "value.binding"):
                 # Piped invoke/binding: callable(args) with piped input.
                 # value.invoke kids: [callable, args_struct]
                 # value.binding kids: [callable, bindings_struct]

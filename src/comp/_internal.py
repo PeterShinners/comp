@@ -311,10 +311,7 @@ def _builtin_morph(input_val, args_val, frame):
     result = comp.morph(data_val, shape, frame)
 
     if result.failure_reason:
-        return comp.Value.from_python({
-            "result": comp.tag_nil,
-            "reason": result.failure_reason
-        })
+        return comp.Value.from_python({"result": comp.tag_nil})
 
     score_struct = comp.Value.from_python({
         "named": result.score[0],

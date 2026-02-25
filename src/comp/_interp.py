@@ -17,7 +17,37 @@ from pathlib import Path
 
 import comp
 
-__all__ = ["Interp", "ExecutionFrame"]
+__all__ = ["Interp", "ExecutionFrame", "CompFail"]
+
+
+class CompFail(Exception):
+    """Raised by Python (InternalCallable) functions to signal a comp failure.
+
+    The value is a comp.Value that will be set as frame.failure, causing the
+    interpreter to fast-forward through remaining instructions until caught
+    by a Fallback or PipeFallback instruction.
+
+    Args:
+        value: (comp.Value) The failure value to propagate
+    """
+
+    def __init__(self, value):
+        self.value = value
+
+
+def _make_fail_value(message):
+    """Create a {fail: message} failure struct Value.
+
+    Used by instructions that catch Python exceptions at runtime and convert
+    them into comp failure values.
+
+    Args:
+        message: (str) Human-readable error description
+
+    Returns:
+        (comp.Value) Struct with a 'fail' field containing the message
+    """
+    return comp.Value.from_python({"fail": message})
 
 
 class Interp:
@@ -261,9 +291,16 @@ class ExecutionFrame:
         self.parent_frame = parent_frame
         self.live_handles = None  # Set[HandleInstance] | None
         self.context = context if context is not None else {}
+        self.failure = None  # comp.Value when a failure is propagating, else None
 
     def run(self, instructions):
         """Execute a list of instructions, return final result.
+
+        When frame.failure is set, non-catching instructions are skipped but
+        their register slot is filled with the failure value to keep the
+        register index model consistent.  Fallback / PipeFallback instructions
+        have can_catch_failure=True and always execute so they may clear the
+        failure and resume normal execution.
 
         Args:
             instructions: List of instruction objects
@@ -273,7 +310,12 @@ class ExecutionFrame:
         """
         result = None
         for idx, instr in enumerate(instructions):
-            result = instr.execute(self)
+            if self.failure is not None and not instr.can_catch_failure:
+                # Fast-forward: skip but keep register alignment
+                self.registers.append(self.failure)
+                result = self.failure
+            else:
+                result = instr.execute(self)
             self.on_step(idx, instr, result)
         _frame_exit_cleanup(self, result)
         return result
@@ -365,30 +407,30 @@ class ExecutionFrame:
         # Handle InternalCallable (Python function)
         if isinstance(callable_obj, comp.InternalCallable):
             input_val = piped if piped is not None else args
-            return callable_obj.func(input_val, args, self)
+            try:
+                return callable_obj.func(input_val, args, self)
+            except CompFail:
+                raise  # Let the caller decide how to handle the failure
         
-        # Handle Shape or ShapeUnion (morph input to shape, return result only)
-        if isinstance(callable_obj, (comp.Shape, comp.ShapeUnion)):
+        # Handle Shape, ShapeUnion, or Tag (morph input to shape, return result only)
+        if isinstance(callable_obj, (comp.Shape, comp.ShapeUnion, comp.Tag)):
             input_val = piped if piped is not None else args
             morph_result = comp.morph(input_val, callable_obj, self)
             if morph_result.failure_reason:
                 # Fall back to the union's default value if one was defined
                 if isinstance(callable_obj, comp.ShapeUnion) and callable_obj.default is not None:
                     return callable_obj.default
-                raise comp.CodeError(
-                    f"Shape morph failed: {morph_result.failure_reason}",
-                    block_val.cop if hasattr(block_val, "cop") else None
-                )
+                raise CompFail(_make_fail_value(morph_result.failure_reason))
             return morph_result.value
         
         # Handle DefinitionSet (dispatch to best-matching block, or shape as fallback)
         if isinstance(callable_obj, comp.DefinitionSet):
             result = self._dispatch_overload(callable_obj, args, piped)
             if result is None:
-                raise comp.CodeError(
-                    f"No matching overload found for input",
-                    block_val.cop if hasattr(block_val, "cop") else None
-                )
+                names = ", ".join(d.qualified for d in callable_obj.definitions)
+                raise CompFail(_make_fail_value(
+                    f"No matching overload found: {names}"
+                ))
             # If dispatch returned a Value directly (from shape morph), return it
             if isinstance(result, comp.Value):
                 return result
@@ -509,6 +551,11 @@ class ExecutionFrame:
         # Use the block's defining module for namespace lookups
         new_frame = self._make_child_frame(new_env, module=block.module)
         result = new_frame.run(block.body_instructions)
+
+        # If the called block finished with an unhandled failure, raise it so
+        # callers can distinguish a failure from a normally-computed value.
+        if new_frame.failure is not None:
+            raise CompFail(new_frame.failure)
 
         # Return the final result
         return result if result is not None else comp.Value.from_python(None)
@@ -762,7 +809,9 @@ def _load_name(name, frame):
 
 class Instruction:
     """Base class for all instructions."""
-    
+
+    can_catch_failure = False  # Override True in Fallback/PipeFallback
+
     def __init__(self, cop):
         self.cop = cop  # Source COP node for error reporting
     
@@ -845,7 +894,11 @@ class TryInvoke(Instruction):
         val = frame.get_value(self.value)
         if isinstance(val.data, (comp.Block, comp.InternalCallable, comp.DefinitionSet)):
             empty_args = comp.Value.from_python({})
-            val = frame.invoke_block(val, empty_args, piped=None)
+            try:
+                val = frame.invoke_block(val, empty_args, piped=None)
+            except CompFail as e:
+                frame.failure = e.value
+                return frame.set_result(e.value)
         return frame.set_result(val)
 
     def format(self, idx):
@@ -1023,7 +1076,12 @@ class BinOp(Instruction):
     def execute(self, frame):
         left_val = frame.get_value(self.left)
         right_val = frame.get_value(self.right)
-        result = comp._ops.math_binary(self.op, left_val, right_val)
+        try:
+            result = comp._ops.math_binary(self.op, left_val, right_val)
+        except (TypeError, ValueError, ZeroDivisionError, ArithmeticError) as e:
+            fail_val = _make_fail_value(str(e))
+            frame.failure = fail_val
+            return frame.set_result(fail_val)
         return frame.set_result(result)
     
     def format(self, idx):
@@ -1040,7 +1098,12 @@ class UnOp(Instruction):
 
     def execute(self, frame):
         operand_val = frame.get_value(self.operand)
-        result = comp._ops.math_unary(self.op, operand_val)
+        try:
+            result = comp._ops.math_unary(self.op, operand_val)
+        except (TypeError, ValueError, ArithmeticError) as e:
+            fail_val = _make_fail_value(str(e))
+            frame.failure = fail_val
+            return frame.set_result(fail_val)
         return frame.set_result(result)
 
     def format(self, idx):
@@ -1059,7 +1122,12 @@ class CmpOp(Instruction):
     def execute(self, frame):
         left_val = frame.get_value(self.left)
         right_val = frame.get_value(self.right)
-        result = comp._ops.compare(self.op, left_val, right_val)
+        try:
+            result = comp._ops.compare(self.op, left_val, right_val)
+        except (TypeError, ValueError) as e:
+            fail_val = _make_fail_value(str(e))
+            frame.failure = fail_val
+            return frame.set_result(fail_val)
         return frame.set_result(result)
 
     def format(self, idx):
@@ -1701,7 +1769,11 @@ class Forward(Instruction):
             return frame.set_result(result)
         # Got a Block — invoke it with the same piped input
         block_val = comp.Value(result)
-        return frame.set_result(frame.invoke_block(block_val, _empty, piped=piped_val))
+        try:
+            return frame.set_result(frame.invoke_block(block_val, _empty, piped=piped_val))
+        except CompFail as e:
+            frame.failure = e.value
+            return frame.set_result(e.value)
 
     def format(self, idx):
         if self.piped_reg is not None:
@@ -1720,7 +1792,11 @@ class Invoke(Instruction):
     def execute(self, frame):
         callable_val = frame.get_value(self.callable)
         args_val = frame.get_value(self.args)
-        result = frame.invoke_block(callable_val, args_val, piped=None)
+        try:
+            result = frame.invoke_block(callable_val, args_val, piped=None)
+        except CompFail as e:
+            frame.failure = e.value
+            return frame.set_result(e.value)
         return frame.set_result(result)
     
     def format(self, idx):
@@ -1740,7 +1816,11 @@ class PipeInvoke(Instruction):
         callable_val = frame.get_value(self.callable)
         piped_val = frame.get_value(self.piped)
         args_val = frame.get_value(self.args)
-        result = frame.invoke_block(callable_val, args_val, piped=piped_val)
+        try:
+            result = frame.invoke_block(callable_val, args_val, piped=piped_val)
+        except CompFail as e:
+            frame.failure = e.value
+            return frame.set_result(e.value)
         return frame.set_result(result)
     
     def format(self, idx):
@@ -1820,6 +1900,101 @@ class PushHandle(Instruction):
 
     def format(self, idx):
         return f"%{idx}  PushHandle %{self.handle_reg} %{self.data_reg}"
+
+
+class RaiseFail(Instruction):
+    """!fail expr — set frame.failure to the given value and fast-forward.
+
+    All subsequent instructions in the current frame are skipped (via the
+    fast-forward logic in ExecutionFrame.run) until a Fallback or PipeFallback
+    instruction catches the failure.
+    """
+
+    def __init__(self, cop, value_reg):
+        super().__init__(cop)
+        self.value_reg = value_reg
+
+    def execute(self, frame):
+        val = frame.get_value(self.value_reg)
+        frame.failure = val
+        return frame.set_result(val)
+
+    def format(self, idx):
+        return f"%{idx}  RaiseFail %{self.value_reg}"
+
+
+class Fallback(Instruction):
+    """expr ?? handler — catch failure from expr and evaluate handler instead.
+
+    If no failure is propagating: the test value passes through unchanged.
+    If failure is propagating: clear failure, run handler_instructions in a
+    child frame that shares the current env (same $ as the outer expression).
+    The handler does NOT receive the failure value — it runs with the original
+    frame environment.
+    """
+
+    can_catch_failure = True
+
+    def __init__(self, cop, test_reg, handler_instructions):
+        super().__init__(cop)
+        self.test_reg = test_reg
+        self.handler_instructions = handler_instructions
+
+    def execute(self, frame):
+        if frame.failure is None:
+            return frame.set_result(frame.get_value(self.test_reg))
+        # Failure — clear it and evaluate the handler in the same environment
+        frame.failure = None
+        handler_frame = frame._make_child_frame(dict(frame.env), module=frame.module)
+        result = handler_frame.run(self.handler_instructions)
+        if handler_frame.failure is not None:
+            frame.failure = handler_frame.failure
+        return frame.set_result(result)
+
+    def format(self, idx):
+        return f"%{idx}  Fallback %{self.test_reg} ({len(self.handler_instructions)} handler instrs)"
+
+
+class PipeFallback(Instruction):
+    """|? handler — catch pipeline failure; invoke handler with failure as piped input.
+
+    If no failure is propagating: pass the piped value through unchanged.
+    If failure is propagating: clear failure, invoke the handler callable with
+    piped=failure_value so the handler can inspect what went wrong.
+
+    callable_instructions and args_instructions are compiled into fresh child
+    frames at runtime to avoid contamination from the parent failure state.
+    """
+
+    can_catch_failure = True
+
+    def __init__(self, cop, piped_reg, callable_instructions, args_instructions):
+        super().__init__(cop)
+        self.piped_reg = piped_reg
+        self.callable_instructions = callable_instructions
+        self.args_instructions = args_instructions
+
+    def execute(self, frame):
+        failure = frame.failure
+        if failure is None:
+            return frame.set_result(frame.get_value(self.piped_reg))
+        # Failure — clear it and invoke the handler with failure as piped input
+        frame.failure = None
+        callable_frame = frame._make_child_frame(dict(frame.env), module=frame.module)
+        callable_val = callable_frame.run(self.callable_instructions)
+        args_frame = frame._make_child_frame(dict(frame.env), module=frame.module)
+        args_val = args_frame.run(self.args_instructions)
+        if args_val is None:
+            args_val = comp.Value.from_python({})
+        try:
+            result = frame.invoke_block(callable_val, args_val, piped=failure)
+        except CompFail as e:
+            frame.failure = e.value
+            return frame.set_result(e.value)
+        return frame.set_result(result)
+
+    def format(self, idx):
+        return f"%{idx}  PipeFallback %{self.piped_reg} ({len(self.callable_instructions)} callable instrs)"
 
 
 class DispatchOn(Instruction):
