@@ -6,6 +6,10 @@ import comp
 __all__ = [
     "Tag",
     "tag_nil", "tag_bool", "tag_true", "tag_false", "tag_fail",
+    "tag_fail_value", "tag_fail_field", "tag_fail_math", "tag_fail_grab",
+    "tag_fail_module", "tag_fail_module_missing", "tag_fail_module_syntax",
+    "tag_fail_reference", "tag_fail_reference_undefined", "tag_fail_reference_ambiguous",
+    "tag_fail_invoke",
     "tag_less", "tag_equal", "tag_greater", "tag_else",
     "create_tagdef",
     "HandleInstance",
@@ -49,6 +53,17 @@ tag_bool = Tag("bool", False)
 tag_true = Tag("bool.true", False)
 tag_false = Tag("bool.false", False)
 tag_fail = Tag("fail", False)
+tag_fail_value     = Tag("fail.value", False)
+tag_fail_field     = Tag("fail.field", False)
+tag_fail_math      = Tag("fail.math", False)
+tag_fail_grab      = Tag("fail.grab", False)
+tag_fail_module             = Tag("fail.module", False)
+tag_fail_module_missing     = Tag("fail.module.missing", False)
+tag_fail_module_syntax      = Tag("fail.module.syntax", False)
+tag_fail_reference           = Tag("fail.reference", False)
+tag_fail_reference_undefined = Tag("fail.reference.undefined", False)
+tag_fail_reference_ambiguous = Tag("fail.reference.ambiguous", False)
+tag_fail_invoke  = Tag("fail.invoke", False)
 tag_less = Tag("ord.less", False)
 tag_equal = Tag("ord.equal", False)
 tag_greater = Tag("ord.greater", False)

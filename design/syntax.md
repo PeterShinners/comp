@@ -142,9 +142,34 @@ evaluations until caught. Failures carry a value, typically a struct with a
 message and optional tag for categorization.
 
 ```comp
-!fail {fail.value "index out of bounds"}
-!fail {fail.database message="not found"}
+!fail {#fail.value "expected number, got text"}
+!fail {#fail.field "index out of bounds"}
+!fail {#fail.module.missing "no module named 'rio'"}
 ```
+
+### Builtin Fail Tags
+
+The system provides a hierarchy of fail tags for categorizing language-level
+failures. All are subtags of `#fail`.
+
+```text
+fail
+├── value - wrong value or type (shape mismatch, cast failure, nil where disallowed)
+├── field - bad accessor: field not found, index out of bounds, key missing
+├── math - arithmetic failure: division by zero, overflow, domain error
+├── grab - invalid or released resource handle
+├── module
+│   ├── missing - module could not be found
+│   └── syntax - module source could not be parsed
+├── reference
+│   ├── undefined - name is not defined in scope
+│   └── ambiguous - partial name matches more than one definition
+└── invoke - call-level failure: no overload matched, recursion limit, bad parameter count
+```
+
+Use the most specific tag available. Catch a parent tag (`#fail.module`) to
+handle all subtypes, or a leaf tag (`#fail.module.missing`) to handle a single
+case.
 
 Two operators catch failures. The pipeline fallback `|?` catches failures
 flowing through a pipeline and provides an alternative path. The value fallback

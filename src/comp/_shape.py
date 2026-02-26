@@ -145,7 +145,10 @@ class ShapeField:
         """Format individual shape field to literal representation."""
         result = self.name or ""
         if self.shape:
-            result += f"~{self.shape.qualified}"
+            if isinstance(self.shape, ShapeUnion):
+                result += self.shape.format()
+            else:
+                result += f"~{self.shape.qualified}"
         if self.default:
             result += f"={self.default.format()}"
         return result
