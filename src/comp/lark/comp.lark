@@ -187,10 +187,8 @@ postfield: nextfield (DOT nextfield)*
 ?postfix: atom
         | atom DOT postfield -> fieldaccess
 
-?atom: wrapper* (number | text | identifier | dotted_path_atom | shape)
+?atom: wrapper* (number | text | identifier | dotted_path_atom | shape | statement | structure)
      | wrapper+   // Standalone wrapper(s) as a value
-     | statement  // Paren structure as expression
-     | structure  // Brace structure as expression
      | forward_expr
 
 dotted_path_atom: DOTTED_PATH

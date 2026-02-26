@@ -195,6 +195,14 @@ def compare(op, left, right):
             result = cmp > 0
         case ">=":
             result = cmp >= 0
+        case "<>":
+            # Three-way comparison: returns ~less, ~equal, or ~greater tag
+            if cmp < 0:
+                return comp.Value(comp.tag_less)
+            elif cmp > 0:
+                return comp.Value(comp.tag_greater)
+            else:
+                return comp.Value(comp.tag_equal)
         case _:
             raise ValueError(f"Unknown comparison operator: {op}")
 

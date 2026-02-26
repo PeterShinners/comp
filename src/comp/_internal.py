@@ -7,6 +7,7 @@ __all__ = [
     "get_internal_module",
 ]
 
+import copy
 import inspect
 import sys
 import comp
@@ -182,6 +183,10 @@ class SystemModule(comp.Module):
         self._add_tag("bool.true", comp.tag_true)
         self._add_tag("bool.false", comp.tag_false)
         self._add_tag("fail", comp.tag_fail)
+        self._add_tag("less", comp.tag_less)
+        self._add_tag("equal", comp.tag_equal)
+        self._add_tag("greater", comp.tag_greater)
+        self._add_tag("else", comp.tag_else)
 
         # Builtin shapes
         self._add_shape("num", comp.shape_num)
@@ -210,6 +215,9 @@ class SystemModule(comp.Module):
         self._add_callable("output", _builtin_output)
         self._add_callable("fmt", _builtin_fmt)
         self._add_callable("apply", _builtin_apply)
+        self._add_callable("update", _builtin_update)
+        self._add_callable("flat", _builtin_flat)
+        self._add_callable("reduce", _builtin_reduce)
 
         self.finalize()
 
@@ -248,9 +256,12 @@ class SystemModule(comp.Module):
 
 def _builtin_incr(input_val, args_val, frame):
     """Increment a number by 1."""
-    val = input_val.as_scalar()
-    n = val.to_python()
-    return comp.Value.from_python(n + 1)
+    morph_result = comp.morph(input_val, comp.shape_num, frame)
+    if morph_result.failure_reason:
+        raise comp.CodeError(f"Input morph failed: {morph_result.failure_reason}")
+    n = morph_result.value.data
+    import decimal
+    return comp.Value(n + decimal.Decimal(1))
 
 
 def _builtin_answer(input_val, args_val, frame):
@@ -424,6 +435,166 @@ def _builtin_apply(input_val, args_val, frame):
     if isinstance(statement.data, (comp.Block, comp.InternalCallable, comp.DefinitionSet)):
         return frame.invoke_block(statement, params, piped=input_v)
     return statement
+
+
+def _clone_block_with_extra(body_block, extra_instr):
+    """Shallow-clone a Block and append one extra instruction to its body.
+
+    Args:
+        body_block: (Block) The original comp.Block to clone
+        extra_instr: (Instruction) Instruction to append after the body
+
+    Returns:
+        (Block) New Block identical to the original but with an extended body
+    """
+    new_block = copy.copy(body_block)
+    if body_block.body_instructions is not None:
+        last_reg = len(body_block.body_instructions) - 1
+        new_block.body_instructions = list(body_block.body_instructions) + [
+            extra_instr(last_reg)
+        ]
+    return new_block
+
+
+def _builtin_update(input_val, args_val, frame):
+    """@update wrapper: clone body block with a MergeWithPiped tail instruction.
+
+    Called at DEFINITION TIME with invoke-data.  Returns a new Block whose body
+    is the original body plus a MergeWithPiped instruction.  At runtime that
+    instruction overlays the body's partial result onto the original piped struct
+    so callers receive the fully-merged record.
+
+    Use case — write only the changed fields in a pure function:
+
+        !pure move-right ~point @update(
+            {x = ($.x + 10)}
+        )
+    """
+    import comp._interp as _interp_mod
+    ctx = input_val.data
+    if not isinstance(ctx, dict):
+        raise comp.CodeError("update requires invoke-data as piped input")
+
+    _key = comp.Value.from_python
+    statement = ctx.get(_key("statement"))
+
+    if statement is None:
+        raise comp.CodeError("update: no statement in invoke-data")
+
+    # Unwrap StatementHandle to get the raw Block
+    if isinstance(statement.data, comp.StatementHandle):
+        statement = statement.data.val
+
+    if isinstance(statement.data, comp.Block):
+        new_block = _clone_block_with_extra(
+            statement.data,
+            lambda last_reg: _interp_mod.MergeWithPiped(cop=None, result_reg=last_reg),
+        )
+        return comp.Value(new_block)
+
+    # Struct value (e.g. @update {b=2}) — synthesise a trivial block that
+    # returns the constant struct and then merges it over piped input.
+    if isinstance(statement.data, dict):
+        const_val = statement
+        new_block = comp.Block("update.const", False)
+        new_block.input_name = "$"
+        new_block.closure_env = dict(frame.env)
+        new_block.param_names = []
+        new_block.block_names = []
+        new_block.dispatch_own_name = None
+        new_block.dispatch_set_name = None
+        new_block.body_instructions = [
+            _interp_mod.Const(cop=None, value=const_val),
+            _interp_mod.MergeWithPiped(cop=None, result_reg=0),
+        ]
+        return comp.Value(new_block)
+
+    raise comp.CodeError("update requires a block or struct statement")
+
+
+def _builtin_flat(input_val, args_val, frame):
+    """@flat wrapper: clone body block with a FlattenFields tail instruction.
+
+    Called at DEFINITION TIME with invoke-data.  Returns a new Block whose body
+    is the original body plus a FlattenFields instruction.  At runtime that
+    instruction concatenates the inner struct fields of the body's result into a
+    single flat struct.
+
+    Use case — multi-expression block whose results should be concatenated:
+
+        !pure tree-values ~tree @flat {
+            ($.left  | tree-values)
+            {$.value}
+            ($.right | tree-values)
+        }
+    """
+    import comp._interp as _interp_mod
+    ctx = input_val.data
+    if not isinstance(ctx, dict):
+        raise comp.CodeError("flat requires invoke-data as piped input")
+
+    _key = comp.Value.from_python
+    statement = ctx.get(_key("statement"))
+
+    if statement is None:
+        raise comp.CodeError("flat: no statement in invoke-data")
+
+    # Unwrap StatementHandle to get the raw Block
+    if isinstance(statement.data, comp.StatementHandle):
+        statement = statement.data.val
+
+    if not isinstance(statement.data, comp.Block):
+        raise comp.CodeError("flat requires a block statement")
+
+    new_block = _clone_block_with_extra(
+        statement.data,
+        lambda last_reg: _interp_mod.FlattenFields(cop=None, result_reg=last_reg),
+    )
+    return comp.Value(new_block)
+
+
+def _builtin_reduce(input_val, args_val, frame):
+    """Reduce a struct of values to a single accumulator.
+
+    Iterates all fields of the piped input (positional and named) in order,
+    calling fold(item) with the current accumulator piped in for each element.
+
+    Args form: :initial=<acc>  <fold-callable> (positional)
+
+    Example: {5 3 8} | reduce :initial=nil :tree-insert
+      => nil | tree-insert({5}) => t1
+         t1  | tree-insert({3}) => t2
+         t2  | tree-insert({8}) => t3
+    """
+    args_data = args_val.data if isinstance(args_val.data, dict) else {}
+
+    # Get initial accumulator from :initial named arg
+    _key = comp.Value.from_python
+    initial_key = _key("initial")
+    acc = args_data.get(initial_key)
+    if acc is None:
+        acc = comp.Value(comp.tag_nil)
+
+    # Get fold callable from the first positional arg
+    fold_val = None
+    for k, v in args_data.items():
+        if isinstance(k, comp.Unnamed):
+            fold_val = v
+            break
+
+    if fold_val is None:
+        raise comp.CodeError("reduce requires a fold callable as positional argument")
+
+    # Iterate over input struct fields in order
+    items = list(input_val.data.values()) if isinstance(input_val.data, dict) else []
+
+    _empty_args = comp.Value.from_python({})
+    for item in items:
+        # Pass item as the first positional arg, acc as piped input
+        item_args = comp.Value({comp.Unnamed(): item})
+        acc = frame.invoke_block(fold_val, item_args, piped=acc)
+
+    return acc
 
 
 def _builtin_fmt(input_val, args_val, frame):

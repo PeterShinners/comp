@@ -773,6 +773,17 @@ def _ensure_definition_value(defn, frame):
                 shape = comp.create_shape(defn.original_cop, ns)
                 defn.value = comp.Value.from_python(shape)
                 return defn.value
+        elif cop_tag == "shape.union":
+            # Build instructions for the union and execute them to get the value
+            try:
+                instructions = comp.generate_code_for_definition(defn.original_cop)
+                child_frame = frame._make_child_frame(dict(frame.env))
+                result = child_frame.run(instructions)
+                if result is not None and isinstance(result.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                    defn.value = result
+                    return defn.value
+            except Exception:
+                pass
     return None
 
 
@@ -1637,11 +1648,22 @@ class BuildShape(Instruction):
                         shape_val = _load_name(shape_ref, frame)
                     except NameError:
                         shape_val = None
-                    if shape_val and isinstance(shape_val.data, comp.Shape):
+                    # Unwrap DefinitionSet (lazily resolved shape definitions)
+                    if shape_val and isinstance(shape_val.data, comp.DefinitionSet):
+                        for defn in shape_val.data.definitions:
+                            dv = _ensure_definition_value(defn, frame)
+                            if dv and isinstance(dv.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                                shape_val = dv
+                                break
+                    if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
                         shape_constraint = shape_val.data
+                    else:
+                        # Not resolved yet (forward ref or unresolvable) — store
+                        # name string so _resolve_shape_field in morph can retry
+                        shape_constraint = shape_ref
                 else:
                     shape_val = frame.get_value(shape_ref)
-                    if shape_val and isinstance(shape_val.data, comp.Shape):
+                    if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
                         shape_constraint = shape_val.data
 
             # Get default if provided
@@ -1686,11 +1708,18 @@ class BuildShapeUnion(Instruction):
                     shape_val = _load_name(ref, frame)
                 except NameError:
                     shape_val = None
-                if shape_val and isinstance(shape_val.data, comp.Shape):
+                # Unwrap DefinitionSet to get the actual shape value
+                if shape_val and isinstance(shape_val.data, comp.DefinitionSet):
+                    for defn in shape_val.data.definitions:
+                        dv = _ensure_definition_value(defn, frame)
+                        if dv and isinstance(dv.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                            shape_val = dv
+                            break
+                if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
                     shapes.append(shape_val.data)
             else:
                 val = frame.get_value(ref)
-                if val and isinstance(val.data, comp.Shape):
+                if val and isinstance(val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
                     shapes.append(val.data)
 
         default_val = None
@@ -1923,6 +1952,65 @@ class RaiseFail(Instruction):
         return f"%{idx}  RaiseFail %{self.value_reg}"
 
 
+class MergeWithPiped(Instruction):
+    """Merge a result struct over the current piped input ($).
+
+    Appended to a block's body instructions by the @update wrapper.  After the
+    body produces a partial update struct, this instruction overlays those fields
+    on top of the original piped struct so callers get the full merged record.
+    """
+
+    def __init__(self, cop, result_reg):
+        super().__init__(cop)
+        self.result_reg = result_reg
+
+    def execute(self, frame):
+        result = frame.get_value(self.result_reg)
+        _nil = comp.Value.from_python(comp.tag_nil)
+        piped = frame.env.get("$", _nil)
+        if not isinstance(piped.data, dict) or not isinstance(result.data, dict):
+            return frame.set_result(result)
+        merged = dict(piped.data)
+        merged.update(result.data)
+        return frame.set_result(comp.Value(merged))
+
+    def format(self, idx):
+        return f"%{idx}  MergeWithPiped %{self.result_reg}"
+
+
+class FlattenFields(Instruction):
+    """Flatten a struct-of-structs into a single flat struct.
+
+    Appended to a block's body instructions by the @flat wrapper.  The body
+    produces a struct whose values are themselves structs (e.g. from a
+    multi-expression block).  This instruction concatenates all inner fields in
+    order into one flat output struct.
+    """
+
+    def __init__(self, cop, result_reg):
+        super().__init__(cop)
+        self.result_reg = result_reg
+
+    def execute(self, frame):
+        result = frame.get_value(self.result_reg)
+        if not isinstance(result.data, dict):
+            return frame.set_result(comp.Value({comp.Unnamed(): result}))
+        combined = {}
+        for _k, sub_val in result.data.items():
+            if isinstance(sub_val.data, dict):
+                for sub_k, sub_v in sub_val.data.items():
+                    if isinstance(sub_k, comp.Unnamed):
+                        combined[comp.Unnamed()] = sub_v
+                    else:
+                        combined[sub_k] = sub_v
+            else:
+                combined[comp.Unnamed()] = sub_val
+        return frame.set_result(comp.Value(combined))
+
+    def format(self, idx):
+        return f"%{idx}  FlattenFields %{self.result_reg}"
+
+
 class Fallback(Instruction):
     """expr ?? handler — catch failure from expr and evaluate handler instead.
 
@@ -2030,9 +2118,12 @@ class DispatchOn(Instruction):
 
             pattern_data = pattern_val.data
 
+            # ~else tag is a catch-all — always matches
+            if pattern_data is comp.tag_else:
+                matched = True
             # morph() accepts Shape, ShapeUnion, and Tag — pass the raw data object.
             # For anything else (e.g. a bare constant), fall back to equality.
-            if isinstance(pattern_data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+            elif isinstance(pattern_data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
                 morph_result = comp.morph(condition_val, pattern_data, frame)
                 matched = not morph_result.failure_reason
             else:

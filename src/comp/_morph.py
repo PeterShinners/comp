@@ -143,8 +143,28 @@ def _resolve_shape_field(field, frame):
         return None
 
     # Check if already resolved (from BuildShape instruction)
-    if isinstance(field.shape, (comp.Shape, comp.Tag)):
+    if isinstance(field.shape, (comp.Shape, comp.ShapeUnion, comp.Tag)):
         return field.shape
+
+    # String name reference — look up at morph time (deferred resolution)
+    if isinstance(field.shape, str):
+        name = field.shape
+        try:
+            shape_val = comp._interp._load_name(name, frame)
+        except (NameError, AttributeError):
+            return None
+        # Unwrap DefinitionSet
+        if shape_val and isinstance(shape_val.data, comp.DefinitionSet):
+            for defn in shape_val.data.definitions:
+                dv = comp._interp._ensure_definition_value(defn, frame)
+                if dv and isinstance(dv.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                    # Cache the resolved shape back into the field for next time
+                    field.shape = dv.data
+                    return field.shape
+        if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+            field.shape = shape_val.data
+            return field.shape
+        return None
 
     # The shape is a COP node that needs evaluation
     shape_cop = field.shape
@@ -392,14 +412,19 @@ def morph(value, shape, frame):
             continue
 
         if shape_field.default is not None:
-            # Evaluate default
+            # Evaluate explicit default on the shape field
             default_val = _eval_default(shape_field.default, frame)
-            # Create synthetic input field
             shape_matches[i] = {"value": default_val, "name": shape_field.name}
         else:
-            # Required field missing
-            field_name = shape_field.name or f"positional {i}"
-            return MorphResult.failed(f"Required field '{field_name}' missing")
+            # No explicit default — check if the field's type is a ShapeUnion
+            # with its own default (e.g. ~tree | nil = nil)
+            constraint = _resolve_shape_field(shape_field, frame)
+            if isinstance(constraint, comp.ShapeUnion) and constraint.default is not None:
+                shape_matches[i] = {"value": constraint.default, "name": shape_field.name}
+            else:
+                # Required field missing
+                field_name = shape_field.name or f"positional {i}"
+                return MorphResult.failed(f"Required field '{field_name}' missing")
 
     # Build result struct
     result_data = {}

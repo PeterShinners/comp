@@ -28,9 +28,7 @@ Highlights
 !pure tree-insert  ~nil (
     :param value~num
 
-    // which of these two forms is more idiomatic
-    {value} | tree
-    tree :value=$.value
+    tree :value=value
 )
 
 !pure tree-insert ~tree @update(

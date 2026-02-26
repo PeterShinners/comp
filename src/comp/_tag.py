@@ -6,6 +6,7 @@ import comp
 __all__ = [
     "Tag",
     "tag_nil", "tag_bool", "tag_true", "tag_false", "tag_fail",
+    "tag_less", "tag_equal", "tag_greater", "tag_else",
     "create_tagdef",
     "HandleInstance",
     "grab_handle", "drop_handle", "pull_handle", "push_handle",
@@ -48,6 +49,10 @@ tag_bool = Tag("bool", False)
 tag_true = Tag("bool.true", False)
 tag_false = Tag("bool.false", False)
 tag_fail = Tag("fail", False)
+tag_less = Tag("ord.less", False)
+tag_equal = Tag("ord.equal", False)
+tag_greater = Tag("ord.greater", False)
+tag_else = Tag("else", False)
 
 
 def create_tagdef(qualified_name, private, cop_node, parent_tag=None):
