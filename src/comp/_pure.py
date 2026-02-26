@@ -15,6 +15,7 @@ The COP nodes handled:
 
 __all__ = [
     "evaluate_pure_definitions",
+    "fold_pure_cop",
 ]
 
 import comp
@@ -56,6 +57,26 @@ def evaluate_pure_definitions(definitions, interp):
     return definitions
 
 
+def fold_pure_cop(cop, definitions, interp):
+    """Apply pure folding to a single COP tree using compiled pure blocks.
+
+    Used for COP trees that are not part of the definitions dict, such as
+    startup blocks, which are obtained separately from module definitions.
+
+    Args:
+        cop: (Value) COP tree to fold
+        definitions: Dict {qualified_name: Definition} providing pure blocks
+        interp: Interpreter instance
+
+    Returns:
+        (Value) Folded COP tree (same object if nothing changed)
+    """
+    pure_blocks = _compile_pure_blocks(definitions, interp)
+    if not pure_blocks:
+        return cop
+    return _eval_pure_in_cop(cop, pure_blocks, interp)
+
+
 def _compile_pure_blocks(definitions, interp):
     """Find !pure definitions and compile their Block bytecode.
 
@@ -86,12 +107,17 @@ def _compile_pure_blocks(definitions, interp):
         if not instructions:
             continue
 
-        # The instruction list for a function definition is [BuildBlock, TryInvoke].
-        # Execute just BuildBlock (instructions[:-1]) to get the Block object
-        # without invoking it (TryInvoke would invoke with empty args, which fails
-        # for parameterised functions).
+        # function.define/shape.define nodes do NOT get a trailing TryInvoke —
+        # the Block/Shape is the value directly.  All other definitions end with
+        # TryInvoke, which we skip to avoid invoking with empty args (which would
+        # fail for parameterised functions).  Mirror the _no_invoke_tags logic in
+        # _codegen.py to decide whether to strip the last instruction.
+        _no_invoke_tags = {"function.define", "shape.define", "shape.union"}
+        if comp.cop_tag(defn.resolved_cop) in _no_invoke_tags:
+            build_only = instructions          # already just BuildBlock
+        else:
+            build_only = instructions[:-1]    # strip trailing TryInvoke
         try:
-            build_only = instructions[:-1]
             block_val = interp.execute(build_only, {})
             if block_val and isinstance(block_val.data, comp.Block):
                 pure_blocks[name] = block_val.data
@@ -101,7 +127,7 @@ def _compile_pure_blocks(definitions, interp):
     return pure_blocks
 
 
-def _eval_pure_in_cop(cop, pure_blocks, interp):
+def _eval_pure_in_cop(cop, pure_blocks, interp, _as_stage=False):
     """Walk COP tree and evaluate pure function invocations.
 
     Processes bottom-up so that inner pure calls are folded before
@@ -111,6 +137,9 @@ def _eval_pure_in_cop(cop, pure_blocks, interp):
         cop: COP tree to process
         pure_blocks: Dict {qualified_name: Block} of compiled pure blocks
         interp: Interpreter for execution
+        _as_stage: If True, this node is a pipeline stage or callable child of
+            a binding — skip top-level reference/binding folding since the
+            piped input comes from the pipeline context, not from nil.
 
     Returns:
         Modified COP tree with pure invokes replaced by value.constant nodes
@@ -121,12 +150,15 @@ def _eval_pure_in_cop(cop, pure_blocks, interp):
     if tag == "value.pipeline":
         return _eval_pure_pipeline(cop, pure_blocks, interp)
 
-    # Recurse into children first (bottom-up)
+    # Recurse into children first (bottom-up).
+    # For value.binding, kid[0] is the callable — mark it as a stage so that
+    # it won't be folded as a standalone reference (it receives piped input).
     kids = comp.cop_kids(cop)
     new_kids = []
     changed = False
-    for kid in kids:
-        res = _eval_pure_in_cop(kid, pure_blocks, interp)
+    for i, kid in enumerate(kids):
+        kid_as_stage = tag == "value.binding" and i == 0
+        res = _eval_pure_in_cop(kid, pure_blocks, interp, _as_stage=kid_as_stage)
         new_kids.append(res)
         if res is not kid:
             changed = True
@@ -135,41 +167,81 @@ def _eval_pure_in_cop(cop, pure_blocks, interp):
         cop = comp.cop_rebuild(cop, new_kids)
         kids = new_kids
 
-    # value.reference to a pure function — implicit callabes
-    if tag == "value.reference":
-        result = _try_eval_reference(cop, pure_blocks, interp)
-        if result is not None:
-            return result
+    if not _as_stage:
+        # Reference to a pure function — implicit callables (TryInvoke semantics)
+        if tag in ("value.reference", "value.namespace"):
+            result = _try_eval_reference(cop, pure_blocks, interp)
+            if result is not None:
+                return result
 
-    # value.binding{pure_ref, const_args} — explicit call with arguments
-    if tag == "value.binding":
-        result = _try_eval_binding(cop, kids, pure_blocks, interp)
-        if result is not None:
-            return result
+        # value.binding{pure_ref, const_args} — explicit call with arguments
+        if tag == "value.binding":
+            result = _try_eval_binding(cop, kids, pure_blocks, interp)
+            if result is not None:
+                return result
 
     return cop
+
+
+def _pick_pure_block(qualified, pure_blocks, input_value):
+    """Pick the best matching pure Block for the given input value.
+
+    For a single qualified name (str), returns that block directly.
+    For a list of qualified names (overloads), morphs the input against
+    each block's input_shape and returns the highest-scoring match.
+
+    Args:
+        qualified: (str | list) Qualified name(s) of candidate blocks
+        pure_blocks: Dict {qualified_name: Block}
+        input_value: (Value) Current piped input for dispatch scoring
+
+    Returns:
+        (Block | None) Best matching block, or None
+    """
+    if isinstance(qualified, str):
+        return pure_blocks.get(qualified)
+
+    # Multiple overloads — dispatch by morphing input against each block's shape
+    best_block = None
+    best_score = None
+    for name in qualified:
+        block = pure_blocks.get(name)
+        if block is None:
+            continue
+        shape = block.input_shape if block.input_shape is not None else comp.shape_any
+        try:
+            result = comp.morph(input_value, shape, None)
+            if not result.failure_reason:
+                if best_score is None or result.score > best_score:
+                    best_score = result.score
+                    best_block = block
+        except Exception:
+            pass
+    return best_block
 
 
 def _try_eval_reference(cop, pure_blocks, interp):
     """Try to evaluate a reference to a pure function as a callable.
 
-    A value.reference to a pure function has TryInvoke semantics: it is
-    invoked with empty input and empty args.
+    Handles both value.reference and value.namespace nodes, and both
+    single (str) and overloaded (list) qualified names.  Invoked with
+    empty input and empty args (TryInvoke semantics).
 
     Returns:
         value.constant COP if evaluable, None otherwise
     """
     qualified = cop.to_python("qualified")
-    if not isinstance(qualified, str):
+    if not isinstance(qualified, (str, list)):
         return None
 
-    block = pure_blocks.get(qualified)
+    nil_val = comp.Value.from_python(comp.tag_nil)
+    empty = comp.Value.from_python({})
+    block = _pick_pure_block(qualified, pure_blocks, nil_val)
     if block is None:
         return None
 
-    empty = comp.Value.from_python({})
     try:
-        result = _execute_pure_block(block, empty, empty, interp)
+        result = _execute_pure_block(block, nil_val, empty, interp)
         return _make_constant(cop, result)
     except Exception:
         return None
@@ -177,6 +249,9 @@ def _try_eval_reference(cop, pure_blocks, interp):
 
 def _try_eval_binding(cop, kids, pure_blocks, interp):
     """Try to evaluate value.binding if callable is pure and args are constant.
+
+    Handles both value.reference and value.namespace callables, and both
+    single and overloaded qualified names.
 
     value.binding kids: [0] = callable expression, [1] = args struct.
 
@@ -189,26 +264,25 @@ def _try_eval_binding(cop, kids, pure_blocks, interp):
     callable_cop = kids[0]
     args_cop = kids[1]
 
-    # Callable must be a reference to a pure function
-    if comp.cop_tag(callable_cop) != "value.reference":
+    if comp.cop_tag(callable_cop) not in ("value.reference", "value.namespace"):
         return None
 
     qualified = callable_cop.to_python("qualified")
-    if not isinstance(qualified, str):
+    if not isinstance(qualified, (str, list)):
         return None
 
-    block = pure_blocks.get(qualified)
-    if block is None:
-        return None
-
-    # Args must be a compile-time constant
-    args_const = _get_constant(args_cop)
+    # Args must be a compile-time constant (including all-constant structs)
+    args_const = _eval_const_cop(args_cop, interp)
     if args_const is None:
         return None
 
-    empty = comp.Value.from_python({})
+    nil_val = comp.Value.from_python(comp.tag_nil)
+    block = _pick_pure_block(qualified, pure_blocks, nil_val)
+    if block is None:
+        return None
+
     try:
-        result = _execute_pure_block(block, empty, args_const, interp)
+        result = _execute_pure_block(block, nil_val, args_const, interp)
         return _make_constant(cop, result)
     except Exception:
         return None
@@ -246,7 +320,7 @@ def _eval_pure_pipeline(cop, pure_blocks, interp):
         new_stages = [first]
         changed = first is not stages[0]
         for stage in stages[1:]:
-            res = _eval_pure_in_cop(stage, pure_blocks, interp)
+            res = _eval_pure_in_cop(stage, pure_blocks, interp, _as_stage=True)
             new_stages.append(res)
             if res is not stage:
                 changed = True
@@ -258,14 +332,15 @@ def _eval_pure_pipeline(cop, pure_blocks, interp):
     evaluated_up_to = 0
     for i, stage in enumerate(stages[1:], 1):
         qualified, args_cop = _get_pipeline_stage_parts(stage)
-        if qualified is None or qualified not in pure_blocks:
-            # Stage not a pure function reference — stop
+        if qualified is None:
             break
-        block = pure_blocks[qualified]
+        block = _pick_pure_block(qualified, pure_blocks, current_value)
+        if block is None:
+            break
 
-        # Fold args for this stage
+        # Fold args for this stage (including all-constant structs)
         stage_evaled = _eval_pure_in_cop(args_cop, pure_blocks, interp) if args_cop is not None else None
-        args_value = _get_constant(stage_evaled) if stage_evaled is not None else comp.Value.from_python({})
+        args_value = _eval_const_cop(stage_evaled, interp) if stage_evaled is not None else comp.Value.from_python({})
         if args_cop is not None and args_value is None:
             break  # Args not constant
 
@@ -285,7 +360,7 @@ def _eval_pure_pipeline(cop, pure_blocks, interp):
         const_cop = _make_constant(stages[0], current_value)
         remaining = [const_cop]
         for stage in stages[evaluated_up_to + 1:]:
-            remaining.append(_eval_pure_in_cop(stage, pure_blocks, interp))
+            remaining.append(_eval_pure_in_cop(stage, pure_blocks, interp, _as_stage=True))
         if len(remaining) == 1:
             return remaining[0]
         return comp.cop_rebuild(cop, remaining)
@@ -294,7 +369,7 @@ def _eval_pure_pipeline(cop, pure_blocks, interp):
     new_stages = [first]
     changed = first is not stages[0]
     for stage in stages[1:]:
-        res = _eval_pure_in_cop(stage, pure_blocks, interp)
+        res = _eval_pure_in_cop(stage, pure_blocks, interp, _as_stage=True)
         new_stages.append(res)
         if res is not stage:
             changed = True
@@ -304,31 +379,33 @@ def _eval_pure_pipeline(cop, pure_blocks, interp):
 
 
 def _get_pipeline_stage_parts(stage_cop):
-    """Extract the Block and args COP from a pipeline stage.
+    """Extract the qualified name(s) and args COP from a pipeline stage.
 
     Pipeline stages can be:
-    - value.reference{pure_func}: piped input only, no args  → (block, None)
-    - value.binding{reference{pure_func}, args}: piped + args → (block, args_cop)
+    - value.reference / value.namespace: piped input only, no args
+    - value.binding{reference/namespace, args}: piped input + args
+
+    qualified may be a str (single overload) or list (multiple overloads).
+    Caller uses _pick_pure_block to resolve.
 
     Returns:
-        (Block or None, args_cop or None)
+        (str | list | None, args_cop or None)
     """
     tag = comp.cop_tag(stage_cop)
     kids = comp.cop_kids(stage_cop)
 
-    if tag == "value.reference":
+    if tag in ("value.reference", "value.namespace"):
         qualified = stage_cop.to_python("qualified")
-        if not isinstance(qualified, str):
+        if not isinstance(qualified, (str, list)):
             return None, None
-        # Return the block name; caller will look it up
         return qualified, None
 
     if tag == "value.binding" and len(kids) >= 2:
         callable_cop = kids[0]
         args_cop = kids[1]
-        if comp.cop_tag(callable_cop) == "value.reference":
+        if comp.cop_tag(callable_cop) in ("value.reference", "value.namespace"):
             qualified = callable_cop.to_python("qualified")
-            if isinstance(qualified, str):
+            if isinstance(qualified, (str, list)):
                 return qualified, args_cop
 
     return None, None
@@ -336,9 +413,6 @@ def _get_pipeline_stage_parts(stage_cop):
 
 def _execute_pure_block(block, input_value, args_value, interp):
     """Execute a pure block with the given piped input and argument values.
-
-    Sets up the parameter environment from the block's signature and
-    runs the body instructions.
 
     Args:
         block: Block object with compiled body_instructions
@@ -355,19 +429,9 @@ def _execute_pure_block(block, input_value, args_value, interp):
     if block.body_instructions is None:
         raise RuntimeError(f"Block {block.qualified!r} has no compiled body instructions")
 
-    env = {}
-    if block.input_name and block.arg_name:
-        env[block.input_name] = input_value
-        env[block.arg_name] = args_value
-    elif block.input_name:
-        # Single param: gets piped input if present, otherwise args
-        if input_value.data:
-            env[block.input_name] = input_value
-        else:
-            env[block.input_name] = args_value
-
-    frame = comp.ExecutionFrame(env=env, interp=interp)
-    return frame.run(block.body_instructions)
+    block_val = comp.Value(block)
+    frame = comp.ExecutionFrame(env={}, interp=interp)
+    return frame.invoke_block(block_val, args_value, piped=input_value)
 
 
 def _make_constant(original, value):
@@ -390,3 +454,43 @@ def _get_constant(cop):
         except (KeyError, AttributeError):
             pass
     return None
+
+
+_NON_CONST_TAGS = frozenset({
+    "value.identifier", "value.reference", "value.namespace", "value.local",
+})
+
+
+def _is_all_constant(cop):
+    """Return True if the COP tree has no runtime references (safe to evaluate at compile time)."""
+    tag = comp.cop_tag(cop)
+    if tag == "value.constant":
+        return True
+    if tag in _NON_CONST_TAGS:
+        return False
+    return all(_is_all_constant(kid) for kid in comp.cop_kids(cop))
+
+
+def _eval_const_cop(cop, interp):
+    """Evaluate a COP to a Value if it contains only compile-time constants.
+
+    Handles value.constant directly, and for all-constant composite nodes
+    (e.g. a struct whose fields have already been folded to constants),
+    generates and executes the instructions to produce the Value.
+
+    Returns:
+        Value if successful, None otherwise.
+    """
+    v = _get_constant(cop)
+    if v is not None:
+        return v
+    if not _is_all_constant(cop):
+        return None
+    try:
+        instructions = comp.generate_code_for_definition(cop)
+        if not instructions:
+            return None
+        frame = comp.ExecutionFrame(env={}, interp=interp)
+        return frame.run(instructions)
+    except Exception:
+        return None

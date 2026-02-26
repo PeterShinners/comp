@@ -491,16 +491,17 @@ def main():
 
         # Optionally resolve and optimize
         namespace = None
-        if args.resolve or args.fold or args.pure:
+        do_fold = args.fold or args.pure
+        if args.resolve or do_fold:
             namespace = mod.namespace()
             for name, definition in defs.items():
                 if not definition.resolved_cop:
-                    definition.resolved_cop = comp.coptimize(definition.original_cop, args.fold, namespace)
+                    definition.resolved_cop = comp.coptimize(definition.original_cop, do_fold, namespace)
 
         if args.pure:
             comp.evaluate_pure_definitions(defs, interp)
             # Re-fold after pure evaluation
-            if args.fold:
+            if do_fold:
                 for name, definition in defs.items():
                     definition.resolved_cop = comp.coptimize(definition.resolved_cop, True, namespace)
 
@@ -532,8 +533,8 @@ def main():
             startup_name = args.startup
             startup_cop = mod.prepare_startup(startup_name)[0] if mod is not None else None
             if startup_cop is not None:
-                if args.resolve or args.fold or args.pure:
-                    startup_cop = comp.coptimize(startup_cop, args.fold, namespace)
+                if args.resolve or do_fold:
+                    startup_cop = comp.coptimize(startup_cop, do_fold, namespace, pure=args.pure, defs=defs, interp=interp)
                 print(f"\n{'='*60}")
                 print(f"!startup {startup_name}")
                 print(f"{'='*60}")
@@ -689,7 +690,7 @@ def main():
             startup_name = args.startup
             startup_cop = mod.prepare_startup(startup_name)[0] if mod is not None else None
             if startup_cop is not None:
-                resolved_startup = comp.coptimize(startup_cop, do_fold, namespace)
+                resolved_startup = comp.coptimize(startup_cop, do_fold, namespace, pure=args.pure, defs=defs, interp=interp)
                 startup_instructions = comp.generate_code_for_definition(resolved_startup)
                 print(f"\n!startup {startup_name}")
                 print(f"Source: {comp.cop_unparse(startup_cop)}")
@@ -729,7 +730,7 @@ def main():
             startup_name = args.startup
             startup_cop, context = mod.prepare_startup(startup_name) if mod is not None else (None, None)
             if startup_cop is not None:
-                resolved_startup = comp.coptimize(startup_cop, do_fold, namespace)
+                resolved_startup = comp.coptimize(startup_cop, do_fold, namespace, pure=args.pure, defs=defs, interp=interp)
                 startup_instructions = comp.generate_code_for_definition(resolved_startup)
 
                 if args.trace:

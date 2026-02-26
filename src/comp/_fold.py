@@ -24,8 +24,9 @@ import decimal
 import comp
 
 
-def coptimize(cop, fold, namespace, references=None, locals_defined=None):
-    """Optimize a COP tree with optional folding and identifier resolution.
+def coptimize(cop, fold, namespace, references=None, locals_defined=None,
+              pure=False, defs=None, interp=None):
+    """Optimize a COP tree with optional folding, identifier resolution, and pure evaluation.
 
     Always converts literal nodes (value.text, value.number) to value.constant.
 
@@ -39,6 +40,10 @@ def coptimize(cop, fold, namespace, references=None, locals_defined=None):
     - Struct literals with all constant fields
     - References to definitions with constant values
 
+    If pure is True (requires defs and interp), evaluates pure function
+    invocations at compile time, followed by a second fold pass to collapse
+    any newly exposed constants.
+
     Args:
         cop: (Value) COP tree to optimize
         fold: (bool) Whether to fold constant expressions
@@ -47,13 +52,21 @@ def coptimize(cop, fold, namespace, references=None, locals_defined=None):
             resolved namespace references discovered during optimization
         locals_defined: (set | None) If provided, collects names of all local
             variables defined by op.let statements in the tree
+        pure: (bool) Whether to evaluate pure function invocations
+        defs: (dict | None) Module definitions dict, required when pure=True
+        interp: Interpreter instance, required when pure=True
 
     Returns:
         (Value) Optimized COP tree
     """
     if references is None:
         references = set()
-    return _coptimize_walk(cop, fold, namespace, set(), references, locals_defined)
+    cop = _coptimize_walk(cop, fold, namespace, set(), references, locals_defined)
+    if pure and defs is not None and interp is not None:
+        cop = comp.fold_pure_cop(cop, defs, interp)
+        if fold:
+            cop = _coptimize_walk(cop, True, namespace, set(), references, locals_defined)
+    return cop
 
 
 def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=None):
