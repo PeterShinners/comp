@@ -16,6 +16,7 @@ __all__ = [
     "shape_func",
     "shape_shape",
     "shape_union",
+    "shape_failure",
 ]
 
 
@@ -99,6 +100,9 @@ class ShapeUnion:
         for shape_item in self.shapes:
             if isinstance(shape_item, Shape):
                 parts.append(shape_item.qualified)
+            elif hasattr(shape_item, "qualified"):
+                # Tag or other named object
+                parts.append(shape_item.qualified)
             else:
                 # It's a COP node, unparse it
                 parts.append(comp.cop_unparse(shape_item))
@@ -136,7 +140,10 @@ class ShapeField:
         if self.name:
             parts.append(self.name)
         if self.shape:
-            parts.append(f":{self.shape.qualified}")
+            if hasattr(self.shape, "qualified"):
+                parts.append(f":{self.shape.qualified}")
+            else:
+                parts.append(f":{self.shape!r}")
         if self.default is not None:
             parts.append(f"={self.default}")
         return f"Field<{''.join(parts)}>"
@@ -166,3 +173,28 @@ shape_union = Shape("union", False)
 # Internal shapes - used by implementation, not exposed to comp language
 shape_tag = Shape("tag", True)
 shape_func = Shape("func", True)
+
+# Failure shape — defined here so it's available early; fields are set by
+# _init_shape_failure() which is called from __init__.py after all modules
+# are loaded.  The cause field is self-referential: shape_failure is created
+# before its fields so the ShapeUnion can safely reference it.
+shape_failure = Shape("failure", False)
+
+
+def _init_shape_failure():
+    """Initialize shape_failure fields.
+
+    Called from __init__.py after all modules are fully loaded so that
+    Value.from_python can safely reference comp.Shape, comp.Block, etc.
+    """
+    nil_default = comp.Value.from_python(comp.tag_nil)
+    shape_failure.fields = [
+        ShapeField(name="fail"),
+        ShapeField(name="message", shape=shape_text, default=comp.Value.from_python("")),
+        ShapeField(name="cause",
+                   shape=ShapeUnion([shape_failure, comp.tag_nil], default=nil_default),
+                   default=nil_default),
+        ShapeField(name="cop",
+                   shape=ShapeUnion([shape_struct, comp.tag_nil], default=nil_default),
+                   default=nil_default),
+    ]

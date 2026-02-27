@@ -215,6 +215,7 @@ class SystemModule(comp.Module):
             comp.ShapeField(name="context",   shape=comp.shape_struct, default=None),
         ]
         self._add_shape("invoke-data", _invoke_data)
+        self._add_shape("failure", comp.shape_failure)
 
         # Builtin callables
         self._add_callable("incr", _builtin_incr)

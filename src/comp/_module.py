@@ -134,10 +134,10 @@ class Module:
             key = stmt.get("name")
             body = stmt.get("body", "")
             line_offset = stmt.get("pos", [1])[0]
+            col_offset = stmt.get("body_col", 0)
 
-            parser = comp.lark_parser("comp", start="start_package")
-            lark_tree = parser.parse("\n" * (line_offset - 1) + body)
-            cop = comp._parse.lark_to_cop(lark_tree)
+            tree = comp.lark_parse(body, "comp", "start_package", line_offset=line_offset, col_offset=col_offset)
+            cop = comp.lark_to_cop(tree)
             sys_ns = comp.get_internal_module("system").namespace()
             folded = comp.coptimize(cop, fold=True, namespace=sys_ns)
 
@@ -250,9 +250,10 @@ class Module:
         name = stmt.get("name")
         body = stmt.get("body", "")
         line_offset = stmt.get("pos", [1])[0]
-        parser = comp.lark_parser("comp", start="start_func")
-        lark_tree = parser.parse("\n" * (line_offset - 1) + body)
-        cop_value = comp._parse.lark_to_cop(lark_tree)
+        col_offset = stmt.get("body_col", 0)
+
+        tree = comp.lark_parse(body, "comp", "start_func", line_offset=line_offset, col_offset=col_offset)
+        cop_value = comp.lark_to_cop(tree)
 
         # Determine shape - check if it's wrapped
         shape = comp.shape_func
@@ -290,9 +291,10 @@ class Module:
         name = stmt.get("name")
         body = stmt.get("body", "")
         line_offset = stmt.get("pos", [1])[0]
-        parser = comp.lark_parser("comp", start="start_tag")
-        lark_tree = parser.parse("\n" * (line_offset - 1) + body)
-        cop_value = comp._parse.lark_to_cop(lark_tree)
+        col_offset = stmt.get("body_col", 0)
+
+        tree = comp.lark_parse(body, "comp", "start_tag", line_offset=line_offset, col_offset=col_offset)
+        cop_value = comp.lark_to_cop(tree)
 
         # Create main tag definition
         tag = comp.Tag(name, private=False)
@@ -337,9 +339,10 @@ class Module:
         name = stmt.get("name")
         body = stmt.get("body", "")
         line_offset = stmt.get("pos", [1])[0]
-        parser = comp.lark_parser("comp", start="start_shape")
-        lark_tree = parser.parse("\n" * (line_offset - 1) + body)
-        cop_value = comp._parse.lark_to_cop(lark_tree)
+        col_offset = stmt.get("body_col", 0)
+
+        tree = comp.lark_parse(body, "comp", "start_shape", line_offset=line_offset, col_offset=col_offset)
+        cop_value = comp.lark_to_cop(tree)
 
         # Create shape definition
         definition = Definition(name, self.token, cop_value, comp.shape_shape)
@@ -350,8 +353,7 @@ class Module:
         name = stmt.get("name")
         body = stmt.get("body", "").strip()
         # Parse the mod body
-        parser = comp.lark_parser("comp", start="start_mod")
-        lark_tree = parser.parse(body)
+        lark_tree = comp.lark_parse(body, "comp", rule="start_mod")
         cop_value = comp._parse.lark_to_cop(lark_tree)
 
         # Store mod value separately (not as a definition)
@@ -389,9 +391,9 @@ class Module:
             if stmt.get("operator") == "startup" and stmt.get("name") == name:
                 body = stmt.get("body", "")
                 line_offset = stmt.get("pos", [1])[0]
-                parser = comp.lark_parser("comp", start="start_startup")
-                lark_tree = parser.parse("\n" * (line_offset - 1) + body)
-                return comp._parse.lark_to_cop(lark_tree)
+                col_offset = stmt.get("body_col", 0)
+                tree = comp.lark_parse(body, "comp", "start_startup", line_offset=line_offset, col_offset=col_offset)
+                return comp.lark_to_cop(tree)
         return None
 
     def startup_names(self):

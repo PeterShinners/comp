@@ -26,3 +26,7 @@ from ._scan import *
 from ._morph import *
 from ._py import *
 from ._describe import *
+
+# Deferred initialization: shape_failure fields reference Value objects and
+# comp.Shape/Block/etc., which aren't available during _shape.py import.
+_shape._init_shape_failure()

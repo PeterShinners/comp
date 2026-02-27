@@ -265,37 +265,125 @@ def prettylark_statements(module, show_positions=False):
             continue
 
         # Try to parse the body
+        line = pos[0] if pos else 0
         try:
-            parser = comp._parse.lark_parser("comp", start=entry_point)
-            tree = parser.parse(body)
+            tree = comp.lark_parse(body, "comp", rule=entry_point, line_offset=line)
             prettylark(tree, indent=1, show_positions=show_positions)
         except Exception as e:
-            # Adjust line numbers in error messages to reflect source file positions
-            error_line = getattr(e, 'line', None)
-            if error_line is not None and len(pos) >= 1:
-                # Body starts at pos[0], so error line needs offset
-                # Error reports line 1 as first line of body, which is actually pos[0] in source
-                actual_line = error_line + (pos[0] - 1)
-                error_msg = str(e).replace(f"line {error_line}", f"line {actual_line}")
-                print(f"  Parse error: {error_msg}")
-            else:
-                print(f"  Parse error: {e}")
+            print(f"  Parse error: {e}")
         print()
 
 
 def format_instruction(idx, instr, indent=0):
     """Format a single instruction for display using SSA style."""
     ind = "    " * indent
-    
+
     # Use the instruction's format method
     result = ind + instr.format(idx)
-    
+
     # If this is a BuildBlock, show nested body instructions
     if hasattr(instr, 'body_instructions') and instr.body_instructions:
         for i, body_instr in enumerate(instr.body_instructions):
             result += "\n" + format_instruction(i, body_instr, indent + 1)
-    
+
     return result
+
+
+def _format_failure_cli(fail_val, source_file=None, source_lines=None, depth=0):
+    """Format a failure value for CLI error display.
+
+    Args:
+        fail_val: (comp.Value) Failure struct conforming to shape_failure
+        source_file: (str | None) Source file path for context
+        source_lines: (list[str] | None) Pre-read source lines (avoids re-reading)
+        depth: (int) Recursion depth for cause chain indentation
+
+    Returns:
+        (str) Formatted error string for stderr output
+    """
+    if not isinstance(fail_val.data, dict):
+        return f"!fail {fail_val.format()}"
+
+    indent = "  " * depth
+
+    # Extract fields
+    nil = comp.Value.from_python(comp.tag_nil)
+    fail_key = comp.Value.from_python("fail")
+    msg_key = comp.Value.from_python("message")
+    cause_key = comp.Value.from_python("cause")
+    cop_key = comp.Value.from_python("cop")
+    frame_key = comp.Value.from_python("frame")
+
+    tag_val = fail_val.data.get(fail_key, nil)
+    msg_val = fail_val.data.get(msg_key, nil)
+    cause_val = fail_val.data.get(cause_key, nil)
+    cop_val = fail_val.data.get(cop_key, nil)
+    frame_val = fail_val.data.get(frame_key, nil)
+
+    # Tag string
+    if isinstance(tag_val.data, comp.Tag):
+        tag_str = f"#{tag_val.data.qualified}"
+    else:
+        tag_str = tag_val.format()
+
+    # Message string
+    msg_str = msg_val.data if isinstance(msg_val.data, str) else ""
+
+    # Build first line
+    if msg_str:
+        first_line = f"{indent}!fail {tag_str}: {msg_str}"
+    else:
+        first_line = f"{indent}!fail {tag_str}"
+
+    parts = [first_line]
+
+    # Position from cop struct — extract row/col and show source line
+    if isinstance(cop_val.data, dict):
+        pos_key = comp.Value.from_python("pos")
+        pos_val = cop_val.data.get(pos_key)
+        if pos_val is not None and isinstance(pos_val.data, dict):
+            try:
+                row = pos_val.to_python(0)
+                col = pos_val.to_python(1)
+                end_col = pos_val.to_python(3)
+
+                # Location line
+                loc = f"line {row}, col {col}"
+                if source_file:
+                    loc = f"{source_file}:{row}:{col}"
+                parts.append(f"{indent}  --> {loc}")
+                # Frame context (which function contained the error)
+                if isinstance(frame_val.data, str):
+                    parts[-1] += f"  (in {frame_val.data})"
+
+                # Source line + caret (lazy-read if needed)
+                if source_lines is None and source_file:
+                    try:
+                        with open(source_file, encoding="utf-8") as f:
+                            source_lines = f.readlines()
+                    except OSError:
+                        source_lines = []
+
+                if source_lines and 1 <= row <= len(source_lines):
+                    src_line = source_lines[row - 1].rstrip("\n")
+                    parts.append(f"{indent}   | {src_line}")
+                    # Caret: col is 1-based; underline the token span
+                    span = max(1, end_col - col) if end_col > col else 1
+                    caret = " " * (col - 1) + "^" * span
+                    parts.append(f"{indent}   | {caret}")
+            except Exception:
+                pass
+
+    # Cause chain
+    if isinstance(cause_val.data, dict):
+        parts.append(_format_failure_cli(
+            cause_val,
+            source_file=source_file,
+            source_lines=source_lines,
+            depth=depth + 1,
+        ))
+
+    return "\n".join(parts)
 
 
 def main():
@@ -366,9 +454,8 @@ def main():
                 prettylark_statements(mod, show_positions=args.pos)
             else:
                 # Direct grammar entry point
-                lark_parser = comp._parse.lark_parser("comp", start=entry_point)
                 try:
-                    tree = lark_parser.parse(args.source)
+                    tree = comp._parse.lark_parse(args.source, "comp", rule=entry_point)
                     prettylark(tree, show_positions=args.pos)
                 except Exception as e:
                     print(f"Parse error: {e}")
@@ -378,9 +465,8 @@ def main():
         # For --cop/--unparse modes with fragment entry points
         elif (args.cop or args.unparse) and entry_point is not None:
             # Parse fragment directly and convert to cop
-            lark_parser = comp._parse.lark_parser("comp", start=entry_point)
             try:
-                tree = lark_parser.parse(args.source)
+                tree = comp._parse.lark_parse(args.source, "comp", rule=entry_point)
                 cop = comp._parse.lark_to_cop(tree)
 
                 # Apply optimization/folding if requested
@@ -398,9 +484,8 @@ def main():
 
         # For --code mode with fragment entry points
         elif args.code and entry_point is not None:
-            lark_parser = comp._parse.lark_parser("comp", start=entry_point)
             try:
-                tree = lark_parser.parse(args.source)
+                tree = comp._parse.lark_parse(args.source, "comp", rule=entry_point)
                 cop = comp._parse.lark_to_cop(tree)
 
                 sys_ns = comp.get_internal_module("system").namespace()
@@ -418,9 +503,8 @@ def main():
 
         # For --eval/--trace mode with fragment entry points
         elif (args.eval or args.trace) and entry_point is not None:
-            lark_parser = comp._parse.lark_parser("comp", start=entry_point)
             try:
-                tree = lark_parser.parse(args.source)
+                tree = comp._parse.lark_parse(args.source, "comp", rule=entry_point)
                 cop = comp._parse.lark_to_cop(tree)
 
                 sys_mod = comp.get_internal_module("system")
@@ -452,7 +536,7 @@ def main():
 
                 result = frame.run(instructions)
                 if frame.failure is not None:
-                    print(f"!fail {frame.failure.format()}", file=sys.stderr)
+                    print(_format_failure_cli(frame.failure), file=sys.stderr)
                     sys.exit(1)
                 print(result.format())
                 return
@@ -467,8 +551,7 @@ def main():
         mod = interp.module(args.source, anchor=os.getcwd())
 
     if args.scan:
-        parser = comp._parse.lark_parser("scan")
-        tree = parser.parse(mod.source.content)
+        tree = comp._parse.lark_parse(mod.source.content, "scan")
         prettylark(tree, show_positions=args.pos)
         return
 
@@ -742,7 +825,7 @@ def main():
                         try:
                             frame.invoke_block(startup_block, context, piped=None)
                         except comp._interp.CompFail as e:
-                            print(f"\n!fail {e.value.format()}", file=sys.stderr)
+                            print(_format_failure_cli(e.value, source_file=args.source), file=sys.stderr)
                             sys.exit(1)
                 else:
                     startup_block = interp.execute(startup_instructions, env, module=mod)
@@ -752,7 +835,7 @@ def main():
                         try:
                             result = startup_frame.invoke_block(startup_block, context, piped=None)
                         except comp._interp.CompFail as e:
-                            print(f"!fail {e.value.format()}", file=sys.stderr)
+                            print(_format_failure_cli(e.value, source_file=args.source), file=sys.stderr)
                             sys.exit(1)
             else:
                 # No startup found - fall back to printing all definition values

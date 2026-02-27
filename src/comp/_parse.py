@@ -17,7 +17,8 @@ should have full Value types as values.
 """
 
 __all__ = [
-    "lark_parser",
+    "lark_parse",
+    "lark_to_cop",
 ]
 
 import lark
@@ -103,35 +104,51 @@ def create_cop_module(module):
         module.add_tag(tag_name, private=False)
 
 
-def lark_parser(name, start=None):
-    """Get globally shared lark parser.
+def lark_parse(text, grammar, rule=None, line_offset=1, col_offset=0):
+    """Parse text into grammar tree.
 
+    The grammar tree is most likely handed off to be converted to cop nodes, but
+    can be introspected along the way. The parsed structure is also version
+    specific and may change from release to release, the cop nodes should
+    provide more stability.
+
+    The parsed grammar tree contains the starting positions and line offsets for
+    the tokens. An alternative start and offset can be provided to provide
+    context for the parsed text within a larger file.
+
+    Comp provides two primary lark grammars. The rule can be either "comp" or
+    "scan" to select between the two grammars. Each grammar has its own default
+    starting rule, or an alternative entry point can be picked with the rule
+    argument, like `start_import`.
+    
     Args:
-        name: (str) name of the grammar file (without .lark)
-        start: (str|None) optional start rule name (e.g., "start_import")
+        text: (str) the code to be parsed
+        grammar: (str) grammar to be used
+        rule: (str|None) optional start rule (e.g., "start_import")
+        line_offset: (int) Line number offset for parsed positions
+        col_offset: (int) Column position offset for the first line
 
     Returns:
-        (lark.Lark) Parser instance
+        (lark.Tree) Parsed grammar tree
     """
     # If start is specified, create a unique key for caching
-    cache_key = f"{name}:{start}" if start else name
-
+    cache_key = f"{grammar}:{rule}" if rule else grammar
     parser = _parsers.get(cache_key)
-    if parser is not None:
-        return parser
+    if parser is None:
+        path = f"lark/{grammar}.lark"
+        parser_kwargs = {
+            "parser": "lalr",
+            "propagate_positions": True
+        }
+        if rule is not None:
+            parser_kwargs["start"] = rule
+        parser = lark.Lark.open(path, rel_to=__file__, **parser_kwargs)
+        _parsers[cache_key] = parser
 
-    path = f"lark/{name}.lark"
-    parser_kwargs = {
-        "parser": "lalr",
-        "propagate_positions": True
-    }
-    if start is not None:
-        parser_kwargs["start"] = start
 
-    parser = lark.Lark.open(path, rel_to=__file__, **parser_kwargs)
-    _parsers[cache_key] = parser
-    return parser
-
+    padded = "\n" * (line_offset - 1) + " " * col_offset + text
+    tree = parser.parse(padded)
+    return tree
 
 
 def _parsed(treetoken, tag, kids, **fields):

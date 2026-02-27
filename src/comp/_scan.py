@@ -17,8 +17,7 @@ def scan(source):
 
     Uses the scan.lark grammar which is error-resilient.
     """
-    parser = comp._parse.lark_parser("scan")
-    tree = parser.parse(source)
+    tree = comp._parse.lark_parse(source, "scan")
 
     definition_list = []
     doc_list = []
@@ -186,6 +185,7 @@ def _scan_mod_definition(node, source):
         "name": name,
         "pos": pos,
         "body": body,
+        "body_col": body_start_col if (name_end_line and name_end_col) else 0,
         "hash": body_hash,
     }
 

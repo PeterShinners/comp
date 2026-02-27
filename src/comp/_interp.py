@@ -35,19 +35,52 @@ class CompFail(Exception):
         self.value = value
 
 
-def _make_fail_value(message):
-    """Create a {fail: message} failure struct Value.
-
-    Used by instructions that catch Python exceptions at runtime and convert
-    them into comp failure values.
+def _exception_to_tag(exc):
+    """Map a Python exception to the appropriate comp fail tag.
 
     Args:
-        message: (str) Human-readable error description
+        exc: Python exception instance
 
     Returns:
-        (comp.Value) Struct with a 'fail' field containing the message
+        (comp.Tag) The most specific matching fail tag
     """
-    return comp.Value.from_python({"fail": message})
+    if isinstance(exc, (ZeroDivisionError, OverflowError, ArithmeticError)):
+        return comp.tag_fail_math
+    if isinstance(exc, (TypeError, ValueError)):
+        return comp.tag_fail_value
+    if isinstance(exc, (KeyError, IndexError, AttributeError)):
+        return comp.tag_fail_field
+    return comp.tag_fail
+
+
+def _make_fail_value(message, tag=None, cause=None, cop_val=None):
+    """Create a structured failure Value conforming to shape_failure.
+
+    Args:
+        message: (str | Exception) Human-readable error description
+        tag: (comp.Tag | None) Specific fail tag; defaults to tag_fail
+        cause: (comp.Value | None) Chained failure cause, or None for nil
+        cop_val: (comp.Value | None) COP struct for source location, or None for nil
+
+    Returns:
+        (comp.Value) Struct with fail/message/cause/cop fields
+    """
+    if tag is None:
+        tag = comp.tag_fail
+    if isinstance(message, BaseException):
+        # Use first string arg if available, otherwise fall back to type name
+        msg = next((a for a in message.args if isinstance(a, str)), None)
+        if not msg:
+            msg = type(message).__name__
+    else:
+        msg = str(message) if message else ""
+    nil = comp.tag_nil
+    return comp.Value.from_python({
+        "fail": tag,
+        "message": msg,
+        "cause": cause if cause is not None else nil,
+        "cop": cop_val if cop_val is not None else nil,
+    })
 
 
 class Interp:
@@ -230,9 +263,8 @@ class Interp:
         import lark
 
         # Parse using start_import entry point
-        parser = comp._parse.lark_parser("comp", start="start_import")
         try:
-            tree = parser.parse(body)
+            tree = comp._parse.lark_parse(body, "comp", rule="start_import")
         except Exception as e:
             raise ValueError(f"Failed to parse import body: {e}")
 
@@ -391,13 +423,14 @@ class ExecutionFrame:
 
         return None
 
-    def invoke_block(self, block_val, args, piped=None):
+    def invoke_block(self, block_val, args, piped=None, source_cop=None):
         """Call a function with the given arguments.
 
         Args:
             block_val: Value containing a Block, DefinitionSet, Shape, or InternalCallable
             args: Value containing the argument struct
             piped: Value for piped input (or None if not piped)
+            source_cop: (Value | None) COP node of the call site for error reporting
 
         Returns:
             Value result of the function call
@@ -420,16 +453,18 @@ class ExecutionFrame:
                 # Fall back to the union's default value if one was defined
                 if isinstance(callable_obj, comp.ShapeUnion) and callable_obj.default is not None:
                     return callable_obj.default
-                raise CompFail(_make_fail_value(morph_result.failure_reason))
+                raise CompFail(_make_fail_value(morph_result.failure_reason, tag=comp.tag_fail_value, cop_val=source_cop))
             return morph_result.value
-        
+
         # Handle DefinitionSet (dispatch to best-matching block, or shape as fallback)
         if isinstance(callable_obj, comp.DefinitionSet):
             result = self._dispatch_overload(callable_obj, args, piped)
             if result is None:
                 names = ", ".join(d.qualified for d in callable_obj.definitions)
                 raise CompFail(_make_fail_value(
-                    f"No matching overload found: {names}"
+                    f"No matching overload found: {names}",
+                    tag=comp.tag_fail_invoke,
+                    cop_val=source_cop,
                 ))
             # If dispatch returned a Value directly (from shape morph), return it
             if isinstance(result, comp.Value):
@@ -555,7 +590,16 @@ class ExecutionFrame:
         # If the called block finished with an unhandled failure, raise it so
         # callers can distinguish a failure from a normally-computed value.
         if new_frame.failure is not None:
-            raise CompFail(new_frame.failure)
+            fail = new_frame.failure
+            if isinstance(fail.data, dict):
+                frame_key = comp.Value.from_python("frame")
+                block_name = block.dispatch_set_name or block.dispatch_own_name
+                if frame_key not in fail.data and block_name:
+                    operator = "pure" if block.pure else "func"
+                    fail.data[frame_key] = comp.Value.from_python(
+                        f"!{operator} `{block_name}`"
+                    )
+            raise CompFail(fail)
 
         # Return the final result
         return result if result is not None else comp.Value.from_python(None)
@@ -906,7 +950,7 @@ class TryInvoke(Instruction):
         if isinstance(val.data, (comp.Block, comp.InternalCallable, comp.DefinitionSet)):
             empty_args = comp.Value.from_python({})
             try:
-                val = frame.invoke_block(val, empty_args, piped=None)
+                val = frame.invoke_block(val, empty_args, piped=None, source_cop=self.cop)
             except CompFail as e:
                 frame.failure = e.value
                 return frame.set_result(e.value)
@@ -1090,11 +1134,11 @@ class BinOp(Instruction):
         try:
             result = comp._ops.math_binary(self.op, left_val, right_val)
         except (TypeError, ValueError, ZeroDivisionError, ArithmeticError) as e:
-            fail_val = _make_fail_value(str(e))
+            fail_val = _make_fail_value(e, tag=_exception_to_tag(e), cop_val=self.cop)
             frame.failure = fail_val
             return frame.set_result(fail_val)
         return frame.set_result(result)
-    
+
     def format(self, idx):
         return f"%{idx}  BinOp '{self.op}' %{self.left} %{self.right}"
 
@@ -1112,7 +1156,7 @@ class UnOp(Instruction):
         try:
             result = comp._ops.math_unary(self.op, operand_val)
         except (TypeError, ValueError, ArithmeticError) as e:
-            fail_val = _make_fail_value(str(e))
+            fail_val = _make_fail_value(e, tag=_exception_to_tag(e), cop_val=self.cop)
             frame.failure = fail_val
             return frame.set_result(fail_val)
         return frame.set_result(result)
@@ -1136,7 +1180,7 @@ class CmpOp(Instruction):
         try:
             result = comp._ops.compare(self.op, left_val, right_val)
         except (TypeError, ValueError) as e:
-            fail_val = _make_fail_value(str(e))
+            fail_val = _make_fail_value(e, tag=_exception_to_tag(e), cop_val=self.cop)
             frame.failure = fail_val
             return frame.set_result(fail_val)
         return frame.set_result(result)
@@ -1799,7 +1843,7 @@ class Forward(Instruction):
         # Got a Block — invoke it with the same piped input
         block_val = comp.Value(result)
         try:
-            return frame.set_result(frame.invoke_block(block_val, _empty, piped=piped_val))
+            return frame.set_result(frame.invoke_block(block_val, _empty, piped=piped_val, source_cop=self.cop))
         except CompFail as e:
             frame.failure = e.value
             return frame.set_result(e.value)
@@ -1812,17 +1856,17 @@ class Forward(Instruction):
 
 class Invoke(Instruction):
     """Invoke a function/block with arguments (no piped input)."""
-    
+
     def __init__(self, cop, callable, args):
         super().__init__(cop)
         self.callable = callable  # int index
         self.args = args          # int index
-    
+
     def execute(self, frame):
         callable_val = frame.get_value(self.callable)
         args_val = frame.get_value(self.args)
         try:
-            result = frame.invoke_block(callable_val, args_val, piped=None)
+            result = frame.invoke_block(callable_val, args_val, piped=None, source_cop=self.cop)
         except CompFail as e:
             frame.failure = e.value
             return frame.set_result(e.value)
@@ -1834,19 +1878,19 @@ class Invoke(Instruction):
 
 class PipeInvoke(Instruction):
     """Invoke a function/block with piped input and arguments."""
-    
+
     def __init__(self, cop, callable, piped, args):
         super().__init__(cop)
         self.callable = callable  # int index
         self.piped = piped        # int index - the piped input value
         self.args = args          # int index
-    
+
     def execute(self, frame):
         callable_val = frame.get_value(self.callable)
         piped_val = frame.get_value(self.piped)
         args_val = frame.get_value(self.args)
         try:
-            result = frame.invoke_block(callable_val, args_val, piped=piped_val)
+            result = frame.invoke_block(callable_val, args_val, piped=piped_val, source_cop=self.cop)
         except CompFail as e:
             frame.failure = e.value
             return frame.set_result(e.value)
@@ -1945,6 +1989,11 @@ class RaiseFail(Instruction):
 
     def execute(self, frame):
         val = frame.get_value(self.value_reg)
+        # Auto-wrap bare strings and tags into a proper failure struct
+        if isinstance(val.data, str):
+            val = _make_fail_value(val.data)
+        elif isinstance(val.data, comp.Tag) and val.data.qualified.startswith("fail"):
+            val = _make_fail_value("", tag=val.data)
         frame.failure = val
         return frame.set_result(val)
 
@@ -2075,7 +2124,7 @@ class PipeFallback(Instruction):
         if args_val is None:
             args_val = comp.Value.from_python({})
         try:
-            result = frame.invoke_block(callable_val, args_val, piped=failure)
+            result = frame.invoke_block(callable_val, args_val, piped=failure, source_cop=self.cop)
         except CompFail as e:
             frame.failure = e.value
             return frame.set_result(e.value)
