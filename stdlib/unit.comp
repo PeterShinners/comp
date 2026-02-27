@@ -1,0 +1,32 @@
+/// Unit tag definitions for the Comp standard library.
+///
+/// Numeric unit families live under `measure.*`. Each sub-family groups
+/// related units; all units within a sub-family are mutually convertible
+/// (via the Python conversion table in _unit_conv.py).
+///
+/// Text format tags live under `format.*`. They carry no numeric meaning
+/// and are never converted — they simply mark a string's domain so that
+/// tools and escaping logic can act accordingly.
+
+// ===== Numeric unit families =====
+
+/// Physical measurements — length, time, temperature, mass
+!tag measure { length time temperature mass }
+
+/// Length units (base: meter)
+!tag measure.length { meter centimeter kilometer foot inch mile }
+
+/// Time units (base: second)
+!tag measure.time { second millisecond minute hour }
+
+/// Temperature units (base: celsius)
+!tag measure.temperature { celsius fahrenheit kelvin }
+
+/// Mass units (base: gram)
+!tag measure.mass { gram kilogram pound ounce }
+
+// ===== Text format tags =====
+
+/// Domain markers for string values — used by IDEs for syntax highlighting
+/// and by the formatting engine for context-aware escaping.
+!tag format { sql html regex shell url json csv }

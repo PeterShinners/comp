@@ -253,6 +253,13 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
                     # Successfully extracted all fields
                     return _make_constant(cop, result)
 
+        if tag == "value.cast_unit":
+            val = _get_constant(new_kids[0])
+            unit_val = _get_constant(new_kids[1])
+            if val is not None and unit_val is not None:
+                if isinstance(unit_val.data, comp.Tag):
+                    return _make_constant(cop, val.with_unit(unit_val.data))
+
         if tag == "struct.define":
             return _fold_struct(cop, new_kids)
 

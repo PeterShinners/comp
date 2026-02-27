@@ -104,6 +104,9 @@ shape_atom: (identifier | paren_shape | brace_shape) unit_suffix? limit_suffix? 
 
 unit_suffix: BRACKET_OPEN identifier BRACKET_CLOSE
 
+// Value expression with unit annotation: 12[inch], "query"[sql], myvar[meter]
+unitized_value: (number | text | identifier) unit_suffix
+
 limit_field: (identifier EQUALS)? simple_expr
 limit_suffix: ANGLE_OPEN limit_field+ ANGLE_CLOSE
 
@@ -187,7 +190,7 @@ postfield: nextfield (DOT nextfield)*
 ?postfix: atom
         | atom DOT postfield -> fieldaccess
 
-?atom: wrapper* (number | text | identifier | dotted_path_atom | shape | statement | structure)
+?atom: wrapper* (unitized_value | number | text | identifier | dotted_path_atom | shape | statement | structure)
      | wrapper+   // Standalone wrapper(s) as a value
      | forward_expr
 

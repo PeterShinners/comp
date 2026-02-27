@@ -990,13 +990,13 @@ class BuildShape(Instruction):
 
     def __init__(self, cop, fields):
         super().__init__(cop)
-        self.fields = fields  # List of (name, shape_ref, default_idx) tuples
-        # shape_ref is either a string (name to look up) or int (register index)
+        self.fields = fields  # List of (name, shape_ref, unit_ref, default_idx) tuples
+        # shape_ref and unit_ref are either a string (name to look up) or int (register index)
 
     def execute(self, frame):
         shape = comp.Shape("anonymous", private=False)
 
-        for name, shape_ref, default_idx in self.fields:
+        for name, shape_ref, unit_ref, default_idx in self.fields:
             # Get shape constraint if provided
             shape_constraint = None
             if shape_ref is not None:
@@ -1024,12 +1024,27 @@ class BuildShape(Instruction):
                     if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
                         shape_constraint = shape_val.data
 
+            # Get unit constraint if provided
+            unit_constraint = None
+            if unit_ref is not None:
+                if isinstance(unit_ref, str):
+                    try:
+                        unit_val = _load_name(unit_ref, frame)
+                    except NameError:
+                        unit_val = None
+                    if unit_val and isinstance(unit_val.data, comp.Tag):
+                        unit_constraint = unit_val.data
+                else:
+                    unit_val = frame.get_value(unit_ref)
+                    if unit_val and isinstance(unit_val.data, comp.Tag):
+                        unit_constraint = unit_val.data
+
             # Get default if provided
             default_val = None
             if default_idx is not None:
                 default_val = frame.get_value(default_idx)
 
-            field = comp.ShapeField(name=name, shape=shape_constraint, default=default_val)
+            field = comp.ShapeField(name=name, shape=shape_constraint, unit=unit_constraint, default=default_val)
             shape.fields.append(field)
 
         result = comp.Value(shape)
@@ -1037,13 +1052,18 @@ class BuildShape(Instruction):
 
     def format(self, idx):
         parts = []
-        for name, shape_ref, default_idx in self.fields:
+        for name, shape_ref, unit_ref, default_idx in self.fields:
             part = name or "_"
             if shape_ref is not None:
                 if isinstance(shape_ref, str):
                     part += f"~{shape_ref}"
                 else:
                     part += f"~%{shape_ref}"
+            if unit_ref is not None:
+                if isinstance(unit_ref, str):
+                    part += f"[{unit_ref}]"
+                else:
+                    part += f"[%{unit_ref}]"
             if default_idx is not None:
                 part += f"=%{default_idx}"
             parts.append(part)
@@ -1095,6 +1115,61 @@ class BuildShapeUnion(Instruction):
         if self.default_idx is not None:
             parts.append(f"default=%{self.default_idx}")
         return f"%{idx}  BuildShapeUnion ({' '.join(parts)})"
+
+
+# ---------------------------------------------------------------------------
+# Unit Operations
+# ---------------------------------------------------------------------------
+
+class CastUnit(Instruction):
+    """Apply a unit tag to a value (value[unit] syntax).
+
+    Attaches the specified unit tag to the value. If the value already has a
+    unit from the same family, converts using the unit conversion table.
+    If units are from incompatible families, raises EvalError.
+    Bare-to-unit is always valid. Unit-to-bare (unit=None) is always valid.
+    """
+
+    def __init__(self, cop, value_reg, unit_reg):
+        super().__init__(cop)
+        self.value_reg = value_reg  # register index of the input value
+        self.unit_reg = unit_reg    # register index of the unit tag value
+
+    def execute(self, frame):
+        value = frame.get_value(self.value_reg)
+        unit_val = frame.get_value(self.unit_reg)
+
+        if not isinstance(unit_val.data, comp.Tag):
+            raise comp.EvalError(
+                f"Unit must be a tag, got {unit_val.format()}", self.cop
+            )
+
+        new_unit = unit_val.data
+        old_unit = value.unit
+
+        if old_unit is None or old_unit is new_unit:
+            # Bare-to-unit or same unit: just attach
+            return frame.set_result(value.with_unit(new_unit))
+
+        if old_unit.qualified == new_unit.qualified:
+            return frame.set_result(value.with_unit(new_unit))
+
+        # Try conversion between units
+        import comp._unit_conv as _uc
+        try:
+            new_data = _uc.convert(value.data, old_unit, new_unit)
+        except comp.EvalError:
+            raise
+        except Exception as e:
+            raise comp.EvalError(
+                f"Cannot convert [{old_unit.qualified}] to [{new_unit.qualified}]: {e}",
+                self.cop
+            )
+        result = comp.Value(new_data).with_unit(new_unit)
+        return frame.set_result(result)
+
+    def format(self, idx):
+        return f"%{idx}  CastUnit %{self.value_reg} %{self.unit_reg}"
 
 
 # ---------------------------------------------------------------------------

@@ -98,6 +98,7 @@ def create_cop_module(module):
         "value.transact",  # (kids)
         "value.handle",  # (op, kids) grab/drop/pull/etc
         "value.constant",  # (value) precompiled constant value
+        "value.cast_unit",  # (value, unit) apply unit tag to a value: 12[inch]
         "stmt.assign",  # (kids) 2 kids (lvalue, rvalue)
     )
     for tag_name in cop_tags:
@@ -209,6 +210,15 @@ def lark_to_cop(tree):
             raw_value = kids[0].value
             text_value = raw_value[1:-1] if len(raw_value) >= 2 else raw_value
             return _parsed(tree, "value.text", [], value=text_value)
+
+        case "unitized_value":
+            # (number | text | identifier) unit_suffix
+            # unit_suffix: BRACKET_OPEN identifier BRACKET_CLOSE
+            value_cop = lark_to_cop(kids[0])
+            unit_suffix_tree = kids[1]  # lark.Tree for unit_suffix
+            # unit_suffix children: BRACKET_OPEN, identifier_tree, BRACKET_CLOSE
+            unit_ident_cop = lark_to_cop(unit_suffix_tree.children[1])
+            return _parsed(tree, "value.cast_unit", [value_cop, unit_ident_cop])
 
         # Operators
         case "binary_op":
@@ -770,8 +780,10 @@ def lark_to_cop(tree):
                     extra_kids = result[1:]
                     existing_kids = list(comp.cop_kids(union_cop))
                     return _parsed(kids[0], "shape.union", existing_kids + extra_kids)
-                # Otherwise (single-type with default), wrap in shape.field
-                return _parsed(tree, "shape.field", result)
+                # Otherwise (single-type with unit/default/etc), wrap in a shape.field
+                # inside a shape.define so the codegen shape handler sees the right structure.
+                field = _parsed(tree, "shape.field", result)
+                return _parsed(tree, "shape.define", [field])
             return result
 
         case "start_func" | "start_startup" | "start_mod" | "start_package" | "start_import":

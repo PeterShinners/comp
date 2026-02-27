@@ -29,6 +29,10 @@ def generate_code_for_definition(cop, dispatch_own_name=None, dispatch_set_name=
     Returns:
         List[Instruction]: Instruction sequence to compute the value
     """
+    # Definitions with no COP (e.g. tag children pre-set by module) have no instructions.
+    if cop is None:
+        return []
+
     # Create a code generation context
     ctx = CodeGenContext(dispatch_own_name=dispatch_own_name, dispatch_set_name=dispatch_set_name)
 
@@ -156,11 +160,20 @@ class CodeGenContext:
                 import decimal
                 literal = cop.to_python("value")
                 return comp.Value.from_python(decimal.Decimal(literal))
-                
+
             case "value.text":
                 # Inline constant
-                literal = cop.to_python("value") 
+                literal = cop.to_python("value")
                 return comp.Value.from_python(literal)
+
+            case "value.cast_unit":
+                # value[unit] — apply a unit tag to a value
+                kids = _cop_kids(cop)
+                value_reg = self._build_value_ensure_register(kids[0])
+                unit_reg = self._build_value_ensure_register(kids[1])
+                return self.emit(comp._instructions.CastUnit(
+                    cop=cop, value_reg=value_reg, unit_reg=unit_reg
+                ))
                 
             case "value.math.binary":
                 return self._build_binary_op(cop)
@@ -808,7 +821,9 @@ class CodeGenContext:
                 return self.emit(comp._instructions.BuildShapeUnion(cop=cop, member_refs=member_refs))
 
             elif tag == "shape.field":
-                # Named field: name attribute; first kid is shape type, second is default
+                # Named field: name attribute; kids are tagged by COP type:
+                # shape.unit, shape.default, shape.limit, shape.repeat, shape.value,
+                # or a plain shape ref as the base type.
                 name = None
                 try:
                     name = kid.to_python("name")
@@ -816,14 +831,28 @@ class CodeGenContext:
                     pass
 
                 shape_ref = None
+                unit_ref = None
                 default_idx = None
                 field_kids = _cop_kids(kid)
-                if len(field_kids) >= 1:
-                    shape_ref = _shape_ref_or_reg(self, field_kids[0])
-                if len(field_kids) >= 2:
-                    default_idx = self._build_value_ensure_register(field_kids[1])
+                for fk in field_kids:
+                    fk_tag = comp.cop_tag(fk)
+                    if fk_tag == "shape.unit":
+                        # shape.unit: BRACKET_OPEN identifier BRACKET_CLOSE
+                        unit_kids = _cop_kids(fk)
+                        if unit_kids:
+                            unit_ref = _shape_ref_or_reg(self, unit_kids[0])
+                    elif fk_tag == "shape.default":
+                        default_fk_kids = _cop_kids(fk)
+                        if default_fk_kids:
+                            default_idx = self._build_value_ensure_register(default_fk_kids[0])
+                    elif fk_tag in ("shape.limit", "shape.repeat", "shape.value"):
+                        pass  # TODO: handle limits and repeat
+                    else:
+                        # Base type reference (first non-special kid)
+                        if shape_ref is None:
+                            shape_ref = _shape_ref_or_reg(self, fk)
 
-                fields.append((name, shape_ref, default_idx))
+                fields.append((name, shape_ref, unit_ref, default_idx))
 
         return self.emit(comp._instructions.BuildShape(cop=cop, fields=fields))
 

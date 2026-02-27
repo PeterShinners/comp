@@ -16,19 +16,20 @@ class MorphResult:
         value: (Value) The morphed value result
         named_matches: (int) Number of fields matched by name
         tag_depth: (int) Total tag depth for tag-matched fields
+        unit_score: (int) Total unit compatibility score across matched fields
         positional_matches: (int) Number of fields matched positionally
 
     Attributes:
         value: (Value) The morphed value result
-        score: (tuple) (named_matches, tag_depth, positional_matches)
+        score: (tuple) (named_matches, tag_depth, unit_score, positional_matches)
         failure_reason: (str | None) Error message if morph failed
     """
 
     __slots__ = ("value", "score", "failure_reason")
 
-    def __init__(self, value, named_matches=0, tag_depth=0, positional_matches=0):
+    def __init__(self, value, named_matches=0, tag_depth=0, unit_score=0, positional_matches=0):
         self.value = value
-        self.score = (named_matches, tag_depth, positional_matches)
+        self.score = (named_matches, tag_depth, unit_score, positional_matches)
         self.failure_reason = None
 
     @classmethod
@@ -49,6 +50,45 @@ class MorphResult:
         if self.failure_reason:
             return f"MorphResult<failed: {self.failure_reason}>"
         return f"MorphResult<score={self.score}>"
+
+
+def _unit_match_score(val_unit, shape_unit):
+    """Score unit compatibility between a value's unit and a shape field's unit.
+
+    Returns:
+        4  — exact unit match or no shape unit constraint
+        3  — value's unit is a child of the shape's unit tag
+        2  — bare value (no unit) matched against a unit-constrained field
+        1  — value's unit is a sibling of the shape's unit (same family, convertible)
+        -1 — incompatible units (different families); morph should fail
+    """
+    if shape_unit is None:
+        return 4  # No constraint — unit is irrelevant
+
+    if val_unit is None:
+        return 2  # Bare value matches any unit shape (moderate match)
+
+    val_q = val_unit.qualified
+    shape_q = shape_unit.qualified
+
+    if val_q == shape_q:
+        return 4  # Exact match
+
+    val_parts = val_q.split(".")
+    shape_parts = shape_q.split(".")
+
+    # Child: value's unit is a child of shape's unit tag (e.g. second → time)
+    if (len(val_parts) > len(shape_parts) and
+            val_parts[:len(shape_parts)] == shape_parts):
+        return 3
+
+    # Sibling: same immediate parent → same family, convertible
+    # e.g. measure.length.foot and measure.length.meter both under measure.length
+    if len(val_parts) >= 2 and len(shape_parts) >= 2:
+        if val_parts[:-1] == shape_parts[:-1]:
+            return 1
+
+    return -1  # Incompatible families — reject
 
 
 def _get_field_key(key):
@@ -300,8 +340,12 @@ def morph(value, shape, frame):
             # Primitive shape (num, text, etc.) or Tag - validate type
             if not _check_type(value, shape, frame):
                 return MorphResult.failed(f"Value does not match shape {_shape_name(shape)}")
-            # Count as 1 positional match - the value itself matched the shape
-            return MorphResult(value, 0, 0, 1)
+            # For primitive shapes, get the shape's unit if it has one
+            shape_unit = getattr(shape, "unit", None)
+            us = _unit_match_score(value.unit, shape_unit)
+            if us == -1:
+                return MorphResult.failed(f"Value has incompatible unit for shape {_shape_name(shape)}")
+            return MorphResult(value, 0, 0, us, 1)
         # Promote scalar to (scalar) - single positional field
         promoted_data = {comp.Unnamed(): value}
         value = comp.Value(promoted_data)
@@ -313,8 +357,11 @@ def morph(value, shape, frame):
                 inner_val = next(iter(value.data.values()))
                 if not _check_type(inner_val, shape, frame):
                     return MorphResult.failed(f"Value does not match shape {_shape_name(shape)}")
-                # Count as 1 positional match - one element matched the shape
-                return MorphResult(inner_val, 0, 0, 1)
+                shape_unit = getattr(shape, "unit", None)
+                us = _unit_match_score(inner_val.unit, shape_unit)
+                if us == -1:
+                    return MorphResult.failed(f"Value has incompatible unit for shape {_shape_name(shape)}")
+                return MorphResult(inner_val, 0, 0, us, 1)
             return MorphResult.failed(f"Cannot morph struct to scalar shape {_shape_name(shape)}")
 
     # Build list of input fields
@@ -328,6 +375,7 @@ def morph(value, shape, frame):
     shape_matches = {}  # shape_field_index -> input_field
     named_matches = 0
     tag_depth_total = 0
+    unit_score_total = 0
     positional_matches = 0
 
     # Phase 1: Named matching
@@ -346,9 +394,16 @@ def morph(value, shape, frame):
                     return MorphResult.failed(
                         f"Field '{shape_field.name}' has wrong type"
                     )
+                # Validate unit compatibility
+                us = _unit_match_score(inp["value"].unit, shape_field.unit)
+                if us == -1:
+                    return MorphResult.failed(
+                        f"Field '{shape_field.name}' has incompatible unit"
+                    )
                 shape_matches[i] = inp
                 inp["matched"] = True
                 named_matches += 1
+                unit_score_total += us
                 break
 
     # Phase 2: Tag matching
@@ -362,6 +417,7 @@ def morph(value, shape, frame):
 
         best_match = None
         best_depth = None
+        best_us = 4
 
         for inp in input_fields:
             if inp["matched"]:
@@ -371,14 +427,19 @@ def morph(value, shape, frame):
 
             depth = _tag_matches_shape(inp["tag"], constraint)
             if depth is not None:
+                us = _unit_match_score(inp["value"].unit, shape_field.unit)
+                if us == -1:
+                    continue
                 if best_depth is None or depth < best_depth:
                     best_match = inp
                     best_depth = depth
+                    best_us = us
 
         if best_match and best_depth is not None:
             shape_matches[i] = best_match
             best_match["matched"] = True
             tag_depth_total += best_depth
+            unit_score_total += best_us
 
     # Phase 3: Positional matching
     # Only match positional (unnamed) input fields - named fields that didn't match stay as extras
@@ -397,9 +458,16 @@ def morph(value, shape, frame):
             # Validate type
             constraint = _resolve_shape_field(shape_field, frame)
             if _check_type(inp["value"], constraint, frame):
+                # Validate unit compatibility
+                us = _unit_match_score(inp["value"].unit, shape_field.unit)
+                if us == -1:
+                    return MorphResult.failed(
+                        f"Positional field has incompatible unit for shape field '{shape_field.name or i}'"
+                    )
                 shape_matches[i] = inp
                 inp["matched"] = True
                 positional_matches += 1
+                unit_score_total += us
                 break
             else:
                 return MorphResult.failed(
@@ -449,7 +517,7 @@ def morph(value, shape, frame):
         result_data[inp["key"]] = inp["value"]
 
     result_value = comp.Value(result_data)
-    return MorphResult(result_value, named_matches, tag_depth_total, positional_matches)
+    return MorphResult(result_value, named_matches, tag_depth_total, unit_score_total, positional_matches)
 
 
 def mask(value, shape, frame):

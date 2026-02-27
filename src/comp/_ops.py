@@ -53,6 +53,12 @@ def math_binary(op, left, right):
     # In the future this must look at the unit attached to the number types
     # Doing possible conversions between them. For now a number is a number.
 
+    # If both operands have units, convert right to left's unit
+    if left.unit is not None and right.unit is not None and left.unit is not right.unit:
+        if left.unit.qualified != right.unit.qualified:
+            import comp._unit_conv as _uc
+            rval = _uc.convert(rval, right.unit, left.unit)
+
     if op == "+":
         result = lval + rval
     elif op == "-":
@@ -64,7 +70,8 @@ def math_binary(op, left, right):
     else:
         raise ValueError(f"Unknown math binary operator: {op}")
 
-    return comp.Value(result)
+    # Result carries the left operand's unit
+    return comp.Value(result).with_unit(left.unit)
 
 
 def math_unary(op, right):
@@ -92,14 +99,14 @@ def math_unary(op, right):
     # which road is best.
     rval = right.data
     if op == "+":
-        return right  # Unary + is a no-op
+        return right  # Unary + is a no-op (unit preserved since same object returned)
     if op == "-":
         if isinstance(rval, decimal.Decimal):
             # Decimal unary- munges based on precision, this is lossless
             nval = rval.copy_negate()
         else:
             nval = -rval
-        return comp.Value(nval)
+        return comp.Value(nval).with_unit(right.unit)  # preserve unit
     else:
         raise ValueError(f"Unknown math unary operator: {op}")
 
@@ -241,6 +248,14 @@ def _compare(left, right):
 
     # Same type - compare within type
     if lshape is comp.shape_num:
+        # Convert right to left's unit before comparing (same-family units only)
+        if left.unit is not None and right.unit is not None:
+            if left.unit is not right.unit and left.unit.qualified != right.unit.qualified:
+                import comp._unit_conv as _uc
+                try:
+                    rval = _uc.convert(rval, right.unit, left.unit)
+                except comp.EvalError:
+                    pass  # Different families: fall through to raw comparison
         if lval < rval:
             return -1
         if lval > rval:

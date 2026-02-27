@@ -112,7 +112,7 @@ class ShapeUnion:
 class ShapeField:
     """Internal field definition within a shape.
 
-    Fields can have a name, a shape constraint, and a default value.
+    Fields can have a name, a shape constraint, a unit constraint, and a default value.
     At least one of name or shape must be provided.
 
     These aren't exposed to the Comp language directly.
@@ -120,19 +120,22 @@ class ShapeField:
     Args:
         name: (str | None) Field name, None for positional/unnamed fields
         shape: (cop | None) Shape constraint for the field
+        unit: (Tag | None) Expected unit tag for the field value
         default: (cop | None) Default value if field is omitted
 
     Attributes:
         name: (str | None) Field name
         shape: (cop | None) Shape constraint
+        unit: (Tag | None) Expected unit tag
         default: (cop | None) Default value
     """
 
-    __slots__ = ("name", "shape", "default")
+    __slots__ = ("name", "shape", "unit", "default")
 
-    def __init__(self, name=None, shape=None, default=None):
+    def __init__(self, name=None, shape=None, unit=None, default=None):
         self.name = name
         self.shape = shape  # cop node for shape
+        self.unit = unit    # Tag | None — expected unit for this field
         self.default = default  # cop node for default
 
     def __repr__(self):
@@ -144,6 +147,8 @@ class ShapeField:
                 parts.append(f":{self.shape.qualified}")
             else:
                 parts.append(f":{self.shape!r}")
+        if self.unit:
+            parts.append(f"[{self.unit.qualified}]")
         if self.default is not None:
             parts.append(f"={self.default}")
         return f"Field<{''.join(parts)}>"
@@ -156,6 +161,8 @@ class ShapeField:
                 result += self.shape.format()
             else:
                 result += f"~{self.shape.qualified}"
+        if self.unit:
+            result += f"[{self.unit.qualified}]"
         if self.default:
             result += f"={self.default.format()}"
         return result

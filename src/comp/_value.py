@@ -51,7 +51,7 @@ class Value:
             frozenset -- materialised set of HandleInstance objects, never empty
     """
 
-    __slots__ = ("data", "cop", "private", "handles", "_guard")
+    __slots__ = ("data", "cop", "private", "handles", "_guard", "unit")
     _shapemap = None
     _shapetypes = None
 
@@ -65,6 +65,10 @@ class Value:
 
         # Token used for diagnostics and messages about where value came from
         self.cop = None
+
+        # Unit tag attached to this value (Tag | None)
+        # e.g. measure.length.inch for 12[inch]
+        self.unit = None
 
         # Module-private data storage
         # Maps module_id -> Value (structure containing private data) Used by
@@ -109,6 +113,25 @@ class Value:
             shape = self.data  # tag
         return shape
 
+    def with_unit(self, unit):
+        """Return a new Value identical to self but with a different unit.
+
+        Args:
+            unit: (Tag | None) The unit to attach, or None to strip unit
+
+        Returns:
+            (Value) New value with the given unit
+        """
+        new_val = Value.__new__(Value)
+        new_val.data = self.data
+        new_val.cop = self.cop
+        new_val.private = self.private
+        new_val.handles = self.handles
+        if isinstance(self.data, dict):
+            new_val._guard = self._guard
+        new_val.unit = unit
+        return new_val
+
     def format(self):
         """Convert value to Comp literal expression.
 
@@ -119,33 +142,32 @@ class Value:
 
         shape = self.shape
         if shape is comp.shape_num:
-            return str(self.data)
-        if shape is comp.shape_text:
+            base = str(self.data)
+        elif shape is comp.shape_text:
             value = self.data.replace('"', '\\"')
             escaped = value.replace("\n", "\\n")
-            return (
+            base = (
                 f'"""{escaped}"""' if "\n" in value else f'"{value}"'
             )
-        if shape is comp.tag_nil:
+        elif shape is comp.tag_nil:
             return "nil"
-        if shape is comp.tag_true:
+        elif shape is comp.tag_true:
             return "true"
-        if shape is comp.tag_false:
+        elif shape is comp.tag_false:
             return "false"
-        if isinstance(self.data, comp.Tag):
+        elif isinstance(self.data, comp.Tag):
             return f"{self.data.qualified}"
-        if isinstance(self.data, comp.StatementHandle):
+        elif isinstance(self.data, comp.StatementHandle):
             return self.data.val.format()
-        if isinstance(self.data, comp.Block):
+        elif isinstance(self.data, comp.Block):
             return self.data.format()
-        if isinstance(self.data, comp.HandleInstance):
+        elif isinstance(self.data, comp.HandleInstance):
             return self.data.format()
-        if isinstance(self.data, comp.Shape):
+        elif isinstance(self.data, comp.Shape):
             return self.data.format()
-        if isinstance(self.data, comp.ShapeUnion):
+        elif isinstance(self.data, comp.ShapeUnion):
             return self.data.format()
-
-        if shape is comp.shape_struct:
+        elif shape is comp.shape_struct:
             fields = []
             for k, v in self.data.items():
                 if isinstance(k, Unnamed):
@@ -162,10 +184,14 @@ class Value:
                             fields.append(f'"{key}"={v.format()}')
                     else:
                         fields.append(f"'{k.format()}'={v.format()}")
-
             return "{" + " ".join(fields) + "}"
+        else:
+            base = str(self.data)
 
-        return str(self.data)
+        # Append unit suffix for num and text values
+        if self.unit is not None:
+            return f"{base}[{self.unit.qualified}]"
+        return base
 
     def as_scalar(self):
         """Unwrap single-element structs to their scalar value.
@@ -362,14 +388,16 @@ class Value:
     def __eq__(self, other):
         if not isinstance(other, Value):
             return False
-        return self.data == other.data
+        return self.data == other.data and self.unit is other.unit
 
     def __hash__(self):
         """Make Value hashable so it can be used as dict keys."""
         if isinstance(self.data, dict):
             # Dicts aren't hashable, use tuple of items
-            return hash(tuple(sorted(self.data.items())))
-        return hash(self.data)
+            data_hash = hash(tuple(sorted(self.data.items())))
+        else:
+            data_hash = hash(self.data)
+        return hash((data_hash, self.unit))
 
 
 # def fail(message, ast=None, **extra_fields):
