@@ -6,6 +6,7 @@ Each Definition gets transformed into a sequence of Instructions.
 
 import comp
 
+
 __all__ = [
     "generate_code_for_definition",
 ]
@@ -42,7 +43,7 @@ def generate_code_for_definition(cop, dispatch_own_name=None, dispatch_set_name=
     # callables and pass non-callable values through unchanged.
     _no_invoke_tags = {"function.define", "shape.define", "shape.union"}
     if comp.cop_tag(cop) not in _no_invoke_tags:
-        ctx.emit(comp._interp.TryInvoke(cop=cop, value=result_reg))
+        ctx.emit(comp._instructions.TryInvoke(cop=cop, value=result_reg))
 
     return ctx.instructions
 
@@ -97,7 +98,7 @@ class CodeGenContext:
                     else:
                         body_instructions = []
                     signature_cop = getattr(block, "signature_cop", None)
-                    return self.emit(comp._interp.BuildBlock(
+                    return self.emit(comp._instructions.BuildBlock(
                         cop=cop,
                         signature_cop=signature_cop,
                         body_instructions=body_instructions
@@ -109,31 +110,31 @@ class CodeGenContext:
                 try:
                     qualified_name = cop.to_python("qualified")
                     if isinstance(qualified_name, list):
-                        instr = comp._interp.LoadOverload(cop=cop, names=qualified_name)
+                        instr = comp._instructions.LoadOverload(cop=cop, names=qualified_name)
                     else:
-                        instr = comp._interp.LoadVar(cop=cop, name=qualified_name)
+                        instr = comp._instructions.LoadVar(cop=cop, name=qualified_name)
                     reg = self.emit(instr)
-                    return self.emit(comp._interp.TryInvoke(cop=cop, value=reg))
+                    return self.emit(comp._instructions.TryInvoke(cop=cop, value=reg))
                 except (AttributeError, KeyError) as e:
                     raise comp.CodeError(f"Invalid namespace reference: {e}", cop)
 
             case "value.local":
                 # Explicit local variable reference produced by coptimize
                 name = cop.to_python("name")
-                result = self.emit(comp._interp.LoadLocal(cop=cop, name=name))
+                result = self.emit(comp._instructions.LoadLocal(cop=cop, name=name))
                 result = _apply_field_access(self, cop, result, _cop_kids(cop))
-                return self.emit(comp._interp.TryInvoke(cop=cop, value=result))
+                return self.emit(comp._instructions.TryInvoke(cop=cop, value=result))
 
             case "value.reference":
                 # Legacy resolved namespace reference (from cop_resolve or older paths)
                 try:
                     qualified_name = cop.to_python("qualified")
                     if isinstance(qualified_name, list):
-                        instr = comp._interp.LoadOverload(cop=cop, names=qualified_name)
+                        instr = comp._instructions.LoadOverload(cop=cop, names=qualified_name)
                     else:
-                        instr = comp._interp.LoadVar(cop=cop, name=qualified_name)
+                        instr = comp._instructions.LoadVar(cop=cop, name=qualified_name)
                     reg = self.emit(instr)
-                    return self.emit(comp._interp.TryInvoke(cop=cop, value=reg))
+                    return self.emit(comp._instructions.TryInvoke(cop=cop, value=reg))
                 except (AttributeError, KeyError) as e:
                     raise comp.CodeError(f"Invalid reference: {e}", cop)
 
@@ -146,9 +147,9 @@ class CodeGenContext:
                 if not kids:
                     raise comp.CodeError("Identifier has no token", cop)
                 name = kids[0].to_python("value")
-                result = self.emit(comp._interp.LoadLocal(cop=cop, name=name))
+                result = self.emit(comp._instructions.LoadLocal(cop=cop, name=name))
                 result = _apply_field_access(self, cop, result, kids[1:])
-                return self.emit(comp._interp.TryInvoke(cop=cop, value=result))
+                return self.emit(comp._instructions.TryInvoke(cop=cop, value=result))
             
             case "value.number":
                 # Inline constant
@@ -215,7 +216,7 @@ class CodeGenContext:
                 body_ctx = self.__class__()
                 body_ctx._build_value_ensure_register(inner_cop)
                 sig_cop = comp.create_cop("block.signature", [])
-                return self.emit(comp._interp.BuildBlock(
+                return self.emit(comp._instructions.BuildBlock(
                     cop=cop,
                     signature_cop=sig_cop,
                     body_instructions=body_ctx.instructions,
@@ -232,13 +233,13 @@ class CodeGenContext:
                 path = _extract_path_segments(name_cop)
                 value_idx = self._build_value_ensure_register(value_cop)
                 if path and len(path) > 1:
-                    return self.emit(comp._interp.DeepSetLocal(
+                    return self.emit(comp._instructions.DeepSetLocal(
                         cop=cop, base_name=path[0], path=path[1:], value_reg=value_idx
                     ))
                 name = _extract_name(name_cop)
                 if name is None:
                     raise comp.CodeError("op.let requires a name", cop)
-                return self.emit(comp._interp.StoreLocal(cop=cop, name=name, source=value_idx))
+                return self.emit(comp._instructions.StoreLocal(cop=cop, name=name, source=value_idx))
 
             case "op.ctx":
                 # !ctx name expr — like !let but also adds to the running frame context
@@ -252,18 +253,18 @@ class CodeGenContext:
                 value_idx = self._build_value_ensure_register(value_cop)
                 if path and len(path) > 1:
                     # Deep ctx: set the path in the base local and update context for base name
-                    return self.emit(comp._interp.DeepSetLocal(
+                    return self.emit(comp._instructions.DeepSetLocal(
                         cop=cop, base_name=path[0], path=path[1:], value_reg=value_idx,
                         update_context=True,
                     ))
                 name = _extract_name(name_cop)
                 if name is None:
                     raise comp.CodeError("op.ctx requires a name", cop)
-                return self.emit(comp._interp.SetContext(cop=cop, name=name, source=value_idx))
+                return self.emit(comp._instructions.SetContext(cop=cop, name=name, source=value_idx))
 
             case "op.forward":
                 # Standalone !forward — re-dispatch using $ as piped input
-                return self.emit(comp._interp.Forward(cop=cop, piped_reg=None))
+                return self.emit(comp._instructions.Forward(cop=cop, piped_reg=None))
 
             case "op.fail":
                 # !fail expr — evaluate expr, set as failure, fast-forward
@@ -271,7 +272,7 @@ class CodeGenContext:
                 if not kids:
                     raise comp.CodeError("op.fail requires a value expression", cop)
                 value_idx = self._build_value_ensure_register(kids[0])
-                return self.emit(comp._interp.RaiseFail(cop=cop, value_reg=value_idx))
+                return self.emit(comp._instructions.RaiseFail(cop=cop, value_reg=value_idx))
 
             case "value.fallback":
                 # expr ?? h1 ?? h2 — chain of Fallback instructions
@@ -283,7 +284,7 @@ class CodeGenContext:
                 for handler_cop in kids[1:]:
                     handler_ctx = self.__class__()
                     handler_ctx._build_value_ensure_register(handler_cop)
-                    result = self.emit(comp._interp.Fallback(
+                    result = self.emit(comp._instructions.Fallback(
                         cop=cop,
                         test_reg=result,
                         handler_instructions=handler_ctx.instructions,
@@ -304,7 +305,7 @@ class CodeGenContext:
         left = self._build_value_ensure_register(kids[0])
         right = self._build_value_ensure_register(kids[1])
         
-        instr = comp._interp.BinOp(cop=cop, op=op, left=left, right=right)
+        instr = comp._instructions.BinOp(cop=cop, op=op, left=left, right=right)
         return self.emit(instr)
     
     def _build_unary_op(self, cop):
@@ -314,7 +315,7 @@ class CodeGenContext:
 
         operand = self._build_value_ensure_register(kids[0])
 
-        instr = comp._interp.UnOp(cop=cop, op=op, operand=operand)
+        instr = comp._instructions.UnOp(cop=cop, op=op, operand=operand)
         return self.emit(instr)
 
     def _build_compare_op(self, cop):
@@ -325,7 +326,7 @@ class CodeGenContext:
         left = self._build_value_ensure_register(kids[0])
         right = self._build_value_ensure_register(kids[1])
 
-        instr = comp._interp.CmpOp(cop=cop, op=op, left=left, right=right)
+        instr = comp._instructions.CmpOp(cop=cop, op=op, left=left, right=right)
         return self.emit(instr)
     
     def _build_invoke(self, cop):
@@ -341,7 +342,7 @@ class CodeGenContext:
         result = callable_idx
         for arg_cop in kids[1:]:
             arg_idx = self._build_args_struct(arg_cop)
-            instr = comp._interp.Invoke(cop=cop, callable=result, args=arg_idx)
+            instr = comp._instructions.Invoke(cop=cop, callable=result, args=arg_idx)
             result = self.emit(instr)
 
         return result
@@ -383,9 +384,9 @@ class CodeGenContext:
                 if args_cop is not None:
                     args_ctx._build_args_struct(args_cop)
                 else:
-                    args_ctx.emit(comp._interp.BuildStruct(cop=stage_cop, fields=[]))
+                    args_ctx.emit(comp._instructions.BuildStruct(cop=stage_cop, fields=[]))
 
-                result = self.emit(comp._interp.PipeFallback(
+                result = self.emit(comp._instructions.PipeFallback(
                     cop=stage_cop,
                     piped_reg=result,
                     callable_instructions=callable_ctx.instructions,
@@ -404,9 +405,9 @@ class CodeGenContext:
                     # Build args without TryInvoke so callables reach :block params
                     arg_idx = self._build_args_struct(stage_kids[1])
                 else:
-                    arg_idx = self.emit(comp._interp.BuildStruct(cop=stage_cop, fields=[]))
+                    arg_idx = self.emit(comp._instructions.BuildStruct(cop=stage_cop, fields=[]))
 
-                instr = comp._interp.PipeInvoke(
+                instr = comp._instructions.PipeInvoke(
                     cop=stage_cop,
                     callable=callable_idx,
                     piped=result,
@@ -417,11 +418,11 @@ class CodeGenContext:
                 # Bare callable stage — special-case !forward, otherwise PipeInvoke
                 if stage_tag == "op.forward":
                     # !forward as a pipeline stage: re-dispatch with explicit piped input
-                    result = self.emit(comp._interp.Forward(cop=stage_cop, piped_reg=result))
+                    result = self.emit(comp._instructions.Forward(cop=stage_cop, piped_reg=result))
                 else:
                     callable_idx = self._build_callable_ensure_register(stage_cop)
-                    arg_idx = self.emit(comp._interp.BuildStruct(cop=stage_cop, fields=[]))
-                    instr = comp._interp.PipeInvoke(
+                    arg_idx = self.emit(comp._instructions.BuildStruct(cop=stage_cop, fields=[]))
+                    instr = comp._instructions.PipeInvoke(
                         cop=stage_cop,
                         callable=callable_idx,
                         piped=result,
@@ -447,9 +448,9 @@ class CodeGenContext:
             # Build the args struct without TryInvoke so callables can reach :block params
             args_idx = self._build_args_struct(body_cop)
         else:
-            args_idx = self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
+            args_idx = self.emit(comp._instructions.BuildStruct(cop=cop, fields=[]))
 
-        instr = comp._interp.Invoke(cop=cop, callable=callable_idx, args=args_idx)
+        instr = comp._instructions.Invoke(cop=cop, callable=callable_idx, args=args_idx)
         return self.emit(instr)
 
     def _build_on_op(self, cop):
@@ -496,7 +497,7 @@ class CodeGenContext:
 
             branches.append((pattern_instructions, result_instructions))
 
-        return self.emit(comp._interp.DispatchOn(cop=cop, condition=condition_idx, branches=branches))
+        return self.emit(comp._instructions.DispatchOn(cop=cop, condition=condition_idx, branches=branches))
 
     def _build_handle_op(self, cop):
         """Build handle operator instructions (!grab, !drop, !pull, !push)."""
@@ -505,20 +506,20 @@ class CodeGenContext:
 
         if op == "grab":
             tag_reg = self._build_value_ensure_register(kids[0])
-            return self.emit(comp._interp.GrabHandle(cop=cop, tag_reg=tag_reg))
+            return self.emit(comp._instructions.GrabHandle(cop=cop, tag_reg=tag_reg))
 
         elif op == "drop":
             handle_reg = self._build_value_ensure_register(kids[0])
-            return self.emit(comp._interp.DropHandle(cop=cop, handle_reg=handle_reg))
+            return self.emit(comp._instructions.DropHandle(cop=cop, handle_reg=handle_reg))
 
         elif op == "pull":
             handle_reg = self._build_value_ensure_register(kids[0])
-            return self.emit(comp._interp.PullHandle(cop=cop, handle_reg=handle_reg))
+            return self.emit(comp._instructions.PullHandle(cop=cop, handle_reg=handle_reg))
 
         elif op == "push":
             handle_reg = self._build_value_ensure_register(kids[0])
             data_reg = self._build_value_ensure_register(kids[1])
-            return self.emit(comp._interp.PushHandle(cop=cop, handle_reg=handle_reg, data_reg=data_reg))
+            return self.emit(comp._instructions.PushHandle(cop=cop, handle_reg=handle_reg, data_reg=data_reg))
 
         else:
             raise comp.CodeError(f"Unknown handle operator: {op!r}", cop)
@@ -557,7 +558,7 @@ class CodeGenContext:
             if field_tag == "ident.token":
                 # Named field access: struct.fieldname
                 field_name = field_token.to_python("value")
-                result = self.emit(comp._interp.GetField(
+                result = self.emit(comp._instructions.GetField(
                     cop=cop,
                     struct_reg=result,
                     field=field_name
@@ -566,7 +567,7 @@ class CodeGenContext:
                 # Positional field access: struct.#N (0-based)
                 index_str = field_token.to_python("value")
                 index = int(index_str)
-                result = self.emit(comp._interp.GetIndex(
+                result = self.emit(comp._instructions.GetIndex(
                     cop=cop,
                     struct_reg=result,
                     index=index
@@ -586,7 +587,7 @@ class CodeGenContext:
         body_ctx = CodeGenContext()
         body_ctx._build_value_ensure_register(body_cop)
         
-        instr = comp._interp.BuildBlock(
+        instr = comp._instructions.BuildBlock(
             cop=cop,
             signature_cop=signature_cop,
             body_instructions=body_ctx.instructions
@@ -615,12 +616,12 @@ class CodeGenContext:
         inner_reg = self._build_callable_ensure_register(inner_cop)
 
         # Capture current frame state around the statement
-        invoke_data_reg = self.emit(comp._interp.BuildInvokeData(cop=cop, statement_reg=inner_reg))
+        invoke_data_reg = self.emit(comp._instructions.BuildInvokeData(cop=cop, statement_reg=inner_reg))
 
         # Load wrapper callable and call with invoke-data piped in
         wrapper_reg = self._build_callable_ensure_register(wrapper_cop)
-        empty_args  = self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
-        return self.emit(comp._interp.PipeInvoke(
+        empty_args  = self.emit(comp._instructions.BuildStruct(cop=cop, fields=[]))
+        return self.emit(comp._instructions.PipeInvoke(
             cop=cop,
             callable=wrapper_reg,
             piped=invoke_data_reg,
@@ -670,7 +671,7 @@ class CodeGenContext:
         body_ctx = CodeGenContext()
         body_ctx._build_value_ensure_register(body_cop)
 
-        block_reg = self.emit(comp._interp.BuildBlock(
+        block_reg = self.emit(comp._instructions.BuildBlock(
             cop=cop,
             signature_cop=combined_sig,
             body_instructions=body_ctx.instructions,
@@ -682,12 +683,12 @@ class CodeGenContext:
         #   invoke-data | wrapper()
         # Whatever the wrapper returns becomes this definition's value.
         if func_wrapper_cop is not None:
-            invoke_data_reg = self.emit(comp._interp.BuildInvokeData(
+            invoke_data_reg = self.emit(comp._instructions.BuildInvokeData(
                 cop=cop, statement_reg=block_reg
             ))
             wrapper_reg = self._build_callable_ensure_register(func_wrapper_cop)
-            empty_args  = self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
-            pipe_result = self.emit(comp._interp.PipeInvoke(
+            empty_args  = self.emit(comp._instructions.BuildStruct(cop=cop, fields=[]))
+            pipe_result = self.emit(comp._instructions.PipeInvoke(
                 cop=cop,
                 callable=wrapper_reg,
                 piped=invoke_data_reg,
@@ -695,7 +696,7 @@ class CodeGenContext:
             ))
             # If the wrapper returned the statement handle (pass-through case),
             # unwrap it so the definition stores the original Block, not the handle.
-            return self.emit(comp._interp.UnwrapStatementHandle(cop=cop, value=pipe_result))
+            return self.emit(comp._instructions.UnwrapStatementHandle(cop=cop, value=pipe_result))
 
         return block_reg
 
@@ -710,7 +711,7 @@ class CodeGenContext:
         field_kids = _cop_kids(cop)
 
         if not field_kids:
-            return self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
+            return self.emit(comp._instructions.BuildStruct(cop=cop, fields=[]))
 
         result = None
         expr_result = None   # last non-let expression register
@@ -738,12 +739,12 @@ class CodeGenContext:
                     has_trailing_let = False
 
         if result is None:
-            return self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
+            return self.emit(comp._instructions.BuildStruct(cop=cop, fields=[]))
 
         # If trailing !let statements would clobber the return value,
         # emit a SelectResult to preserve the last expression result.
         if has_trailing_let and expr_result is not None:
-            return self.emit(comp._interp.SelectResult(cop=cop, source=expr_result))
+            return self.emit(comp._instructions.SelectResult(cop=cop, source=expr_result))
 
         return result
 
@@ -775,7 +776,7 @@ class CodeGenContext:
                     name = _extract_name(let_kids[0])
                     if name is not None:
                         value_idx = self._build_value_ensure_register(let_kids[1])
-                        self.emit(comp._interp.StoreLocal(cop=kid, name=name, source=value_idx))
+                        self.emit(comp._instructions.StoreLocal(cop=kid, name=name, source=value_idx))
 
             elif tag == "struct.namefield":
                 # Kids: [0]=name identifier, [1]=value expression
@@ -786,7 +787,7 @@ class CodeGenContext:
                         value_idx = self._build_value_ensure_register(field_kids[1])
                         fields.append((name, value_idx))
 
-        return self.emit(comp._interp.BuildStruct(cop=cop, fields=fields))
+        return self.emit(comp._instructions.BuildStruct(cop=cop, fields=fields))
 
     def _build_shape(self, cop):
         """Build shape construction instructions.
@@ -804,7 +805,7 @@ class CodeGenContext:
             if tag == "shape.union":
                 # Shape union — unwrap shape.field kids to get the type references
                 member_refs = [_shape_ref_or_reg(self, _cop_kids(m)[0]) for m in _cop_kids(kid)]
-                return self.emit(comp._interp.BuildShapeUnion(cop=cop, member_refs=member_refs))
+                return self.emit(comp._instructions.BuildShapeUnion(cop=cop, member_refs=member_refs))
 
             elif tag == "shape.field":
                 # Named field: name attribute; first kid is shape type, second is default
@@ -824,7 +825,7 @@ class CodeGenContext:
 
                 fields.append((name, shape_ref, default_idx))
 
-        return self.emit(comp._interp.BuildShape(cop=cop, fields=fields))
+        return self.emit(comp._instructions.BuildShape(cop=cop, fields=fields))
 
     def _build_top_shape_union(self, cop):
         """Build a top-level shape union definition (e.g. !shape foo ~num|text = 0).
@@ -846,7 +847,7 @@ class CodeGenContext:
                 if default_kids:
                     default_idx = self._build_value_ensure_register(default_kids[0])
 
-        return self.emit(comp._interp.BuildShapeUnion(cop=cop, member_refs=member_refs, default_idx=default_idx))
+        return self.emit(comp._instructions.BuildShapeUnion(cop=cop, member_refs=member_refs, default_idx=default_idx))
 
     def _build_value_ensure_register(self, cop):
         """Build a value and ensure it's in a register (has an index).
@@ -861,7 +862,7 @@ class CodeGenContext:
             return result
         else:
             # Constant value - emit Const instruction
-            instr = comp._interp.Const(cop=cop, value=result)
+            instr = comp._instructions.Const(cop=cop, value=result)
             return self.emit(instr)
 
     def _build_args_struct(self, cop):
@@ -901,7 +902,7 @@ class CodeGenContext:
                     name = _extract_name(let_kids[0])
                     if name is not None:
                         value_idx = self._build_value_ensure_register(let_kids[1])
-                        self.emit(comp._interp.StoreLocal(cop=kid, name=name, source=value_idx))
+                        self.emit(comp._instructions.StoreLocal(cop=kid, name=name, source=value_idx))
 
             elif kid_tag == "struct.namefield":
                 field_kids = _cop_kids(kid)
@@ -913,7 +914,7 @@ class CodeGenContext:
                         value_idx = self._build_callable_ensure_register(field_kids[1])
                         fields.append((name, value_idx))
 
-        return self.emit(comp._interp.BuildStruct(cop=cop, fields=fields))
+        return self.emit(comp._instructions.BuildStruct(cop=cop, fields=fields))
 
     def _build_callable_ensure_register(self, cop):
         """Build a callable reference without auto-invoking it.
@@ -929,16 +930,16 @@ class CodeGenContext:
             try:
                 qualified_name = cop.to_python("qualified")
                 if isinstance(qualified_name, list):
-                    instr = comp._interp.LoadOverload(cop=cop, names=qualified_name)
+                    instr = comp._instructions.LoadOverload(cop=cop, names=qualified_name)
                 else:
-                    instr = comp._interp.LoadVar(cop=cop, name=qualified_name)
+                    instr = comp._instructions.LoadVar(cop=cop, name=qualified_name)
                 return self.emit(instr)
             except (AttributeError, KeyError) as e:
                 raise comp.CodeError(f"Invalid callable reference: {e}", cop)
 
         elif tag == "value.local":
             name = cop.to_python("name")
-            result = self.emit(comp._interp.LoadLocal(cop=cop, name=name))
+            result = self.emit(comp._instructions.LoadLocal(cop=cop, name=name))
             return _apply_field_access(self, cop, result, _cop_kids(cop))
 
         elif tag == "value.identifier":
@@ -948,7 +949,7 @@ class CodeGenContext:
             if not kids:
                 raise comp.CodeError("Identifier has no token", cop)
             name = kids[0].to_python("value")
-            result = self.emit(comp._interp.LoadLocal(cop=cop, name=name))
+            result = self.emit(comp._instructions.LoadLocal(cop=cop, name=name))
             return _apply_field_access(self, cop, result, kids[1:])
 
         else:
@@ -979,7 +980,7 @@ def _compile_on_pattern(ctx, pattern_cop):
             ref = _shape_ref_or_reg(ctx, kids[0])
             if isinstance(ref, str):
                 # Static name — emit LoadVar to get the Tag/Shape value at runtime
-                return ctx.emit(comp._interp.LoadVar(cop=pattern_cop, name=ref))
+                return ctx.emit(comp._instructions.LoadVar(cop=pattern_cop, name=ref))
             # _shape_ref_or_reg already emitted instructions; ref is a register index
             return ref
     # Fallback: compile fully (struct-pattern shapes, unions, etc.)
@@ -1083,10 +1084,10 @@ def _apply_field_access(ctx, cop, result, field_kids):
         field_tag = comp.cop_tag(kid)
         if field_tag == "ident.token":
             field_name = kid.to_python("value")
-            result = ctx.emit(comp._interp.GetField(cop=cop, field=field_name, struct_reg=result))
+            result = ctx.emit(comp._instructions.GetField(cop=cop, field=field_name, struct_reg=result))
         elif field_tag == "ident.index":
             index_str = kid.to_python("value")
-            result = ctx.emit(comp._interp.GetIndex(cop=cop, struct_reg=result, index=int(index_str)))
+            result = ctx.emit(comp._instructions.GetIndex(cop=cop, struct_reg=result, index=int(index_str)))
         else:
             raise comp.CodeError(f"Unsupported field access token: {field_tag}", cop)
     return result

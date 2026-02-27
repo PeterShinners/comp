@@ -156,7 +156,7 @@ def _resolve_shape_field(field, frame):
         # Unwrap DefinitionSet
         if shape_val and isinstance(shape_val.data, comp.DefinitionSet):
             for defn in shape_val.data.definitions:
-                dv = comp._interp._ensure_definition_value(defn, frame)
+                dv = comp._instructions._ensure_definition_value(defn, frame)
                 if dv and isinstance(dv.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
                     # Cache the resolved shape back into the field for next time
                     field.shape = dv.data
