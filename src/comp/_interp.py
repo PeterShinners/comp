@@ -318,6 +318,7 @@ class ExecutionFrame:
     def __init__(self, env=None, interp=None, module=None, parent_frame=None, context=None):
         self.registers = []  # List indexed by instruction number
         self.env = env if env is not None else {}
+        self._dollar_vars = {}  # "$", "$$", "$$$" — pipeline input context (per-invocation)
         self.interp = interp
         self.module = module
         self.parent_frame = parent_frame
@@ -475,9 +476,9 @@ class ExecutionFrame:
             # Handle Block (Comp function)
             block = callable_obj
         
-        # Create a new environment for the function
-        # Start with the closure environment (captured at block definition)
-        new_env = dict(block.closure_env)
+        # Share the closure environment directly — StoreLocal mutations
+        # persist across invocations (e.g. a counter's !let count count+1).
+        new_env = block.closure_env
         # Bind __self__ so !forward can locate the current overload
         new_env["__self__"] = comp.Value(block)
         
@@ -565,10 +566,14 @@ class ExecutionFrame:
                 if fname is not None and fname in block_set:
                     new_env[fname] = v
 
-        # Always bind $ to current input (nil if no piped), shifting $→$$ and $$→$$$
-        new_env["$$$"] = new_env.get("$$", _nil)
-        new_env["$$"] = new_env.get("$", _nil)
-        new_env["$"] = input_val
+        # Pipeline input context: $ / $$ / $$$ live on the frame, not in env,
+        # so they don't pollute the shared closure dict.  Shift from the
+        # captured dollar vars that were snapshotted when the block was created.
+        _captured = block.captured_dollar_vars or {}
+        _dollar = {}
+        _dollar["$$$"] = _captured.get("$$", _nil)
+        _dollar["$$"] = _captured.get("$", _nil)
+        _dollar["$"] = input_val
         
         # Lazily compile body instructions if needed
         if block.body_instructions is None and block.body:
@@ -585,6 +590,7 @@ class ExecutionFrame:
         # Execute the pre-compiled body instructions
         # Use the block's defining module for namespace lookups
         new_frame = self._make_child_frame(new_env, module=block.module)
+        new_frame._dollar_vars = _dollar
         result = new_frame.run(block.body_instructions)
 
         # If the called block finished with an unhandled failure, raise it so
@@ -914,7 +920,8 @@ class LoadLocal(Instruction):
 
     Used for let-bound locals and function parameters that are only known at
     runtime. Unlike LoadVar, this never consults the module namespace — the
-    variable must already be present in frame.env (set by a StoreLocal).
+    variable must already be present in frame.env (set by a StoreLocal) or
+    frame._dollar_vars (for pipeline inputs $, $$, $$$).
     """
 
     def __init__(self, cop, name):
@@ -922,7 +929,7 @@ class LoadLocal(Instruction):
         self.name = name
 
     def execute(self, frame):
-        value = frame.env.get(self.name)
+        value = frame._dollar_vars.get(self.name) or frame.env.get(self.name)
         if value is None:
             raise comp.CodeError(f"Undefined local variable: '{self.name}'")
         return frame.set_result(value)
@@ -1031,6 +1038,25 @@ class StoreLocal(Instruction):
 
     def format(self, idx):
         return f"%{idx}  StoreLocal '{self.name}' = %{self.source}"
+
+
+class SelectResult(Instruction):
+    """Pass through an earlier register's value as the result.
+
+    Used by statement.define codegen to preserve the last expression
+    result when trailing !let bindings would otherwise clobber it.
+    """
+
+    def __init__(self, cop, source):
+        super().__init__(cop)
+        self.source = source  # int index of source instruction
+
+    def execute(self, frame):
+        value = frame.get_value(self.source)
+        return frame.set_result(value)
+
+    def format(self, idx):
+        return f"%{idx}  SelectResult %{self.source}"
 
 
 class DeepSetLocal(Instruction):
@@ -1261,7 +1287,7 @@ class BuildInvokeData(Instruction):
 
     Captures:
       statement — the value in statement_reg (a Block, text, or anything else)
-      input     — the current piped value (frame.env["$"], or nil)
+      input     — the current piped value (frame._dollar_vars["$"], or nil)
       locals    — all frame env bindings except the $ family
       context   — the frame context dict
 
@@ -1287,13 +1313,13 @@ class BuildInvokeData(Instruction):
 
         # Current piped input ($)
         _nil = comp.Value.from_python(comp.tag_nil)
-        input_val = frame.env.get("$", _nil)
+        input_val = frame._dollar_vars.get("$", _nil)
 
-        # locals: env bindings that are actual user-defined locals (no $ vars,
-        # no namespace-qualified names like onfunc.i001)
+        # locals: env bindings that are actual user-defined locals
+        # (no namespace-qualified names like onfunc.i001)
         local_data = {}
         for k, v in frame.env.items():
-            if not k.startswith("$") and "." not in k:
+            if "." not in k:
                 local_data[comp.Value.from_python(k)] = v
         locals_val = comp.Value(local_data)
 
@@ -1359,6 +1385,7 @@ class BuildBlock(Instruction):
         block.module = frame.module  # Capture the defining module
         block.body_instructions = self.body_instructions
         block.closure_env = dict(frame.env)
+        block.captured_dollar_vars = dict(frame._dollar_vars)
         block.signature_cop = self.signature_cop
         block.dispatch_own_name = self.dispatch_own_name
         block.dispatch_set_name = self.dispatch_set_name
@@ -1802,7 +1829,7 @@ class Forward(Instruction):
         if self.piped_reg is not None:
             piped_val = frame.get_value(self.piped_reg)
         else:
-            piped_val = frame.env.get("$")
+            piped_val = frame._dollar_vars.get("$")
 
         # Locate the current Block via __self__
         self_val = frame.env.get("__self__")
@@ -2016,7 +2043,7 @@ class MergeWithPiped(Instruction):
     def execute(self, frame):
         result = frame.get_value(self.result_reg)
         _nil = comp.Value.from_python(comp.tag_nil)
-        piped = frame.env.get("$", _nil)
+        piped = frame._dollar_vars.get("$", _nil)
         if not isinstance(piped.data, dict) or not isinstance(result.data, dict):
             return frame.set_result(result)
         merged = dict(piped.data)

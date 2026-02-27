@@ -47,6 +47,7 @@ class Block:
         "frame",
         "body_instructions",
         "closure_env",
+        "captured_dollar_vars",
         "signature_cop",
         "param_names",
         "block_names",
@@ -67,6 +68,7 @@ class Block:
         self.frame = None
         self.body_instructions = None
         self.closure_env = {}
+        self.captured_dollar_vars = {}
         self.signature_cop = None
         self.param_names = []
         self.block_names = []

@@ -1,4 +1,4 @@
-/// Minimal geometric point definitions
+/// Minimal geometric point definitions (mostly for quick testing on cli)
 
 !shape point ~(x~num y~num)
 

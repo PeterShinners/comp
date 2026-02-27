@@ -511,6 +511,7 @@ def _builtin_update(input_val, args_val, frame):
         new_block = comp.Block("update.const", False)
         new_block.input_name = "$"
         new_block.closure_env = dict(frame.env)
+        new_block.captured_dollar_vars = dict(frame._dollar_vars)
         new_block.param_names = []
         new_block.block_names = []
         new_block.dispatch_own_name = None

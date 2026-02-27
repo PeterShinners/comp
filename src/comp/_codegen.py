@@ -713,18 +713,37 @@ class CodeGenContext:
             return self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
 
         result = None
+        expr_result = None   # last non-let expression register
+        has_trailing_let = False
         for kid in field_kids:
             if comp.cop_tag(kid) == "block.signature":
                 continue  # metadata: param declarations consumed by _build_function
             if comp.cop_tag(kid) == "statement.field":
                 inner = _cop_kids(kid)
                 if inner:
+                    inner_tag = comp.cop_tag(inner[0])
                     result = self._build_value_ensure_register(inner[0])
+                    if inner_tag == "op.let":
+                        has_trailing_let = True
+                    else:
+                        expr_result = result
+                        has_trailing_let = False
             else:
+                tag = comp.cop_tag(kid)
                 result = self._build_value_ensure_register(kid)
+                if tag == "op.let":
+                    has_trailing_let = True
+                else:
+                    expr_result = result
+                    has_trailing_let = False
 
         if result is None:
             return self.emit(comp._interp.BuildStruct(cop=cop, fields=[]))
+
+        # If trailing !let statements would clobber the return value,
+        # emit a SelectResult to preserve the last expression result.
+        if has_trailing_let and expr_result is not None:
+            return self.emit(comp._interp.SelectResult(cop=cop, source=expr_result))
 
         return result
 
