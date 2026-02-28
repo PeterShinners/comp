@@ -122,21 +122,26 @@ class ShapeField:
         shape: (cop | None) Shape constraint for the field
         unit: (Tag | None) Expected unit tag for the field value
         default: (cop | None) Default value if field is omitted
+        limits: (list | None) List of (name_str, param_value_or_None) limit tuples
 
     Attributes:
         name: (str | None) Field name
         shape: (cop | None) Shape constraint
         unit: (Tag | None) Expected unit tag
         default: (cop | None) Default value
+        limits: (list) List of (func_val, param_value_or_None) limit tuples
+                       func_val is a resolved callable Value; param_value is the
+                       single argument Value or None for zero-param limits.
     """
 
-    __slots__ = ("name", "shape", "unit", "default")
+    __slots__ = ("name", "shape", "unit", "default", "limits")
 
-    def __init__(self, name=None, shape=None, unit=None, default=None):
+    def __init__(self, name=None, shape=None, unit=None, default=None, limits=None):
         self.name = name
         self.shape = shape  # cop node for shape
         self.unit = unit    # Tag | None — expected unit for this field
         self.default = default  # cop node for default
+        self.limits = limits if limits is not None else []  # [(name_str, param_val_or_None)]
 
     def __repr__(self):
         parts = []

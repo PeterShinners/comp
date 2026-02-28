@@ -41,8 +41,7 @@ def create_cop_module(module):
         "shape.define",  # (fields, checks, array)
         "shape.field",  # (kids) shape type and optional unit/limits/repeat/default
         "shape.unit",  # (kids) 1 kid - unit identifier
-        "shape.value",  # (kids) 1 kid - exact value constraint
-        "shape.limit",  # (kids) named limit constraint (1-2 kids: name and optional value)
+        "value.limit",  # (kids) limit constraint: 1 kid (bare name) or 2 kids (name + value)
         "shape.repeat",  # (kids) array/repetition specification (0-2 number children)
         "shape.default",  # (kids) 1 kid - default value
         "signature.input",  # (kids) 1 kid - function input shape
@@ -607,7 +606,7 @@ def lark_to_cop(tree):
 
         case "shape_atom":
             # (identifier | paren_shape | brace_shape) unit_suffix? limit_suffix? array_suffix?
-            # Returns a list: [base_type, optional shape.unit, optional shape.limit(s), optional shape.repeat]
+            # Returns a list: [base_type, optional shape.unit, optional value.limit(s), optional shape.repeat]
             base = lark_to_cop(kids[0])
             extras = []
 
@@ -620,7 +619,8 @@ def lark_to_cop(tree):
                         extras.append(unit_cop)
                     elif kid.data == "limit_suffix":
                         # limit_suffix: ANGLE_OPEN limit_field+ ANGLE_CLOSE
-                        # Each limit_field becomes either shape.value or shape.limit
+                        # Each limit_field becomes a value.limit node:
+                        # 1 kid = bare name (e.g. integer), 2 kids = name + value (e.g. min=1)
                         for limit_field in kid.children[1:-1]:  # Skip ANGLE_OPEN and ANGLE_CLOSE
                             if isinstance(limit_field, lark.Tree) and limit_field.data == "limit_field":
                                 # limit_field: (identifier EQUALS)? simple_expr
@@ -630,13 +630,7 @@ def lark_to_cop(tree):
                                         limit_kids.append(lark_to_cop(lf_kid))
                                     # Skip EQUALS token
 
-                                # Distinguish between exact value and named limit
-                                if len(limit_kids) == 1:
-                                    # Just a value: ~num<12> or ~text<"cat">
-                                    limit_cop = _parsed(limit_field, "shape.value", limit_kids)
-                                else:
-                                    # Named limit: ~num<min=1>
-                                    limit_cop = _parsed(limit_field, "shape.limit", limit_kids)
+                                limit_cop = _parsed(limit_field, "value.limit", limit_kids)
                                 extras.append(limit_cop)
                     elif kid.data == "array_suffix":
                         # array_suffix: STAR array_count?

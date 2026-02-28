@@ -1,0 +1,94 @@
+/// Standard limits for types.
+/// These are pure functions used as validation constraints during shape morphing.
+/// Each limit either raises a failure or passes without returning a meaningful value.
+
+
+/// Inclusive minimum bound: value must be >= amount
+!pure min ~num (
+    :param amount~num
+    !on $ < amount
+    ~true !fail {fail.value message="Value is below minimum"}
+    ~false true
+)
+
+/// Inclusive maximum bound: value must be <= amount
+!pure max ~num (
+    :param amount~num
+    !on $ > amount
+    ~true !fail {fail.value message="Value is above maximum"}
+    ~false true
+)
+
+/// Exclusive lower bound: value must be > amount
+!pure above ~num (
+    :param amount~num
+    !on $ <= amount
+    ~true !fail {fail.value message="Value must be above bound"}
+    ~false true
+)
+
+/// Exclusive upper bound: value must be < amount
+!pure below ~num (
+    :param amount~num
+    !on $ >= amount
+    ~true !fail {fail.value message="Value must be below bound"}
+    ~false true
+)
+
+/// Integer constraint: value must have no fractional part
+/// Placeholder: always passes until modulo operator or number library is available.
+/// Real implementation (requires % operator):
+///   !on ($ % 1) != 0
+///   ~true !fail {fail.value message="Value must be an integer"}
+///   ~false true
+!pure integer ~num (
+    true
+)
+
+/// ASCII constraint: text must contain only ASCII characters (codepoints 0-127)
+!pure ascii ~text (
+    !on (py.call :module="str" :method="isascii" :{text=$})
+    ~false !fail {fail.value message="Text contains non-ASCII characters"}
+    ~true true
+)
+
+/// Size constraint: text length must fall within the given range.
+/// Pass a two-element struct {min max} as the single param, e.g. size={1 32}.
+/// Omit the second element for an open-ended minimum, e.g. size={1}.
+!pure size ~text (
+    :param range~struct
+    !let lo (range | at :index=0)
+    !let hi (range | at :index=1 |? nil)
+    !let n ($ | length)
+    !on (n < lo)
+    ~true !fail {fail.value message="Text is too short"}
+    ~false (
+        !on (hi != nil :and n > hi)
+        ~true !fail {fail.value message="Text is too long"}
+        ~false true
+    )
+)
+
+/// Size constraint: collection length must fall within the given range.
+/// Pass a two-element struct {min max} as the single param, e.g. size={1 32}.
+/// Omit the second element for an open-ended minimum, e.g. size={1}.
+!pure size ~struct (
+    :param range~struct
+    !let lo (range | at :index=0)
+    !let hi (range | at :index=1 |? nil)
+    !let n ($ | length)
+    !on (n < lo)
+    ~true !fail {fail.value message="Collection is too small"}
+    ~false (
+        !on (hi != nil :and n > hi)
+        ~true !fail {fail.value message="Collection is too large"}
+        ~false true
+    )
+)
+
+/// Pattern match constraint: text must match the given regex pattern
+/// Note: regex support not yet implemented; this limit currently always passes
+!pure match ~text (
+    :param pattern~text
+    true
+)

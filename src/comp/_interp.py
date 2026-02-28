@@ -454,6 +454,11 @@ class ExecutionFrame:
                 # Fall back to the union's default value if one was defined
                 if isinstance(callable_obj, comp.ShapeUnion) and callable_obj.default is not None:
                     return callable_obj.default
+                # For union shapes, all members failed — use a generic failure.
+                # Never surface a specific limit failure from one member since the
+                # value might have been valid for another member.
+                if not isinstance(callable_obj, comp.ShapeUnion) and morph_result.failure_value is not None:
+                    raise CompFail(morph_result.failure_value)
                 raise CompFail(_make_fail_value(morph_result.failure_reason, tag=comp.tag_fail_value, cop_val=source_cop))
             return morph_result.value
 

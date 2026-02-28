@@ -300,16 +300,16 @@ from a different unit family produce no match at all.
 
 ## Limits
 
-Limits are validation constraints on types, defined with `<>` angle brackets
-after the type name. Each limit is a pure function that checks whether a value
-satisfies a condition during shape morphing. Limits validate but never transform
-— a value either passes or the morph fails.
+Limits are validation constraints on shapes, defined with `<>` angle brackets
+after the shape definition or reference. Each limit is a pure function that
+checks whether a value satisfies a condition during shape morphing. Limits
+validate but never transform; a value either passes or the morph fails.
 
 ```comp
 !shape uint8 ~num<integer min=0 max=255>
 !shape positive ~num<above=0>
 !shape probability ~num<min=0 max=1>
-!shape unix-name ~text<ascii size={1-32} match="^[a-z_][a-z0-9_-]*$">
+!shape unix-name ~text<ascii size={1 32} match="^[a-z_][a-z0-9_-]*$">
 !shape email ~text<size={3-254} match="^[^@]+@[^@]+$">
 ```
 
@@ -329,9 +329,8 @@ characters only), `size` (length constraint on text or collections), and `match`
 can define custom limits without special language support.
 
 Limits do not affect dispatch scoring. A value matches `~num<min=0 integer>`
-with the same dispatch score as `~num`. Limits validate after dispatch selects
-the winning overload. This prevents fragile dispatch ordering where overlapping
-limit ranges would create ambiguous matches.
+with the same dispatch score as `~num`.This prevents fragile dispatch ordering
+where overlapping limit ranges would create ambiguous matches.
 
 Limits can be combined with units. The unit specifies what kind of value it is,
 the limits specify what range is acceptable.

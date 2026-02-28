@@ -735,9 +735,29 @@ class BuildBlock(Instruction):
                                     param_default = dk.field("value")
                                 except (KeyError, AttributeError):
                                     pass
-                            # Non-constant defaults are not yet supported here;
-                            # leave param_default as None (mask will apply None which
-                            # means the field is required — add COP eval later).
+                            elif dk_tag in ("value.namespace", "value.identifier"):
+                                # Resolve tag/name references used as param defaults
+                                # (e.g. :param what~trim-mode=trim-mode.whitespace)
+                                ref_name = None
+                                if dk_tag == "value.namespace":
+                                    try:
+                                        ref_name = dk.to_python("qualified")
+                                        if isinstance(ref_name, list):
+                                            ref_name = None
+                                    except (KeyError, AttributeError):
+                                        pass
+                                elif dk_tag == "value.identifier":
+                                    id_kids = comp.cop_kids(dk)
+                                    if id_kids:
+                                        try:
+                                            ref_name = id_kids[0].to_python("value")
+                                        except (KeyError, AttributeError):
+                                            pass
+                                if ref_name:
+                                    try:
+                                        param_default = _load_name(ref_name, frame)
+                                    except (NameError, KeyError):
+                                        pass
                     elif fkid_tag == "shape.define":
                         param_type_shape = self._build_shape_from_cop(fkid, frame)
                     else:
@@ -990,13 +1010,14 @@ class BuildShape(Instruction):
 
     def __init__(self, cop, fields):
         super().__init__(cop)
-        self.fields = fields  # List of (name, shape_ref, unit_ref, default_idx) tuples
+        self.fields = fields  # List of (name, shape_ref, unit_ref, default_idx, limit_refs) tuples
         # shape_ref and unit_ref are either a string (name to look up) or int (register index)
+        # limit_refs is a list of (name_str, param_reg_or_None) — name resolved by coptimize
 
     def execute(self, frame):
         shape = comp.Shape("anonymous", private=False)
 
-        for name, shape_ref, unit_ref, default_idx in self.fields:
+        for name, shape_ref, unit_ref, default_idx, limit_refs in self.fields:
             # Get shape constraint if provided
             shape_constraint = None
             if shape_ref is not None:
@@ -1044,7 +1065,20 @@ class BuildShape(Instruction):
             if default_idx is not None:
                 default_val = frame.get_value(default_idx)
 
-            field = comp.ShapeField(name=name, shape=shape_constraint, unit=unit_constraint, default=default_val)
+            # Resolve limit function Values from their qualified names
+            limits = []
+            for lname, lparam_idx in limit_refs:
+                func_val = None
+                if isinstance(lname, str):
+                    try:
+                        func_val = _load_name(lname, frame)
+                    except NameError:
+                        pass
+                param_val = frame.get_value(lparam_idx) if lparam_idx is not None else None
+                if func_val is not None:
+                    limits.append((func_val, param_val))
+
+            field = comp.ShapeField(name=name, shape=shape_constraint, unit=unit_constraint, default=default_val, limits=limits)
             shape.fields.append(field)
 
         result = comp.Value(shape)
@@ -1052,7 +1086,7 @@ class BuildShape(Instruction):
 
     def format(self, idx):
         parts = []
-        for name, shape_ref, unit_ref, default_idx in self.fields:
+        for name, shape_ref, unit_ref, default_idx, limit_refs in self.fields:
             part = name or "_"
             if shape_ref is not None:
                 if isinstance(shape_ref, str):
@@ -1066,6 +1100,8 @@ class BuildShape(Instruction):
                     part += f"[%{unit_ref}]"
             if default_idx is not None:
                 part += f"=%{default_idx}"
+            for lname, lparam_idx in limit_refs:
+                part += f"<{lname}" + (f" p=%{lparam_idx}" if lparam_idx is not None else "") + ">"
             parts.append(part)
         return f"%{idx}  BuildShape ({' '.join(parts)})"
 
@@ -1440,6 +1476,7 @@ class DispatchOn(Instruction):
         for pattern_instructions, result_instructions in self.branches:
             # Build the shape/tag pattern in a child frame sharing current env
             pattern_frame = frame._make_child_frame(dict(frame.env), module=frame.module)
+            pattern_frame._dollar_vars = dict(frame._dollar_vars)
             pattern_val = pattern_frame.run(pattern_instructions)
 
             if pattern_val is None:
@@ -1461,7 +1498,12 @@ class DispatchOn(Instruction):
 
             if matched:
                 result_frame = frame._make_child_frame(dict(frame.env), module=frame.module)
+                result_frame._dollar_vars = dict(frame._dollar_vars)
+                # Propagate branch failure to the parent frame so fast-forward
+                # continues and invoke_block can detect and raise it.
                 result = result_frame.run(result_instructions)
+                if result_frame.failure is not None:
+                    frame.failure = result_frame.failure
                 return frame.set_result(result)
 
         raise comp.CodeError("No branch matched in !on dispatch", self.cop)

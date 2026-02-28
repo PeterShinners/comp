@@ -25,30 +25,34 @@ class MorphResult:
         failure_reason: (str | None) Error message if morph failed
     """
 
-    __slots__ = ("value", "score", "failure_reason")
+    __slots__ = ("value", "score", "failure_reason", "failure_value")
 
     def __init__(self, value, named_matches=0, tag_depth=0, unit_score=0, positional_matches=0):
         self.value = value
         self.score = (named_matches, tag_depth, unit_score, positional_matches)
         self.failure_reason = None
+        self.failure_value = None
 
     @classmethod
-    def failed(cls, reason):
+    def failed(cls, reason, failure_value=None):
         """Create a failed morph result.
 
         Args:
             reason: (str) Description of why morph failed
+            failure_value: (Value | None) Original fail Value to re-raise at call sites
 
         Returns:
             MorphResult: Failed result with no value
         """
         result = cls(None, 0, 0, 0)
         result.failure_reason = reason
+        result.failure_value = failure_value
         return result
 
     def __repr__(self):
         if self.failure_reason:
-            return f"MorphResult<failed: {self.failure_reason}>"
+            fv = " (has failure_value)" if self.failure_value is not None else ""
+            return f"MorphResult<failed: {self.failure_reason}{fv}>"
         return f"MorphResult<score={self.score}>"
 
 
@@ -190,7 +194,7 @@ def _resolve_shape_field(field, frame):
     if isinstance(field.shape, str):
         name = field.shape
         try:
-            shape_val = comp._interp._load_name(name, frame)
+            shape_val = comp._instructions._load_name(name, frame)
         except (NameError, AttributeError):
             return None
         # Unwrap DefinitionSet
@@ -223,6 +227,56 @@ def _resolve_shape_field(field, frame):
 
     # For other cases, try to evaluate
     # This is a simplified approach
+    return None
+
+
+def _extract_fail_message(val):
+    """Extract a human-readable message string from a fail Value.
+
+    Args:
+        val: (Value) A fail struct that may have a 'message' field
+
+    Returns:
+        (str) The message string, or a generic fallback
+    """
+    if val is not None and isinstance(val.data, dict):
+        for k, v in val.data.items():
+            if (isinstance(k, comp.Value) and isinstance(k.data, str)
+                    and k.data == "message" and isinstance(v.data, str)):
+                return v.data
+    return "limit check failed"
+
+
+def _invoke_limits(field, value, frame):
+    """Invoke all limit functions on a matched field value.
+
+    Limit functions are pre-resolved at codegen time and stored on the ShapeField
+    as (func_val, param_val_or_None) tuples — no runtime name lookup needed.
+
+    Args:
+        field: (ShapeField) The field whose limits to check
+        value: (Value) The matched value to validate
+        frame: (ExecutionFrame) The current interpreter frame
+
+    Returns:
+        (Value | None) The original fail Value if a limit fails, None if all pass
+    """
+    if not field.limits:
+        return None
+
+    _empty_args = comp.Value({})
+
+    for func_val, param_val in field.limits:
+        if func_val is None:
+            continue
+
+        args = comp.Value({comp.Unnamed(): param_val}) if param_val is not None else _empty_args
+
+        try:
+            frame.invoke_block(func_val, args, piped=value)
+        except comp._interp.CompFail as exc:
+            return exc.value
+
     return None
 
 
@@ -324,10 +378,13 @@ def morph(value, shape, frame):
         for member_shape in shape.shapes:
             result = morph(value, member_shape, frame)
             if result.failure_reason:
-                continue  # This member didn't match
+                continue  # This member didn't match; failures (including limits) are discarded
             if best_result is None or result.score > best_result.score:
                 best_result = result
         if best_result is None:
+            # All members failed — return a generic message only.
+            # Individual member failures (including limit failures) are not surfaced
+            # because the value might have been valid for a different member.
             return MorphResult.failed(f"Value does not match any member of {_shape_name(shape)}")
         return best_result
 
@@ -404,6 +461,10 @@ def morph(value, shape, frame):
                 inp["matched"] = True
                 named_matches += 1
                 unit_score_total += us
+                # Invoke limits on the matched value
+                limit_fail_val = _invoke_limits(shape_field, inp["value"], frame)
+                if limit_fail_val is not None:
+                    return MorphResult.failed(_extract_fail_message(limit_fail_val), failure_value=limit_fail_val)
                 break
 
     # Phase 2: Tag matching
@@ -440,6 +501,10 @@ def morph(value, shape, frame):
             best_match["matched"] = True
             tag_depth_total += best_depth
             unit_score_total += best_us
+            # Invoke limits on the matched value
+            limit_fail_val = _invoke_limits(shape_field, best_match["value"], frame)
+            if limit_fail_val is not None:
+                return MorphResult.failed(_extract_fail_message(limit_fail_val), failure_value=limit_fail_val)
 
     # Phase 3: Positional matching
     # Only match positional (unnamed) input fields - named fields that didn't match stay as extras
@@ -468,6 +533,10 @@ def morph(value, shape, frame):
                 inp["matched"] = True
                 positional_matches += 1
                 unit_score_total += us
+                # Invoke limits on the matched value
+                limit_fail_val = _invoke_limits(shape_field, inp["value"], frame)
+                if limit_fail_val is not None:
+                    return MorphResult.failed(_extract_fail_message(limit_fail_val), failure_value=limit_fail_val)
                 break
             else:
                 return MorphResult.failed(

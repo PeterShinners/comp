@@ -822,7 +822,7 @@ class CodeGenContext:
 
             elif tag == "shape.field":
                 # Named field: name attribute; kids are tagged by COP type:
-                # shape.unit, shape.default, shape.limit, shape.repeat, shape.value,
+                # shape.unit, shape.default, value.limit, shape.repeat,
                 # or a plain shape ref as the base type.
                 name = None
                 try:
@@ -833,6 +833,7 @@ class CodeGenContext:
                 shape_ref = None
                 unit_ref = None
                 default_idx = None
+                limit_refs = []  # list of (name_str, param_idx_or_None)
                 field_kids = _cop_kids(kid)
                 for fk in field_kids:
                     fk_tag = comp.cop_tag(fk)
@@ -845,14 +846,20 @@ class CodeGenContext:
                         default_fk_kids = _cop_kids(fk)
                         if default_fk_kids:
                             default_idx = self._build_value_ensure_register(default_fk_kids[0])
-                    elif fk_tag in ("shape.limit", "shape.repeat", "shape.value"):
-                        pass  # TODO: handle limits and repeat
+                    elif fk_tag == "value.limit":
+                        lk = _cop_kids(fk)
+                        if lk:
+                            limit_name = _shape_ref_or_reg(self, lk[0])
+                            param_idx = self._build_value_ensure_register(lk[1]) if len(lk) >= 2 else None
+                            limit_refs.append((limit_name, param_idx))
+                    elif fk_tag == "shape.repeat":
+                        pass  # TODO: handle repeat
                     else:
                         # Base type reference (first non-special kid)
                         if shape_ref is None:
                             shape_ref = _shape_ref_or_reg(self, fk)
 
-                fields.append((name, shape_ref, unit_ref, default_idx))
+                fields.append((name, shape_ref, unit_ref, default_idx, limit_refs))
 
         return self.emit(comp._instructions.BuildShape(cop=cop, fields=fields))
 

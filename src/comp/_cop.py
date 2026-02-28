@@ -693,9 +693,9 @@ def cop_unparse(cop):
                 return f"[{cop_unparse(kids[0])}]"
             return "<?unit?>"
         
-        case "shape.limit":
-            # shape.limit has 2 children: identifier and value
-            # Format as <name=value>
+        case "value.limit":
+            # 1 kid: bare limit name (e.g. integer)
+            # 2 kids: name + value (e.g. min=1)
             if len(kids) >= 2:
                 name = cop_unparse(kids[0])
                 value = cop_unparse(kids[1])
@@ -703,12 +703,6 @@ def cop_unparse(cop):
             elif len(kids) == 1:
                 return f"<{cop_unparse(kids[0])}>"
             return "<>"
-        
-        case "shape.value":
-            parts = []
-            for kid in kids:
-                parts.append(cop_unparse(kid))
-            return " ".join(parts) if parts else "<?shape.value?>"
         
         case "shape.repeat":
             try:
