@@ -2,6 +2,7 @@
 /// Functions for manipulating and analyzing text strings.
 
 !import py comp "py"
+!import limit comp "limit"
 
 
 !tag trim-mode {whitespace chars}
@@ -11,12 +12,12 @@
 
 /// Transform text to uppercase
 !pure uppercase ~text (
-    $ | py.call :"str.upper"
+    $ | py.pure-call :"str.upper"
 )
 
 /// Transform text to lowercase
 !pure lowercase ~text (
-    $ | py.call :"str.lower"
+    $ | py.pure-call :"str.lower"
 )
 
 /// Remove whitespace from text ends
@@ -24,49 +25,49 @@
     :param what~trim-mode=trim-mode.whitespace
     :param target~target=target.both
     !on target
-    ~start ($ | py.call :"str.lstrip")
-    ~end ($ | py.call :"str.rstrip")
-    ~both ($ | py.call :"str.strip")
+    ~start ($ | py.pure-call :"str.lstrip")
+    ~end ($ | py.pure-call :"str.rstrip")
+    ~both ($ | py.pure-call :"str.strip")
 )
 
 /// Test if text is empty
-!pure empty ~text (
+!pure is-empty ~text (
     $ | length == 0
 )
 
 /// Test if text contains only whitespace or is empty
-!pure blank ~text (
-    $ | trim | empty
+!pure is-blank ~text (
+    $ | trim | is-empty
 )
 
 /// Test if text contains only numeric characters
-!pure numeric ~text (
-    $ | py.call :"str.isnumeric"
+!pure is-numeric ~text (
+    $ | py.pure-call :"str.isnumeric"
 )
 
 /// Test if text contains only alphabetic characters
-!pure alpha ~text (
-    $ | py.call :"str.isalpha"
+!pure is-alpha ~text (
+    $ | py.pure-call :"str.isalpha"
 )
 
 /// Test if text contains only alphanumeric characters
-!pure alphanumeric ~text (
-    $ | py.call :"str.isalnum"
+!pure is-alphanumeric ~text (
+    $ | py.pure-call :"str.isalnum"
 )
 
 /// Test if text contains only lowercase characters
 !pure is-lowercase ~text (
-    $ | py.call :"str.islower"
+    $ | py.pure-call :"str.islower"
 )
 
 /// Test if text contains only uppercase characters
 !pure is-uppercase ~text (
-    $ | py.call :"str.isupper"
+    $ | py.pure-call :"str.isupper"
 )
 
 /// Test if text contains a substring
 !pure contains ~text (
-    :param substring~text
+    :param substring~text<limit.non-empty>
     :param case~case=case.sensitive
     !let text (
         !on case
@@ -78,25 +79,25 @@
         ~insensitive (substring | lowercase)
         ~sensitive substring
     )
-    {text key} | py.call :"str.__contains__"
+    {text key} | py.pure-call :"str.__contains__"
 )
 
 /// Test if text starts with a prefix
 !pure starts-with ~text (
-    :param prefix~text
-    {$ prefix} | py.call :"str.startswith"
+    :param prefix~text<limit.non-empty>
+    {$ prefix} | py.pure-call :"str.startswith"
 )
 
 /// Test if text ends with a suffix
 !pure ends-with ~text (
-    :param suffix~text
-    {$ suffix} | py.call :"str.endswith"
+    :param suffix~text<limit.non-empty>
+    {$ suffix} | py.pure-call :"str.endswith"
 )
 
 /// Find first occurrence of substring, return index or nil
 !pure find ~text (
-    :param substring~text
-    !let result ({$ substring} | py.call :"str.find")
+    :param substring~text<limit.non-empty>
+    !let result ({$ substring} | py.pure-call :"str.find")
     !on (result == -1)
     ~true nil
     ~false result
@@ -104,85 +105,78 @@
 
 /// Count occurrences of substring
 !pure count ~text (
-    :param substring~text
-    {$ substring} | py.call :"str.count"
+    :param substring~text<limit.non-empty>
+    {$ substring} | py.pure-call :"str.count"
 )
 
 /// Replace all occurrences of old with new
 !pure replace ~text (
-    :param old~text
+    :param old~text<limit.non-empty>
     :param new~text
-    {$ old new} | py.call :"str.replace"
+    {$ old new} | py.pure-call :"str.replace"
 )
 
 /// Split text by separator
 !pure split ~text (
-    :param separator~text=" "
-    {$ separator} | py.call :"str.split"
+    :param separator~text<limit.non-empty>=" "
+    {$ separator} | py.pure-call :"str.split"
 )
 
 /// Split text into lines
 !pure lines ~text (
-    $ | py.call :"str.splitlines"
+    $ | py.pure-call :"str.splitlines"
 )
 
 /// Join a positional collection of strings with a separator
 /// Input must be a positional struct of strings: {"Apple" "Banana" "Cherry"}
 !pure join ~struct (
     :param separator~text ""
-    {separator $} | py.call :"str.join"
-)
-
-/// Reverse text character order
-/// Placeholder: requires iterator bridge not yet available.
-!pure reverse ~text (
-    true
+    {separator $} | py.pure-call :"str.join"
 )
 
 /// Repeat text n times
 !pure repeat ~text (
-    :param times~num
-    {$ times} | py.call :"operator.mul"
-)
-
-/// Get substring
-/// Placeholder: requires Python slice object construction.
-!pure slice ~text (
-    true
+    :param times~num<limit.integer limit.min=0>
+    {$ times} | py.pure-call :"operator.mul"
 )
 
 /// Get text length in characters
 !pure length ~text (
-    $ | py.call :"str.__len__"
+    $ | py.pure-call :"str.__len__"
 )
 
 /// Pad text on left
 !pure pad-left ~text (
-    :param width~num
-    :param fill~text=" "
-    {$ width fill} | py.call :"str.rjust"
+    :param width~num<limit.integer limit.min=0>
+    :param fill~text<limit.single-char>=" "
+    {$ width fill} | py.pure-call :"str.rjust"
 )
 
 /// Pad text on right
 !pure pad-right ~text (
-    :param width~num
-    :param fill~text=" "
-    {$ width fill} | py.call :"str.ljust"
+    :param width~num<limit.integer limit.min=0>
+    :param fill~text<limit.single-char>=" "
+    {$ width fill} | py.pure-call :"str.ljust"
 )
 
 /// Center text within width
 !pure center ~text (
-    :param width~num
-    :param fill~text=" "
-    {$ width fill} | py.call :"str.center"
+    :param width~num<limit.integer limit.min=0>
+    :param fill~text<limit.single-char>=" "
+    {$ width fill} | py.pure-call :"str.center"
 )
 
 /// Capitalize first character
 !pure capitalize ~text (
-    $ | py.call :"str.capitalize"
+    $ | py.pure-call :"str.capitalize"
 )
 
 /// Convert to title case
 !pure title ~text (
-    $ | py.call :"str.title"
+    $ | py.pure-call :"str.title"
+)
+
+/// Parse text as a number — fails if the text is not a valid numeric literal
+!pure to-num ~text (
+    $ | py.pure-call :"decimal.Decimal"
 )

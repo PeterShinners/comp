@@ -623,10 +623,15 @@ def lark_to_cop(tree):
                         # 1 kid = bare name (e.g. integer), 2 kids = name + value (e.g. min=1)
                         for limit_field in kid.children[1:-1]:  # Skip ANGLE_OPEN and ANGLE_CLOSE
                             if isinstance(limit_field, lark.Tree) and limit_field.data == "limit_field":
-                                # limit_field: (identifier EQUALS)? simple_expr
+                                # limit_field: (identifier EQUALS | DOTTED_PATH EQUALS)? simple_expr
                                 limit_kids = []
                                 for lf_kid in limit_field.children:
-                                    if isinstance(lf_kid, lark.Tree):
+                                    if isinstance(lf_kid, lark.Token) and lf_kid.type == "DOTTED_PATH":
+                                        # e.g. "limit.min" — build a value.identifier COP
+                                        segments = str(lf_kid).split(".")
+                                        seg_cops = [_parsed(lf_kid, "ident.token", [], value=s) for s in segments]
+                                        limit_kids.append(_parsed(lf_kid, "value.identifier", seg_cops))
+                                    elif isinstance(lf_kid, lark.Tree):
                                         limit_kids.append(lark_to_cop(lf_kid))
                                     # Skip EQUALS token
 

@@ -253,7 +253,7 @@ def _smart_return(result, py_tag, module):
 
 @comp._internal.register_internal_module("py")
 def _create_py_module(module):
-    """Python interop: lookup, call, pure-call, method, load, dump, vars, getattr, typeof, drop."""
+    """Python interop: lookup, call, pure-call, method, load, load-const, dump, vars, getattr, typeof, drop."""
 
     # The @py tag — used to identify handle instances owned by this module.
     py_tag = module.add_tag("py")
@@ -465,6 +465,47 @@ def _create_py_module(module):
         obj = _unwrap_py_object(input_val)
         return _python_to_comp(obj)
 
+    def _load_const(input_val, args_val, frame):
+        """Look up a Python name and return it as a Comp scalar constant.
+
+        Takes the dotted name as its first argument (not a @py handle).
+        Only scalar types are accepted: Decimal, int, float (converted to
+        Decimal via repr()), str, bool, and None.  Floats are converted to
+        decimal.Decimal via repr() so that no Python float enters Comp.
+
+        Raises CodeError for complex objects — use py.lookup + py.load for
+        those.
+
+        Example (inside a !pure definition):
+            nil | py.load-const :"math.pi"
+        """
+        name_val = args_val.positional(0)
+        if name_val is None or not isinstance(name_val.data, str):
+            raise comp.CodeError("load-const requires a string name argument")
+        name = name_val.data
+
+        obj = pydoc.locate(name)
+        if obj is None:
+            raise comp.CodeError(f"load-const: could not locate Python name: {name!r}")
+
+        if isinstance(obj, bool):
+            return comp.Value(comp.tag_true if obj else comp.tag_false)
+        if isinstance(obj, decimal.Decimal):
+            return comp.Value(obj)
+        if isinstance(obj, int):
+            return comp.Value(decimal.Decimal(obj))
+        if isinstance(obj, float):
+            # Use repr() for the shortest lossless decimal string of the float
+            return comp.Value(decimal.Decimal(repr(obj)))
+        if isinstance(obj, str):
+            return comp.Value(obj)
+        if obj is None:
+            return comp.Value(comp.tag_nil)
+        raise comp.CodeError(
+            f"load-const: {type(obj).__name__!r} is not a scalar constant; "
+            f"use py.lookup + py.load for complex values"
+        )
+
     def _dump(input_val, args_val, frame):
         """Convert a Comp value to a Python object and wrap in @py handle."""
         py_obj = _comp_to_python(input_val)
@@ -550,12 +591,13 @@ def _create_py_module(module):
         return comp.Value(full)
 
     # Register callables
-    module.add_callable("lookup",    _lookup)
-    module.add_callable("call",      _call)
-    module.add_callable("pure-call", _pure_call, pure=True)
-    module.add_callable("method",    _method)
-    module.add_callable("load",      _load)
-    module.add_callable("dump",      _dump)
+    module.add_callable("lookup",     _lookup)
+    module.add_callable("call",       _call)
+    module.add_callable("pure-call",  _pure_call,  pure=True)
+    module.add_callable("method",     _method)
+    module.add_callable("load",       _load)
+    module.add_callable("load-const", _load_const, pure=True)
+    module.add_callable("dump",       _dump)
     module.add_callable("vars",      _vars)
     module.add_callable("getattr",   _getattr)
     module.add_callable("typeof",    _typeof)

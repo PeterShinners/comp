@@ -52,37 +52,70 @@
     ~true true
 )
 
-/// Size constraint: text length must fall within the given range.
-/// Pass a two-element struct {min max} as the single param, e.g. size={1 32}.
-/// Omit the second element for an open-ended minimum, e.g. size={1}.
+/// Non-empty constraint: text must have at least one character
+!pure non-empty ~text (
+    !on ($ | length) == 0
+    ~true !fail {fail.value message="Text must not be empty"}
+    ~false true
+)
+
+/// Single-character constraint: text must be exactly one character
+!pure single-char ~text (
+    !on ($ | length) == 1
+    ~true true
+    ~false !fail {fail.value message="Text must be exactly one character"}
+)
+
+/// Non-zero constraint: number must not equal zero
+!pure non-zero ~num (
+    !on $ == 0
+    ~true !fail {fail.value message="Value must not be zero"}
+    ~false true
+)
+
+/// Size constraint: text length must be exact or within a range.
+/// Pass an exact count: size=3
+/// Pass a min/max range struct: size={1 32}
 !pure size ~text (
-    :param range~struct
-    !let lo (range | at :index=0)
-    !let hi (range | at :index=1 |? nil)
+    :param range~{~num<integer min=0> ~num<integer min=0>}|num<integer min=0>
     !let n ($ | length)
-    !on (n < lo)
-    ~true !fail {fail.value message="Text is too short"}
-    ~false (
-        !on (hi != nil :and n > hi)
-        ~true !fail {fail.value message="Text is too long"}
-        ~false true
+    !on range
+    ~num (
+        !on (n == range)
+        ~true true
+        ~false !fail {fail.value message="Text must be exactly this length"}
+    )
+    ~struct (
+        !on (n < range.#0)
+        ~true !fail {fail.value message="Text is too short"}
+        ~false (
+            !on (n > range.#1)
+            ~true !fail {fail.value message="Text is too long"}
+            ~false true
+        )
     )
 )
 
-/// Size constraint: collection length must fall within the given range.
-/// Pass a two-element struct {min max} as the single param, e.g. size={1 32}.
-/// Omit the second element for an open-ended minimum, e.g. size={1}.
+/// Size constraint: collection length must be exact or within a range.
+/// Pass an exact count: size=3
+/// Pass a min/max range struct: size={1 32}
 !pure size ~struct (
-    :param range~struct
-    !let lo (range | at :index=0)
-    !let hi (range | at :index=1 |? nil)
+    :param range~{~num<integer min=0> ~num<integer min=0>}|num<integer min=0>
     !let n ($ | length)
-    !on (n < lo)
-    ~true !fail {fail.value message="Collection is too small"}
-    ~false (
-        !on (hi != nil :and n > hi)
-        ~true !fail {fail.value message="Collection is too large"}
-        ~false true
+    !on range
+    ~num (
+        !on (n == range)
+        ~true true
+        ~false !fail {fail.value message="Collection must be exactly this size"}
+    )
+    ~struct (
+        !on (n < range.#0)
+        ~true !fail {fail.value message="Collection is too small"}
+        ~false (
+            !on (n > range.#1)
+            ~true !fail {fail.value message="Collection is too large"}
+            ~false true
+        )
     )
 )
 

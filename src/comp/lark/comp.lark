@@ -107,7 +107,7 @@ unit_suffix: BRACKET_OPEN identifier BRACKET_CLOSE
 // Value expression with unit annotation: 12[inch], "query"[sql], myvar[meter]
 unitized_value: (number | text | identifier) unit_suffix
 
-limit_field: (identifier EQUALS)? simple_expr
+limit_field: (identifier EQUALS | DOTTED_PATH EQUALS)? simple_expr
 limit_suffix: ANGLE_OPEN limit_field+ ANGLE_CLOSE
 
 array_suffix: STAR array_count?
@@ -207,7 +207,7 @@ dotted_path_atom: DOTTED_PATH
 ?simple_term: simple_atom
             | simple_term (STAR | SLASH) simple_atom -> binary_op
 
-?simple_atom: wrapper* (number | text | identifier)
+?simple_atom: wrapper* (number | text | identifier | dotted_path_atom)
              | (PLUS | MINUS | LNOT) simple_atom -> unary_op
 
 

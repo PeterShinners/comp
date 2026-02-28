@@ -11,7 +11,7 @@
 // ===== Numeric unit families =====
 
 /// Physical measurements — length, time, temperature, mass
-!tag measure { length time temperature mass }
+!tag measure { length time temperature mass angle }
 
 /// Length units (base: meter)
 !tag measure.length { meter centimeter kilometer foot inch mile }
@@ -24,6 +24,9 @@
 
 /// Mass units (base: gram)
 !tag measure.mass { gram kilogram pound ounce }
+
+/// Angle units (base: degree)
+!tag measure.angle { degrees radians }
 
 // ===== Text format tags =====
 

@@ -567,12 +567,8 @@ def create_namespace(definitions, prefix):
         dict: Mapping of names to Definition, DefinitionSet, or Ambiguous
     """
     namespace = {}
-    # Imported definitions (prefix given) are only reachable via their
-    # qualified "module.name" form, never as bare "name", so that imports
-    # cannot shadow or pollute the flat module namespace.
-    require_prefix = prefix is not None
     for qualified, definition in definitions.items():
-        for name in _identifier_permutations(definition, prefix, require_prefix=require_prefix):
+        for name in _identifier_permutations(definition, prefix):
             if prefix and definition.private:
                 continue
             defs = namespace.get(name)
@@ -670,7 +666,7 @@ class Ambiguous:
         return f"<Ambiguous: {', '.join(names)}>"
 
 
-def _identifier_permutations(definition, prefix, require_prefix=False):
+def _identifier_permutations(definition, prefix):
     """Generate lookup name permutations from a Definition.
 
     For auto-suffixed identifiers like "tree-contains.i001":
@@ -680,15 +676,14 @@ def _identifier_permutations(definition, prefix, require_prefix=False):
 
     This allows both "tree-contains" and "tree-contains.i001" to resolve.
 
-    When require_prefix is True (used for imported modules), only names that
-    include the prefix segment are generated. This means imported names are
-    only reachable as "module.name", never as bare "name". This prevents
-    imported definitions from polluting or shadowing the flat namespace.
+    For imports with a prefix (e.g. prefix="t", qualified="split.i001"):
+    - Generates "t.split.i001", "t.split", "split.i001", "split"
+    - The alias "t" alone is never generated (no definition has qualified="")
+    - So import aliases never shadow builtins or local names
 
     Args:
         definition: Definition object with qualified name and auto_suffix flag
         prefix: Optional namespace prefix to add
-        require_prefix: (bool) If True, only emit names that start with prefix
 
     Returns:
         list: List of permutation strings to add to namespace
@@ -707,9 +702,6 @@ def _identifier_permutations(definition, prefix, require_prefix=False):
         # Skip if this is just the bare auto-generated suffix
         if definition.auto_suffix and i == last:
             continue
-        # When prefix is required, skip names that drop the prefix (i > 0)
-        if require_prefix and i > 0:
-            continue
         permutations.append(name)
 
     # If we have an auto-generated suffix, also add the base name without it
@@ -717,8 +709,6 @@ def _identifier_permutations(definition, prefix, require_prefix=False):
     if definition.auto_suffix and len(parts) > 1:
         base_parts = parts[:-1]
         for i in range(len(base_parts)):
-            if require_prefix and i > 0:
-                continue
             base_name = '.'.join(base_parts[i:])
             if base_name not in permutations:
                 permutations.append(base_name)

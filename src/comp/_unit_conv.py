@@ -62,6 +62,11 @@ _TABLE = {
     ("measure.mass.pound",    "measure.mass.gram"):     (_d("453.59237"),  _d(0)),
     ("measure.mass.gram",     "measure.mass.ounce"):    (_d("0.035274"),   _d(0)),
     ("measure.mass.ounce",    "measure.mass.gram"):     (_d("28.349523"),  _d(0)),
+
+    # ---- Angle (base: measure.angle.degrees) ----
+    # π/180 and 180/π expressed at 20 significant figures for Decimal precision
+    ("measure.angle.degrees", "measure.angle.radians"): (_d("0.017453292519943295769"), _d(0)),
+    ("measure.angle.radians", "measure.angle.degrees"): (_d("57.295779513082320877"),  _d(0)),
 }
 
 # Base unit for each family (used for chained conversions)
@@ -70,6 +75,7 @@ _BASE = {
     "measure.time":        "measure.time.second",
     "measure.temperature": "measure.temperature.celsius",
     "measure.mass":        "measure.mass.gram",
+    "measure.angle":       "measure.angle.degrees",
 }
 
 

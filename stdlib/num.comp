@@ -1,0 +1,110 @@
+/// Numeric operations and math functions.
+/// Constants and functions for common numerical work.
+
+!import py comp "py"
+!import limit comp "limit"
+
+
+// ===== Constants =====
+
+/// Ratio of a circle's circumference to its diameter
+!pure pi ~nil (nil | py.load-const :"math.pi")
+
+/// Euler's number, base of natural logarithm
+!pure e ~nil (nil | py.load-const :"math.e")
+
+/// 2π — full turn in radians
+!pure tau ~nil (nil | py.load-const :"math.tau")
+
+
+// ===== Rounding =====
+
+/// Round to nearest integer (or to given decimal places)
+/// Uses Decimal arithmetic — respects the current decimal context rounding mode
+!pure round ~num (
+    :param digits~num<integer min=0>=0
+    {$ digits} | py.pure-call :"round"
+)
+
+/// Round down toward negative infinity
+!pure floor ~num (
+    $ | py.pure-call :"math.floor"
+)
+
+/// Round up toward positive infinity
+!pure ceiling ~num (
+    $ | py.pure-call :"math.ceil"
+)
+
+/// Round toward zero, discarding any fractional part
+!pure truncate ~num (
+    $ | py.pure-call :"math.trunc"
+)
+
+
+// ===== Basic arithmetic =====
+
+/// Absolute value — uses Decimal.copy_abs to avoid any sign-bit twiddling
+!pure abs ~num (
+    $ | py.pure-call :"decimal.Decimal.copy_abs"
+)
+
+/// Sign of a number: ord.less for negative, ord.equal for zero, ord.greater for positive
+!pure sign ~num (
+    !on ($ <> 0)
+    ~ord.less -1
+    ~ord.equal 0
+    ~ord.greater 1
+)
+
+/// Both quotient and remainder of integer division in one step.
+/// Returns {quotient remainder} — quotient is floor division, remainder is modulo.
+!pure divmod ~num (
+    :param divisor~num<non-zero>
+    !let parts ({$ divisor} | py.pure-call :"divmod")
+    {quotient=parts.#0 remainder=parts.#1}
+)
+
+/// Raise base to an exponent
+!pure pow ~num (
+    :param exp~num
+    {$ exp} | py.pure-call :"math.pow"
+)
+
+/// Square root — full precision via Decimal.sqrt, fails on negative input
+!pure sqrt ~num (
+    $ | py.pure-call :"decimal.Decimal.sqrt"
+)
+
+
+// ===== Logarithms =====
+
+/// Natural logarithm (base e), or logarithm to a given base
+!pure log ~num (
+    :param base~num<above=1> | nil = nil
+    !on (base == nil)
+    ~true ($ | py.pure-call :"math.log")
+    ~false ({$ base} | py.pure-call :"math.log")
+)
+
+/// Base-2 logarithm
+!pure log2 ~num (
+    $ | py.pure-call :"math.log2"
+)
+
+/// Base-10 logarithm
+!pure log10 ~num (
+    $ | py.pure-call :"math.log10"
+)
+
+
+// ===== Range =====
+
+/// Clamp a value between low and high bounds (inclusive)
+!pure clamp ~num (
+    :param low~num
+    :param high~num
+    !on ($ < low)
+    ~true low
+    ~false (!on ($ > high) ~true high ~false $)
+)

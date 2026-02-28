@@ -1048,7 +1048,8 @@ def _shape_ref_or_reg(ctx, cop):
         kids = _cop_kids(cop)
         if kids:
             try:
-                return kids[0].to_python("value")
+                parts = [k.to_python("value") for k in kids]
+                return ".".join(parts)
             except (KeyError, AttributeError):
                 pass
     # Fallback: compile to a register (shouldn't occur for well-formed shape defs)
