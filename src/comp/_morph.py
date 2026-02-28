@@ -169,8 +169,15 @@ def _tag_matches_shape(tag, shape):
         if tag_parts[i] != part:
             return None
 
-    # Return depth (how many levels deeper the tag is)
-    return len(tag_parts) - len(shape_parts)
+    depth = len(tag_parts) - len(shape_parts)
+
+    # A tag never matches its own ~shape constraint — only its children do.
+    # ~bool matches bool.true / bool.false but never bare bool itself.
+    # This means tag hierarchies are always abstract shape roots, not values.
+    if depth == 0:
+        return None
+
+    return depth
 
 
 def _resolve_shape_field(field, frame):
@@ -333,6 +340,8 @@ def _check_type(value, shape_constraint, frame):
         return value_shape is comp.shape_struct
     if shape_constraint is comp.shape_block:
         return value_shape is comp.shape_block
+    if shape_constraint is comp.shape_handle:
+        return isinstance(value.data, comp.HandleInstance)
 
     # Check tag matching
     if isinstance(shape_constraint, comp.Tag):

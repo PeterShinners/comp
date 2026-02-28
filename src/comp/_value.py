@@ -84,6 +84,10 @@ class Value:
         if isinstance(data, comp.HandleInstance):
             # The value IS a handle — materialise immediately, never deferred.
             self.handles = frozenset([data])
+            # The handle's tag identifies its type.  Expose it as value.unit so
+            # ~handle[file] constraints work via the existing _unit_match_score
+            # path, exactly like ~num[time.second] works for numeric units.
+            self.unit = data.tag
         elif isinstance(data, dict):
             self._guard = iter(data)  # Used for validation
             # Cheap bloom check: any field containing handles taints this struct.
@@ -100,6 +104,7 @@ class Value:
                 str: comp.shape_text,
                 dict: comp.shape_struct,
                 comp.Block: comp.shape_block,
+                comp.HandleInstance: comp.shape_handle,
                 comp.Shape: comp.shape_shape,
                 comp.ShapeUnion: comp.shape_union,
             }

@@ -248,14 +248,22 @@ def _smart_return(result, py_tag, module):
 
 
 # ---------------------------------------------------------------------------
-# Builtin callable implementations
+# Module registration
 # ---------------------------------------------------------------------------
 
-# These closures capture py_tag and module via the factory in create_py_module.
+@comp._internal.register_internal_module("py")
+def _create_py_module(module):
+    """Python interop: lookup, call, pure-call, method, load, dump, vars, getattr, typeof, drop."""
 
+    # The @py tag — used to identify handle instances owned by this module.
+    py_tag = module.add_tag("py")
 
-def _make_lookup(py_tag, module):
-    """Create the lookup callable."""
+    # ------------------------------------------------------------------
+    # Helpers that need py_tag / module are defined here as closures so
+    # they capture those values without any factory-function ceremony.
+    # Module-level utilities (_wrap_py_object, _smart_return, etc.) are
+    # called directly with the closed-over py_tag / module as needed.
+    # ------------------------------------------------------------------
 
     def _lookup(input_val, args_val, frame):
         """Look up a Python object by qualified name.
@@ -278,11 +286,6 @@ def _make_lookup(py_tag, module):
 
         return _wrap_py_object(obj, py_tag, module)
 
-    return _lookup
-
-
-def _make_call(py_tag, module):
-    """Create the call callable."""
 
     def _call(input_val, args_val, frame):
         """Call a Python callable by qualified name.
@@ -304,7 +307,6 @@ def _make_call(py_tag, module):
             raise comp.CodeError(f"Could not locate Python callable: {name!r}")
 
         pos, kwargs = _extract_call_args(input_val)
-        # Convert Decimal args to int/float for Python interop
         pos = [int(a) if isinstance(a, decimal.Decimal) and a == int(a) else a for a in pos]
         try:
             result = func_obj(*pos, **kwargs)
@@ -315,11 +317,90 @@ def _make_call(py_tag, module):
 
         return _smart_return(result, py_tag, module)
 
-    return _call
+    # ------------------------------------------------------------------
+    # pure-call allowlist
+    # ------------------------------------------------------------------
+    # Modules whose entire public namespace is considered pure.
+    _PURE_ALLOWED_PREFIXES = frozenset([
+        "str.",        # e.g. str.upper, str.split, str.replace …
+        "math.",       # e.g. math.sqrt, math.floor, math.log …
+        "decimal.",    # e.g. decimal.Decimal
+        "fractions.",  # e.g. fractions.Fraction
+        "operator.",   # e.g. operator.mul, operator.add, operator.eq …
+    ])
+    _PURE_ALLOWED_BUILTINS = frozenset([
+        "abs", "round", "divmod",
+        "min", "max", "sum", "len",
+        "int", "float", "str", "bool", "complex",
+        "bin", "oct", "hex", "ord", "chr",
+        "sorted",
+    ])
 
+    def _pure_call(input_val, args_val, frame):
+        """Call a known-pure Python function by qualified name.
 
-def _make_method(py_tag, module):
-    """Create the method callable (call a method on a @py handle)."""
+        Only names in the built-in allowlist are accepted; anything else raises
+        a CodeError.  Registered with pure=True so comp's purity analyser
+        trusts it.
+
+        The piped input becomes the first positional argument (self for str.*
+        methods).  Structs are unpacked into positional args:
+
+            "hello" | py.pure-call :"str.upper"      -- "HELLO"
+            16      | py.pure-call :"math.sqrt"       -- 4
+            "a,b"   | py.pure-call :"str.split" ","  -- {"a" "b"}
+        """
+        name_val = args_val.positional(0)
+        if name_val is None or not isinstance(name_val.data, str):
+            raise comp.CodeError("pure-call requires a text function name as first argument")
+        name = name_val.data
+
+        allowed = name in _PURE_ALLOWED_BUILTINS or any(
+            name.startswith(prefix) for prefix in _PURE_ALLOWED_PREFIXES
+        )
+        if not allowed:
+            raise comp.CodeError(
+                f"pure-call: {name!r} is not in the pure-call allowlist. "
+                f"Use py.call for arbitrary Python calls."
+            )
+
+        func_obj = pydoc.locate(name)
+        if func_obj is None:
+            raise comp.CodeError(f"Could not locate Python callable: {name!r}")
+
+        if input_val is not None and not (
+            isinstance(input_val.data, comp.Tag) and input_val.data.qualified == "nil"
+        ):
+            pos, _ = _extract_call_args(input_val)
+        else:
+            pos = []
+        kwargs = {}
+
+        if isinstance(args_val.data, dict):
+            for i, (k, v) in enumerate(args_val.data.items()):
+                if i == 0:
+                    continue
+                py_val = _comp_to_python(v)
+                if isinstance(k, comp.Unnamed):
+                    pos.append(py_val)
+                elif isinstance(k, comp.Value) and isinstance(k.data, str):
+                    kwargs[k.data] = py_val
+                else:
+                    pos.append(py_val)
+
+        pos = [
+            int(a) if isinstance(a, decimal.Decimal) and a == int(a) else a
+            for a in pos
+        ]
+
+        try:
+            result = func_obj(*pos, **kwargs)
+        except Exception as e:
+            raise comp.CodeError(
+                f"Python call {name}() failed: {type(e).__name__}: {e}"
+            )
+
+        return _python_to_comp(result)
 
     def _method(input_val, args_val, frame):
         """Call a method on a Python object stored in a @py handle.
@@ -333,15 +414,11 @@ def _make_method(py_tag, module):
         """
         obj = _unwrap_py_object(input_val)
 
-        # Unwrap args — binding may double-wrap the struct
-        # positional(0) gets the inner struct, positional(0) again gets method name
         inner = args_val.positional(0)
         if inner is not None and isinstance(inner.data, dict):
-            # Double-wrapped: args_val = {inner_struct}, inner = {"join" ...}
             method_name_val = inner.positional(0)
             args_struct = inner
         else:
-            # Single-wrapped: args_val = {"method_name" ...}
             method_name_val = inner
             args_struct = args_val
 
@@ -355,13 +432,12 @@ def _make_method(py_tag, module):
                 f"Python object {type(obj).__name__!r} has no attribute {method_name!r}"
             )
 
-        # Remaining positional args (skip the method name at index 0)
         pos = []
         kwargs = {}
         if isinstance(args_struct.data, dict):
             for i, (k, v) in enumerate(args_struct.data.items()):
                 if i == 0:
-                    continue  # skip method name
+                    continue
                 py_val = _comp_to_python(v)
                 if isinstance(k, comp.Unnamed):
                     pos.append(py_val)
@@ -380,37 +456,19 @@ def _make_method(py_tag, module):
 
         return _smart_return(result, py_tag, module)
 
-    return _method
-
-
-def _make_load(py_tag, module):
-    """Create the load callable (extract Python → Comp)."""
-
     def _load(input_val, args_val, frame):
         """Convert a @py handle's Python object to a Comp value.
 
         Simple types (int, float, str, bool, None, list, dict) are
-        converted recursively. Complex objects raise an error.
+        converted recursively.  Complex objects raise an error.
         """
         obj = _unwrap_py_object(input_val)
         return _python_to_comp(obj)
-
-    return _load
-
-
-def _make_dump(py_tag, module):
-    """Create the dump callable (Comp → Python, wrapped in @py)."""
 
     def _dump(input_val, args_val, frame):
         """Convert a Comp value to a Python object and wrap in @py handle."""
         py_obj = _comp_to_python(input_val)
         return _wrap_py_object(py_obj, py_tag, module)
-
-    return _dump
-
-
-def _make_vars(py_tag, module):
-    """Create the vars callable."""
 
     def _vars(input_val, args_val, frame):
         """Return attributes of a @py object as a Comp struct.
@@ -430,24 +488,18 @@ def _make_vars(py_tag, module):
                 data = dict(d)
             else:
                 data = {}
-                for name in dir(obj):
-                    if name.startswith("__") and name.endswith("__"):
+                for attr_name in dir(obj):
+                    if attr_name.startswith("__") and attr_name.endswith("__"):
                         continue
                     try:
-                        val = getattr(obj, name)
+                        val = getattr(obj, attr_name)
                     except Exception:
                         continue
                     if callable(val):
                         continue
-                    data[name] = val
+                    data[attr_name] = val
 
         return _python_to_comp(data)
-
-    return _vars
-
-
-def _make_getattr_fn(py_tag, module):
-    """Create the getattr callable."""
 
     def _getattr(input_val, args_val, frame):
         """Get a single attribute from a @py object.
@@ -473,14 +525,8 @@ def _make_getattr_fn(py_tag, module):
 
         return _smart_return(result, py_tag, module)
 
-    return _getattr
-
-
-def _make_drop(py_tag, module):
-    """Create the drop callable (release a @py handle)."""
-
     def _drop(input_val, args_val, frame):
-        """Release a @py handle. Called on !drop.
+        """Release a @py handle.
 
         Python's GC handles actual cleanup; this just marks the handle
         as released so further use is prevented.
@@ -489,12 +535,6 @@ def _make_drop(py_tag, module):
         if isinstance(inst, comp.HandleInstance) and not inst.released:
             inst.released = True
         return comp.Value(comp.tag_nil)
-
-    return _drop
-
-
-def _make_typeof(py_tag, module):
-    """Create the typeof callable."""
 
     def _typeof(input_val, args_val, frame):
         """Return the Python type name of a @py object as a string.
@@ -509,33 +549,14 @@ def _make_typeof(py_tag, module):
         full = f"{mod}.{qn}" if mod else qn
         return comp.Value(full)
 
-    return _typeof
-
-
-# ---------------------------------------------------------------------------
-# Module registration
-# ---------------------------------------------------------------------------
-
-@comp._internal.register_internal_module("py")
-def _create_py_module(module):
-    """Python interop: lookup, call, method, pull, push, vars, getattr, typeof."""
-
-    # The @py tag — used to identify handle instances
-    py_tag = module.add_tag("py")
-
-    # Core functions
-    module.add_callable("lookup", _make_lookup(py_tag, module))
-    module.add_callable("call", _make_call(py_tag, module))
-    module.add_callable("method", _make_method(py_tag, module))
-
-    # Value conversion
-    module.add_callable("load", _make_load(py_tag, module))
-    module.add_callable("dump", _make_dump(py_tag, module))
-
-    # Introspection
-    module.add_callable("vars", _make_vars(py_tag, module))
-    module.add_callable("getattr", _make_getattr_fn(py_tag, module))
-    module.add_callable("typeof", _make_typeof(py_tag, module))
-
-    # Handle lifecycle
-    module.add_callable("drop", _make_drop(py_tag, module))
+    # Register callables
+    module.add_callable("lookup",    _lookup)
+    module.add_callable("call",      _call)
+    module.add_callable("pure-call", _pure_call, pure=True)
+    module.add_callable("method",    _method)
+    module.add_callable("load",      _load)
+    module.add_callable("dump",      _dump)
+    module.add_callable("vars",      _vars)
+    module.add_callable("getattr",   _getattr)
+    module.add_callable("typeof",    _typeof)
+    module.add_callable("drop",      _drop)

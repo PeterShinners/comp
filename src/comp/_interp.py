@@ -441,6 +441,20 @@ class ExecutionFrame:
         # Handle InternalCallable (Python function)
         if isinstance(callable_obj, comp.InternalCallable):
             input_val = piped if piped is not None else args
+            # Pre-morph input to declared shape when one is provided.
+            # A morph failure produces CompFail so the call site fails-through,
+            # exactly like a regular Comp function with a non-matching input type.
+            if callable_obj.input_shape is not None:
+                morph_result = comp.morph(input_val, callable_obj.input_shape, self)
+                if morph_result.failure_reason:
+                    if morph_result.failure_value is not None:
+                        raise CompFail(morph_result.failure_value)
+                    raise CompFail(_make_fail_value(
+                        morph_result.failure_reason,
+                        tag=comp.tag_fail_value,
+                        cop_val=source_cop,
+                    ))
+                input_val = morph_result.value
             try:
                 return callable_obj.func(input_val, args, self)
             except CompFail:

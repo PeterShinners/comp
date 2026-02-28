@@ -25,20 +25,33 @@ class InternalCallable:
     Wraps a Python function so it can be invoked like a Comp block.
     The Python function receives (input_val, args_val, frame) and returns a Value.
 
+    If input_shape is provided, the piped/input value is morphed to that shape
+    before the function is called.  A morph failure raises CompFail, causing the
+    call site to fail-through (exactly like a regular Comp function whose input
+    type does not match).  Pass None to skip pre-morph and let the function
+    perform its own type checking.
+
     Args:
         name: (str) Name of the callable
         func: (callable) Python function to call
+        pure: (bool) True if this callable has no side effects
+        input_shape: (Shape | None) Shape to morph input against before
+            calling func, or None to skip pre-morph
 
     Attributes:
         name: (str) Name for display
         func: (callable) The wrapped Python function
+        pure: (bool) Whether the callable is considered pure
+        input_shape: (Shape | None) Pre-morph shape, or None
     """
 
-    __slots__ = ("name", "func")
+    __slots__ = ("name", "func", "pure", "input_shape")
 
-    def __init__(self, name, func):
+    def __init__(self, name, func, pure=False, input_shape=None):
         self.name = name
         self.func = func
+        self.pure = pure
+        self.input_shape = input_shape
 
     def __repr__(self):
         return f"<InternalCallable {self.name}>"
@@ -131,18 +144,21 @@ class InternalModule(comp.Module):
         self._definitions[qualified_name] = definition
         return definition
 
-    def add_callable(self, qualified_name, python_function):
+    def add_callable(self, qualified_name, python_function, pure=False, input_shape=None):
         """Add a callable definition to this module.
 
         Args:
             qualified_name: Qualified name like "fold" or "incr"
             python_function: Python function to call. Receives (input_val, args_val)
                 and returns a Value.
+            pure: (bool) True if the callable has no side effects
+            input_shape: (Shape | None) Shape to morph input against before
+                calling; None means the function does its own type checks
 
         Returns:
             Definition: The created Definition object
         """
-        callable_obj = InternalCallable(qualified_name, python_function)
+        callable_obj = InternalCallable(qualified_name, python_function, pure=pure, input_shape=input_shape)
         value = comp.Value(callable_obj)
         
         definition = comp.Definition(
@@ -205,6 +221,7 @@ class SystemModule(comp.Module):
         self._add_shape("struct", comp.shape_struct)
         self._add_shape("any", comp.shape_any)
         self._add_shape("func", comp.shape_block)
+        self._add_shape("handle", comp.shape_handle)
 
         # invoke-data shape — build here to avoid circular-import issues
         _invoke_data = comp.Shape("invoke-data", private=False)
@@ -218,17 +235,17 @@ class SystemModule(comp.Module):
         self._add_shape("failure", comp.shape_failure)
 
         # Builtin callables
-        self._add_callable("incr", _builtin_incr)
-        self._add_callable("answer", _builtin_answer)
-        self._add_callable("wrap", _builtin_wrap)
-        self._add_callable("morph", _builtin_morph)
-        self._add_callable("mask", _builtin_mask)
-        self._add_callable("abs", _builtin_abs)
+        self._add_callable("incr",   _builtin_incr,   pure=True,  input_shape=comp.shape_num)
+        self._add_callable("answer", _builtin_answer, pure=True)
+        self._add_callable("wrap",   _builtin_wrap)
+        self._add_callable("morph",  _builtin_morph,  pure=True)
+        self._add_callable("mask",   _builtin_mask,   pure=True)
+        self._add_callable("abs",    _builtin_abs,    pure=True)
         self._add_callable("output", _builtin_output)
-        self._add_callable("fmt", _builtin_fmt)
-        self._add_callable("apply", _builtin_apply)
+        self._add_callable("fmt",    _builtin_fmt,    pure=True)
+        self._add_callable("apply",  _builtin_apply)
         self._add_callable("update", _builtin_update)
-        self._add_callable("flat", _builtin_flat)
+        self._add_callable("flat",   _builtin_flat)
         self._add_callable("reduce", _builtin_reduce)
 
         self.finalize()
@@ -255,9 +272,17 @@ class SystemModule(comp.Module):
         """Add a builtin shape definition."""
         self._add_definition(name, comp.Value.from_python(shape), comp.shape_shape)
 
-    def _add_callable(self, name, func):
-        """Add a builtin callable definition."""
-        callable_obj = InternalCallable(name, func)
+    def _add_callable(self, name, func, pure=False, input_shape=None):
+        """Add a builtin callable definition.
+
+        Args:
+            name: (str) Qualified name of the callable
+            func: (callable) Python function (input_val, args_val, frame) -> Value
+            pure: (bool) True if the callable has no side effects
+            input_shape: (Shape | None) Shape to morph input to before calling;
+                None means the function handles its own type checking
+        """
+        callable_obj = InternalCallable(name, func, pure=pure, input_shape=input_shape)
         self._add_definition(name, comp.Value(callable_obj), comp.shape_block)
 
     def finalize(self):
@@ -267,13 +292,9 @@ class SystemModule(comp.Module):
 # Builtin callable implementations
 
 def _builtin_incr(input_val, args_val, frame):
-    """Increment a number by 1."""
-    morph_result = comp.morph(input_val, comp.shape_num, frame)
-    if morph_result.failure_reason:
-        raise comp.CodeError(f"Input morph failed: {morph_result.failure_reason}")
-    n = morph_result.value.data
+    """Increment a number by 1.  Input is pre-morphed to ~num by invoke_block."""
     import decimal
-    return comp.Value(n + decimal.Decimal(1))
+    return comp.Value(input_val.data + decimal.Decimal(1))
 
 
 def _builtin_answer(input_val, args_val, frame):
