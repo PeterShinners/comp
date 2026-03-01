@@ -73,8 +73,8 @@ def _resolve_walk(cop, namespace, locals):
     if tag == "value.block":
         return _resolve_block(cop, namespace, locals)
 
-    # --- Sequential statements: track op.let bindings ---
-    if tag == "statement.define":
+    # --- Sequential containers: track op.let / named-field bindings ---
+    if tag in ("statement.define", "struct.define"):
         return _resolve_sequential(cop, namespace, locals)
 
     # --- Named fields: only resolve value, not name ---
@@ -233,15 +233,20 @@ def _resolve_block(cop, namespace, locals):
 
 
 def _resolve_sequential(cop, namespace, locals):
-    """Resolve a statement.define, tracking op.let bindings across statements.
+    """Resolve a sequential container, tracking bindings across children.
+
+    Handles both statement.define (parenthesized blocks) and struct.define
+    (brace blocks).  After each child is resolved, any name it binds
+    (via op.let, op.ctx, or struct.namefield) is added to the locals set
+    so subsequent siblings can see it.
 
     Args:
-        cop: (Value) statement.define COP node
+        cop: (Value) statement.define or struct.define COP node
         namespace: (dict) Namespace
         locals: (set) Inherited locals
 
     Returns:
-        (Value) Resolved statement.define node
+        (Value) Resolved node
     """
     kids = comp.cop_kids(cop)
     current_locals = locals.copy()
@@ -290,10 +295,14 @@ def _resolve_namefield(cop, namespace, locals):
 
 
 def _extract_let_name(cop):
-    """Extract the bound variable name from an op.let node.
+    """Extract the bound variable name from a binding node.
+
+    Only op.let and op.ctx create local variable bindings.
+    struct.namefield contributes to the outgoing structure but does NOT
+    create a local visible to subsequent siblings.
 
     Args:
-        cop: (Value) COP node (op.let or statement.field wrapping one)
+        cop: (Value) COP node that may bind a name
 
     Returns:
         (str | None) The bound name, or None

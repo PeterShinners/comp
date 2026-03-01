@@ -102,8 +102,8 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
     if tag == "value.block":
         return _optimize_block(cop, fold, namespace, locals, references, locals_defined)
 
-    # --- Sequential statements: track op.let bindings across statements ---
-    if tag == "statement.define":
+    # --- Sequential containers: track op.let / named-field bindings ---
+    if tag in ("statement.define", "struct.define"):
         return _optimize_sequential(cop, fold, namespace, locals, references, locals_defined)
 
     # --- Named fields: only optimize value, not name ---
@@ -238,9 +238,6 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
                 if isinstance(unit_val.data, comp.Tag):
                     return _make_constant(cop, val.with_unit(unit_val.data))
 
-        if tag == "struct.define":
-            return _fold_struct(cop, new_kids)
-
         if tag == "op.on":
             cond_val = _get_constant(new_kids[0])
             if cond_val is not None:
@@ -255,14 +252,15 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
 
 
 def _optimize_sequential(cop, fold, namespace, locals, references, locals_defined):
-    """Optimize a statement.define, tracking op.let bindings across statements.
+    """Optimize a sequential container, tracking bindings across children.
 
-    Each statement.field is processed in order. After a field containing an
-    op.let, the bound name is added to the active locals set so that subsequent
-    statements in the same sequence resolve that identifier as value.local.
+    Handles both statement.define and struct.define.  Each child is processed
+    in order.  After a child that binds a name (op.let, op.ctx, or
+    struct.namefield), the bound name is added to the active locals set so
+    subsequent siblings resolve it as value.local.
 
     Args:
-        cop: (Value) statement.define COP node
+        cop: (Value) statement.define or struct.define COP node
         fold: (bool) Whether to fold
         namespace: (dict | None) Namespace
         locals: (set) Inherited locals from outer scope
@@ -270,8 +268,9 @@ def _optimize_sequential(cop, fold, namespace, locals, references, locals_define
         locals_defined: (set | None) Collects names defined by op.let
 
     Returns:
-        (Value) Optimized statement.define node
+        (Value) Optimized node
     """
+    tag = comp.cop_tag(cop)
     kids = comp.cop_kids(cop)
     current_locals = locals.copy()
     new_kids = []
@@ -290,14 +289,17 @@ def _optimize_sequential(cop, fold, namespace, locals, references, locals_define
             if locals_defined is not None:
                 locals_defined.add(let_name)
 
-    # Apply statement.define constant folding
+    # Apply constant folding
     if fold:
-        if len(new_kids) == 1 and comp.cop_tag(new_kids[0]) == "statement.field":
-            field_kids = list(comp.cop_kids(new_kids[0]))
-            if len(field_kids) == 1:
-                const = _get_constant(field_kids[0])
-                if const is not None:
-                    return _make_constant(cop, const)
+        if tag == "statement.define":
+            if len(new_kids) == 1 and comp.cop_tag(new_kids[0]) == "statement.field":
+                field_kids = list(comp.cop_kids(new_kids[0]))
+                if len(field_kids) == 1:
+                    const = _get_constant(field_kids[0])
+                    if const is not None:
+                        return _make_constant(cop, const)
+        elif tag == "struct.define":
+            return _fold_struct(cop, new_kids)
 
     if changed:
         return comp.cop_rebuild(cop, new_kids)
@@ -305,13 +307,17 @@ def _optimize_sequential(cop, fold, namespace, locals, references, locals_define
 
 
 def _extract_let_name(cop):
-    """Extract the bound variable name from an op.let node, possibly inside statement.field.
+    """Extract the bound variable name from a binding node.
+
+    Only op.let and op.ctx create local variable bindings.
+    struct.namefield contributes to the outgoing structure but does NOT
+    create a local visible to subsequent siblings.
 
     Args:
-        cop: (Value) COP node (op.let or statement.field wrapping one)
+        cop: (Value) COP node that may bind a name
 
     Returns:
-        (str | None) The bound name, or None if not an op.let
+        (str | None) The bound name, or None
     """
     tag = comp.cop_tag(cop)
     if tag == "statement.field":
