@@ -327,6 +327,7 @@ def _create_py_module(module):
         "decimal.",    # e.g. decimal.Decimal
         "fractions.",  # e.g. fractions.Fraction
         "operator.",   # e.g. operator.mul, operator.add, operator.eq …
+        "re.",         # e.g. re.fullmatch, re.match, re.search …
     ])
     _PURE_ALLOWED_BUILTINS = frozenset([
         "abs", "round", "divmod",

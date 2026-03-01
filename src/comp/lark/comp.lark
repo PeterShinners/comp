@@ -18,7 +18,7 @@ start_startup: startup_body  // !startup name [@wrapper] body
 startup_body: wrapper+ func_struct
             | func_struct
 start_tag: (BRACE_OPEN tag_item* BRACE_CLOSE)?        // !tag name {items}
-tag_item: identifier (BRACE_OPEN tag_item* BRACE_CLOSE)?
+tag_item: identifier AMPERSAND? (BRACE_OPEN tag_item* BRACE_CLOSE)?
 
 
 // ===== BASIC DELIMITERS =====
@@ -41,6 +41,7 @@ TILDE.5: "~"
 DOT.5: "."
 PIPE.5: "|"
 HASH.5: "#"
+AMPERSAND.5: "&"
 DOLLAR3.6: "$$$"
 DOLLAR2.6: "$$"
 DOLLAR.5: "$"

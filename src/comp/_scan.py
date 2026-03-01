@@ -83,7 +83,9 @@ def _scan_mod_definition(node, source):
     operator = operator_token.value[1:]  # Remove '!' prefix
 
     # Extract name - can be dotted like "util.helper.format"
-    # Collect consecutive TOKENFIELD tokens separated by dots
+    # A trailing & marks the declaration as private (e.g. "resource&").
+    # The & is kept in the name string so it survives Value serialization;
+    # _module.py detects and strips it.
     name_parts = []
     name_end_line = None
     name_end_col = None

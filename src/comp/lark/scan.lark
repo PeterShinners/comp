@@ -56,7 +56,7 @@ mod_definition: mod_op other_token*
             | CONTENT_BLOB
             | BANG
 
-TOKENFIELD.4: /[a-zA-Z_][\w-]*/
+TOKENFIELD.4: /[a-zA-Z_][\w-]*&?/
 BANG.2: "!"
 CONTENT_BLOB.1: /[^\s!\/a-zA-Z_]+|\/(?![\/\*])/
 

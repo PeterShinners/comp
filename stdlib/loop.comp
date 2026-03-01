@@ -3,12 +3,14 @@
 
 
 /// Generate infinite counter stream
-!func infinite (
-    :param start~num=0 
-    :param step~num=1
-    stream (
-        {value=$ next=($ + step)}
-    )  :seed=start
+!pure infinite (
+    :param start~num = 0
+    :param step~num = 1
+    !let count start
+    !defer {
+        count
+        !let count count + step
+    }
 )
 
 /// Generate range of numbers

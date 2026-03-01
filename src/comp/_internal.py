@@ -213,6 +213,9 @@ class SystemModule(comp.Module):
         self._add_tag("less", comp.tag_less)
         self._add_tag("equal", comp.tag_equal)
         self._add_tag("greater", comp.tag_greater)
+        self._add_tag("ord.less", comp.tag_less)
+        self._add_tag("ord.equal", comp.tag_equal)
+        self._add_tag("ord.greater", comp.tag_greater)
         self._add_tag("else", comp.tag_else)
 
         # Builtin shapes
@@ -222,6 +225,7 @@ class SystemModule(comp.Module):
         self._add_shape("any", comp.shape_any)
         self._add_shape("func", comp.shape_block)
         self._add_shape("handle", comp.shape_handle)
+        self._add_shape("shape", comp.shape_shape)
 
         # invoke-data shape — build here to avoid circular-import issues
         _invoke_data = comp.Shape("invoke-data", private=False)
@@ -235,8 +239,9 @@ class SystemModule(comp.Module):
         self._add_shape("failure", comp.shape_failure)
 
         # Builtin callables
-        self._add_callable("incr",   _builtin_incr,   pure=True,  input_shape=comp.shape_num)
-        self._add_callable("answer", _builtin_answer, pure=True)
+        self._add_callable("pass",   _builtin_pass,   pure=True)
+        self._add_callable("tee",    _builtin_tee,    pure=True)
+        self._add_callable("fit",    _builtin_fit,    pure=True, input_shape=comp.shape_num)
         self._add_callable("wrap",   _builtin_wrap)
         self._add_callable("morph",  _builtin_morph,  pure=True)
         self._add_callable("mask",   _builtin_mask,   pure=True)
@@ -291,16 +296,69 @@ class SystemModule(comp.Module):
 
 # Builtin callable implementations
 
-def _builtin_incr(input_val, args_val, frame):
-    """Increment a number by 1.  Input is pre-morphed to ~num by invoke_block."""
-    import decimal
-    return comp.Value(input_val.data + decimal.Decimal(1))
+def _builtin_pass(input_val, args_val, frame):
+    """Return the piped input unchanged (identity function)."""
+    return input_val
 
 
-def _builtin_answer(input_val, args_val, frame):
-    """Return the hardcoded constant 42. Useful for testing callables."""
+def _builtin_tee(input_val, args_val, frame):
+    """Invoke a callable with the piped input, then return the original input.
+
+    Usage: value | tee :some-callable
+    The callable is called for its side effects; the original value flows through.
+    """
+    expr_val = args_val.positional(0)
+    if expr_val is not None:
+        frame.invoke_block(expr_val, comp.Value.from_python({}), piped=input_val)
+    return input_val
+
+
+def _builtin_fit(input_val, args_val, frame):
+    """Fit a number into a bounded integer shape using wrapping (modular) arithmetic.
+
+    Destructively remaps the input into the target shape's [ge, le] range.
+    Use this when you know the value may be out of range and want C-style
+    overflow behaviour rather than a morph failure.
+
+    Usage: 1000 | fit :uint8   => 232
+           -1   | fit :uint8   => 255
+           200  | fit :int8    => -56
+
+    The target shape must have both ge= and le= limits defined.
+    The value is first truncated to remove any fractional part, then wrapped.
+    """
     import decimal
-    return comp.Value.from_python(decimal.Decimal(42))
+
+    shape_val = args_val.positional(0)
+    if shape_val is None:
+        raise comp.CodeError("fit requires a shape as its argument, e.g. fit :uint8")
+
+    shape = shape_val.data
+    if not isinstance(shape, comp.Shape):
+        raise comp.CodeError(f"fit requires a shape argument, got {shape_val.format()}")
+
+    # Scan the shape's first field for ge= and le= limit params
+    ge_val = None
+    le_val = None
+    if shape.fields:
+        for limit_name, param_val in shape.fields[0].limits:
+            if limit_name == "ge" and param_val is not None:
+                ge_val = param_val.data
+            elif limit_name == "le" and param_val is not None:
+                le_val = param_val.data
+
+    if ge_val is None or le_val is None:
+        raise comp.CodeError(
+            f"fit: shape ~{shape.qualified} has no ge/le bounds — "
+            "fit only works with bounded integer shapes like uint8"
+        )
+
+    # Truncate fractional part, then wrap into [ge, le]
+    v = int(input_val.data.to_integral_value(rounding=decimal.ROUND_FLOOR))
+    modulus = int(le_val - ge_val) + 1
+    ge_int = int(ge_val)
+    result = (v - ge_int) % modulus + ge_int
+    return comp.Value(decimal.Decimal(result))
 
 
 def _builtin_wrap(input_val, args_val, frame):

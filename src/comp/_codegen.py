@@ -834,6 +834,7 @@ class CodeGenContext:
                 unit_ref = None
                 default_idx = None
                 limit_refs = []  # list of (name_str, param_idx_or_None)
+                repeat_bounds = None  # (min_count, max_count) or None
                 field_kids = _cop_kids(kid)
                 for fk in field_kids:
                     fk_tag = comp.cop_tag(fk)
@@ -853,11 +854,31 @@ class CodeGenContext:
                             param_idx = self._build_value_ensure_register(lk[1]) if len(lk) >= 2 else None
                             limit_refs.append((limit_name, param_idx))
                     elif fk_tag == "shape.repeat":
-                        pass  # TODO: handle repeat
+                        repeat_op = fk.to_python("op")
+                        rk = _cop_kids(fk)
+                        if repeat_op == "*":
+                            repeat_bounds = (0, None)
+                        elif repeat_op == "=":
+                            n = int(rk[0].to_python("value"))
+                            repeat_bounds = (n, n)
+                        elif repeat_op == "+":
+                            n = int(rk[0].to_python("value"))
+                            repeat_bounds = (n, None)
+                        elif repeat_op == "-":
+                            lo = int(rk[0].to_python("value"))
+                            hi = int(rk[1].to_python("value"))
+                            repeat_bounds = (lo, hi)
                     else:
                         # Base type reference (first non-special kid)
                         if shape_ref is None:
                             shape_ref = _shape_ref_or_reg(self, fk)
+
+                if repeat_bounds is not None:
+                    min_c, max_c = repeat_bounds
+                    return self.emit(comp._instructions.BuildShapeCollection(
+                        cop=cop, shape_ref=shape_ref, unit_ref=unit_ref,
+                        limit_refs=limit_refs, min_count=min_c, max_count=max_c,
+                    ))
 
                 fields.append((name, shape_ref, unit_ref, default_idx, limit_refs))
 
@@ -996,10 +1017,11 @@ class CodeGenContext:
 def _compile_on_pattern(ctx, pattern_cop):
     """Compile an op.on.branch pattern COP into pattern_ctx instructions.
 
-    For simple type-reference patterns like ~true or ~false (a shape.define
-    wrapping a single identifier), emits a LoadVar so that DispatchOn receives
-    the actual Tag or Shape object to morph against.  For complex shapes with
-    fields (struct patterns), builds the full shape definition instead.
+    Patterns must arrive here as value.constant nodes — the fold pass is
+    responsible for resolving tag/shape identifiers to constants before
+    code generation runs.  If a pattern is still an unresolved identifier
+    or namespace reference at this stage it is a compile-time error: the
+    fold pass failed or the identifier was never defined.
 
     Args:
         ctx: (CodeGenContext) The pattern sub-context to emit instructions into
@@ -1011,15 +1033,30 @@ def _compile_on_pattern(ctx, pattern_cop):
     tag = comp.cop_tag(pattern_cop)
     if tag == "shape.define":
         kids = _cop_kids(pattern_cop)
-        # Single identifier child → type/tag reference (e.g. ~true, ~false, ~text)
-        if len(kids) == 1 and comp.cop_tag(kids[0]) in ("value.identifier", "value.namespace", "value.reference"):
-            ref = _shape_ref_or_reg(ctx, kids[0])
-            if isinstance(ref, str):
-                # Static name — emit LoadVar to get the Tag/Shape value at runtime
-                return ctx.emit(comp._instructions.LoadVar(cop=pattern_cop, name=ref))
-            # _shape_ref_or_reg already emitted instructions; ref is a register index
-            return ref
-    # Fallback: compile fully (struct-pattern shapes, unions, etc.)
+        kid_tag = comp.cop_tag(kids[0]) if len(kids) == 1 else None
+        # Unresolved identifier/namespace reference — the fold pass should have
+        # converted this to value.constant.  Emitting LoadVar here would silently
+        # push name resolution into the runtime, violating the architecture.
+        # Fail hard so the root cause (missing import, undefined tag, fold gap)
+        # is surfaced immediately rather than becoming a cryptic runtime error.
+        if kid_tag in ("value.identifier", "value.namespace", "value.reference"):
+            try:
+                kid = kids[0]
+                if kid_tag == "value.namespace":
+                    name = kid.to_python("qualified")
+                else:
+                    parts = [k.to_python("value") for k in _cop_kids(kid)]
+                    name = ".".join(str(p) for p in parts)
+            except Exception:
+                name = "?"
+            raise comp.CodeError(
+                f"!on branch pattern ~{name} was not resolved to a constant "
+                f"before code generation. All patterns must be tags or shapes "
+                f"defined and visible at compile time — check for a missing "
+                f"import or undefined identifier.",
+                pattern_cop,
+            )
+    # Compile fully — value.constant, struct-pattern shapes, unions, etc.
     return ctx._build_value_ensure_register(pattern_cop)
 
 

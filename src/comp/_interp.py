@@ -167,6 +167,7 @@ class Interp:
         if internal_mod is not None:
             return internal_mod
 
+        # Fast path: already loaded under this exact resource string
         cached = self.module_cache.get(anchored)
         etag = cached.source.etag if cached else None
         src = comp._import.locate_resource(
@@ -176,11 +177,24 @@ class Interp:
             search_fds=self.search_fds,
         )
 
-        # If result is None, the etag matched - return cached version
+        # etag matched - return cached version
         if src is None:
             return cached
 
+        # Canonical dedup: same absolute path → reuse existing Module.
+        # Different resource strings (e.g. "limit" vs "stdlib/limit") can resolve
+        # to the same file; using src.location as the canonical key prevents
+        # creating duplicate Module instances that break the circular-import guard.
+        if src.location:
+            loc_cached = self.module_cache.get(src.location)
+            if loc_cached is not None:
+                self.module_cache[anchored] = loc_cached  # prime resource key
+                return loc_cached
+
         mod = comp.Module(src)
+        if src.location:
+            self.module_cache[src.location] = mod  # canonical key (abs path)
+        self.module_cache[anchored] = mod           # resource string key
         self._new_module(mod)
         return mod
 
@@ -214,7 +228,8 @@ class Interp:
 
     def _new_module(self, module):
         """Internally scan and register module."""
-        self.module_cache[module.token] = module
+        # module_cache entries (by resource string and abs path) are already
+        # set by the module() method before this is called.
 
         # Get statements from the module scan
         statements = module.statements()
@@ -460,8 +475,8 @@ class ExecutionFrame:
             except CompFail:
                 raise  # Let the caller decide how to handle the failure
         
-        # Handle Shape, ShapeUnion, or Tag (morph input to shape, return result only)
-        if isinstance(callable_obj, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+        # Handle Shape, ShapeUnion, ShapeCollection, or Tag (morph input to shape, return result only)
+        if isinstance(callable_obj, (comp.Shape, comp.ShapeUnion, comp.ShapeCollection, comp.Tag)):
             input_val = piped if piped is not None else args
             morph_result = comp.morph(input_val, callable_obj, self)
             if morph_result.failure_reason:

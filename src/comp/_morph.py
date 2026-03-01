@@ -205,15 +205,15 @@ def _resolve_shape_field(field, frame):
         except (NameError, AttributeError):
             return None
         # Unwrap DefinitionSet
-        if shape_val and isinstance(shape_val.data, comp.DefinitionSet):
-            for defn in shape_val.data.definitions:
+        if shape_val and isinstance(shape_val.data, comp.DefinitionSet):  # type: ignore[union-attr]
+            for defn in shape_val.data.definitions:  # type: ignore[union-attr]
                 dv = comp._instructions._ensure_definition_value(defn, frame)
-                if dv and isinstance(dv.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                if dv and isinstance(dv.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):  # type: ignore[union-attr]
                     # Cache the resolved shape back into the field for next time
-                    field.shape = dv.data
+                    field.shape = dv.data  # type: ignore[union-attr]
                     return field.shape
-        if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
-            field.shape = shape_val.data
+        if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):  # type: ignore[union-attr]
+            field.shape = shape_val.data  # type: ignore[union-attr]
             return field.shape
         return None
 
@@ -362,6 +362,52 @@ def _check_type(value, shape_constraint, frame):
     return True
 
 
+def _morph_collection(value, shape, frame):
+    """Morph a value into a ShapeCollection (homogeneous typed sequence).
+
+    Args:
+        value: (Value) Input — struct with positional elements, or a scalar
+        shape: (ShapeCollection) Target collection shape
+        frame: (ExecutionFrame) Frame for limit invocation
+
+    Returns:
+        MorphResult: Result with morphed struct and positional match score
+    """
+    # Collect elements: struct → list of values, scalar → single-element list
+    if isinstance(value.data, dict):
+        elements = list(value.data.values())
+    else:
+        elements = [value]
+
+    count = len(elements)
+    if count < shape.min_count:
+        return MorphResult.failed(
+            f"Collection requires at least {shape.min_count} element(s), got {count}"
+        )
+    if shape.max_count is not None and count > shape.max_count:
+        return MorphResult.failed(
+            f"Collection allows at most {shape.max_count} element(s), got {count}"
+        )
+
+    constraint = _resolve_shape_field(shape.element, frame)
+    unit_score_total = 0
+    result_data = {}
+
+    for i, elem in enumerate(elements):
+        if not _check_type(elem, constraint, frame):
+            return MorphResult.failed(f"Element {i} has wrong type for collection")
+        us = _unit_match_score(elem.unit, shape.element.unit)
+        if us == -1:
+            return MorphResult.failed(f"Element {i} has incompatible unit for collection")
+        limit_fail = _invoke_limits(shape.element, elem, frame)
+        if limit_fail is not None:
+            return MorphResult.failed(_extract_fail_message(limit_fail), failure_value=limit_fail)
+        unit_score_total += us
+        result_data[comp.Unnamed()] = elem
+
+    return MorphResult(comp.Value(result_data), 0, 0, unit_score_total, count)
+
+
 def morph(value, shape, frame):
     """Morph a value to match a shape.
 
@@ -381,6 +427,10 @@ def morph(value, shape, frame):
     Returns:
         MorphResult: Result with morphed value and match score
     """
+    # Handle collection shapes
+    if isinstance(shape, comp.ShapeCollection):
+        return _morph_collection(value, shape, frame)
+
     # Handle union shapes - try each member and return best scoring match
     if isinstance(shape, comp.ShapeUnion):
         best_result = None
@@ -432,7 +482,7 @@ def morph(value, shape, frame):
 
     # Build list of input fields
     input_fields = []
-    for key, val in value.data.items():
+    for key, val in value.data.items():  # type: ignore[union-attr]
         name = _get_field_key(key)
         tag = _get_value_tag(val)
         input_fields.append({"key": key, "name": name, "tag": tag, "value": val, "matched": False})
@@ -587,7 +637,6 @@ def morph(value, shape, frame):
         result_data[key] = inp["value"]
 
     # Add extra fields (morph keeps extras)
-    extra_idx = len(shape_fields)
     for inp in input_fields:
         if inp["matched"]:
             continue
@@ -611,6 +660,13 @@ def mask(value, shape, frame):
     Returns:
         (Value | None, str | None) Tuple of (result value, error message)
     """
+    # Handle collection shapes
+    if isinstance(shape, comp.ShapeCollection):
+        result = _morph_collection(value, shape, frame)
+        if result.failure_reason:
+            return None, result.failure_reason
+        return result.value, None
+
     # Handle union shapes - try each member, return first successful match
     if isinstance(shape, comp.ShapeUnion):
         for member_shape in shape.shapes:
@@ -645,7 +701,7 @@ def mask(value, shape, frame):
 
     # Build list of input fields
     input_fields = []
-    for key, val in value.data.items():
+    for key, val in value.data.items():  # type: ignore[union-attr]
         name = _get_field_key(key)
         tag = _get_value_tag(val)
         input_fields.append({"key": key, "name": name, "tag": tag, "value": val, "matched": False})

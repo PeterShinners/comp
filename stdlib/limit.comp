@@ -2,9 +2,12 @@
 /// These are pure functions used as validation constraints during shape morphing.
 /// Each limit either raises a failure or passes without returning a meaningful value.
 
+!import py comp "py"
+!import num comp "num"
+
 
 /// Inclusive minimum bound: value must be >= amount
-!pure min ~num (
+!pure ge ~num (
     :param amount~num
     !on $ < amount
     ~true !fail {fail.value message="Value is below minimum"}
@@ -12,7 +15,7 @@
 )
 
 /// Inclusive maximum bound: value must be <= amount
-!pure max ~num (
+!pure le ~num (
     :param amount~num
     !on $ > amount
     ~true !fail {fail.value message="Value is above maximum"}
@@ -20,7 +23,7 @@
 )
 
 /// Exclusive lower bound: value must be > amount
-!pure above ~num (
+!pure gt ~num (
     :param amount~num
     !on $ <= amount
     ~true !fail {fail.value message="Value must be above bound"}
@@ -28,21 +31,53 @@
 )
 
 /// Exclusive upper bound: value must be < amount
-!pure below ~num (
+!pure lt ~num (
     :param amount~num
     !on $ >= amount
     ~true !fail {fail.value message="Value must be below bound"}
     ~false true
 )
 
+/// Equality constraint: value must equal amount exactly
+!pure eq ~num (
+    :param amount~num
+    !on $ == amount
+    ~false !fail {fail.value message="Value must equal the required amount"}
+    ~true true
+)
+
+/// Equality constraint: value must be one of the given values
+!pure eq ~num (
+    :param amount~num*1+
+    !let in-set ({amount $} | py.pure-call :"operator.contains")
+    !on in-set
+    ~false !fail {fail.value message="Value must be one of the allowed values"}
+    ~true true
+)
+
+/// Inequality constraint: value must not equal amount
+!pure ne ~num (
+    :param amount~num
+    !on $ == amount
+    ~true !fail {fail.value message="Value must not equal the excluded amount"}
+    ~false true
+)
+
+/// Inequality constraint: value must not be any of the given values
+!pure ne ~num (
+    :param amount~num*1+
+    !let in-set ({amount $} | py.pure-call :"operator.contains")
+    !on in-set
+    ~true !fail {fail.value message="Value must not be any of the excluded values"}
+    ~false true
+)
+
 /// Integer constraint: value must have no fractional part
-/// Placeholder: always passes until modulo operator or number library is available.
-/// Real implementation (requires % operator):
-///   !on ($ % 1) != 0
-///   ~true !fail {fail.value message="Value must be an integer"}
-///   ~false true
 !pure integer ~num (
-    true
+    !let parts ({$ 1} | py.pure-call :"divmod")
+    !on (parts.#1 == 0)
+    ~true true
+    ~false !fail {fail.value message="Value must be an integer"}
 )
 
 /// ASCII constraint: text must contain only ASCII characters (codepoints 0-127)
@@ -66,18 +101,11 @@
     ~false !fail {fail.value message="Text must be exactly one character"}
 )
 
-/// Non-zero constraint: number must not equal zero
-!pure non-zero ~num (
-    !on $ == 0
-    ~true !fail {fail.value message="Value must not be zero"}
-    ~false true
-)
-
 /// Size constraint: text length must be exact or within a range.
 /// Pass an exact count: size=3
 /// Pass a min/max range struct: size={1 32}
 !pure size ~text (
-    :param range~{~num<integer min=0> ~num<integer min=0>}|num<integer min=0>
+    :param range~{~index ~index}|index
     !let n ($ | length)
     !on range
     ~num (
@@ -100,7 +128,7 @@
 /// Pass an exact count: size=3
 /// Pass a min/max range struct: size={1 32}
 !pure size ~struct (
-    :param range~{~num<integer min=0> ~num<integer min=0>}|num<integer min=0>
+    :param range~{~index ~index}|index
     !let n ($ | length)
     !on range
     ~num (
@@ -120,8 +148,10 @@
 )
 
 /// Pattern match constraint: text must match the given regex pattern
-/// Note: regex support not yet implemented; this limit currently always passes
 !pure match ~text (
-    :param pattern~text
-    true
+    :param pattern ~text
+    !let result ({pattern $} | py.pure-call :"re.fullmatch")
+    !on (result == nil)
+    ~true !fail {fail.value message="Text does not match pattern"}
+    ~false true
 )

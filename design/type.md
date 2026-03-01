@@ -306,21 +306,23 @@ checks whether a value satisfies a condition during shape morphing. Limits
 validate but never transform; a value either passes or the morph fails.
 
 ```comp
-!shape uint8 ~num<integer min=0 max=255>
-!shape positive ~num<above=0>
-!shape probability ~num<min=0 max=1>
+!shape uint8 ~num<integer ge=0 le=255>
+!shape positive ~num<gt=0>
+!shape probability ~num<ge=0 le=1>
 !shape unix-name ~text<ascii size={1 32} match="^[a-z_][a-z0-9_-]*$">
-!shape email ~text<size={3-254} match="^[^@]+@[^@]+$">
+!shape email ~text<size={3 254} match="^[^@]+@[^@]+$">
 ```
 
-Bound limits come in inclusive and exclusive variants. `min` and `max` are
-inclusive, "at least" and "at most." `above` and `below` are exclusive,
-"greater than" and "less than."
+Bound limits come in inclusive and exclusive variants. `ge` and `le` are
+inclusive, "at least" and "at most." `gt` and `lt` are exclusive, "greater
+than" and "less than." `eq` and `ne` test for exact equality or exclusion.
 
 ```comp
-~num<min=0 max=255>       // 0 through 255 inclusive
-~num<above=0 below=1>     // between 0 and 1, exclusive both ends
-~num<above=0 max=100>     // greater than 0, up to 100 inclusive
+~num<ge=0 le=255>         // 0 through 255 inclusive
+~num<gt=0 lt=1>           // between 0 and 1, exclusive both ends
+~num<gt=0 le=100>         // greater than 0, up to 100 inclusive
+~num<ne=0>                // any number except zero
+~num<eq=42>               // exactly 42
 ```
 
 Other common limits include `integer` (no fractional part), `ascii` (ASCII
@@ -328,17 +330,17 @@ characters only), `size` (length constraint on text or collections), and `match`
 (regex pattern matching on text). Limits are ordinary pure functions, libraries
 can define custom limits without special language support.
 
-Limits do not affect dispatch scoring. A value matches `~num<min=0 integer>`
-with the same dispatch score as `~num`.This prevents fragile dispatch ordering
+Limits do not affect dispatch scoring. A value matches `~num<ge=0 integer>`
+with the same dispatch score as `~num`. This prevents fragile dispatch ordering
 where overlapping limit ranges would create ambiguous matches.
 
 Limits can be combined with units. The unit specifies what kind of value it is,
 the limits specify what range is acceptable.
 
 ```comp
-!shape index ~num[num.index]<min=0 integer>
-!shape timeout ~num[second]<min=0>
-!shape temperature ~num[celsius]<above=-273.15>
+!shape index ~num[num.index]<ge=0 integer>
+!shape timeout ~num[second]<ge=0>
+!shape temperature ~num[celsius]<gt=-273.15>
 ```
 
 ## Collections
@@ -373,7 +375,7 @@ a different concern: the type says what, limits say how constrained, and star
 says how many.
 
 ```comp
-!shape rgb ~num<min=0 max=255>*3
+!shape rgb ~num<ge=0 le=255>*3
 !shape polygon ~point*3-
-!shape temperature-series ~num<min=-273.15>*1+
+!shape temperature-series ~num<gt=-273.15>*1+
 ```

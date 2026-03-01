@@ -45,6 +45,10 @@ class Module:
         # Module-level values (from !mod statements)
         self._mod_values = None
 
+        # Alias statements: list of (alias_name, ref_string, is_private)
+        # Populated during definitions(), resolved during namespace()
+        self._alias_stmts = []
+
     def __repr__(self):
         return f"Module<{self.token}>"
 
@@ -240,6 +244,8 @@ class Module:
                 self._process_shape_statement(stmt)
             elif operator == "mod":
                 self._process_mod_statement(stmt)
+            elif operator == "alias":
+                self._process_alias_statement(stmt)
             else:
                 pass  # Handle import, package, startup separately
 
@@ -247,7 +253,9 @@ class Module:
 
     def _process_func_statement(self, stmt):
         """Process a !func or !pure statement, adding definitions to self._definitions."""
-        name = stmt.get("name")
+        raw_name = stmt.get("name")
+        is_private = raw_name.endswith("&")
+        name = raw_name[:-1] if is_private else raw_name
         body = stmt.get("body", "")
         line_offset = stmt.get("pos", [1])[0]
         col_offset = stmt.get("body_col", 0)
@@ -270,7 +278,7 @@ class Module:
                 shape = comp.shape_struct
 
         # Create base definition
-        definition = Definition(name, self.token, cop_value, shape)
+        definition = Definition(name, self.token, cop_value, shape, private=is_private)
         if stmt.get("operator") == "pure":
             definition.pure = True
 
@@ -288,7 +296,9 @@ class Module:
 
     def _process_tag_statement(self, stmt):
         """Process a !tag statement, adding tag hierarchy to self._definitions."""
-        name = stmt.get("name")
+        raw_name = stmt.get("name")
+        is_private = raw_name.endswith("&")
+        name = raw_name[:-1] if is_private else raw_name
         body = stmt.get("body", "")
         line_offset = stmt.get("pos", [1])[0]
         col_offset = stmt.get("body_col", 0)
@@ -299,7 +309,7 @@ class Module:
         # Create main tag definition
         tag = comp.Tag(name, private=False)
         tag.module = self
-        main_def = Definition(name, self.token, original_cop=cop_value, shape=comp.shape_tag)
+        main_def = Definition(name, self.token, original_cop=cop_value, shape=comp.shape_tag, private=is_private)
         main_def.value = comp.Value.from_python(tag)
         self._definitions[name] = main_def
 
@@ -323,6 +333,14 @@ class Module:
         # For each child identifier in struct.define, create name.child
         for child_cop in comp.cop_kids(cop_value):
             child_tag = comp.cop_tag(child_cop)
+            child_private = is_private  # children inherit parent privacy
+            if child_tag == "value.private_tag":
+                # Explicit & marker on this child
+                child_private = True
+                inner = comp.cop_kids(child_cop)
+                if inner:
+                    child_cop = inner[0]
+                    child_tag = comp.cop_tag(child_cop)
             if child_tag == "value.identifier":
                 # Extract child name
                 child_name = self._statement_identifier(child_cop)
@@ -330,13 +348,15 @@ class Module:
 
                 child_tag_obj = comp.Tag(child_qualified, private=False)
                 child_tag_obj.module = self
-                child_def = Definition(child_qualified, self.token, original_cop=None, shape=comp.shape_tag)
+                child_def = Definition(child_qualified, self.token, original_cop=None, shape=comp.shape_tag, private=child_private)
                 child_def.value = comp.Value.from_python(child_tag_obj)
                 self._definitions[child_qualified] = child_def
 
     def _process_shape_statement(self, stmt):
         """Process a !shape statement, adding shape definition to self._definitions."""
-        name = stmt.get("name")
+        raw_name = stmt.get("name")
+        is_private = raw_name.endswith("&")
+        name = raw_name[:-1] if is_private else raw_name
         body = stmt.get("body", "")
         line_offset = stmt.get("pos", [1])[0]
         col_offset = stmt.get("body_col", 0)
@@ -345,7 +365,7 @@ class Module:
         cop_value = comp.lark_to_cop(tree)
 
         # Create shape definition
-        definition = Definition(name, self.token, cop_value, comp.shape_shape)
+        definition = Definition(name, self.token, cop_value, comp.shape_shape, private=is_private)
         self._definitions[name] = definition
 
     def _process_mod_statement(self, stmt):
@@ -359,6 +379,19 @@ class Module:
         # Store mod value separately (not as a definition)
         # These are module-level configuration values, accessible via module.mod_values()
         self._mod_values[name] = cop_value
+
+    def _process_alias_statement(self, stmt):
+        """Process a !alias statement, queuing for namespace-time resolution.
+
+        Aliases are resolved during namespace() once imports are available.
+        Syntax: !alias NAME REFERENCE  (NAME may carry & for private)
+        """
+        raw_name = stmt.get("name")
+        is_private = raw_name.endswith("&")
+        alias_name = raw_name[:-1] if is_private else raw_name
+        alias_ref = stmt.get("body", "").strip()
+        if alias_ref:
+            self._alias_stmts.append((alias_name, alias_ref, is_private))
 
     def _statement_identifier(self, identifier_cop):
         """Extract name from value.identifier COP node.
@@ -477,6 +510,15 @@ class Module:
             self._namespace = dict(sys.namespace())
 
         for import_name, (import_module, import_err) in self._imports.items():
+            # Trigger the import module's namespace build if it hasn't started yet.
+            # This ensures _apply_aliases() has run so alias definitions appear in
+            # import_module._definitions before we pull them into our own namespace.
+            # Skip if already mid-build (_namespace not None) to avoid circular issues.
+            if import_module is not None and import_module._namespace is None:
+                try:
+                    import_module.namespace()
+                except Exception:
+                    pass  # errors surface via import_err or the check above
             import_definitions = import_module.definitions()
             import_namespace = create_namespace(import_definitions, import_name)
             self._namespace = merge_namespace(self._namespace, import_namespace, clobber=False)
@@ -485,7 +527,83 @@ class Module:
         namespace = create_namespace(defs, None)
         self._namespace = merge_namespace(self._namespace, namespace, clobber=True)
 
+        self._apply_aliases()
+
         return self._namespace
+
+    def _apply_aliases(self):
+        """Resolve queued !alias statements against the current namespace.
+
+        Called once at the end of namespace() after all imports and local
+        definitions have been merged.  For each alias:
+        - Creates new Definitions that share the target's COP / value / instructions
+        - Injects all name permutations into self._namespace
+        - Adds non-private alias Definitions to self._definitions so they
+          are visible to modules that import this one
+        """
+        alias_counters = {}
+        for alias_name, alias_ref, is_private in self._alias_stmts:
+            target_entry = self._namespace.get(alias_ref)
+            if target_entry is None:
+                continue  # unresolved reference — silently skip for now
+
+            if isinstance(target_entry, DefinitionSet):
+                target_defs = list(target_entry.definitions)
+            elif isinstance(target_entry, Definition):
+                target_defs = [target_entry]
+            elif isinstance(target_entry, Ambiguous):
+                target_defs = list(target_entry.definitions)
+            else:
+                continue
+
+            alias_defs = []
+            for tdef in sorted(target_defs, key=lambda d: d.qualified):
+                if tdef.auto_suffix:
+                    # Overloaded: allocate an alias.i001 / alias.i002 … qualified name
+                    count = alias_counters.get(alias_name, 0) + 1
+                    alias_counters[alias_name] = count
+                    alias_qualified = f"{alias_name}.i{count:03d}"
+                    alias_auto_suffix = True
+                else:
+                    alias_qualified = alias_name
+                    alias_auto_suffix = False
+
+                alias_def = Definition(
+                    alias_qualified, self.token, tdef.original_cop, tdef.shape,
+                    private=is_private, auto_suffix=alias_auto_suffix
+                )
+                alias_def.pure = tdef.pure
+                alias_def.resolved_cop = tdef.resolved_cop
+                alias_def.value = tdef.value
+                alias_def.instructions = tdef.instructions
+                alias_defs.append(alias_def)
+
+                if not is_private:
+                    self._definitions[alias_qualified] = alias_def
+
+            # Build a single DefinitionSet for all overloads of this alias
+            alias_def_set = DefinitionSet()
+            for alias_def in alias_defs:
+                alias_def_set.definitions.add(alias_def)
+
+            # Collect every permutation name for this alias
+            all_perms = set()
+            for alias_def in alias_defs:
+                for perm_name in _identifier_permutations(alias_def, None):
+                    all_perms.add(perm_name)
+
+            # Non-private aliases REPLACE existing entries (disambiguation).
+            # Private aliases only add (local name shorthand only).
+            for perm_name in all_perms:
+                if not is_private:
+                    self._namespace[perm_name] = alias_def_set
+                else:
+                    existing = self._namespace.get(perm_name)
+                    if existing is None:
+                        self._namespace[perm_name] = DefinitionSet()
+                        existing = self._namespace[perm_name]
+                    if isinstance(existing, DefinitionSet):
+                        existing.definitions.update(alias_def_set.definitions)
 
     def finalize(self):
         """Build namespace and resolve identifiers. Auto-calls definitions if needed.
@@ -595,10 +713,15 @@ def merge_namespace(base, overrides, clobber):
 
     else:
         for name, value in overrides.items():
-            defs = result.get(name)
-            if defs is None:
-                defs = result[name] = DefinitionSet()
-            defs.definitions.update(value.definitions)
+            existing = result.get(name)
+            # Always create a new DefinitionSet to avoid mutating shared objects.
+            # Shared sets arise because dict(sys.namespace()) is a shallow copy —
+            # mutating the DefinitionSet objects would corrupt sys's namespace.
+            new_set = DefinitionSet()
+            if existing is not None:
+                new_set.definitions.update(existing.definitions)
+            new_set.definitions.update(value.definitions)
+            result[name] = new_set
 
     return result
 

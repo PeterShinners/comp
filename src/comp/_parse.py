@@ -99,6 +99,7 @@ def create_cop_module(module):
         "value.constant",  # (value) precompiled constant value
         "value.cast_unit",  # (value, unit) apply unit tag to a value: 12[inch]
         "stmt.assign",  # (kids) 2 kids (lvalue, rvalue)
+        "value.private_tag",  # (kids) 1 kid - identifier for a private tag child (& suffix)
     )
     for tag_name in cop_tags:
         module.add_tag(tag_name, private=False)
@@ -253,6 +254,12 @@ def lark_to_cop(tree):
                 if not isinstance(kid, lark.Tree):
                     continue
                 cop = lark_to_cop(kid)
+                # shape_atom returns a list when it has extras (unit/limits/repeat).
+                # Wrap in shape.define { shape.field { ... } } so codegen handles it
+                # as a morph callable (e.g. ~num*4 as a pipeline stage).
+                if isinstance(cop, list):
+                    shape_field = _parsed(kid, "shape.field", cop)
+                    cop = _parsed(kid, "shape.define", [shape_field])
                 if not stages:
                     stages.append(cop)
                 else:
@@ -801,10 +808,16 @@ def lark_to_cop(tree):
             return _parsed(tree, "struct.define", tag_items)
 
         case "tag_item":
-            # tag_item: identifier (BRACE_OPEN tag_item* BRACE_CLOSE)?
-            # For now, just convert identifier
-            # TODO: Handle nested tag items
-            return lark_to_cop(kids[0])
+            # tag_item: identifier AMPERSAND? (BRACE_OPEN tag_item* BRACE_CLOSE)?
+            # For now, just convert identifier; nested tag items not yet supported
+            is_private = any(
+                isinstance(k, lark.Token) and k.type == "AMPERSAND"
+                for k in kids
+            )
+            ident_cop = lark_to_cop(kids[0])
+            if is_private:
+                return _parsed(tree, "value.private_tag", [ident_cop])
+            return ident_cop
 
         case "func_body" | "startup_body":
             # func_body: shape wrapper* func_struct | wrapper+ func_struct | func_struct
@@ -1060,9 +1073,12 @@ def lark_to_cop(tree):
             # The shape rule extracts just the spec, so we need to wrap it
             shape_spec = lark_to_cop(shape_lark)
             
-            # Wrap the spec in shape.define (if it's not already wrapped)
+            # Wrap the spec in shape.define (if it's not already wrapped).
+            # Lists have extras (unit/limits/repeat) — put them inside shape.field
+            # so _build_shape can find the repeat and emit BuildShapeCollection.
             if isinstance(shape_spec, list):
-                shape_cop = _parsed(shape_lark, "shape.define", shape_spec)
+                shape_field = _parsed(shape_lark, "shape.field", shape_spec)
+                shape_cop = _parsed(shape_lark, "shape.define", [shape_field])
             else:
                 shape_cop = _parsed(shape_lark, "shape.define", [shape_spec])
             

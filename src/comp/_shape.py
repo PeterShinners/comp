@@ -7,6 +7,7 @@ __all__ = [
     "Shape",
     "ShapeField",
     "ShapeUnion",
+    "ShapeCollection",
     "shape_num",
     "shape_text",
     "shape_struct",
@@ -172,6 +173,51 @@ class ShapeField:
         if self.default:
             result += f"={self.default.format()}"
         return result
+
+
+class ShapeCollection:
+    """A typed homogeneous sequence: all elements must match the element shape.
+
+    Produced by the `*` array suffix: `~num*4`, `~text*1+`, `~num*`, `~num*1-4`.
+    Morphing checks element count against the bounds and validates each element
+    against the element field's shape and limits.
+
+    Attributes:
+        element: (ShapeField) Element type + limits (no name or default)
+        min_count: (int) Minimum number of elements (0 for unbounded lower end)
+        max_count: (int | None) Maximum elements; None means no upper bound
+    """
+
+    __slots__ = ("element", "min_count", "max_count")
+
+    def __init__(self, element, min_count=0, max_count=None):
+        self.element = element
+        self.min_count = min_count
+        self.max_count = max_count
+
+    def __repr__(self):
+        return f"ShapeCollection<{self.format()}>"
+
+    def format(self):
+        elem = self.element
+        if elem.shape is None:
+            elem_str = "~any"
+        elif isinstance(elem.shape, str):
+            elem_str = f"~{elem.shape}"
+        elif hasattr(elem.shape, "qualified"):
+            elem_str = f"~{elem.shape.qualified}"
+        else:
+            elem_str = "~?"
+        if elem.unit:
+            elem_str += f"[{elem.unit.qualified}]"
+
+        if self.min_count == self.max_count:
+            count_str = f"*{self.min_count}"
+        elif self.max_count is None:
+            count_str = "*" if self.min_count == 0 else f"*{self.min_count}+"
+        else:
+            count_str = f"*{self.min_count}-{self.max_count}"
+        return elem_str + count_str
 
 
 # Builtin shapes for primitive types

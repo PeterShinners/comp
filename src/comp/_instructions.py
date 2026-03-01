@@ -1153,6 +1153,88 @@ class BuildShapeUnion(Instruction):
         return f"%{idx}  BuildShapeUnion ({' '.join(parts)})"
 
 
+class BuildShapeCollection(Instruction):
+    """Build a collection shape from an element type and count bounds.
+
+    Produces a ShapeCollection value that constrains a struct to contain
+    N elements all matching the element type.
+    """
+
+    def __init__(self, cop, shape_ref, unit_ref, limit_refs, min_count, max_count):
+        super().__init__(cop)
+        self.shape_ref = shape_ref    # str name or int register index, or None
+        self.unit_ref = unit_ref      # str name or int register index, or None
+        self.limit_refs = limit_refs  # [(name_str_or_int, param_idx_or_None)]
+        self.min_count = min_count    # int
+        self.max_count = max_count    # int | None (unbounded)
+
+    def execute(self, frame):
+        # Resolve element shape
+        shape_constraint = None
+        if self.shape_ref is not None:
+            if isinstance(self.shape_ref, str):
+                try:
+                    shape_val = _load_name(self.shape_ref, frame)
+                except NameError:
+                    shape_val = None
+                if shape_val and isinstance(shape_val.data, comp.DefinitionSet):
+                    for defn in shape_val.data.definitions:
+                        dv = _ensure_definition_value(defn, frame)
+                        if dv and isinstance(dv.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                            shape_val = dv
+                            break
+                if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                    shape_constraint = shape_val.data  # type: ignore[union-attr]
+                else:
+                    shape_constraint = self.shape_ref  # keep name for deferred resolution
+            else:
+                shape_val = frame.get_value(self.shape_ref)
+                if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                    shape_constraint = shape_val.data
+
+        # Resolve unit
+        unit_constraint = None
+        if self.unit_ref is not None:
+            if isinstance(self.unit_ref, str):
+                try:
+                    unit_val = _load_name(self.unit_ref, frame)
+                except NameError:
+                    unit_val = None
+                if unit_val and isinstance(unit_val.data, comp.Tag):  # type: ignore[union-attr]
+                    unit_constraint = unit_val.data  # type: ignore[union-attr]
+            else:
+                unit_val = frame.get_value(self.unit_ref)
+                if unit_val and isinstance(unit_val.data, comp.Tag):
+                    unit_constraint = unit_val.data
+
+        # Resolve limit functions
+        limits = []
+        for lname, lparam_idx in self.limit_refs:
+            func_val = None
+            if isinstance(lname, str):
+                try:
+                    func_val = _load_name(lname, frame)
+                except NameError:
+                    pass
+            param_val = frame.get_value(lparam_idx) if lparam_idx is not None else None
+            if func_val is not None:
+                limits.append((func_val, param_val))
+
+        element = comp.ShapeField(name=None, shape=shape_constraint, unit=unit_constraint, limits=limits)
+        collection = comp.ShapeCollection(element, self.min_count, self.max_count)
+        return frame.set_result(comp.Value(collection))
+
+    def format(self, idx):
+        elem = self.shape_ref if isinstance(self.shape_ref, str) else f"%{self.shape_ref}"
+        if self.min_count == self.max_count:
+            count = f"*{self.min_count}"
+        elif self.max_count is None:
+            count = "*" if self.min_count == 0 else f"*{self.min_count}+"
+        else:
+            count = f"*{self.min_count}-{self.max_count}"
+        return f"%{idx}  BuildShapeCollection (~{elem}{count})"
+
+
 # ---------------------------------------------------------------------------
 # Unit Operations
 # ---------------------------------------------------------------------------
@@ -1492,6 +1574,12 @@ class DispatchOn(Instruction):
             elif isinstance(pattern_data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
                 morph_result = comp.morph(condition_val, pattern_data, frame)
                 matched = not morph_result.failure_reason
+                # Leaf-tag identity: morph rejects depth-0 matches (tags are
+                # abstract shape roots, not values).  For exact leaf-tag dispatch
+                # (e.g. ~true, ~false, ~nil, ~less) fall back to qualified-name
+                # equality so condition_val bearing that exact tag still matches.
+                if not matched and isinstance(pattern_data, comp.Tag) and isinstance(condition_val.data, comp.Tag):
+                    matched = (condition_val.data.qualified == pattern_data.qualified)
             else:
                 # Direct equality: the condition must produce the same value
                 matched = (comp._ops.compare("==", condition_val, pattern_val).data is comp.tag_true)

@@ -669,10 +669,12 @@ def main():
             module_defs = module.definitions()
             module_ns = module.namespace()
             
-            # Resolve and optionally fold all definitions
+            # Resolve all definitions. Always use fold=True: code generation requires
+            # identifier references (e.g. !on pattern tags) to be folded to constants.
+            # do_fold controls additional optimizations (arithmetic, pure evaluation).
             for name, definition in module_defs.items():
                 if not definition.resolved_cop:
-                    definition.resolved_cop = comp.coptimize(definition.original_cop, do_fold, module_ns)
+                    definition.resolved_cop = comp.coptimize(definition.original_cop, True, module_ns)
             
             # Generate code for all definitions
             for name, definition in module_defs.items():

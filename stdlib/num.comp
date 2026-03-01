@@ -5,7 +5,20 @@
 !import limit comp "limit"
 
 
-// ===== Constants =====
+/// Common integer types ///
+
+!shape index ~num<integer ge=0>    
+!shape uint8 ~num<integer ge=0 le=255>
+!shape int8 ~num<integer ge=-128 le=127>
+!shape uint16 ~num<integer ge=0 le=65535>
+!shape int16 ~num<integer ge=-32768 le=32767>
+!shape uint32 ~num<integer ge=0 le=4294967295>
+!shape int32 ~num<integer ge=-2147483648 le=2147483647>
+!shape uint64 ~num<integer ge=0 le=18446744073709551615>
+!shape int64 ~num<integer ge=-9223372036854775808 le=9223372036854775807>
+
+
+// Constants //
 
 /// Ratio of a circle's circumference to its diameter
 !pure pi ~nil (nil | py.load-const :"math.pi")
@@ -17,12 +30,12 @@
 !pure tau ~nil (nil | py.load-const :"math.tau")
 
 
-// ===== Rounding =====
+// Rounding //
 
 /// Round to nearest integer (or to given decimal places)
 /// Uses Decimal arithmetic — respects the current decimal context rounding mode
 !pure round ~num (
-    :param digits~num<integer min=0>=0
+    :param digits ~num<integer> = 0
     {$ digits} | py.pure-call :"round"
 )
 
@@ -42,7 +55,7 @@
 )
 
 
-// ===== Basic arithmetic =====
+// Basic arithmetic //
 
 /// Absolute value — uses Decimal.copy_abs to avoid any sign-bit twiddling
 !pure abs ~num (
@@ -60,7 +73,7 @@
 /// Both quotient and remainder of integer division in one step.
 /// Returns {quotient remainder} — quotient is floor division, remainder is modulo.
 !pure divmod ~num (
-    :param divisor~num<non-zero>
+    :param divisor~num<ne=0>
     !let parts ({$ divisor} | py.pure-call :"divmod")
     {quotient=parts.#0 remainder=parts.#1}
 )
@@ -77,11 +90,11 @@
 )
 
 
-// ===== Logarithms =====
+// Logarithms //
 
 /// Natural logarithm (base e), or logarithm to a given base
 !pure log ~num (
-    :param base~num<above=1> | nil = nil
+    :param base~num<gt=1> | nil = nil
     !on (base == nil)
     ~true ($ | py.pure-call :"math.log")
     ~false ({$ base} | py.pure-call :"math.log")
@@ -98,7 +111,20 @@
 )
 
 
-// ===== Range =====
+// Trigonometry //
+
+/// Sine of an angle in radians
+!pure sin ~num (
+    $ | py.pure-call :"math.sin"
+)
+
+/// Cosine of an angle in radians
+!pure cos ~num (
+    $ | py.pure-call :"math.cos"
+)
+
+
+// Range //
 
 /// Clamp a value between low and high bounds (inclusive)
 !pure clamp ~num (
