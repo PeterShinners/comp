@@ -445,6 +445,13 @@ def cop_unparse(cop):
                 else:
                     parts.append("<?field?>")
             return ".".join(parts)
+
+        case "value.undefined":
+            try:
+                name = cop.field("name").data
+            except (KeyError, AttributeError):
+                name = "?"
+            return f"<?undefined:{name}?>"
         
         case "value.constant":
             try:

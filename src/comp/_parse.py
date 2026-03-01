@@ -100,6 +100,7 @@ def create_cop_module(module):
         "value.cast_unit",  # (value, unit) apply unit tag to a value: 12[inch]
         "stmt.assign",  # (kids) 2 kids (lvalue, rvalue)
         "value.private_tag",  # (kids) 1 kid - identifier for a private tag child (& suffix)
+        "value.undefined",  # (name, pos) grenade node for unresolved identifiers — errors at codegen
     )
     for tag_name in cop_tags:
         module.add_tag(tag_name, private=False)
@@ -131,6 +132,10 @@ def lark_parse(text, grammar, rule=None, line_offset=1, col_offset=0):
 
     Returns:
         (lark.Tree) Parsed grammar tree
+
+    Raises:
+        comp.ParseError: When the source text cannot be parsed, with
+            user-friendly context showing the offending line and position.
     """
     # If start is specified, create a unique key for caching
     cache_key = f"{grammar}:{rule}" if rule else grammar
@@ -148,8 +153,139 @@ def lark_parse(text, grammar, rule=None, line_offset=1, col_offset=0):
 
 
     padded = "\n" * (line_offset - 1) + " " * col_offset + text
-    tree = parser.parse(padded)
+    try:
+        tree = parser.parse(padded)
+    except lark.exceptions.UnexpectedInput as e:
+        raise _format_lark_error(e, text, line_offset) from None
     return tree
+
+
+def _format_lark_error(exc, source_text, line_offset):
+    """Convert a Lark parse error into a user-friendly comp.ParseError.
+
+    Produces output similar to CodeError/EvalError formatting: a summary
+    line, the source context with line number, and a caret pointing to the
+    problem character(s).
+
+    Args:
+        exc: (lark.exceptions.UnexpectedInput) The Lark exception
+        source_text: (str) Original source text (before padding)
+        line_offset: (int) Line offset applied during parsing
+
+    Returns:
+        (comp.ParseError) Formatted parse error
+    """
+    source_lines = source_text.split("\n")
+
+    # Extract position from the Lark exception
+    line = getattr(exc, "line", None)
+    col = getattr(exc, "column", None)
+
+    # Build summary
+    if isinstance(exc, lark.exceptions.UnexpectedToken):
+        token = getattr(exc, "token", None)
+        expected = getattr(exc, "expected", None)
+        if token is not None:
+            token_val = repr(str(token)[:30])
+            summary = f"Unexpected {token_val}"
+        else:
+            summary = "Unexpected token"
+        if expected:
+            # Filter out internal grammar names, show a few readable ones
+            readable = _readable_expected(expected)
+            if readable:
+                summary += f", expected {readable}"
+    elif isinstance(exc, lark.exceptions.UnexpectedCharacters):
+        char = getattr(exc, "char", None)
+        if char:
+            summary = f"Unexpected character {repr(char)}"
+        else:
+            summary = "Unexpected character"
+        expected = getattr(exc, "allowed", None)
+        if expected:
+            readable = _readable_expected(expected)
+            if readable:
+                summary += f", expected {readable}"
+    elif isinstance(exc, lark.exceptions.UnexpectedEOF):
+        expected = getattr(exc, "expected", None)
+        summary = "Unexpected end of input"
+        if expected:
+            readable = _readable_expected(expected)
+            if readable:
+                summary += f", expected {readable}"
+    else:
+        summary = str(exc).split("\n")[0]
+
+    # Build context display
+    parts = [summary]
+
+    if line is not None and col is not None:
+        parts.append(f"  --> line {line}, col {col}")
+
+        # Show the source line with caret
+        # The line number from lark is in the padded text coordinates
+        src_line_idx = line - line_offset
+        if 0 <= src_line_idx < len(source_lines):
+            src_line = source_lines[src_line_idx].rstrip("\n")
+            parts.append(f"   | {src_line}")
+            caret_pos = max(0, col - 1)
+            parts.append(f"   | {' ' * caret_pos}^")
+
+    message = "\n".join(parts)
+    position = ((line or 0) - 1) * 1000 + (col or 0) if line else None
+    return comp.ParseError(message, position=position)
+
+
+def _readable_expected(expected):
+    """Convert Lark's expected token set into readable names.
+
+    Args:
+        expected: (set) Set of expected token/rule names from Lark
+
+    Returns:
+        (str) Comma-separated readable names, or empty string
+    """
+    # Map internal Lark names to user-friendly descriptions
+    name_map = {
+        "TOKENFIELD": "identifier",
+        "DUBQUOTE": "string",
+        "SIXQUOTE": "string",
+        "NUMBER": "number",
+        "NEWLINE": "newline",
+        "INDENT": "indentation",
+        "DEDENT": "dedent",
+        "_NL": "newline",
+        "LPAR": "'('",
+        "RPAR": "')'",
+        "LBRACE": "'{'",
+        "RBRACE": "'}'",
+        "LBRACKET": "'['",
+        "RBRACKET": "']'",
+        "COLON": "':'",
+        "EQUALS": "'='",
+        "PIPE": "'|'",
+        "TILDE": "'~'",
+        "BANG": "'!'",
+        "DOT": "'.'",
+        "COMMA": "','",
+        "$END": "end of input",
+    }
+
+    readable = set()
+    for name in expected:
+        mapped = name_map.get(name)
+        if mapped:
+            readable.add(mapped)
+        elif not name.startswith("_") and not name.startswith("__"):
+            # Show non-internal names as-is but lowercase
+            readable.add(name.lower().replace("_", " "))
+
+    if not readable:
+        return ""
+    items = sorted(readable)
+    if len(items) > 4:
+        items = items[:4] + ["..."]
+    return " or ".join(items)
 
 
 def _parsed(treetoken, tag, kids, **fields):

@@ -606,17 +606,13 @@ class Module:
                         existing.definitions.update(alias_def_set.definitions)
 
     def finalize(self):
-        """Build namespace and resolve identifiers. Auto-calls definitions if needed.
-
-        Args:
-            imports: Dict {import_name: Module} of resolved imports
-        """
+        """Build namespace and resolve identifiers. Auto-calls definitions if needed."""
         definitions = self.definitions()
         namespace = self.namespace()
         for definition in definitions.values():
             if definition.resolved_cop is not None:
                 continue
-            definition.resolved_cop = comp.cop_resolve(
+            definition.resolved_cop = comp.cop_resolve_names(
                 definition.original_cop,
                 namespace
             )

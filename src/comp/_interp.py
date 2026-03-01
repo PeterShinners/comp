@@ -226,6 +226,151 @@ class Interp:
         frame = ExecutionFrame(env, interp=self, module=module)
         return frame.run(instructions)
 
+    def build(self, module, fold=True, pure=False):
+        """Build a module and all its dependencies through the full pipeline.
+
+        This is the primary entry point for preparing a module for execution.
+        It processes all discovered modules as a flat list (no recursive build),
+        applying each pass independently.
+
+        Build passes (each applied to ALL modules before the next begins):
+        1. Definitions — lark parse statements into cop nodes
+        2. Namespace — merge imports + local definitions
+        3. Resolution — cop_resolve_names on every definition
+        4. Fold/Optimize — coptimize for constant folding (optional)
+        5. Codegen — generate instruction sequences
+        6. Execute — run instructions to populate definition values
+
+        Args:
+            module: (Module) The root module to build
+            fold: (bool) Whether to fold constants (default True)
+            pure: (bool) Whether to evaluate pure functions at compile time
+
+        Returns:
+            (Module) The built module (same object, now fully prepared)
+        """
+        # Collect all modules in dependency order (imports before dependents)
+        all_modules = self._collect_modules(module)
+
+        # Pass 1: Definitions — parse all statements into cop nodes
+        for mod in all_modules:
+            mod.definitions()
+
+        # Pass 2: Namespace — build namespace for each module
+        for mod in all_modules:
+            mod.namespace()
+
+        # Pass 3: Resolution — resolve all identifier cop nodes
+        for mod in all_modules:
+            mod_defs = mod.definitions()
+            mod_ns = mod.namespace()
+            for defn in mod_defs.values():
+                if defn.resolved_cop is None:
+                    defn.resolved_cop = comp.cop_resolve_names(
+                        defn.original_cop, mod_ns
+                    )
+
+        # Pass 4: Fold/Optimize — constant folding
+        if fold:
+            for mod in all_modules:
+                mod_defs = mod.definitions()
+                mod_ns = mod.namespace()
+                for defn in mod_defs.values():
+                    defn.resolved_cop = comp.coptimize(
+                        defn.resolved_cop, True, mod_ns
+                    )
+
+        # Pass 4b: Pure evaluation (optional)
+        if pure:
+            for mod in all_modules:
+                mod_defs = mod.definitions()
+                mod_ns = mod.namespace()
+                comp.evaluate_pure_definitions(mod_defs, self)
+                if fold:
+                    for defn in mod_defs.values():
+                        defn.resolved_cop = comp.coptimize(
+                            defn.resolved_cop, True, mod_ns
+                        )
+
+        # Pass 5: Codegen — generate instructions for all definitions
+        for mod in all_modules:
+            mod_defs = mod.definitions()
+            for name, defn in mod_defs.items():
+                if defn.instructions is not None:
+                    continue
+                if defn.resolved_cop is None:
+                    continue
+                try:
+                    _set_name = (defn.qualified.rsplit(".", 1)[0]
+                                 if defn.auto_suffix else defn.qualified)
+                    defn.instructions = comp.generate_code_for_definition(
+                        defn.resolved_cop,
+                        dispatch_own_name=defn.qualified,
+                        dispatch_set_name=_set_name,
+                    )
+                except comp.CodeError:
+                    raise
+                except Exception as e:
+                    raise comp.CodeError(
+                        f"Code generation error for {mod.token}:{name}: {e}"
+                    )
+
+        # Pass 6: Execute — run instructions to populate definition values
+        for mod in all_modules:
+            mod_defs = mod.definitions()
+            mod_env = {}
+            # Shapes first (they don't depend on blocks)
+            for name, defn in mod_defs.items():
+                if defn.instructions and defn.value is None:
+                    if defn.shape.qualified == "shape":
+                        result = self.execute(defn.instructions, mod_env, module=mod)
+                        defn.value = result
+                        mod_env[name] = result
+            # Everything else
+            for name, defn in mod_defs.items():
+                if defn.instructions and defn.value is None:
+                    result = self.execute(defn.instructions, mod_env, module=mod)
+                    defn.value = result
+                    mod_env[name] = result
+
+        return module
+
+    def _collect_modules(self, root_module):
+        """Collect all modules reachable from root in dependency order.
+
+        Returns a flat list where imports appear before the modules that
+        import them.  Internal/system modules are excluded.
+
+        Args:
+            root_module: (Module) The root module
+
+        Returns:
+            (list) Modules in dependency order (imports first)
+        """
+        visited = set()
+        result = []
+
+        def walk(mod):
+            mod_id = id(mod)
+            if mod_id in visited:
+                return
+            if isinstance(mod, comp._internal.InternalModule):
+                return
+            if isinstance(mod, comp._internal.SystemModule):
+                return
+            visited.add(mod_id)
+
+            # Visit imports first (they were already discovered by _new_module)
+            if mod._imports is not None:
+                for import_name, (child_mod, child_err) in mod._imports.items():
+                    if child_mod is not None:
+                        walk(child_mod)
+
+            result.append(mod)
+
+        walk(root_module)
+        return result
+
     def _new_module(self, module):
         """Internally scan and register module."""
         # module_cache entries (by resource string and abs path) are already

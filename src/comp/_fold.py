@@ -2,18 +2,11 @@
 
 This module handles compile-time evaluation of COP trees:
 - Literal conversion: text/number nodes to value.constant
-- Identifier resolution: value.identifier to value.local or value.namespace
 - Constant folding: Evaluate operators and structs at compile time
 
-After coptimize runs, every value.identifier in the original tree has been
-resolved to one of:
-  value.local     -- a name bound by op.let or a block parameter
-  value.namespace -- a name found in the module/system namespace
-  value.identifier -- unresolved (namespace was None, or name not found)
-
-The last case is intentionally left as value.identifier so that a separate
-validation pass can report it cleanly without mixing concerns into the
-optimization walk.
+Name resolution (value.identifier → value.local / value.namespace /
+value.undefined) is handled separately by _resolve.py::cop_resolve_names
+and must be run BEFORE coptimize.  This module expects a pre-resolved tree.
 """
 
 __all__ = [
@@ -26,28 +19,18 @@ import comp
 
 def coptimize(cop, fold, namespace, references=None, locals_defined=None,
               pure=False, defs=None, interp=None):
-    """Optimize a COP tree with optional folding, identifier resolution, and pure evaluation.
+    """Optimize a COP tree with optional folding and pure evaluation.
 
-    Always converts literal nodes (value.text, value.number) to value.constant.
-
-    If namespace is provided, resolves identifiers:
-      - Names in the local scope (op.let bindings, block params) become value.local
-      - Names found in the namespace become value.namespace
-      - Unresolved names remain as value.identifier
-
-    If fold is True, evaluates constant expressions at compile time:
-    - Unary/binary math on constants
-    - Struct literals with all constant fields
-    - References to definitions with constant values
-
-    If pure is True (requires defs and interp), evaluates pure function
-    invocations at compile time, followed by a second fold pass to collapse
-    any newly exposed constants.
+    Name resolution must have already been performed (via cop_resolve_names)
+    before calling this function.  This function handles:
+    - Literal conversion (value.text, value.number → value.constant)
+    - Constant folding when fold=True
+    - Pure function evaluation when pure=True
 
     Args:
-        cop: (Value) COP tree to optimize
+        cop: (Value) COP tree to optimize (should be pre-resolved)
         fold: (bool) Whether to fold constant expressions
-        namespace: (dict | None) Namespace for identifier resolution
+        namespace: (dict | None) Namespace for folding namespace refs to constants
         references: (set | None) If provided, collects qualified names of all
             resolved namespace references discovered during optimization
         locals_defined: (set | None) If provided, collects names of all local
@@ -98,20 +81,15 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
         value = decimal.Decimal(literal)
         return _make_constant(cop, comp.Value.from_python(value))
 
-    # --- Identifiers: resolve to value.local, value.namespace, or leave as-is ---
+    # --- Identifiers: should have been resolved by cop_resolve_names ---
+    # If we encounter one here it means resolution was skipped.
+    # Pass through unchanged — codegen will handle it as a fallback.
     if tag == "value.identifier":
-        ref = _resolve_identifier(cop, namespace, locals, references)
-        if ref is cop:
-            return cop  # Unresolved — leave as value.identifier
-        # If we created a namespace reference, try to fold it
-        ref_tag = comp.cop_tag(ref)
-        if fold and namespace is not None:
-            if ref_tag == "value.namespace":
-                return _fold_namespace(ref, namespace)
-            if ref_tag == "value.field":
-                # Recursively optimize the field access (which may fold)
-                return _coptimize_walk(ref, fold, namespace, locals, references, locals_defined)
-        return ref
+        return cop
+
+    # --- Undefined references: pass through (grenade for codegen) ---
+    if tag == "value.undefined":
+        return cop
 
     # --- Already-resolved references: record and optionally fold ---
     if tag in ("value.reference", "value.namespace"):

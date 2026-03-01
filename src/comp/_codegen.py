@@ -143,10 +143,11 @@ class CodeGenContext:
                     raise comp.CodeError(f"Invalid reference: {e}", cop)
 
             case "value.identifier":
-                # Unresolved identifier — coptimize was not run or the name could
-                # not be resolved.  Treat the first token as a plain local name so
-                # that code still runs when called without a namespace (e.g. blocks
-                # compiled before the full namespace is available).
+                # Unresolved identifier — cop_resolve_names was not run or the
+                # name could not be resolved.  Treat the first token as a plain
+                # local name so that code still runs when called without a
+                # namespace (e.g. blocks compiled before the full namespace is
+                # available).
                 kids = _cop_kids(cop)
                 if not kids:
                     raise comp.CodeError("Identifier has no token", cop)
@@ -154,6 +155,19 @@ class CodeGenContext:
                 result = self.emit(comp._instructions.LoadLocal(cop=cop, name=name))
                 result = _apply_field_access(self, cop, result, kids[1:])
                 return self.emit(comp._instructions.TryInvoke(cop=cop, value=result))
+
+            case "value.undefined":
+                # Grenade node — name resolution ran but this identifier could
+                # not be resolved.  Raise a clear error at code generation time.
+                try:
+                    undef_name = cop.to_python("name")
+                except (KeyError, AttributeError):
+                    undef_name = "?"
+                raise comp.CodeError(
+                    f"Undefined reference '{undef_name}' — "
+                    f"name is not defined in any visible scope or import",
+                    cop,
+                )
             
             case "value.number":
                 # Inline constant
@@ -1009,6 +1023,17 @@ class CodeGenContext:
             result = self.emit(comp._instructions.LoadLocal(cop=cop, name=name))
             return _apply_field_access(self, cop, result, kids[1:])
 
+        elif tag == "value.undefined":
+            try:
+                undef_name = cop.to_python("name")
+            except (KeyError, AttributeError):
+                undef_name = "?"
+            raise comp.CodeError(
+                f"Undefined reference '{undef_name}' — "
+                f"name is not defined in any visible scope or import",
+                cop,
+            )
+
         else:
             # Complex expression — build normally; the result is used as-is
             return self._build_value_ensure_register(cop)
@@ -1039,11 +1064,13 @@ def _compile_on_pattern(ctx, pattern_cop):
         # push name resolution into the runtime, violating the architecture.
         # Fail hard so the root cause (missing import, undefined tag, fold gap)
         # is surfaced immediately rather than becoming a cryptic runtime error.
-        if kid_tag in ("value.identifier", "value.namespace", "value.reference"):
+        if kid_tag in ("value.identifier", "value.namespace", "value.reference", "value.undefined"):
             try:
                 kid = kids[0]
                 if kid_tag == "value.namespace":
                     name = kid.to_python("qualified")
+                elif kid_tag == "value.undefined":
+                    name = kid.to_python("name")
                 else:
                     parts = [k.to_python("value") for k in _cop_kids(kid)]
                     name = ".".join(str(p) for p in parts)

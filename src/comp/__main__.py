@@ -394,14 +394,12 @@ def main():
     parser.add_argument("--text", metavar="ENTRY",
                         help="Parse source as direct text using grammar entry point (shape, func, statement, expression, module)")
     parser.add_argument("--pos", action="store_true", help="Show line:column positions for nodes")
-    parser.add_argument("--resolve", action="store_true", help="Resolve cop references")
-    parser.add_argument("--fold", action="store_true", help="Fold cop constants")
     parser.add_argument("--pure", action="store_true", help="Evaluate pure function invokes at compile time")
+    parser.add_argument("--raw", action="store_true", help="Show unresolved/unfolded cop (skip resolve and fold passes)")
 
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument("--scan", action="store_true", help="Show scan Lark parse tree")
     modes.add_argument("--lark", action="store_true", help="Show Lark parse tree for each parseable statement")
-
     modes.add_argument("--cop", action="store_true", help="Report parsed cop structure")
     modes.add_argument("--unparse", action="store_true", help="Convert cop nodes back to source")
     modes.add_argument("--code", action="store_true", help="Build and show instruction code")
@@ -409,8 +407,8 @@ def main():
     modes.add_argument("--trace", action="store_true", help="Show each instruction as it executes with its result")
     modes.add_argument("--module", action="store_true", help="Show module metadata (definitions, comments)")
     modes.add_argument("--imports", action="store_true", help="Show import dependency tree with module documentation")
-    modes.add_argument("--namespace", action="store_true", help="Show the module's finalized namespace with all definitions")
-    modes.add_argument("--definitions", action="store_true", help="Show list of module definition")
+    modes.add_argument("--namespace", action="store_true", help="Show the module namespace with all definitions")
+    modes.add_argument("--definitions", action="store_true", help="Show list of module definitions")
     modes.add_argument("--describe", metavar="NAME", help="Describe a named definition as a markdown report (supports overloads)")
 
     parser.add_argument("--startup", metavar="NAME", default="main",
@@ -438,6 +436,8 @@ def main():
     }
 
     interp = comp.Interp()
+
+    # --text mode: parse source argument as direct text
     if args.text:
         if args.text not in entry_point_map:
             print(f"Error: Unknown entry point '{args.text}'")
@@ -445,51 +445,47 @@ def main():
             return 1
 
         entry_point = entry_point_map[args.text]
-        
-        # For --text mode with --lark, parse directly with the specified entry point
+
         if args.lark:
             if entry_point is None:
-                # Module entry point - parse as module
                 mod = interp.module_from_text(args.source)
                 prettylark_statements(mod, show_positions=args.pos)
             else:
-                # Direct grammar entry point
                 try:
                     tree = comp._parse.lark_parse(args.source, "comp", rule=entry_point)
                     prettylark(tree, show_positions=args.pos)
-                except Exception as e:
-                    print(f"Parse error: {e}")
+                except comp.ParseError as e:
+                    print(f"Parse error:\n{e.message}", file=sys.stderr)
                     return 1
             return
-        
-        # For --cop/--unparse modes with fragment entry points
+
         elif (args.cop or args.unparse) and entry_point is not None:
-            # Parse fragment directly and convert to cop
             try:
                 tree = comp._parse.lark_parse(args.source, "comp", rule=entry_point)
                 cop = comp._parse.lark_to_cop(tree)
 
-                # Apply optimization/folding if requested
-                if args.fold:
-                    cop = comp.coptimize(cop, True, None)
+                if not args.raw:
+                    sys_ns = comp.get_internal_module("system").namespace()
+                    cop = comp.cop_resolve_names(cop, sys_ns)
+                    cop = comp.coptimize(cop, True, sys_ns)
 
                 if args.cop:
                     prettycop(cop, show_pos=args.pos)
                 elif args.unparse:
                     print(comp.cop_unparse(cop))
                 return
-            except Exception as e:
-                print(f"Parse error: {e}")
+            except (comp.ParseError, comp.CodeError) as e:
+                print(f"Error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
                 return 1
 
-        # For --code mode with fragment entry points
         elif args.code and entry_point is not None:
             try:
                 tree = comp._parse.lark_parse(args.source, "comp", rule=entry_point)
                 cop = comp._parse.lark_to_cop(tree)
 
                 sys_ns = comp.get_internal_module("system").namespace()
-                cop = comp.coptimize(cop, args.fold, sys_ns)
+                cop = comp.cop_resolve_names(cop, sys_ns)
+                cop = comp.coptimize(cop, True, sys_ns)
 
                 instructions = comp.generate_code_for_definition(cop)
                 print(f"Source: {comp.cop_unparse(cop)}")
@@ -497,11 +493,10 @@ def main():
                 for i, instr in enumerate(instructions):
                     print(format_instruction(i, instr))
                 return
-            except Exception as e:
-                print(f"Error: {e}")
+            except (comp.ParseError, comp.CodeError) as e:
+                print(f"Error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
                 return 1
 
-        # For --eval/--trace mode with fragment entry points
         elif (args.eval or args.trace) and entry_point is not None:
             try:
                 tree = comp._parse.lark_parse(args.source, "comp", rule=entry_point)
@@ -509,12 +504,10 @@ def main():
 
                 sys_mod = comp.get_internal_module("system")
                 sys_ns = sys_mod.namespace()
-                cop = comp.coptimize(cop, args.fold, sys_ns)
+                cop = comp.cop_resolve_names(cop, sys_ns)
+                cop = comp.coptimize(cop, True, sys_ns)
 
                 instructions = comp.generate_code_for_definition(cop)
-
-                # System definitions are resolved via namespace lookup, not pre-loaded into env,
-                # so that LoadVar auto-invoke semantics apply correctly.
                 env = {}
 
                 if args.trace:
@@ -540,15 +533,16 @@ def main():
                     sys.exit(1)
                 print(result.format())
                 return
-            except Exception as e:
-                print(f"Error: {e}")
+            except (comp.ParseError, comp.CodeError) as e:
+                print(f"Error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
                 return 1
-        
-        # For other modes or module entry point, use module parsing
+
         else:
             mod = interp.module_from_text(args.source)
     else:
         mod = interp.module(args.source, anchor=os.getcwd())
+
+    # --- Module-based modes ---
 
     if args.scan:
         tree = comp._parse.lark_parse(mod.source.content, "scan")
@@ -568,65 +562,58 @@ def main():
         return
 
     if args.cop or args.unparse:
-        # Display COP trees for each definition individually
-        # This shows the scanner-based approach: each statement parsed separately
         defs = mod.definitions()
+        namespace = mod.namespace()
 
-        # Optionally resolve and optimize
-        namespace = None
-        do_fold = args.fold or args.pure
-        if args.resolve or do_fold:
-            namespace = mod.namespace()
+        if not args.raw:
+            # Resolve + fold all definitions
             for name, definition in defs.items():
                 if not definition.resolved_cop:
-                    definition.resolved_cop = comp.coptimize(definition.original_cop, do_fold, namespace)
+                    definition.resolved_cop = comp.cop_resolve_names(definition.original_cop, namespace)
+                    definition.resolved_cop = comp.coptimize(definition.resolved_cop, True, namespace)
 
-        if args.pure:
-            comp.evaluate_pure_definitions(defs, interp)
-            # Re-fold after pure evaluation
-            if do_fold:
+            if args.pure:
+                comp.evaluate_pure_definitions(defs, interp)
                 for name, definition in defs.items():
                     definition.resolved_cop = comp.coptimize(definition.resolved_cop, True, namespace)
 
-        # Sort definitions by source position (line number)
+        # Sort definitions by source position
         def get_position(item):
             name, definition = item
             cop = definition.original_cop
             try:
                 pos = cop.field("pos").data
                 if pos and len(pos) >= 2:
-                    return (pos[0], pos[1])  # (line, column)
+                    return (pos[0], pos[1])
             except (KeyError, AttributeError):
                 pass
-            return (999999, 0)  # Unknown positions go to end
+            return (999999, 0)
 
         sorted_defs = sorted(defs.items(), key=get_position)
 
         if args.cop:
-            # Display each definition's COP tree separately
             for name, definition in sorted_defs:
                 print(f"\n{'='*60}")
                 print(f"Definition: {name} ({definition.shape.qualified})")
                 print(f"{'='*60}")
-                # Show resolved or original COP
-                cop = definition.resolved_cop if (args.resolve or args.fold or args.pure) else definition.original_cop
+                cop = definition.resolved_cop if (not args.raw and definition.resolved_cop) else definition.original_cop
                 prettycop(cop, show_pos=args.pos)
 
-            # Also show !startup if present
             startup_name = args.startup
             startup_cop = mod.prepare_startup(startup_name)[0] if mod is not None else None
             if startup_cop is not None:
-                if args.resolve or do_fold:
-                    startup_cop = comp.coptimize(startup_cop, do_fold, namespace, pure=args.pure, defs=defs, interp=interp)
+                if not args.raw:
+                    startup_cop = comp.cop_resolve_names(startup_cop, namespace)
+                    startup_cop = comp.coptimize(startup_cop, True, namespace,
+                                                 pure=args.pure, defs=defs, interp=interp)
                 print(f"\n{'='*60}")
                 print(f"!startup {startup_name}")
                 print(f"{'='*60}")
                 prettycop(startup_cop, show_pos=args.pos)
 
         elif args.unparse:
-            # Unparse each definition
             for name, definition in sorted_defs:
-                cop = definition.resolved_cop if (args.resolve or args.fold or args.pure) else definition.original_cop
+                cop = definition.resolved_cop if (not args.raw and definition.resolved_cop) else definition.original_cop
                 source_text = comp.cop_unparse(cop)
                 print(f"{name} = {source_text}")
         return
@@ -637,7 +624,7 @@ def main():
             unparse = comp.cop_unparse(definition.original_cop)
             if len(unparse) > 40:
                 unparse = unparse[:37] + "..."
-            shape_name = definition.shape.qualified #if hasattr(definition.shape, "qualified") else str(definition.shape)
+            shape_name = definition.shape.qualified
             value = definition.value
             if value is None:
                 value = ""
@@ -653,110 +640,24 @@ def main():
         print(report)
         return
 
-    # Handle --namespace mode separately (it's its own output mode)
     if args.namespace:
         ns = mod.namespace()
         prettynamespace(ns)
         return
 
     if args.code or args.eval or args.trace:
-        do_fold = args.fold or args.pure
-        
-        # Prepare ALL modules in the interp (imports and main module)
-        # This is the "do everything up front" approach
-        def prepare_module(module):
-            """Prepare a single module: resolve COPs, generate instructions, populate values."""
-            module_defs = module.definitions()
-            module_ns = module.namespace()
-            
-            # Resolve all definitions. Always use fold=True: code generation requires
-            # identifier references (e.g. !on pattern tags) to be folded to constants.
-            # do_fold controls additional optimizations (arithmetic, pure evaluation).
-            for name, definition in module_defs.items():
-                if not definition.resolved_cop:
-                    definition.resolved_cop = comp.coptimize(definition.original_cop, True, module_ns)
-            
-            # Generate code for all definitions
-            for name, definition in module_defs.items():
-                if not definition.instructions:
-                    try:
-                        _set_name = (definition.qualified.rsplit('.', 1)[0]
-                                     if definition.auto_suffix else definition.qualified)
-                        definition.instructions = comp.generate_code_for_definition(
-                            definition.resolved_cop,
-                            dispatch_own_name=definition.qualified,
-                            dispatch_set_name=_set_name,
-                        )
-                    except Exception as e:
-                        print(f"Code generation error for {module.token}:{name}: {e}")
-                        raise
-            
-            # Populate definition values by executing their instructions
-            # Process shapes first, then blocks (blocks may reference shapes)
-            module_env = {}
-            
-            # First pass: shapes (shape definitions don't depend on blocks)
-            for name, definition in module_defs.items():
-                if definition.instructions and definition.value is None:
-                    if definition.shape.qualified == "shape":
-                        try:
-                            result = interp.execute(definition.instructions, module_env, module=module)
-                            definition.value = result
-                            module_env[name] = result
-                        except Exception as e:
-                            print(f"Evaluation error for {module.token}:{name}: {e}")
-                            raise
-            
-            # Second pass: everything else (blocks, etc.)
-            for name, definition in module_defs.items():
-                if definition.instructions and definition.value is None:
-                    try:
-                        result = interp.execute(definition.instructions, module_env, module=module)
-                        definition.value = result
-                        module_env[name] = result
-                    except Exception as e:
-                        print(f"Evaluation error for {module.token}:{name}: {e}")
-                        raise
-        
-        # First prepare all imported modules (dependencies before dependents)
-        for token, module in list(interp.module_cache.items()):
-            if module is not mod:  # Skip main module for now
-                prepare_module(module)
-        
-        # Now prepare the main module
+        # Full build pipeline
+        try:
+            interp.build(mod, fold=True, pure=args.pure)
+        except (comp.ParseError, comp.CodeError) as e:
+            msg = e.message if hasattr(e, "message") else str(e)
+            print(f"Build error:\n{msg}", file=sys.stderr)
+            return 1
+
         defs = mod.definitions()
         namespace = mod.namespace()
-        
-        # Resolve and optionally fold all definitions
-        for name, definition in defs.items():
-            if not definition.resolved_cop:
-                definition.resolved_cop = comp.coptimize(definition.original_cop, do_fold, namespace)
-        
-        # Evaluate pure function invokes
-        if args.pure:
-            comp.evaluate_pure_definitions(defs, interp)
-            # Post-fold after pure evaluation (only if --fold specified)
-            if args.fold:
-                for name, definition in defs.items():
-                    definition.resolved_cop = comp.coptimize(definition.resolved_cop, True, namespace)
-        
-        # Pass 1: Generate code for all definitions
-        for name, definition in defs.items():
-            try:
-                # Generate and store instructions
-                _set_name = (definition.qualified.rsplit('.', 1)[0]
-                             if definition.auto_suffix else definition.qualified)
-                definition.instructions = comp.generate_code_for_definition(
-                    definition.resolved_cop,
-                    dispatch_own_name=definition.qualified,
-                    dispatch_set_name=_set_name,
-                )
-            except Exception as e:
-                print(f"Code generation error for {name}: {e}")
-                return
-        
+
         if args.code:
-            # Display instruction code for each definition
             print("Instructions for each definition:")
             print("=" * 60)
 
@@ -771,11 +672,12 @@ def main():
                 else:
                     print("  (no instructions)")
 
-            # Also show !startup if present
             startup_name = args.startup
             startup_cop = mod.prepare_startup(startup_name)[0] if mod is not None else None
             if startup_cop is not None:
-                resolved_startup = comp.coptimize(startup_cop, do_fold, namespace, pure=args.pure, defs=defs, interp=interp)
+                resolved_startup = comp.cop_resolve_names(startup_cop, namespace)
+                resolved_startup = comp.coptimize(resolved_startup, True, namespace,
+                                                  pure=args.pure, defs=defs, interp=interp)
                 startup_instructions = comp.generate_code_for_definition(resolved_startup)
                 print(f"\n!startup {startup_name}")
                 print(f"Source: {comp.cop_unparse(startup_cop)}")
@@ -783,14 +685,11 @@ def main():
                 for i, instr in enumerate(startup_instructions):
                     print(format_instruction(i, instr))
             return
-        
+
         if args.eval or args.trace:
-            # Pass 2: Execute definitions in order
-            # Build environment with all definition values
             env = {}
 
             if args.trace:
-                # Create tracing frame subclass (used only for startup execution)
                 class TracingFrame(comp.ExecutionFrame):
                     def __init__(self, env=None, interp=None, module=None, depth=0, context=None):
                         super().__init__(env, interp, module, context=context)
@@ -804,25 +703,23 @@ def main():
                     def _make_child_frame(self, env, module=None):
                         return TracingFrame(env=env, interp=self.interp, module=module or self.module, depth=self.depth + 1, context=dict(self.context))
 
-            # Execute definitions silently (definitions are setup, not the traced program)
+            # Definition values already populated by build()
             for name, definition in defs.items():
-                if definition.instructions:
-                    result = interp.execute(definition.instructions, env, module=mod)
-                    definition.value = result
-                    env[name] = result
+                if definition.value is not None:
+                    env[name] = definition.value
 
-            # Look for the named !startup and run it if present
             startup_name = args.startup
             startup_cop, context = mod.prepare_startup(startup_name) if mod is not None else (None, None)
             if startup_cop is not None:
-                resolved_startup = comp.coptimize(startup_cop, do_fold, namespace, pure=args.pure, defs=defs, interp=interp)
+                resolved_startup = comp.cop_resolve_names(startup_cop, namespace)
+                resolved_startup = comp.coptimize(resolved_startup, True, namespace,
+                                                  pure=args.pure, defs=defs, interp=interp)
                 startup_instructions = comp.generate_code_for_definition(resolved_startup)
 
                 if args.trace:
                     print(f"\n-- startup {startup_name} --")
                     frame = TracingFrame(env, interp=interp, module=mod, depth=0)
                     startup_block = frame.run(startup_instructions)
-                    # function.define returns the Block; invoke it explicitly
                     if startup_block is not None and isinstance(startup_block.data, comp.Block):
                         try:
                             frame.invoke_block(startup_block, context, piped=None)
@@ -831,7 +728,6 @@ def main():
                             sys.exit(1)
                 else:
                     startup_block = interp.execute(startup_instructions, env, module=mod)
-                    # function.define returns the Block; invoke it explicitly
                     if startup_block is not None and isinstance(startup_block.data, comp.Block):
                         startup_frame = comp.ExecutionFrame(env, interp=interp, module=mod)
                         try:
@@ -848,10 +744,6 @@ def main():
                         value = env[name]
                         print(f"{name} = {value.format()}")
             return
-
-    # Check if any output mode was specified
-    if not any([args.parse, args.scan, args.cop, args.resolve, args.code, args.eval, args.trace, args.definitions, args.module]):
-        parser.error("No output mode specified. Use --parse, --scan, --cop, --resolve, --code, --eval, --trace, --module, --imports, --definitions, or --namespace")
 
 
 if __name__ == "__main__":

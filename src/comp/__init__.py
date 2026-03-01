@@ -19,6 +19,7 @@ from ._parse import *
 from ._cop import *
 from ._fold import *
 from ._pure import *
+from ._resolve import *
 from ._codegen import *
 from ._ops import *
 from ._import import *

@@ -458,6 +458,7 @@ def _get_constant(cop):
 
 _NON_CONST_TAGS = frozenset({
     "value.identifier", "value.reference", "value.namespace", "value.local",
+    "value.undefined",
 })
 
 
