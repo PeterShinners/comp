@@ -338,6 +338,22 @@ def _create_py_module(module):
     # ------------------------------------------------------------------
     # pure-call allowlist
     # ------------------------------------------------------------------
+    # Modules whose entire public namespace is considered pure.
+    _PURE_ALLOWED_PREFIXES = frozenset([
+        "str.",        # e.g. str.upper, str.split, str.replace …
+        "math.",       # e.g. math.sqrt, math.floor, math.log …
+        "decimal.",    # e.g. decimal.Decimal
+        "fractions.",  # e.g. fractions.Fraction
+        "operator.",   # e.g. operator.mul, operator.add, operator.eq …
+        "re.",         # e.g. re.fullmatch, re.match, re.search …
+    ])
+    _PURE_ALLOWED_BUILTINS = frozenset([
+        "abs", "round", "divmod",
+        "min", "max", "sum", "len",
+        "int", "float", "str", "bool", "complex",
+        "bin", "oct", "hex", "ord", "chr",
+        "sorted", "format",
+    ])
 
     def _pure_call(input_val, args_val, frame):
         """Call a known-pure Python function by qualified name.

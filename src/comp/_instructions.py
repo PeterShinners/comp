@@ -1363,6 +1363,25 @@ class CastUnit(Instruction):
         return f"%{idx}  CastUnit %{self.value_reg} %{self.unit_reg}"
 
 
+class StripUnit(Instruction):
+    """Strip the unit annotation from a value (expr[] syntax).
+
+    Returns a new value identical to the input but with no unit annotation.
+    Bare-to-bare is a no-op.
+    """
+
+    def __init__(self, cop, value_reg):
+        super().__init__(cop)
+        self.value_reg = value_reg
+
+    def execute(self, frame):
+        value = frame.get_value(self.value_reg)
+        return frame.set_result(value.with_unit(None))
+
+    def format(self, idx):
+        return f"%{idx}  StripUnit %{self.value_reg}"
+
+
 # ---------------------------------------------------------------------------
 # Handle Operations
 # ---------------------------------------------------------------------------

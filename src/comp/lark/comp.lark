@@ -190,6 +190,7 @@ fail_expr: OP_FAIL expression
 postfield: nextfield (DOT nextfield)*
 ?postfix: atom
         | atom DOT postfield -> fieldaccess
+        | atom BRACKET_OPEN BRACKET_CLOSE -> strip_unit
 
 ?atom: wrapper* (unitized_value | number | text | identifier | dotted_path_atom | shape | statement | structure)
      | wrapper+   // Standalone wrapper(s) as a value
@@ -233,8 +234,8 @@ field_or_expr: DOTTED_PATH EQUALS expression -> deep_named_field
              | expression
 
 signature: (param_decl | block_decl)+
-param_decl: OP_PARAM identifier shape (EQUALS simple_expr)?
-block_decl: OP_BLOCK identifier shape (EQUALS simple_expr)?
+param_decl: OP_PARAM identifier shape (EQUALS field_default_value)?
+block_decl: OP_BLOCK identifier shape (EQUALS field_default_value)?
 
 let_assign: OP_LET identifier expression
 ctx_assign: OP_CTX identifier expression

@@ -258,6 +258,13 @@ class SystemModule(comp.Module):
         self._add_callable("wrap", _builtin_wrap)
         self._add_callable("fmt", _builtin_fmt, pure=True)
         self._add_callable("apply", _builtin_apply)
+        self._add_callable("fmt",             _builtin_fmt,              pure=True)
+        self._add_callable("apply",           _builtin_apply)
+        self._add_callable("get-unit-tag",    _builtin_get_unit_tag,     pure=True)
+        self._add_callable("namespace-lookup",_builtin_namespace_lookup, pure=True)
+        self._add_callable("strip-unit",      _builtin_strip_unit,       pure=True)
+        self._add_callable("to-text",         _builtin_to_text,          pure=True)
+        self._add_callable("substitute",      _builtin_substitute,       pure=True)
         self._add_callable("update", _builtin_update)
         self._add_callable("flat", _builtin_flat)
         self._add_callable("reduce", _builtin_reduce)
@@ -876,9 +883,15 @@ def _builtin_fmt(input_val, args_val, frame):
             if stmt is None or stmt.shape is not comp.shape_text:
                 raise comp.CodeError("@fmt requires a text statement")
             locals_val = input_val.data.get(comp.Value.from_python("locals"))
+            input_from_data = input_val.data.get(comp.Value.from_python("input"))
             parsed = _fmt.parse_format_text(stmt.data)
             # In wrapper mode, %(name) resolves from the current scope (locals).
-            scope = locals_val if locals_val is not None else comp.Value.from_python({})
+            # Bake the piped-input value ($) into a derived scope so %($)
+            # resolves to the value that was piped into the wrapped block.
+            base = dict(locals_val.data) if locals_val is not None and isinstance(locals_val.data, dict) else {}
+            if input_from_data is not None:
+                base[comp.Value.from_python("$")] = input_from_data
+            scope = comp.Value(base) if base else comp.Value.from_python({})
             result = _fmt.apply_format(parsed, scope, locals_val=locals_val)
             return comp.Value.from_python(result)
 
@@ -891,8 +904,190 @@ def _builtin_fmt(input_val, args_val, frame):
             f"fmt expects a text argument, got {fmt_val.format()}"
         )
     parsed = _fmt.parse_format_text(fmt_val.data)
-    result = _fmt.apply_format(parsed, input_val)
+
+    # If the template has a unit annotation, look up a custom substitute
+    # in that tag's owning module and use it to render each token.
+    substitute_fn = None
+    unit_tag = fmt_val.unit
+    if unit_tag is not None and unit_tag.module is not None:
+        ns = unit_tag.module.namespace()
+        sub_entry = ns.get("substitute")
+        if sub_entry is not None:
+            if isinstance(sub_entry, comp.DefinitionSet):
+                sub_val = comp.Value(sub_entry)
+            elif hasattr(sub_entry, "value") and sub_entry.value is not None:
+                sub_val = sub_entry.value
+            else:
+                sub_val = None
+            if sub_val is not None:
+                def _make_sub_fn(sv, ut, fr):
+                    def substitute_fn(val, spec_str):
+                        # Annotate the spec string with the template unit so
+                        # the substitute overload can dispatch on it (spec~text[unit])
+                        spec_annotated = comp.Value.from_python(spec_str).with_unit(ut)
+                        args = comp.Value({comp.Value.from_python("spec"): spec_annotated})
+                        result = fr.invoke_block(sv, args, piped=val)
+                        if result is None:
+                            return ""
+                        if result.shape is comp.shape_text:
+                            return result.data
+                        return result.format()
+                    return substitute_fn
+                substitute_fn = _make_sub_fn(sub_val, unit_tag, frame)
+
+    result = _fmt.apply_format(parsed, input_val, substitute_fn=substitute_fn)
     return comp.Value.from_python(result)
+
+
+def _builtin_get_unit_tag(input_val, args_val, frame):
+    """Return the unit tag of a value, or nil if the value has no unit.
+
+    Enables dynamic dispatch based on a value's unit annotation.  Compose
+    with namespace-lookup to reach unit-owner module callables without an
+    explicit import.
+
+    Examples:
+      "hello"[sql] | get-unit-tag   // → :sql
+      "hello"      | get-unit-tag   // → :nil
+      42[meter]    | get-unit-tag   // → :meter
+    """
+    unit = input_val.unit
+    if unit is None:
+        return comp.Value.from_python(None)  # nil
+    return comp.Value.from_python(unit)
+
+
+def _builtin_namespace_lookup(input_val, args_val, frame):
+    """Look up a named definition in the origin module of a tag value.
+
+    input:  a tag value
+    arg:    the name to look up (text)
+    returns: the callable/value for that name, or nil if not found
+
+    Only works with tag values — non-tag input always returns nil.
+    This is a purely dynamic operation with no build-time guarantees.
+
+    Examples:
+      :sql | namespace-lookup "substitute"   // → sql.substitute callable
+      :sql | namespace-lookup "missing"      // → :nil
+      42   | namespace-lookup "substitute"   // → :nil  (not a tag)
+    """
+    if not isinstance(input_val.data, comp.Tag):
+        return comp.Value.from_python(None)  # nil — not a tag
+    tag = input_val.data
+    if tag.module is None:
+        return comp.Value.from_python(None)  # nil — tag has no owning module
+    name_val = args_val.positional(0)
+    if name_val is None or name_val.shape is not comp.shape_text:
+        raise comp.CodeError("namespace-lookup requires a text name argument")
+    name = name_val.data
+    # Use the module's namespace — handles short-name collation and overload sets
+    ns = tag.module.namespace()
+    entry = ns.get(name)
+    if entry is None:
+        return comp.Value.from_python(None)
+    if isinstance(entry, comp.DefinitionSet):
+        # Multiple overloads — return the DefinitionSet (callable via normal dispatch)
+        return comp.Value(entry)
+    # Single Definition
+    if hasattr(entry, "value") and entry.value is not None:
+        return entry.value
+    return comp.Value.from_python(None)
+
+
+def _builtin_strip_unit(input_val, args_val, frame):
+    """Return the value with its unit annotation stripped.
+
+    Pipeline form of the expr[] postfix syntax.  The returned value is
+    identical in data and shape but carries no unit tag.
+
+    Example:
+      "hello"[sql] | strip-unit   // → "hello"  (plain text)
+    """
+    return input_val.with_unit(None)
+
+
+def _builtin_to_text(input_val, args_val, frame):
+    """Return the Comp text representation of any value.
+
+    Equivalent to Value.format() — produces a Comp literal expression string.
+    Useful as the generic fallback for fmt substitution.
+
+    Examples:
+      42        | to-text   // → "42"
+      true      | to-text   // → "true"
+      nil       | to-text   // → "nil"
+      {x=1 y=2} | to-text   // → "{x=1 y=2}"
+    """
+    return comp.Value.from_python(input_val.format())
+
+
+def _builtin_substitute(input_val, args_val, frame):
+    """Format a value for text substitution, dispatching on shape.
+
+    This is the default substitution function used by the fmt system when
+    rendering %(name) tokens.  Dispatches on the input's shape:
+
+      ~num  — Python format() with spec (e.g. ".2f", "08d", ",")
+      ~text — Python format() with spec (e.g. ">10", "^20")
+      ~any  — Value.format() (Comp literal representation)
+
+    The optional spec argument is the format spec string (default "").
+    Unit annotation on the value is stripped before dispatch; the spec
+    itself carries the intended unit context when unit-aware substitution
+    is needed.
+
+    Examples:
+      3.14159 | substitute :spec=".4f"   // → "3.1416"
+      "hello" | substitute :spec=">10"   // → "     hello"
+      true    | substitute               // → "true"
+      {x=1}   | substitute               // → "{x=1}"
+    """
+    import decimal
+    # Extract optional spec argument (named :spec= or first positional)
+    spec = ""
+    if isinstance(args_val.data, dict):
+        spec_key = comp.Value.from_python("spec")
+        spec_val = args_val.data.get(spec_key)
+        if spec_val is not None and isinstance(spec_val.data, str):
+            spec = spec_val.data
+
+    # Strip unit before dispatch — unit context is in spec when needed
+    raw = input_val.with_unit(None)
+
+    if raw.shape is comp.shape_num:
+        # Use Python's format() for numeric format specs
+        py_num = raw.data
+        if isinstance(py_num, decimal.Decimal) and py_num == int(py_num) and not spec:
+            # Whole numbers without a spec: drop the trailing .0
+            return comp.Value.from_python(str(int(py_num)))
+        try:
+            return comp.Value.from_python(format(float(py_num), spec))
+        except (ValueError, TypeError) as e:
+            raise comp.CodeError(f"substitute: bad format spec {spec!r} for number: {e}")
+
+    if raw.shape is comp.shape_text:
+        try:
+            return comp.Value.from_python(format(raw.data, spec))
+        except (ValueError, TypeError) as e:
+            raise comp.CodeError(f"substitute: bad format spec {spec!r} for text: {e}")
+
+    # Fallback: Comp literal representation
+    return comp.Value.from_python(raw.format())
+
+
+def _builtin_abs(input_val, args_val, frame):
+    """Return the absolute value of the first argument."""
+    val = args_val.positional(0)
+    if val is None:
+        raise ValueError("abs requires one argument")
+    scalar = val.as_scalar()
+    if scalar.shape != comp.shape_num:
+        raise TypeError(f"abs requires a number, got {scalar.format()}")
+    import decimal
+    n = scalar.data
+    result = n.copy_abs() if isinstance(n, decimal.Decimal) else abs(n)
+    return comp.Value(result)
 
 
 # Registry of internal modules

@@ -86,16 +86,25 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
     # If we encounter one here it means resolution was skipped.
     # Pass through unchanged — codegen will handle it as a fallback.
     if tag == "value.identifier":
-        return cop
-
-    # --- Undefined references: pass through (grenade for codegen) ---
-    if tag == "value.undefined":
-        return cop
+        ref = _resolve_identifier(cop, namespace, locals, references)
+        if ref is cop:
+            return cop  # Unresolved — leave as value.identifier
+        # If we created a namespace reference, try to fold it to a constant.
+        # Non-callable constants (tags, shapes) are always inlined when the
+        # namespace is available — this is resolution, not optimization.
+        ref_tag = comp.cop_tag(ref)
+        if namespace is not None:
+            if ref_tag == "value.namespace":
+                return _fold_namespace(ref, namespace)
+            if ref_tag == "value.field":
+                # Recursively optimize the field access (which may fold)
+                return _coptimize_walk(ref, fold, namespace, locals, references, locals_defined)
+        return ref
 
     # --- Already-resolved references: record and optionally fold ---
     if tag in ("value.reference", "value.namespace"):
         _record_reference(cop, references)
-        if fold and namespace is not None:
+        if namespace is not None:
             return _fold_namespace(cop, namespace)
         return cop
 
@@ -269,6 +278,14 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
             if val is not None and unit_val is not None:
                 if isinstance(unit_val.data, comp.Tag):
                     return _make_constant(cop, val.with_unit(unit_val.data))
+
+        if tag == "value.strip_unit":
+            val = _get_constant(new_kids[0])
+            if val is not None:
+                return _make_constant(cop, val.with_unit(None))
+
+        if tag == "struct.define":
+            return _fold_struct(cop, new_kids)
 
         if tag == "op.on":
             cond_val = _get_constant(new_kids[0])

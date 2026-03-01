@@ -461,6 +461,9 @@ def morph(value, shape, frame):
             # Primitive shape (num, text, etc.) or Tag - validate type
             if not _check_type(value, shape, frame):
                 return MorphResult.failed(f"Value does not match shape {_shape_name(shape)}")
+            # ~any matches everything but with minimum score so specific shapes win
+            if shape is comp.shape_any:
+                return MorphResult(value, 0, 0, 0, 0)
             # For primitive shapes, get the shape's unit if it has one
             shape_unit = getattr(shape, "unit", None)
             us = _unit_match_score(value.unit, shape_unit)

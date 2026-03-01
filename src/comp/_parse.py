@@ -98,6 +98,7 @@ def create_cop_module(module):
         "value.handle",  # (op, kids) grab/drop/pull/etc
         "value.constant",  # (value) precompiled constant value
         "value.cast_unit",  # (value, unit) apply unit tag to a value: 12[inch]
+        "value.strip_unit",  # (value) strip unit annotation from a value: expr[]
         "stmt.assign",  # (kids) 2 kids (lvalue, rvalue)
         "value.private_tag",  # (kids) 1 kid - identifier for a private tag child (& suffix)
         "value.undefined",  # (name, pos) grenade node for unresolved identifiers — errors at codegen
@@ -355,6 +356,12 @@ def lark_to_cop(tree):
             # unit_suffix children: BRACKET_OPEN, identifier_tree, BRACKET_CLOSE
             unit_ident_cop = lark_to_cop(unit_suffix_tree.children[1])
             return _parsed(tree, "value.cast_unit", [value_cop, unit_ident_cop])
+
+        case "strip_unit":
+            # atom[] — strip the unit annotation from a value
+            # kids: [atom_tree, BRACKET_OPEN_token, BRACKET_CLOSE_token]
+            value_cop = lark_to_cop(kids[0])
+            return _parsed(tree, "value.strip_unit", [value_cop])
 
         # Operators
         case "binary_op":
@@ -1116,7 +1123,7 @@ def lark_to_cop(tree):
             return _parsed(tree, "shape.define", field_cops)
 
         case "param_decl":
-            # param_decl: OP_PARAM identifier shape (EQUALS simple_expr)?
+            # param_decl: OP_PARAM identifier shape (EQUALS field_default_value)?
             # kids[0] = OP_PARAM, kids[1] = identifier, kids[2] = shape, kids[3] = EQUALS (optional), kids[4] = simple_expr (optional)
             name_cop = lark_to_cop(kids[1])
             shape_cop = lark_to_cop(kids[2])
@@ -1144,7 +1151,7 @@ def lark_to_cop(tree):
             return _parsed(tree, "signature.param", field_kids, name=name_str)
 
         case "block_decl":
-            # block_decl: OP_BLOCK identifier shape (EQUALS simple_expr)?
+            # block_decl: OP_BLOCK identifier shape (EQUALS field_default_value)?
             # Similar to param_decl
             name_cop = lark_to_cop(kids[1])
             shape_cop = lark_to_cop(kids[2])

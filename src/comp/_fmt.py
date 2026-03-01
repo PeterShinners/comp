@@ -192,24 +192,60 @@ def format_fmt_value(val, spec: Optional[str] = None) -> str:
 # Top-level apply
 # ---------------------------------------------------------------------------
 
-def apply_format(parsed: list, input_val, locals_val=None) -> str:
+def _nth_field(struct_val, n):
+    """Return the value of the Nth field (1-based) in a struct by insertion order.
+
+    Counts all fields — both named and unnamed — in their declared order.
+
+    Raises comp.CodeError if n is out of range.
+    """
+    total = len(struct_val.data)
+    if n < 1 or n > total:
+        raise comp.CodeError(
+            f"fmt: no field #{n} in value (has {total} field(s))"
+        )
+    for i, v in enumerate(struct_val.data.values(), 1):
+        if i == n:
+            return v
+
+
+def apply_format(parsed: list, input_val, locals_val=None, substitute_fn=None) -> str:
     """Apply a parsed format text to input_val, returning the result text.
 
-    parsed:     result of parse_format_text
-    input_val:  the Value piped into fmt (used for %(ref) tokens)
-    locals_val: optional Value struct of local bindings (used for $(name) tokens)
+    parsed:        result of parse_format_text
+    input_val:     the Value piped into fmt (used for %(ref) tokens)
+    locals_val:    optional Value struct of local bindings (used for $(name) tokens)
+    substitute_fn: optional callable(val, spec_str) -> str that overrides
+                   format_fmt_value for each %(ref) and $(name) substitution.
+                   When None, format_fmt_value is used.
+
+    When input_val is a struct, bare %() tokens auto-increment through all its
+    fields in declaration order (first %() → field 1, second %() → field 2,
+    etc.), counting both named and unnamed fields.  %(#N) explicit positional
+    refs still count only unnamed fields.  When input_val is not a struct,
+    every %() returns the whole input value unchanged.
     """
+    def _render(val, spec):
+        if substitute_fn is not None:
+            return substitute_fn(val, spec or "")
+        return format_fmt_value(val, spec)
+
     parts = []
+    auto_pos = 0  # increments each time a bare %() is seen with a struct input
     for segment in parsed:
         if isinstance(segment, str):
             parts.append(segment)
         elif isinstance(segment, FmtToken):
-            val = resolve_fmt_ref(input_val, segment.ref)
-            parts.append(format_fmt_value(val, segment.spec))
+            if segment.ref.kind == 'input' and input_val.shape is comp.shape_struct:
+                auto_pos += 1
+                val = _nth_field(input_val, auto_pos)
+            else:
+                val = resolve_fmt_ref(input_val, segment.ref)
+            parts.append(_render(val, segment.spec))
         elif isinstance(segment, LocalsToken):
             val = None
             if locals_val is not None and isinstance(locals_val.data, dict):
                 key = comp.Value.from_python(segment.name)
                 val = locals_val.data.get(key)
-            parts.append(format_fmt_value(val, segment.spec) if val is not None else "")
+            parts.append(_render(val, segment.spec) if val is not None else "")
     return "".join(parts)

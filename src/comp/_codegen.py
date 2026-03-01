@@ -190,6 +190,14 @@ class CodeGenContext:
                 return self.emit(comp._instructions.CastUnit(
                     cop=cop, value_reg=value_reg, unit_reg=unit_reg
                 ))
+
+            case "value.strip_unit":
+                # expr[] — strip unit annotation from a value
+                kids = _cop_kids(cop)
+                value_reg = self._build_value_ensure_register(kids[0])
+                return self.emit(comp._instructions.StripUnit(
+                    cop=cop, value_reg=value_reg
+                ))
                 
             case "value.math.binary":
                 return self._build_binary_op(cop)
