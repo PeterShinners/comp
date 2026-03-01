@@ -33,3 +33,18 @@
 /// Domain markers for string values — used by IDEs for syntax highlighting
 /// and by the formatting engine for context-aware escaping.
 !tag format { sql html regex shell url json csv }
+
+
+// ===== Unit preservation =====
+
+/// Wrapper that preserves the piped input's unit annotation through a
+/// transformation. Applies the wrapped statement then re-attaches the
+/// original unit to the result.
+///
+/// Usage:
+///   !pure uppercase ~text @preserve-unit (
+///       $ | py.pure-call :"str.upper"
+///   )
+!func preserve-unit (
+    ($ | apply)[$.input | get-unit-tag]
+)

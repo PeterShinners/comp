@@ -3,6 +3,7 @@
 
 !import py comp "py"
 !import limit comp "limit"
+!import unit comp "unit"
 
 
 /// Common integer types ///
@@ -34,23 +35,23 @@
 
 /// Round to nearest integer (or to given decimal places)
 /// Uses Decimal arithmetic — respects the current decimal context rounding mode
-!pure round ~num (
+!pure round ~num @preserve-unit (
     :param digits ~num<integer> = 0
     {$ digits} | py.pure-call :"round"
 )
 
 /// Round down toward negative infinity
-!pure floor ~num (
+!pure floor ~num @preserve-unit (
     $ | py.pure-call :"math.floor"
 )
 
 /// Round up toward positive infinity
-!pure ceiling ~num (
+!pure ceiling ~num @preserve-unit (
     $ | py.pure-call :"math.ceil"
 )
 
 /// Round toward zero, discarding any fractional part
-!pure truncate ~num (
+!pure truncate ~num @preserve-unit (
     $ | py.pure-call :"math.trunc"
 )
 
@@ -58,7 +59,7 @@
 // Basic arithmetic //
 
 /// Absolute value — uses Decimal.copy_abs to avoid any sign-bit twiddling
-!pure abs ~num (
+!pure abs ~num @preserve-unit (
     $ | py.pure-call :"decimal.Decimal.copy_abs"
 )
 

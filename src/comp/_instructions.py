@@ -1335,6 +1335,10 @@ class CastUnit(Instruction):
                 f"Unit must be a tag, got {unit_val.format()}", self.cop
             )
 
+        # nil tag means "no unit" — strip any existing annotation
+        if unit_val.data is comp.tag_nil:
+            return frame.set_result(value.with_unit(None))
+
         new_unit = unit_val.data
         old_unit = value.unit
 

@@ -4,6 +4,7 @@
 !import py comp "py"
 !import limit comp "limit"
 !import num comp "num"
+!import unit comp "unit"
 
 
 !tag trim-mode {whitespace chars}
@@ -27,17 +28,17 @@
 )
 
 /// Transform text to uppercase
-!pure uppercase ~text (
+!pure uppercase ~text @preserve-unit (
     $ | py.pure-call :"str.upper"
 )
 
 /// Transform text to lowercase
-!pure lowercase ~text (
+!pure lowercase ~text @preserve-unit (
     $ | py.pure-call :"str.lower"
 )
 
 /// Remove whitespace from text ends
-!pure trim ~text (
+!pure trim ~text @preserve-unit (
     :param what~trim-mode=trim-mode.whitespace
     :param target~target=target.both
     !on target
@@ -121,7 +122,7 @@
 )
 
 /// Replace all occurrences of old with new
-!pure replace ~text (
+!pure replace ~text @preserve-unit (
     :param old~text<non-empty>
     :param new~text
     {$ old new} | py.pure-call :"str.replace"
@@ -146,39 +147,39 @@
 )
 
 /// Repeat text n times
-!pure repeat ~text (
+!pure repeat ~text @preserve-unit (
     :param times~index
     {$ times} | py.pure-call :"operator.mul"
 )
 
 /// Pad text on left
-!pure pad-left ~text (
+!pure pad-left ~text @preserve-unit (
     :param width~index
     :param fill~letter=" "
     {$ width fill} | py.pure-call :"str.rjust"
 )
 
 /// Pad text on right
-!pure pad-right ~text (
+!pure pad-right ~text @preserve-unit (
     :param width~index
     :param fill~letter=" "
     {$ width fill} | py.pure-call :"str.ljust"
 )
 
 /// Center text within width
-!pure center ~text (
+!pure center ~text @preserve-unit (
     :param width~index
     :param fill~letter=" "
     {$ width fill} | py.pure-call :"str.center"
 )
 
 /// Capitalize first character
-!pure capitalize ~text (
+!pure capitalize ~text @preserve-unit (
     $ | py.pure-call :"str.capitalize"
 )
 
 /// Convert to title case
-!pure title ~text (
+!pure title ~text @preserve-unit (
     $ | py.pure-call :"str.title"
 )
 
