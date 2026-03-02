@@ -361,7 +361,7 @@ def lark_to_cop(tree):
             left = lark_to_cop(kids[0])
             right = lark_to_cop(kids[2])
             op = kids[1].value
-            if op in ("||", "&&"):
+            if op in ("!or", "!and"):
                 return _parsed(
                     tree, "value.logic.binary", [left, right], op=op
                 )
@@ -454,8 +454,8 @@ def lark_to_cop(tree):
         case "unary_op":
             right = lark_to_cop(kids[1])
             op = kids[0].value
-            if op == "!!":
-                return _parsed(tree, "value.logic.unary", [right], op=op)
+            if op == "!not":
+                return _parsed(tree, "value.logic.unary", [right], op="!not")
             return _parsed(tree, "value.math.unary", [right], op=op)
 
         case "invoke":

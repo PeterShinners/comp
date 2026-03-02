@@ -58,13 +58,16 @@ class Shape:
         """Format to literal string representation.
 
         Named shapes (builtins and user-defined) render as ~name.
-        Anonymous structural shapes render as ~(field ...).
+        Anonymous structural shapes render as ~{field ...}.
+        Anonymous shapes with no fields render as ~any.
 
         Returns:
             str: Formatted shape literal like "~num" or "~{x~num y~text}"
         """
         if self.qualified and self.qualified != "anonymous":
             return f"~{self.qualified}"
+        if not self.fields:
+            return "~any"
         fields = [f.format() for f in self.fields]
         return "~{" + " ".join(fields) + "}"
 

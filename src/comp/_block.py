@@ -84,8 +84,12 @@ class Block:
     def format(self):
         """Format function as literal string representation.
 
+        Shows the qualified name if available, with a compact signature.
+        Named blocks display as "func-name(...)" and anonymous blocks
+        as "(...)".
+
         Returns:
-            (str) Formatted function like ":a b(|wrap x)" or ":()"
+            (str) Formatted function like "decide(x~num)" or "(...)"
         """
         sig = []
         if self.input_name:
@@ -117,7 +121,16 @@ class Block:
 
         sig_str = " ".join(sig)
         body_str = " ".join(body_parts)
-        return f":{sig_str}({body_str})"
+
+        # Use qualified name for named blocks, bare parens for anonymous
+        name = self.qualified or ""
+        if name and name != "anonymous":
+            # Strip auto-suffix (e.g. ".i001") for cleaner display
+            base = name.rsplit(".", 1)[0] if "." in name and name.rsplit(".", 1)[1].startswith("i") else name
+            inner = f"{sig_str} {body_str}".strip() if sig_str or body_str else ""
+            return f"{base}({inner})" if inner else f"{base}()"
+        inner = f"{sig_str} {body_str}".strip() if sig_str or body_str else ""
+        return f"({inner})" if inner else "()"
 
 
 class StatementHandle:

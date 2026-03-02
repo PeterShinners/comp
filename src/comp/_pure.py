@@ -124,6 +124,18 @@ def _compile_pure_blocks(definitions, interp):
         except Exception:
             pass
 
+    # Also include pure InternalCallables from the system module.
+    # These are builtins like fmt, fit, morph, etc. that are marked pure=True
+    # but aren't user-defined !pure blocks — they need separate collection.
+    sys_mod = comp.get_internal_module("system")
+    if sys_mod:
+        for name, defn in sys_mod.definitions().items():
+            if name in pure_blocks:
+                continue
+            if defn.value and isinstance(defn.value.data, comp.InternalCallable):
+                if defn.value.data.pure:
+                    pure_blocks[name] = defn.value.data
+
     return pure_blocks
 
 
@@ -412,25 +424,32 @@ def _get_pipeline_stage_parts(stage_cop):
 
 
 def _execute_pure_block(block, input_value, args_value, interp):
-    """Execute a pure block with the given piped input and argument values.
+    """Execute a pure block or internal callable with given piped input and args.
+
+    Handles both user-defined Block objects (compiled from !pure definitions)
+    and InternalCallable objects (Python builtins marked pure=True).
 
     Args:
-        block: Block object with compiled body_instructions
+        block: (Block | InternalCallable) Compiled block or builtin callable
         input_value: Piped input Value (empty struct for no piped input)
         args_value: Arguments Value (empty struct for no args)
         interp: Interpreter
 
     Returns:
-        Result Value
+        (Value) Result value
 
     Raises:
-        RuntimeError: If body_instructions is not compiled
+        RuntimeError: If a Block has no compiled body instructions
     """
+    block_val = comp.Value(block)
+    frame = comp.ExecutionFrame(env={}, interp=interp)
+
+    if isinstance(block, comp.InternalCallable):
+        return frame.invoke_block(block_val, args_value, piped=input_value)
+
     if block.body_instructions is None:
         raise RuntimeError(f"Block {block.qualified!r} has no compiled body instructions")
 
-    block_val = comp.Value(block)
-    frame = comp.ExecutionFrame(env={}, interp=interp)
     return frame.invoke_block(block_val, args_value, piped=input_value)
 
 

@@ -1,17 +1,19 @@
 /// Iteration and looping functions
-/// Functions for generating sequences, mapping, filtering, and reducing.
+/// Functions for mapping, filtering, and reducing over structs.
 
 
-/// Generate infinite counter stream
-!pure infinite (
-    :param start~num = 0
-    :param step~num = 1
-    !let count start
+!tag flow-control {skip stop else}  // this may conflict with a builtin else func?
+
+
+/// Stream of an infinite series of integers, starting from 0
+!pure counter (
+    !let count 0
     !defer {
         count
-        !let count count + step
+        !let count count + 1
     }
 )
+
 
 /// Generate range of numbers
 !pure range (
@@ -19,139 +21,95 @@
     :param end~num 
     :param step~num=1
 
+    // should deal with negatives? or reverse ranges? ... eventually
+
     !on (step == 0)
-    ~true (fail :"range step cannot be zero")
-    ~false (
-        unfold :seed=start (
-            !on ($ >= end)
-            ~true done
-            ~false {value=$ next=($ + step)}
-        )
-    )
-)
+    ~true !fail {fail.value message="range step cannot be zero"}
 
-/// Generate indices for input collection
-!pure indices ~struct (
-    range :end=length
-)
-
-/// Execute operation on each element (side effects)
-!func each ~struct (
-    :block op
-    $ | enumerate | map :($.value | op)
-)
-
-/// Map operation over collection elements
-!pure map ~struct (
-    :block op
-    $ | enumerate | map :($.value | op)
-)
-
-/// Test if any element matches condition
-!pure any ~struct (
-    :block test
-    $ | filter :test | !not empty
-)
-
-/// Test if all elements match condition
-!pure all ~struct (
-    :block test
-    $ | filter :(!not test) | empty
-)
-
-/// Test if no elements match condition
-!pure none ~struct (
-    :block test
-    $ | !not any :test
-)
-
-/// Count elements matching optional condition
-!pure count ~struct (
-    :block test=pass
-    $ | filter :test | length
-)
-
-/// Filter elements matching condition
-!pure filter ~struct (
-    :block test
-    $ | enumerate | filter :($.value | test) | map :($.value)
-)
-
-/// Group consecutive elements into fixed-size chunks
-!pure chunk ~struct (
-    :param size~num
-    !let len ($ | length)
-    range :start=0 :end=len :step=size
-    | map :($ | slice :start=$ :end=(min :$ + size len))
-)
-
-/// Reduce sequence to single value
-!pure reduce ~struct (
-    :param initial
-    :block fold
-    //x this likely needs a builtin or recursive approach
-    //x since we can't mutate an accumulator
-    $ | builtin.reduce :initial :fold
-)
-
-/// Unfold: generate sequence from seed
-!pure unfold (
-    :param seed
-    :block step
-    :block collect=pass
-    //x needs runtime support for lazy generation
-    builtin.unfold :seed :step :collect
-)
-
-/// Extract positional digits from number in given base
-!pure digits ~num (
-    :param base~num=10
-    unfold :seed=$ (
-        !on $ == 0
+    unfold :seed=start (
+        !on ($ >= end)
         ~true done
-        ~false (
-            !let d ($ | divmod :base)
-            {value=d.remainder next=d.division}
-        )
+        ~false {value=$ next=($ + step)}
     )
 )
 
-/// Find first element matching condition
-!pure find ~struct (
-    :block test
-    $ | filter :test | first
-)
+// /// Transform each value in a struct
+// !pure map ~struct (
+//     :block op~any
+//     $ | reduce :initial={} :(
+//         :param item~any
+//         $ | append :(item | op)
+//     )
+// )
 
-/// Take first n elements
-!pure take ~struct (
-    :param count~num
-    $ | slice :start=0 end=count
-)
+// /// Keep only elements where test returns true
+// !pure filter ~struct (
+//     :block test~any
+//     $ | reduce :initial={} :(
+//         :param item~any
+//         !on (item | test)
+//         ~true ($ | append :item)
+//         ~false $
+//     )
+// )
 
-/// Drop first n elements
-!pure drop ~struct (
-    :param count~num
-    $ | slice :start=count :end=length
-)
+// /// Apply an operation to each element for side effects
+// !func each ~struct (
+//     :block op~any
+//     $ | reduce :initial={} :(
+//         :param item~any
+//         item | op
+//         $
+//     )
+//     $$
+// )
 
-/// Flatten nested structures
-!pure flat ~struct @flat (
-    $ | map (
-        !on ($ ~struct)
-        ~true ($ | flat)
-        ~false $
-    )
-)
 
-/// Zip multiple sequences together
-!pure zip ~struct (
-    :param others~struct
-    !let min-len (
-        {($ | length)} | append (others | map :length) | min
-    )
-    range :end=min-len
-    | map (
-        !let idx $
-        {($ | at :index=idx)} | append (others | map :at :index=idx)
-    )
-)
+// /// Test if any element satisfies a condition
+// !pure any ~struct (
+//     :block test~any
+//     $ | reduce :initial=false :(
+//         :param item~any
+//         !on $
+//         ~true true
+//         ~false (item | test)
+//     )
+// )
+
+// /// Test if all elements satisfy a condition
+// !pure all ~struct (
+//     :block test~any
+//     $ | reduce :initial=true :(
+//         :param item~any
+//         !on $
+//         ~false false
+//         ~else (item | test)
+//     )
+// )
+
+// /// Find the first element matching a condition
+// !pure find ~struct (
+//     :block test~any
+//     !let acc ($ | reduce :initial={found=false} :(
+//         :param item~any
+//         !on $.found
+//         ~true $
+//         ~false (
+//             !on (item | test)
+//             ~true {found=true value=item}
+//             ~false $
+//         )
+//     ))
+//     acc.value
+// )
+
+// /// Count elements matching an optional condition
+// !pure count ~struct (
+//     :block test~any=pass
+//     $ | reduce :initial=0 :(
+//         :param item~any
+//         !on (item | test)
+//         ~true ($ + 1)
+//         ~false $
+//     )
+// )

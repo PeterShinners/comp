@@ -27,6 +27,24 @@ import pydoc
 import comp
 
 
+# Modules whose entire public namespace is considered pure.
+_PURE_ALLOWED_PREFIXES = frozenset([
+    "str.",        # e.g. str.upper, str.split, str.replace …
+    "math.",       # e.g. math.sqrt, math.floor, math.log …
+    "decimal.",    # e.g. decimal.Decimal
+    "fractions.",  # e.g. fractions.Fraction
+    "operator.",   # e.g. operator.mul, operator.add, operator.eq …
+    "re.",         # e.g. re.fullmatch, re.match, re.search …
+])
+_PURE_ALLOWED_BUILTINS = frozenset([
+    "abs", "round", "divmod",
+    "min", "max", "sum", "len",
+    "int", "float", "str", "bool", "complex",
+    "bin", "oct", "hex", "ord", "chr",
+    "sorted",
+])
+
+
 class _PythonObjectWrapper:
     """Hold a Python object without Value constructor conversion.
 
@@ -320,22 +338,6 @@ def _create_py_module(module):
     # ------------------------------------------------------------------
     # pure-call allowlist
     # ------------------------------------------------------------------
-    # Modules whose entire public namespace is considered pure.
-    _PURE_ALLOWED_PREFIXES = frozenset([
-        "str.",        # e.g. str.upper, str.split, str.replace …
-        "math.",       # e.g. math.sqrt, math.floor, math.log …
-        "decimal.",    # e.g. decimal.Decimal
-        "fractions.",  # e.g. fractions.Fraction
-        "operator.",   # e.g. operator.mul, operator.add, operator.eq …
-        "re.",         # e.g. re.fullmatch, re.match, re.search …
-    ])
-    _PURE_ALLOWED_BUILTINS = frozenset([
-        "abs", "round", "divmod",
-        "min", "max", "sum", "len",
-        "int", "float", "str", "bool", "complex",
-        "bin", "oct", "hex", "ord", "chr",
-        "sorted",
-    ])
 
     def _pure_call(input_val, args_val, frame):
         """Call a known-pure Python function by qualified name.
@@ -592,14 +594,14 @@ def _create_py_module(module):
         return comp.Value(full)
 
     # Register callables
-    module.add_callable("lookup",     _lookup)
-    module.add_callable("call",       _call)
-    module.add_callable("pure-call",  _pure_call,  pure=True)
-    module.add_callable("method",     _method)
-    module.add_callable("load",       _load)
+    module.add_callable("lookup", _lookup)
+    module.add_callable("call", _call)
+    module.add_callable("pure-call", _pure_call,  pure=True)
     module.add_callable("load-const", _load_const, pure=True)
-    module.add_callable("dump",       _dump)
-    module.add_callable("vars",      _vars)
-    module.add_callable("getattr",   _getattr)
-    module.add_callable("typeof",    _typeof)
-    module.add_callable("drop",      _drop)
+    module.add_callable("method", _method)
+    module.add_callable("load", _load)
+    module.add_callable("dump", _dump)
+    module.add_callable("vars", _vars)
+    module.add_callable("getattr", _getattr)
+    module.add_callable("typeof", _typeof)
+    module.add_callable("drop", _drop)

@@ -347,6 +347,11 @@ def _check_type(value, shape_constraint, frame):
     if isinstance(shape_constraint, comp.Tag):
         value_tag = _get_value_tag(value)
         if value_tag:
+            # Allow exact leaf-tag equality (e.g. nil matches ~nil)
+            # _tag_matches_shape rejects depth-0 for dispatch purposes,
+            # but type validation should accept exact matches.
+            if value_tag.qualified == shape_constraint.qualified:
+                return True
             depth = _tag_matches_shape(value_tag, shape_constraint)
             return depth is not None
         return False
@@ -466,8 +471,12 @@ def morph(value, shape, frame):
         promoted_data = {comp.Unnamed(): value}
         value = comp.Value(promoted_data)
     else:
-        # Struct value with primitive shape
+        # Struct value with primitive shape (no defined fields)
         if not shape_fields:
+            # If the shape accepts struct values directly (e.g. ~struct, ~any),
+            # pass through without demoting to scalar.
+            if _check_type(value, shape, frame):
+                return MorphResult(value, 0, 0, 0, 1)
             # Allow single-element struct to demote to scalar
             if len(value.data) == 1:
                 inner_val = next(iter(value.data.values()))

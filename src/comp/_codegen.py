@@ -195,6 +195,12 @@ class CodeGenContext:
             case "value.math.unary":
                 return self._build_unary_op(cop)
 
+            case "value.logic.binary":
+                return self._build_binary_op(cop)
+
+            case "value.logic.unary":
+                return self._build_unary_op(cop)
+
             case "value.compare":
                 return self._build_compare_op(cop)
                 
@@ -599,6 +605,17 @@ class CodeGenContext:
                     struct_reg=result,
                     index=index
                 ))
+            elif field_tag == "ident.indexpr":
+                # Dynamic positional field access: struct.#(expr)
+                expr_kids = _cop_kids(field_token)
+                if not expr_kids:
+                    raise comp.CodeError("indexpr has no expression", cop)
+                index_reg = self._build_value_ensure_register(expr_kids[0])
+                result = self.emit(comp._instructions.GetDynamicIndex(
+                    cop=cop,
+                    struct_reg=result,
+                    index_reg=index_reg
+                ))
             else:
                 raise comp.CodeError(f"Unsupported postfix field type: {field_tag}", cop)
         
@@ -822,9 +839,22 @@ class CodeGenContext:
         Shape type constraints are passed as name strings (resolved at execute time),
         not as register indices — so no LoadVar/TryInvoke is emitted for them.
         Defaults are simple constant expressions compiled to register indices.
+
+        When a shape.define wraps a single value (value.constant, value.namespace,
+        value.local) that is itself a tag or shape, we compile it directly as a
+        value load rather than building an anonymous structural shape.
         """
         kids = _cop_kids(cop)
         fields = []
+
+        # Single-child shape.define wrapping a resolved value (tag or shape
+        # reference) — compile the inner value directly instead of building
+        # an anonymous struct shape.
+        if len(kids) == 1:
+            kid_tag = comp.cop_tag(kids[0])
+            if kid_tag in ("value.constant", "value.namespace", "value.local",
+                           "value.reference", "value.undefined"):
+                return self._build_value_ensure_register(kids[0])
 
         for kid in kids:
             tag = comp.cop_tag(kid)
@@ -1035,18 +1065,77 @@ class CodeGenContext:
             )
 
         else:
+            # Inline block — any statement.define in callable/args position
+            # should be compiled as a deferred Block, whether or not it has
+            # a block.signature (i.e. :param declarations).
+            if tag == "statement.define":
+                kids = list(_cop_kids(cop))
+                if kids and comp.cop_tag(kids[0]) == "block.signature":
+                    return self._build_inline_block_with_signature(cop, kids)
+                # No signature — simple inline block like :($ * 10)
+                return self._build_inline_block_with_signature(cop, kids)
             # Complex expression — build normally; the result is used as-is
             return self._build_value_ensure_register(cop)
+
+    def _build_inline_block_with_signature(self, cop, kids):
+        """Build an inline block from a statement.define that has a block.signature.
+
+        When a binding argument like :(:param item~any expr) appears inside
+        _build_args_struct, the (:param ...) creates a statement.define with a
+        leading block.signature child.  This method compiles it into a proper
+        BuildBlock so that parameter declarations take effect and the block
+        can be invoked repeatedly by builtins like reduce.
+        """
+        sig_cop = kids[0]
+
+        # Build body instructions from the remaining statement children
+        body_ctx = self.__class__()
+        result = None
+        expr_result = None
+        has_trailing_let = False
+
+        for kid in kids[1:]:
+            kid_tag = comp.cop_tag(kid)
+            if kid_tag == "statement.field":
+                inner = _cop_kids(kid)
+                if inner:
+                    inner_tag = comp.cop_tag(inner[0])
+                    result = body_ctx._build_value_ensure_register(inner[0])
+                    if inner_tag == "op.let":
+                        has_trailing_let = True
+                    else:
+                        expr_result = result
+                        has_trailing_let = False
+            else:
+                result = body_ctx._build_value_ensure_register(kid)
+                if comp.cop_tag(kid) == "op.let":
+                    has_trailing_let = True
+                else:
+                    expr_result = result
+                    has_trailing_let = False
+
+        if has_trailing_let and expr_result is not None:
+            body_ctx.emit(comp._instructions.SelectResult(cop=cop, source=expr_result))
+
+        instr = comp._instructions.BuildBlock(
+            cop=cop,
+            signature_cop=sig_cop,
+            body_instructions=body_ctx.instructions,
+        )
+        return self.emit(instr)
 
 
 def _compile_on_pattern(ctx, pattern_cop):
     """Compile an op.on.branch pattern COP into pattern_ctx instructions.
 
-    Patterns must arrive here as value.constant nodes — the fold pass is
-    responsible for resolving tag/shape identifiers to constants before
-    code generation runs.  If a pattern is still an unresolved identifier
-    or namespace reference at this stage it is a compile-time error: the
-    fold pass failed or the identifier was never defined.
+    Patterns are typically value.constant nodes (folded by the optimization
+    pass), but may also be value.namespace references when the fold pass
+    could not reduce them to constants (e.g. tags with ambiguous definition
+    sets).  Both are valid — the runtime evaluates pattern instructions in
+    a child frame and accepts any Tag, Shape, or ShapeUnion result.
+
+    Only value.undefined patterns (truly unresolved names) are rejected
+    since they indicate a missing import or typo.
 
     Args:
         ctx: (CodeGenContext) The pattern sub-context to emit instructions into
@@ -1059,31 +1148,18 @@ def _compile_on_pattern(ctx, pattern_cop):
     if tag == "shape.define":
         kids = _cop_kids(pattern_cop)
         kid_tag = comp.cop_tag(kids[0]) if len(kids) == 1 else None
-        # Unresolved identifier/namespace reference — the fold pass should have
-        # converted this to value.constant.  Emitting LoadVar here would silently
-        # push name resolution into the runtime, violating the architecture.
-        # Fail hard so the root cause (missing import, undefined tag, fold gap)
-        # is surfaced immediately rather than becoming a cryptic runtime error.
-        if kid_tag in ("value.identifier", "value.namespace", "value.reference", "value.undefined"):
+        # Truly unresolved name — fail hard so the root cause is surfaced.
+        if kid_tag == "value.undefined":
             try:
-                kid = kids[0]
-                if kid_tag == "value.namespace":
-                    name = kid.to_python("qualified")
-                elif kid_tag == "value.undefined":
-                    name = kid.to_python("name")
-                else:
-                    parts = [k.to_python("value") for k in _cop_kids(kid)]
-                    name = ".".join(str(p) for p in parts)
+                name = kids[0].to_python("name")
             except Exception:
                 name = "?"
             raise comp.CodeError(
-                f"!on branch pattern ~{name} was not resolved to a constant "
-                f"before code generation. All patterns must be tags or shapes "
-                f"defined and visible at compile time — check for a missing "
-                f"import or undefined identifier.",
+                f"!on branch pattern ~{name} is undefined "
+                f"— check for a missing import or undefined identifier.",
                 pattern_cop,
             )
-    # Compile fully — value.constant, struct-pattern shapes, unions, etc.
+    # Compile fully — value.constant, value.namespace, struct-pattern shapes, etc.
     return ctx._build_value_ensure_register(pattern_cop)
 
 
@@ -1098,6 +1174,8 @@ def _shape_ref_or_reg(ctx, cop):
     For value.namespace and value.identifier nodes that refer to a shape by name,
     returns the name string so BuildShape/BuildShapeUnion can resolve it at execute
     time without emitting LoadVar/TryInvoke instructions.
+    For overloaded names (qualified is a list), returns the list of names so
+    BuildShape can build a DefinitionSet at execute time.
     For anything else, falls back to compiling to a register.
     """
     tag = comp.cop_tag(cop)
@@ -1105,6 +1183,8 @@ def _shape_ref_or_reg(ctx, cop):
         try:
             qualified = cop.to_python("qualified")
             if isinstance(qualified, str):
+                return qualified
+            if isinstance(qualified, list):
                 return qualified
         except (KeyError, AttributeError):
             pass
@@ -1189,6 +1269,12 @@ def _apply_field_access(ctx, cop, result, field_kids):
         elif field_tag == "ident.index":
             index_str = kid.to_python("value")
             result = ctx.emit(comp._instructions.GetIndex(cop=cop, struct_reg=result, index=int(index_str)))
+        elif field_tag == "ident.indexpr":
+            expr_kids = _cop_kids(kid)
+            if not expr_kids:
+                raise comp.CodeError("indexpr has no expression", cop)
+            index_reg = ctx._build_value_ensure_register(expr_kids[0])
+            result = ctx.emit(comp._instructions.GetDynamicIndex(cop=cop, struct_reg=result, index_reg=index_reg))
         else:
             raise comp.CodeError(f"Unsupported field access token: {field_tag}", cop)
     return result

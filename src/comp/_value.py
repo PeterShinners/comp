@@ -180,6 +180,10 @@ class Value:
                 elif isinstance(k, Value):
                     if k.shape == comp.shape_text:
                         key = k.format()[1:-1]
+                        # Abbreviate nested struct "cop" fields to avoid gnarly output
+                        if key == "cop" and v.shape is comp.shape_struct:
+                            fields.append("cop=...")
+                            continue
                         # Check if key is a valid Comp identifier (TOKEN pattern: /[^\W\d][\w-]*[?]?/)
                         # Must start with letter/underscore, contain only alphanumeric/underscore/hyphen, optional trailing ?
                         if re.match(r"^[^\W\d][\w-]*\??$", key):

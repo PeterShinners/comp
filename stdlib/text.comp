@@ -13,8 +13,18 @@
 
 /// Predefined text types
 !shape letter ~text<size=1>
-!shape no-text ~text<size=0> = ""  // is this actually useful?
+!shape text-empty ~text<size=0> = ""  // is this actually useful?
 
+
+/// Get text length in characters
+!pure length ~text (
+    $ | py.pure-call :"len"
+)
+
+/// Test if text is empty
+!pure is-empty ~text (
+    !not ($ | py.pure-call :"bool")
+)
 
 /// Transform text to uppercase
 !pure uppercase ~text (
@@ -34,11 +44,6 @@
     ~start ($ | py.pure-call :"str.lstrip")
     ~end ($ | py.pure-call :"str.rstrip")
     ~both ($ | py.pure-call :"str.strip")
-)
-
-/// Test if text is empty
-!pure is-empty ~text (
-    $ | length == 0
 )
 
 /// Test if text contains only whitespace or is empty
@@ -144,11 +149,6 @@
 !pure repeat ~text (
     :param times~index
     {$ times} | py.pure-call :"operator.mul"
-)
-
-/// Get text length in characters
-!pure length ~text (
-    $ | py.pure-call :"str.__len__"
 )
 
 /// Pad text on left

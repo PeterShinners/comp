@@ -189,19 +189,50 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
                     return _make_fail_cop(cop, str(e))
 
         if tag == "value.field":
-            # Field access: struct.field or struct.#N
+            # Field access: struct.field or struct.#N or struct.#(expr)
             # kids[0] is the struct, kids[1] is the identifier with field accessor(s)
-            struct_val = _get_constant(new_kids[0])
-            if struct_val is not None and struct_val.shape is comp.shape_struct:
-                # Extract fields from identifier
+
+            # First pass: rewrite any ident.indexpr with constant expr → ident.index
+            field_cop = new_kids[1]
+            field_tag = comp.cop_tag(field_cop)
+            if field_tag == "value.identifier":
+                field_kids = list(comp.cop_kids(field_cop))
+            else:
+                field_kids = [field_cop]
+
+            rewritten_fields = []
+            fields_changed = False
+            for fk in field_kids:
+                fk_tag = comp.cop_tag(fk)
+                if fk_tag == "ident.indexpr":
+                    expr_kids = comp.cop_kids(fk)
+                    if expr_kids:
+                        expr_val = _get_constant(expr_kids[0])
+                        if expr_val is not None:
+                            if isinstance(expr_val.data, decimal.Decimal):
+                                idx_int = int(expr_val.data)
+                                rewritten_fields.append(
+                                    comp.create_cop("ident.index", [], value=str(idx_int))
+                                )
+                                fields_changed = True
+                                continue
+                rewritten_fields.append(fk)
+
+            if fields_changed:
+                if len(rewritten_fields) == 1:
+                    new_kids[1] = rewritten_fields[0]
+                else:
+                    new_kids[1] = comp.create_cop("value.identifier", rewritten_fields)
+                changed = True
                 field_cop = new_kids[1]
                 field_tag = comp.cop_tag(field_cop)
 
-                # Handle single field vs identifier with multiple fields
+            # Second pass: if struct value is constant, try to fold entirely
+            struct_val = _get_constant(new_kids[0])
+            if struct_val is not None and struct_val.shape is comp.shape_struct:
                 if field_tag == "value.identifier":
                     field_kids = comp.cop_kids(field_cop)
                 else:
-                    # Single field (ident.token, ident.index, etc.)
                     field_kids = [field_cop]
 
                 # Chain field accesses
@@ -498,6 +529,13 @@ def _fold_namespace(cop, namespace):
         definition_set = namespace.get(qualified)
         if definition_set is not None:
             defn = definition_set.scalar()
+            if defn is None:
+                # DefinitionSet has multiple entries (e.g. less + ord.less alias).
+                # Try to find the definition whose qualified name matches the ref.
+                for d in definition_set.definitions:
+                    if d.qualified == qualified:
+                        defn = d
+                        break
             if defn is not None:
                 if defn.value is not None:
                     # Only fold non-callable constant values
@@ -619,9 +657,16 @@ def _fold_struct(cop, kids):
                 return comp.cop_rebuild(cop, kids)
             key_cop = field_kids[0]
             value_cop = field_kids[1]
-            # Extract name from identifier
+            # Extract name from the key node (ident.token directly,
+            # or value.identifier wrapping an ident.token)
             key = None
-            if comp.cop_tag(key_cop) == "value.identifier":
+            key_cop_tag = comp.cop_tag(key_cop)
+            if key_cop_tag == "ident.token":
+                try:
+                    key = key_cop.field("value").data
+                except (KeyError, AttributeError):
+                    pass
+            elif key_cop_tag == "value.identifier":
                 ident_kids = comp.cop_kids(key_cop)
                 if len(ident_kids) == 1 and comp.cop_tag(ident_kids[0]) == "ident.token":
                     try:

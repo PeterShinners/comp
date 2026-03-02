@@ -5,7 +5,7 @@ the contents of a shopping cart.
 
 Highlights:
 
-- Entire module compiles to a single constant output statement, all functions 
+- Entire main compiles to a single constant output statement, all functions 
   are pure and all inputs are literals, so the compiler folds everything at 
   build time 
 - `upsert` combines replace with `else` fallback to express "update or insert"

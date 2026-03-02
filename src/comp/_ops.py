@@ -117,7 +117,7 @@ def logic_binary(op, left, right):
     This only works with boolean types.
 
     Args:
-        op: (str) Operator like "&&" "||"
+        op: (str) Operator like "!and" "!or"
         left: (Value) Left value
         right: (Value) Right value
 
@@ -137,11 +137,11 @@ def logic_binary(op, left, right):
     lval = left.data is comp.tag_true
     rval = right.data is comp.tag_true
 
-    if op == "&&":
+    if op == "!and":
         if rval and lval:
             return comp.Value(comp.tag_true)
         return comp.Value(comp.tag_false)
-    elif op == "||":
+    elif op == "!or":
         if rval or lval:
             return comp.Value(comp.tag_true)
         return comp.Value(comp.tag_false)
@@ -155,7 +155,7 @@ def logic_unary(op, right):
     This only works with boolean types.
 
     Args:
-        op: (str) Operator like "!!"
+        op: (str) Operator like "!not"
         right: (Value) Right value
 
     Returns:
@@ -166,10 +166,10 @@ def logic_unary(op, right):
 
     rval = right.data is comp.tag_true
 
-    if op == "!!":
+    if op == "!not":
         if rval:
-            return comp.Value(comp.tag_true)
-        return comp.Value(comp.tag_false)
+            return comp.Value(comp.tag_false)
+        return comp.Value(comp.tag_true)
     else:
         raise ValueError(f"Unknown logic unary operator: {op}")
 

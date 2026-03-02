@@ -561,7 +561,7 @@ def _builtin_update(input_val, args_val, frame):
             {x = ($.x + 10)}
         )
     """
-    import comp._interp as _interp_mod
+    import comp._instructions as _instr_mod
     ctx = input_val.data
     if not isinstance(ctx, dict):
         raise comp.CodeError("update requires invoke-data as piped input")
@@ -579,7 +579,7 @@ def _builtin_update(input_val, args_val, frame):
     if isinstance(statement.data, comp.Block):
         new_block = _clone_block_with_extra(
             statement.data,
-            lambda last_reg: _interp_mod.MergeWithPiped(cop=None, result_reg=last_reg),
+            lambda last_reg: _instr_mod.MergeWithPiped(cop=None, result_reg=last_reg),
         )
         return comp.Value(new_block)
 
@@ -596,8 +596,8 @@ def _builtin_update(input_val, args_val, frame):
         new_block.dispatch_own_name = None
         new_block.dispatch_set_name = None
         new_block.body_instructions = [
-            _interp_mod.Const(cop=None, value=const_val),
-            _interp_mod.MergeWithPiped(cop=None, result_reg=0),
+            _instr_mod.Const(cop=None, value=const_val),
+            _instr_mod.MergeWithPiped(cop=None, result_reg=0),
         ]
         return comp.Value(new_block)
 
@@ -620,7 +620,7 @@ def _builtin_flat(input_val, args_val, frame):
             ($.right | tree-values)
         }
     """
-    import comp._interp as _interp_mod
+    import comp._instructions as _instr_mod
     ctx = input_val.data
     if not isinstance(ctx, dict):
         raise comp.CodeError("flat requires invoke-data as piped input")
@@ -640,7 +640,7 @@ def _builtin_flat(input_val, args_val, frame):
 
     new_block = _clone_block_with_extra(
         statement.data,
-        lambda last_reg: _interp_mod.FlattenFields(cop=None, result_reg=last_reg),
+        lambda last_reg: _instr_mod.FlattenFields(cop=None, result_reg=last_reg),
     )
     return comp.Value(new_block)
 

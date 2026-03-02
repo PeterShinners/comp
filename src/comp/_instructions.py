@@ -437,7 +437,10 @@ class BinOp(Instruction):
         left_val = frame.get_value(self.left)
         right_val = frame.get_value(self.right)
         try:
-            result = comp._ops.math_binary(self.op, left_val, right_val)
+            if self.op in ("!and", "!or"):
+                result = comp._ops.logic_binary(self.op, left_val, right_val)
+            else:
+                result = comp._ops.math_binary(self.op, left_val, right_val)
         except (TypeError, ValueError, ZeroDivisionError, ArithmeticError) as e:
             fail_val = comp._interp._make_fail_value(e, tag=comp._interp._exception_to_tag(e), cop_val=self.cop)
             frame.failure = fail_val
@@ -459,7 +462,10 @@ class UnOp(Instruction):
     def execute(self, frame):
         operand_val = frame.get_value(self.operand)
         try:
-            result = comp._ops.math_unary(self.op, operand_val)
+            if self.op == "!not":
+                result = comp._ops.logic_unary(self.op, operand_val)
+            else:
+                result = comp._ops.math_unary(self.op, operand_val)
         except (TypeError, ValueError, ArithmeticError) as e:
             fail_val = comp._interp._make_fail_value(e, tag=comp._interp._exception_to_tag(e), cop_val=self.cop)
             frame.failure = fail_val
@@ -538,6 +544,31 @@ class GetIndex(Instruction):
 
     def format(self, idx):
         return f"%{idx}  GetIndex %{self.struct_reg}.#{self.index}"
+
+
+class GetDynamicIndex(Instruction):
+    """Get a field from a struct by a runtime-computed position (0-based)."""
+
+    def __init__(self, cop, struct_reg, index_reg):
+        super().__init__(cop)
+        self.struct_reg = struct_reg
+        self.index_reg = index_reg
+
+    def execute(self, frame):
+        struct_val = frame.get_value(self.struct_reg)
+        index_val = frame.get_value(self.index_reg)
+        import decimal
+        if not isinstance(index_val.data, decimal.Decimal):
+            raise comp.CodeError(f"Index expression must be a number, got {type(index_val.data).__name__}", self.cop)
+        index = int(index_val.data)
+        items = list(struct_val.data.items())
+        if index < 0 or index >= len(items):
+            raise comp.CodeError(f"Index {index} out of range for struct with {len(items)} fields", self.cop)
+        _, result = items[index]
+        return frame.set_result(result)
+
+    def format(self, idx):
+        return f"%{idx}  GetDynamicIndex %{self.struct_reg}.#(%{self.index_reg})"
 
 
 class BuildStruct(Instruction):
@@ -897,7 +928,7 @@ class BuildBlock(Instruction):
                 if kid_tag == "value.constant":
                     try:
                         const_val = kid.field("value")
-                        if isinstance(const_val.data, comp.Shape):
+                        if isinstance(const_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
                             return const_val.data
                     except (KeyError, AttributeError):
                         pass
@@ -1074,6 +1105,23 @@ class BuildShape(Instruction):
                         func_val = _load_name(lname, frame)
                     except NameError:
                         pass
+                elif isinstance(lname, list):
+                    # Overloaded name (list of qualified names) — build DefinitionSet
+                    definition_set = comp.DefinitionSet()
+                    for oname in lname:
+                        try:
+                            defn = frame.lookup(oname)
+                        except (NameError, KeyError):
+                            defn = None
+                        if defn is not None:
+                            if isinstance(defn, comp.DefinitionSet):
+                                definition_set.definitions.update(defn.definitions)
+                            elif isinstance(defn, comp.Definition):
+                                definition_set.definitions.add(defn)
+                    if definition_set.definitions:
+                        func_val = comp.Value.from_python(definition_set)
+                elif isinstance(lname, int):
+                    func_val = frame.get_value(lname)
                 param_val = frame.get_value(lparam_idx) if lparam_idx is not None else None
                 if func_val is not None:
                     limits.append((func_val, param_val))
@@ -1101,7 +1149,13 @@ class BuildShape(Instruction):
             if default_idx is not None:
                 part += f"=%{default_idx}"
             for lname, lparam_idx in limit_refs:
-                part += f"<{lname}" + (f" p=%{lparam_idx}" if lparam_idx is not None else "") + ">"
+                if isinstance(lname, list):
+                    ldisp = "|".join(lname)
+                elif isinstance(lname, int):
+                    ldisp = f"%{lname}"
+                else:
+                    ldisp = str(lname)
+                part += f"<{ldisp}" + (f" p=%{lparam_idx}" if lparam_idx is not None else "") + ">"
             parts.append(part)
         return f"%{idx}  BuildShape ({' '.join(parts)})"
 
@@ -1216,6 +1270,23 @@ class BuildShapeCollection(Instruction):
                     func_val = _load_name(lname, frame)
                 except NameError:
                     pass
+            elif isinstance(lname, list):
+                # Overloaded name — build DefinitionSet
+                definition_set = comp.DefinitionSet()
+                for oname in lname:
+                    try:
+                        defn = frame.lookup(oname)
+                    except (NameError, KeyError):
+                        defn = None
+                    if defn is not None:
+                        if isinstance(defn, comp.DefinitionSet):
+                            definition_set.definitions.update(defn.definitions)
+                        elif isinstance(defn, comp.Definition):
+                            definition_set.definitions.add(defn)
+                if definition_set.definitions:
+                    func_val = comp.Value.from_python(definition_set)
+            elif isinstance(lname, int):
+                func_val = frame.get_value(lname)
             param_val = frame.get_value(lparam_idx) if lparam_idx is not None else None
             if func_val is not None:
                 limits.append((func_val, param_val))

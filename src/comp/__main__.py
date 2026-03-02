@@ -286,7 +286,83 @@ def format_instruction(idx, instr, indent=0):
         for i, body_instr in enumerate(instr.body_instructions):
             result += "\n" + format_instruction(i, body_instr, indent + 1)
 
+    # If this is a DispatchOn, show each branch's pattern and result instructions
+    if hasattr(instr, 'branches') and instr.branches:
+        for b, (pattern_instrs, result_instrs) in enumerate(instr.branches):
+            branch_ind = "    " * (indent + 1)
+            result += "\n" + branch_ind + f"branch {b}:"
+            pat_ind = "    " * (indent + 2)
+            result += "\n" + pat_ind + "pattern:"
+            for i, pi in enumerate(pattern_instrs):
+                result += "\n" + format_instruction(i, pi, indent + 3)
+            result += "\n" + pat_ind + "result:"
+            for i, ri in enumerate(result_instrs):
+                result += "\n" + format_instruction(i, ri, indent + 3)
+
     return result
+
+
+def _format_code_error(e, label="Build error"):
+    """Format a CodeError with source location context.
+
+    Extracts position from the COP node attached to the error and shows
+    the relevant source line with a caret underline, similar to how
+    runtime failures are displayed.
+
+    Args:
+        e: (CodeError) The error to format
+        label: (str) Prefix label (e.g. 'Build error', 'Error')
+
+    Returns:
+        (str) Formatted error string for stderr output
+    """
+    msg = e.message if hasattr(e, "message") else str(e)
+    parts = [f"{label}:"]
+
+    # Try to extract position from cop_node
+    cop = getattr(e, "cop_node", None)
+    row, col, end_col = None, None, None
+    if cop is not None:
+        try:
+            pos = cop.field("pos")
+            if pos is not None:
+                row = pos.to_python(0)
+                col = pos.to_python(1)
+                end_col = pos.to_python(3)
+        except (KeyError, AttributeError, IndexError):
+            pass
+
+    # Try to get source file and content from attached module
+    source_file = None
+    source_lines = None
+    mod = getattr(e, "module", None)
+    defn_name = getattr(e, "definition_name", None)
+    if mod is not None:
+        try:
+            source_file = mod.source.resource
+            source_lines = mod.source.content.splitlines()
+        except (AttributeError, TypeError):
+            pass
+
+    if msg:
+        parts.append(msg)
+
+    if row is not None and col is not None:
+        loc = f"line {row}, col {col}"
+        if source_file:
+            loc = f"{source_file}:{row}:{col}"
+        if defn_name:
+            loc += f"  (in {defn_name})"
+        parts.append(f"  --> {loc}")
+
+        if source_lines and 1 <= row <= len(source_lines):
+            src_line = source_lines[row - 1].rstrip("\n")
+            parts.append(f"   | {src_line}")
+            span = max(1, end_col - col) if end_col and end_col > col else 1
+            caret = " " * (col - 1) + "^" * span
+            parts.append(f"   | {caret}")
+
+    return "\n".join(parts)
 
 
 def _format_failure_cli(fail_val, source_file=None, source_lines=None, depth=0):
@@ -475,7 +551,10 @@ def main():
                     print(comp.cop_unparse(cop))
                 return
             except (comp.ParseError, comp.CodeError) as e:
-                print(f"Error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
+                if isinstance(e, comp.CodeError):
+                    print(_format_code_error(e, "Error"), file=sys.stderr)
+                else:
+                    print(f"Error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
                 return 1
 
         elif args.code and entry_point is not None:
@@ -494,7 +573,10 @@ def main():
                     print(format_instruction(i, instr))
                 return
             except (comp.ParseError, comp.CodeError) as e:
-                print(f"Error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
+                if isinstance(e, comp.CodeError):
+                    print(_format_code_error(e, "Error"), file=sys.stderr)
+                else:
+                    print(f"Error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
                 return 1
 
         elif (args.eval or args.trace) and entry_point is not None:
@@ -534,7 +616,10 @@ def main():
                 print(result.format())
                 return
             except (comp.ParseError, comp.CodeError) as e:
-                print(f"Error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
+                if isinstance(e, comp.CodeError):
+                    print(_format_code_error(e, "Error"), file=sys.stderr)
+                else:
+                    print(f"Error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
                 return 1
 
         else:
@@ -650,8 +735,10 @@ def main():
         try:
             interp.build(mod, fold=True, pure=args.pure)
         except (comp.ParseError, comp.CodeError) as e:
-            msg = e.message if hasattr(e, "message") else str(e)
-            print(f"Build error:\n{msg}", file=sys.stderr)
+            if isinstance(e, comp.CodeError):
+                print(_format_code_error(e, "Build error"), file=sys.stderr)
+            else:
+                print(f"Build error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
             return 1
 
         defs = mod.definitions()

@@ -4,6 +4,8 @@
 
 !import py comp "py"
 !import num comp "num"
+!import text comp "text"
+!import struct comp "struct"
 
 
 /// Inclusive minimum bound: value must be >= amount

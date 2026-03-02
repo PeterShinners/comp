@@ -249,7 +249,7 @@ DOTTED_PATH.7: /[a-zA-Z_][\w-]*(\.[a-zA-Z_][\w-]*)+/
 TOKENFIELD.4: /[a-zA-Z_][\w-]*(?!\.\d)/  // Negative lookahead prevents matching sibling numbers
 
 indexfield: HASH INTEGER
-indexprfield: HASH PAREN_OPEN simple_expr PAREN_CLOSE
+indexprfield: HASH PAREN_OPEN expression PAREN_CLOSE
 dollarfield: DOLLAR3 | DOLLAR2 | DOLLAR
 exprfield: QUOTE expression QUOTE
 

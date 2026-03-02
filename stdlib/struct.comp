@@ -1,169 +1,94 @@
 /// Struct operations for finite collections
-/// Functions for field manipulation, indexed access, and transformations.
+/// Functions for field access, membership, slicing, and structural transforms.
+/// No imports — uses only system builtins (length, at, append, reduce).
+
+!import py comp "py"
 
 
-/// Filter only fields with defined names
-!pure named ~struct (
-    $ | each (
-        !on ($.field != nil)
-        ~true $
-        ~false pass
-    )
-)
-
-/// Filter only fields without defined names
-!pure unnamed ~struct (
-    $ | each (
-        !on ($.field == nil)
-        ~true $.value
-        ~false pass
-    )
-)
-
-/// Check if struct is empty
-!pure empty ~struct (
-    $ | length == 0
-)
-
-/// Count total fields
+/// Get number of fields in struct
 !pure length ~struct (
-    !let count 0
-    $ | each :(count + 1) | last
+    {$} | py.pure-call :"len"
 )
 
-/// Get index position of named field
-!pure field-index ~struct (
-    :param field~text
-    $ | enumerate | find :($.value.field == field) | $.index
-    |? nil
+/// Test if struct has no fields
+!pure is-empty ~struct (
+    !not ({$} | py.pure-call :"bool")
 )
 
-/// Get first element(s)
+/// Get the first value
 !pure first ~struct (
-    :param count~num=1
-    !on (count == 1)
-    ~true ($ | at :index=0)
-    ~false ($ | slice :start=0 end=count)
+    $.#0
 )
 
-/// Get last element(s)
+/// Get the last value
 !pure last ~struct (
-    :param count~num=1
-    !let len ($ | length)
-    !on (count == 1)
-    ~true ($ | at :index=-1)
-    ~false ($ | slice :start=(len - count) :end=len)
+    !let end ($ | length)
+    $.#($ | length - 1)
 )
 
-/// Get range of elements
-!pure slice ~struct (
-    :param start~num 
-    :param end~num
-    $ | enumerate | filter :($.index >= start :and $.index < end) | map :($.value)
-)
 
-/// Get element at index (supports negative indexing)
-!pure at ~struct (
-    :param index~num
-    !let len ($ | length)
-    !let target (
-        !on (index < 0)
-        ~true (len + index)
-        ~false index
-    )
-    !on (target < 0 :or target >= len)
-    ~true (fail :"index out of bounds")
-    ~false ($ | enumerate | find ($.index == target) | $.value)
-)
+// Need a "items" type function that gets pairs of name/value
 
-/// Find first element matching condition
-!pure find ~struct (
-    :block test
-    $ | filter :(test) | first
-    |? fail :"not found"
-)
 
-/// Check if struct contains value
+
+// /// Extract a sub-range of fields by position
+// !pure slice ~struct (
+//     :param start~num
+//     :param end~num
+//     !let acc ($ | reduce :initial={pos=0 result={}} :(
+//         :param item~any
+//         !on ($.pos >= start !and $.pos < end)
+//         ~true  {pos=($.pos + 1) result=($.result | append :item)}
+//         ~false {pos=($.pos + 1) result=$.result}
+//     ))
+//     acc.result
+// )
+
+/// Check if struct contains a value
 !pure contains ~struct (
-    :param value
-    $ | any ($ == value)
-)
-
-/// Get all items as field/value pairs
-!pure items ~struct (
-    $ | each :(
-        {field=$.field value=$.value}
+    :param value~any
+    $ | reduce :initial=false :(
+        :param item~any
+        !on $
+        ~true true
+        ~false (item == value)
     )
 )
 
-/// Reverse field order
-!pure reverse ~struct (
-    !let len ($ | length)
-    range :end=len
-    | map :($ | at :index=(len - 1 - $))
-)
+// /// Extract just the values, dropping field names
+// !pure values ~struct (
+//     $ | reduce :initial={} :(
+//         :param item~any
+//         $ | append :item
+//     )
+// )
 
-/// Sort by value
-!pure sort ~struct (
-    :param key=pass reverse~bool=false
+// /// Reverse field order
+// !pure reverse ~struct (
+//     !let len ($ | length)
+//     !let data $
+//     !let acc ($ | reduce :initial={pos=0 result={}} :(
+//         :param item~any
+//         !let idx (len - $.pos - 1)
+//         {pos=($.pos + 1) result=($.result | append :(data | at :index=idx))}
+//     ))
+//     acc.result
+// )
 
-    //x placeholder: needs proper sort implementation
-    //x bubble sort in immutable language is painful
-    //x this would likely be a builtin or use a merge sort
-    $ | builtin.sort :key :reverse
-)
-
-/// Remove specified fields
-!pure drop ~struct (
-    :param fields~struct
-    $ | filter :(!not (fields | contains :$.field))
-)
-
-/// Keep only specified fields
-!pure select ~struct (
-    :param fields~struct
-    fields | map :($.field)
-)
-
-/// Extract just values
-!pure values ~struct (
-    $ | map :($.value)
-)
-
-/// Extract just field names
-!pure fields ~struct (
-    $ | filter :($.field != nil) | map :($.field)
-)
-
-/// Merge structs (right-biased)
+/// Merge another struct's fields onto this one (right-biased)
 !pure merge ~struct @update (
     :param updates~struct
     updates
 )
 
-/// Insert value at position
-!pure insert ~struct (
-    :param at~num value
-    !let before ($ | slice :start=0 :end=at)
-    !let after ($ | slice :start=at :end=($ | length))
-    {before value after} | flat
-)
+// /// Take the first N elements
+// !pure take ~struct (
+//     :param count~num
+//     $ | slice :start=0 :end=count
+// )
 
-/// Test if struct starts with prefix
-!pure starts-with ~struct (
-    :param prefix~struct
-    !let prefix-len (prefix | length)
-    !on ($ | length < prefix-len)
-    ~true false
-    ~false ($ | slice :start=0 :end=prefix-len == prefix)
-)
-
-/// Test if struct ends with suffix
-!pure ends-with ~struct (
-    :param suffix~struct
-    !let suffix-len (suffix | length)
-    !let len ($ | length)
-    !on (len < suffix-len)
-    ~true false
-    ~false ($ | slice :start=(len - suffix-len) end=len == suffix)
-)
+// /// Drop the first N elements
+// !pure drop ~struct (
+//     :param count~num
+//     $ | slice :start=count :end=($ | length)
+// )

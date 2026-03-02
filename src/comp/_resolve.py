@@ -65,13 +65,17 @@ def _resolve_walk(cop, namespace, locals):
         return _resolve_identifier(cop, namespace, locals)
 
     # --- Already-resolved references pass through ---
-    if tag in ("value.local", "value.namespace", "value.reference",
+    if tag in ("value.namespace", "value.reference",
                "value.constant", "value.undefined"):
         return cop
 
     # --- Blocks: track parameter names as locals ---
     if tag == "value.block":
         return _resolve_block(cop, namespace, locals)
+
+    # --- Function definitions: body has implicit $ access ---
+    if tag == "function.define":
+        return _resolve_function(cop, namespace, locals)
 
     # --- Sequential containers: track op.let / named-field bindings ---
     if tag in ("statement.define", "struct.define"):
@@ -89,6 +93,10 @@ def _resolve_walk(cop, namespace, locals):
             if new_value is not kids[1]:
                 return comp.cop_rebuild(cop, [kids[0], new_value])
         return cop
+
+    # --- Bindings: binding values are implicit block scopes with $ access ---
+    if tag == "value.binding":
+        return _resolve_binding(cop, namespace, locals)
 
     # --- Recursively resolve children ---
     kids = comp.cop_kids(cop)
@@ -129,7 +137,7 @@ def _resolve_identifier(cop, namespace, locals):
 
     for i, kid in enumerate(kids):
         kid_tag = comp.cop_tag(kid)
-        if kid_tag in ("ident.token", "ident.text"):
+        if kid_tag in ("ident.token", "ident.text", "ident.input"):
             try:
                 name = kid.field("value").data
                 resolvable_parts.append((name, kid))
@@ -150,6 +158,8 @@ def _resolve_identifier(cop, namespace, locals):
         remaining = [p[1] for p in resolvable_parts[1:]]
         if first_non_resolvable_idx is not None:
             remaining.extend(kids[first_non_resolvable_idx:])
+        # Resolve expressions inside remaining kids (e.g. ident.indexpr)
+        remaining = [_resolve_walk(k, namespace, locals) for k in remaining]
         return _make_local(cop, first_name, remaining)
 
     # Try namespace resolution (full name first, then shorter prefixes)
@@ -170,6 +180,13 @@ def _resolve_identifier(cop, namespace, locals):
                 qualified_names = [d.qualified for d in invokables]
                 module_id = invokables[0].module_id
                 ref = _make_namespace(cop, qualified_names, module_id)
+            elif hasattr(definition_set, "definitions") and definition_set.definitions:
+                # Non-invokable, non-scalar set (e.g. tag with alias).
+                # Pick the shortest qualified name as the canonical reference.
+                defs_list = sorted(definition_set.definitions,
+                                   key=lambda d: len(d.qualified))
+                ref = _make_namespace(cop, defs_list[0].qualified,
+                                      defs_list[0].module_id)
             else:
                 continue
 
@@ -179,6 +196,8 @@ def _resolve_identifier(cop, namespace, locals):
                 remaining_kids.extend(kids[first_non_resolvable_idx:])
 
             if remaining_kids:
+                # Resolve expressions inside remaining kids (e.g. ident.indexpr)
+                remaining_kids = [_resolve_walk(k, namespace, locals) for k in remaining_kids]
                 field_ident = comp.create_cop("value.identifier", remaining_kids)
                 return comp.create_cop("value.field", [ref, field_ident])
 
@@ -232,6 +251,39 @@ def _resolve_block(cop, namespace, locals):
     return comp.cop_rebuild(cop, [signature_cop, new_body])
 
 
+def _resolve_function(cop, namespace, locals):
+    """Resolve a function.define, adding $ references to the body scope.
+
+    Function bodies receive piped input at runtime, so $ / $$ / $$$
+    must be in scope for the body even though there is no explicit
+    block.signature declaring them.
+
+    Args:
+        cop: (Value) function.define COP node
+        namespace: (dict) Namespace
+        locals: (set) Inherited locals
+
+    Returns:
+        (Value) Resolved function node
+    """
+    kids = comp.cop_kids(cop)
+
+    func_locals = locals.copy()
+    func_locals.update({"input", "args", "$", "$$", "$$$"})
+
+    new_kids = []
+    changed = False
+    for kid in kids:
+        new_kid = _resolve_walk(kid, namespace, func_locals)
+        new_kids.append(new_kid)
+        if new_kid is not kid:
+            changed = True
+
+    if changed:
+        return comp.cop_rebuild(cop, new_kids)
+    return cop
+
+
 def _resolve_sequential(cop, namespace, locals):
     """Resolve a sequential container, tracking bindings across children.
 
@@ -252,6 +304,21 @@ def _resolve_sequential(cop, namespace, locals):
     current_locals = locals.copy()
     new_kids = []
     changed = False
+
+    # If the first child is a block.signature, extract parameter names
+    # and add $ references so they are visible to the body.
+    if kids and comp.cop_tag(kids[0]) == "block.signature":
+        sig_cop = kids[0]
+        for field_cop in comp.cop_kids(sig_cop):
+            field_tag = comp.cop_tag(field_cop)
+            if field_tag in ("signature.param", "signature.block"):
+                try:
+                    param_name = field_cop.to_python("name")
+                    if param_name:
+                        current_locals.add(param_name)
+                except (KeyError, AttributeError):
+                    pass
+        current_locals.update({"input", "args", "$", "$$", "$$$"})
 
     for kid in kids:
         new_kid = _resolve_walk(kid, namespace, current_locals)
@@ -292,6 +359,41 @@ def _resolve_namefield(cop, namespace, locals):
         return cop
 
     return comp.cop_rebuild(cop, [name_cop, new_value])
+
+
+def _resolve_binding(cop, namespace, locals):
+    """Resolve a value.binding node.
+
+    The callable (first child) is resolved with the current locals.
+    The bindings struct (second child) is resolved with $ references
+    added to locals, because binding values are implicit block scopes
+    that receive the piped input value at runtime.
+
+    Args:
+        cop: (Value) value.binding COP node
+        namespace: (dict) Namespace
+        locals: (set) Current locals
+
+    Returns:
+        (Value) Resolved binding node
+    """
+    kids = comp.cop_kids(cop)
+    if len(kids) < 2:
+        return _resolve_walk(cop, namespace, locals) if kids else cop
+
+    callable_cop = kids[0]
+    bindings_cop = kids[1]
+
+    new_callable = _resolve_walk(callable_cop, namespace, locals)
+
+    binding_locals = locals.copy()
+    binding_locals.update({"input", "args", "$", "$$", "$$$"})
+    new_bindings = _resolve_walk(bindings_cop, namespace, binding_locals)
+
+    if new_callable is callable_cop and new_bindings is bindings_cop:
+        return cop
+
+    return comp.cop_rebuild(cop, [new_callable, new_bindings])
 
 
 def _extract_let_name(cop):

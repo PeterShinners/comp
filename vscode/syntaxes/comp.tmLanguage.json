@@ -405,7 +405,7 @@
         {
           "comment": "Logical operators",
           "name": "keyword.operator.logical.comp",
-          "match": "&&|\\|\\||!!"
+          "match": "!and|!or|!not"
         },
         {
           "comment": "Assignment",

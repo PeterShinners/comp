@@ -308,7 +308,10 @@ class Interp:
                         dispatch_own_name=defn.qualified,
                         dispatch_set_name=_set_name,
                     )
-                except comp.CodeError:
+                except comp.CodeError as ce:
+                    if not hasattr(ce, "module"):
+                        ce.module = mod
+                        ce.definition_name = name
                     raise
                 except Exception as e:
                     raise comp.CodeError(
@@ -693,7 +696,14 @@ class ExecutionFrame:
         if block.input_shape and isinstance(block.input_shape, comp.Shape):
             morph_result = comp.morph(input_val, block.input_shape, self)
             if morph_result.failure_reason:
-                raise comp.CodeError(f"Input morph failed: {morph_result.failure_reason}", block_val.cop)
+                # Include block name and shape info for debugging
+                block_name = getattr(block, "name", None) or getattr(block, "dispatch_own_name", "?")
+                raise comp.CodeError(
+                    f"Input morph failed: {morph_result.failure_reason}"
+                    f"\n  block: {block_name}, input_shape: {block.input_shape.qualified}"
+                    f", input: {input_val.format()}"
+                    f" ({input_val.shape.qualified if input_val.shape else '?'})",
+                    block_val.cop if hasattr(block_val, "cop") else source_cop)
             input_val = morph_result.value
 
         # Inject context values as implicit defaults for named arg-shape fields
