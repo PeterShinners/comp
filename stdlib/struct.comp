@@ -15,71 +15,12 @@
     !not ({$} | py.pure-call :"bool")
 )
 
-/// Get the first value
-!pure first ~struct (
-    $.#0
-)
 
-/// Get the last value
-!pure last ~struct (
-    !let end ($ | length)
-    $.#($ | length - 1)
-)
+// named
+// unnamed
+// values (remove all names)
+// apply names (positionally)
+// select fields (specific fields)
+// remove fields
+// reorder fields
 
-
-
-// /// Extract a sub-range of fields by position
-// !pure slice ~struct (
-//     :param start~num
-//     :param end~num
-//     !let acc ($ | reduce :initial={pos=0 result={}} :(
-//         :param item~any
-//         !on ($.pos >= start !and $.pos < end)
-//         ~true  {pos=($.pos + 1) result=($.result | append :item)}
-//         ~false {pos=($.pos + 1) result=$.result}
-//     ))
-//     acc.result
-// )
-
-/// Check if struct contains a value
-!pure contains ~struct (
-    :param value~any
-    $ | reduce :initial=false :(
-        :param item~any
-        !on $
-        ~true true
-        ~false (item == value)
-    )
-)
-
-// /// Extract just the values, dropping field names
-// !pure values ~struct (
-//     $ | reduce :initial={} :(
-//         :param item~any
-//         $ | append :item
-//     )
-// )
-
-// /// Reverse field order
-// !pure reverse ~struct (
-//     !let len ($ | length)
-//     !let data $
-//     !let acc ($ | reduce :initial={pos=0 result={}} :(
-//         :param item~any
-//         !let idx (len - $.pos - 1)
-//         {pos=($.pos + 1) result=($.result | append :(data | at :index=idx))}
-//     ))
-//     acc.result
-// )
-
-// /// Take the first N elements
-// !pure take ~struct (
-//     :param count~num
-//     $ | slice :start=0 :end=count
-// )
-
-// /// Drop the first N elements
-// !pure drop ~struct (
-//     :param count~num
-//     $ | slice :start=count :end=($ | length)
-// )

@@ -282,10 +282,34 @@ class Interp:
 
         # Pass 4b: Pure evaluation (optional)
         if pure:
+            # Pre-execute pure definitions so their values are available
+            # for folding. Modules are in dependency order, so imported
+            # pure defs are ready before the modules that use them.
+            for mod in all_modules:
+                mod_defs = mod.definitions()
+                mod_env = {}
+                for name, defn in mod_defs.items():
+                    if defn.pure and defn.resolved_cop is not None and defn.value is None:
+                        try:
+                            _set_name = (defn.qualified.rsplit(".", 1)[0]
+                                         if defn.auto_suffix else defn.qualified)
+                            defn.instructions = comp.generate_code_for_definition(
+                                defn.resolved_cop,
+                                dispatch_own_name=defn.qualified,
+                                dispatch_set_name=_set_name,
+                                pure=True,
+                            )
+                            result = self.execute(defn.instructions, mod_env, module=mod)
+                            defn.value = result
+                            mod_env[name] = result
+                        except Exception:
+                            pass
+
+            # Now fold definitions using namespace lookup (includes imports)
             for mod in all_modules:
                 mod_defs = mod.definitions()
                 mod_ns = mod.namespace()
-                comp.evaluate_pure_definitions(mod_defs, self)
+                comp.evaluate_pure_definitions(mod_defs, mod_ns, self)
                 if fold:
                     for defn in mod_defs.values():
                         defn.resolved_cop = comp.coptimize(
@@ -307,6 +331,7 @@ class Interp:
                         defn.resolved_cop,
                         dispatch_own_name=defn.qualified,
                         dispatch_set_name=_set_name,
+                        pure=defn.pure,
                     )
                 except comp.CodeError as ce:
                     if not hasattr(ce, "module"):

@@ -36,7 +36,8 @@ def coptimize(cop, fold, namespace, references=None, locals_defined=None,
         locals_defined: (set | None) If provided, collects names of all local
             variables defined by op.let statements in the tree
         pure: (bool) Whether to evaluate pure function invocations
-        defs: (dict | None) Module definitions dict, required when pure=True
+        defs: (dict | None) Module namespace dict for pure callable lookup,
+            required when pure=True
         interp: Interpreter instance, required when pure=True
 
     Returns:

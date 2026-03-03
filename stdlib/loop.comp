@@ -41,8 +41,8 @@
 ///   {1 2 3 4 5} | where :($ > 3)
 ///   // {4 5}
 ///
-///   range :1 :10 | where :($ % 2 == 0)
-///   // {2 4 6 8 10}
+///   range :1 :10 | where :($ > 5)
+///   // {6 7 8 9 10}
 ///
 ///   {a=1 b=20 c=3 d=40} | where :($ >= 10)
 ///   // {20 40}
@@ -205,13 +205,13 @@
 ///   )
 ///   // {2 4 6}
 ///
-///   // Collect only even-positioned items
-///   {a b c d e} | iterate :(
-///       !on $.position % 2 == 0
+///   // Collect only the first 3 items using position
+///   {10 20 30 40 50} | iterate :(
+///       !on $.position < 3
 ///       ~true ($.item | field-value)
-///       ~false skip
+///       ~false stop
 ///   )
-///   // {a c e}
+///   // {10 20 30}
 !pure iterate ~struct (
     :block op~nil
     !let items $
@@ -298,3 +298,91 @@
     acc
 )
 
+
+
+
+
+/// Extract a contiguous sub-range of fields by position.
+///
+/// Supports flexible calling patterns for common slicing needs:
+///   - `slice :end=N`       — first N items (positions 0..N-1)
+///   - `slice :start=N`     — everything from position N onward
+///   - `slice :start=A :end=B` — positions A..B-1 (end is exclusive)
+///
+/// Args:
+///   start: (num) First position to include, default 0
+///   end:   (num) Position to stop before (exclusive), default length
+///
+/// Examples:
+///   {10 20 30 40 50} | slice :end=3
+///   // {10 20 30}
+///
+///   {10 20 30 40 50} | slice :start=2
+///   // {30 40 50}
+///
+///   {10 20 30 40 50} | slice :start=1 :end=4
+///   // {20 30 40}
+!pure slice ~struct (
+    :param start~num=0
+    :param end~num=-1
+    // Use -1 sentinel to mean "to the end"
+    !let actual-end end
+    !on end == -1
+    ~true (!let actual-end ($ | s.length))
+    ~false nil
+    $ | iterate :(
+        !on ($.position >= start !and $.position < actual-end)
+        ~true ($.item | field-value)
+        ~false (
+            // Past the end — stop early
+            !on $.position >= actual-end
+            ~true stop
+            ~false skip
+        )
+    )
+)
+
+
+/// Get the first value from a struct.
+///
+/// Examples:
+///   {10 20 30} | first   // 10
+///   {x=10 y=20} | first  // 10
+!pure first ~struct (
+    $ | item-at :0 | field-value
+)
+
+
+/// Get the last value from a struct.
+///
+/// Examples:
+///   {10 20 30} | last    // 30
+///   {x=10 y=20} | last   // 20
+!pure last ~struct (
+    !let idx (($ | s.length) - 1)
+    $ | item-at :idx | field-value
+)
+
+
+/// Reverse the order of fields in a struct.
+///
+/// Field names are not preserved — the output is a positional struct
+/// with values in reverse order.
+///
+/// Examples:
+///   {1 2 3} | reverse       // {3 2 1}
+///   {a=1 b=2 c=3} | reverse // {3 2 1}
+!pure reverse ~struct (
+    !let data $
+    !let len ($ | s.length)
+    !let last-idx (len - 1)
+    range :0 :last-idx | map :(
+        !let idx (len - $ - 1)
+        data | item-at :idx | field-value
+    )
+)
+
+
+// Future:
+//   group-by  — classify values into named sub-structs (needs dynamic field naming)
+//   sort      — order values by comparison (needs comparison infrastructure)

@@ -1,8 +1,7 @@
 """Pure function evaluation at compile time.
 
 This module handles evaluating pure functions during compilation:
-- Identify pure block definitions (marked with !pure)
-- Build bytecode for pure blocks
+- Look up pure definitions via the module namespace
 - Walk definition COPs looking for invocations of pure functions
 - Replace pure invocations with constant result nodes when arguments
   are also constants
@@ -21,125 +20,169 @@ __all__ = [
 import comp
 
 
-def evaluate_pure_definitions(definitions, interp):
+def evaluate_pure_definitions(definitions, namespace, interp):
     """Evaluate pure function invokes at compile time.
 
-    Two-phase process:
-    1. Build Block bytecode for all !pure definitions
-    2. Walk each definition's COP tree and evaluate pure invocations
-       whose arguments are compile-time constants
+    Walks each definition's COP tree and evaluates pure invocations
+    whose arguments are compile-time constants, using the module
+    namespace to look up pure callables.
 
     Args:
         definitions: Dict {qualified_name: Definition} to process
+        namespace: (dict) Module namespace mapping names to DefinitionSet
         interp: Interpreter instance for execution
 
     Returns:
         dict: The definitions dictionary (for chaining)
 
     Side effects:
-        - Compiles bytecode for pure block definitions
         - Replaces pure invoke COPs with value.constant COPs
     """
-    # Phase 1: Compile all pure definitions to get their Block objects
-    pure_blocks = _compile_pure_blocks(definitions, interp)
-
-    if not pure_blocks:
-        return definitions
-
-    # Phase 2: Walk each definition and evaluate pure invokes
     for name, defn in definitions.items():
         if defn.resolved_cop is None:
             continue
-        new_cop = _eval_pure_in_cop(defn.resolved_cop, pure_blocks, interp)
+        new_cop = _eval_pure_in_cop(defn.resolved_cop, namespace, interp)
         if new_cop is not defn.resolved_cop:
             defn.resolved_cop = new_cop
 
     return definitions
 
 
-def fold_pure_cop(cop, definitions, interp):
-    """Apply pure folding to a single COP tree using compiled pure blocks.
+def fold_pure_cop(cop, namespace, interp):
+    """Apply pure folding to a single COP tree using namespace lookup.
 
     Used for COP trees that are not part of the definitions dict, such as
     startup blocks, which are obtained separately from module definitions.
 
     Args:
         cop: (Value) COP tree to fold
-        definitions: Dict {qualified_name: Definition} providing pure blocks
+        namespace: (dict) Namespace mapping names to DefinitionSet
         interp: Interpreter instance
 
     Returns:
         (Value) Folded COP tree (same object if nothing changed)
     """
-    pure_blocks = _compile_pure_blocks(definitions, interp)
-    if not pure_blocks:
-        return cop
-    return _eval_pure_in_cop(cop, pure_blocks, interp)
+    return _eval_pure_in_cop(cop, namespace, interp)
 
 
-def _compile_pure_blocks(definitions, interp):
-    """Find !pure definitions and compile their Block bytecode.
+# ---------------------------------------------------------------------------
+# Namespace-based pure callable lookup
+# ---------------------------------------------------------------------------
 
-    For each pure definition, generates the definition instructions and
-    executes just the BuildBlock instruction (not the final TryInvoke)
-    to obtain the Block object with its body_instructions populated.
+def _resolve_pure_callable(qualified, namespace, input_value):
+    """Find the best matching pure callable for the given qualified name(s).
+
+    For a single qualified name (str), returns that callable directly.
+    For a list of qualified names (overloads), morphs the input against
+    each callable's input_shape and returns the highest-scoring match.
 
     Args:
-        definitions: Dict of definitions
-        interp: Interpreter instance
+        qualified: (str | list) Qualified name(s) of candidate callables
+        namespace: (dict) Module namespace mapping names to DefinitionSet
+        input_value: (Value) Current piped input for dispatch scoring
 
     Returns:
-        Dict {qualified_name: Block} of pure blocks with compiled bytecode
+        (Block | InternalCallable | None) Best matching pure callable
     """
-    pure_blocks = {}
+    if isinstance(qualified, str):
+        defn = _find_definition(qualified, namespace)
+        if defn is None or not _is_pure_definition(defn):
+            return None
+        return _get_callable(defn)
 
-    for name, defn in definitions.items():
-        if not defn.pure:
+    # Multiple overloads — dispatch by morphing input against each
+    best = None
+    best_score = None
+    for name in qualified:
+        defn = _find_definition(name, namespace)
+        if defn is None or not _is_pure_definition(defn):
             continue
-        if defn.resolved_cop is None:
+        callable_obj = _get_callable(defn)
+        if callable_obj is None:
             continue
-
+        shape = getattr(callable_obj, "input_shape", None) or comp.shape_any
         try:
-            instructions = comp.generate_code_for_definition(defn.resolved_cop)
-        except Exception:
-            continue
-
-        if not instructions:
-            continue
-
-        # function.define/shape.define nodes do NOT get a trailing TryInvoke —
-        # the Block/Shape is the value directly.  All other definitions end with
-        # TryInvoke, which we skip to avoid invoking with empty args (which would
-        # fail for parameterised functions).  Mirror the _no_invoke_tags logic in
-        # _codegen.py to decide whether to strip the last instruction.
-        _no_invoke_tags = {"function.define", "shape.define", "shape.union"}
-        if comp.cop_tag(defn.resolved_cop) in _no_invoke_tags:
-            build_only = instructions          # already just BuildBlock
-        else:
-            build_only = instructions[:-1]    # strip trailing TryInvoke
-        try:
-            block_val = interp.execute(build_only, {})
-            if block_val and isinstance(block_val.data, comp.Block):
-                pure_blocks[name] = block_val.data
+            result = comp.morph(input_value, shape, None)
+            if not result.failure_reason:
+                if best_score is None or result.score > best_score:
+                    best_score = result.score
+                    best = callable_obj
         except Exception:
             pass
-
-    # Also include pure InternalCallables from the system module.
-    # These are builtins like fmt, fit, morph, etc. that are marked pure=True
-    # but aren't user-defined !pure blocks — they need separate collection.
-    sys_mod = comp.get_internal_module("system")
-    if sys_mod:
-        for name, defn in sys_mod.definitions().items():
-            if name in pure_blocks:
-                continue
-            if defn.value and isinstance(defn.value.data, comp.InternalCallable):
-                if defn.value.data.pure:
-                    pure_blocks[name] = defn.value.data
-
-    return pure_blocks
+    return best
 
 
-def _eval_pure_in_cop(cop, pure_blocks, interp, _as_stage=False):
+def _find_definition(qualified, namespace):
+    """Look up a Definition by its qualified name in the namespace.
+
+    Args:
+        qualified: (str) Full qualified name (e.g. "reverse.i001")
+        namespace: (dict) Module namespace
+
+    Returns:
+        (Definition | None)
+    """
+    entry = namespace.get(qualified)
+    if entry is None:
+        return None
+    if isinstance(entry, comp.DefinitionSet):
+        for defn in entry.definitions:
+            if defn.qualified == qualified:
+                return defn
+        return None
+    if hasattr(entry, "qualified") and entry.qualified == qualified:
+        return entry
+    return None
+
+
+def _is_pure_definition(defn):
+    """Check if a Definition represents a pure callable.
+
+    A definition is pure if:
+    - It was declared with !pure (defn.pure == True), OR
+    - Its value is an InternalCallable with pure=True, OR
+    - Its value is a Block with pure=True
+
+    Args:
+        defn: (Definition) The definition to check
+
+    Returns:
+        (bool)
+    """
+    if defn.pure:
+        return True
+    if defn.value is None:
+        return False
+    data = defn.value.data
+    if isinstance(data, comp.InternalCallable):
+        return data.pure
+    if isinstance(data, comp.Block):
+        return data.pure
+    return False
+
+
+def _get_callable(defn):
+    """Extract Block or InternalCallable from a Definition's value.
+
+    Args:
+        defn: (Definition) The definition
+
+    Returns:
+        (Block | InternalCallable | None)
+    """
+    if defn.value is None:
+        return None
+    data = defn.value.data
+    if isinstance(data, (comp.Block, comp.InternalCallable)):
+        return data
+    return None
+
+
+# ---------------------------------------------------------------------------
+# COP tree walking and evaluation
+# ---------------------------------------------------------------------------
+
+def _eval_pure_in_cop(cop, namespace, interp, _as_stage=False):
     """Walk COP tree and evaluate pure function invocations.
 
     Processes bottom-up so that inner pure calls are folded before
@@ -147,7 +190,7 @@ def _eval_pure_in_cop(cop, pure_blocks, interp, _as_stage=False):
 
     Args:
         cop: COP tree to process
-        pure_blocks: Dict {qualified_name: Block} of compiled pure blocks
+        namespace: (dict) Module namespace for pure callable lookup
         interp: Interpreter for execution
         _as_stage: If True, this node is a pipeline stage or callable child of
             a binding — skip top-level reference/binding folding since the
@@ -160,7 +203,7 @@ def _eval_pure_in_cop(cop, pure_blocks, interp, _as_stage=False):
 
     # Pipelines are handled as a special unit (stage-by-stage evaluation)
     if tag == "value.pipeline":
-        return _eval_pure_pipeline(cop, pure_blocks, interp)
+        return _eval_pure_pipeline(cop, namespace, interp)
 
     # Recurse into children first (bottom-up).
     # For value.binding, kid[0] is the callable — mark it as a stage so that
@@ -170,7 +213,7 @@ def _eval_pure_in_cop(cop, pure_blocks, interp, _as_stage=False):
     changed = False
     for i, kid in enumerate(kids):
         kid_as_stage = tag == "value.binding" and i == 0
-        res = _eval_pure_in_cop(kid, pure_blocks, interp, _as_stage=kid_as_stage)
+        res = _eval_pure_in_cop(kid, namespace, interp, _as_stage=kid_as_stage)
         new_kids.append(res)
         if res is not kid:
             changed = True
@@ -182,57 +225,20 @@ def _eval_pure_in_cop(cop, pure_blocks, interp, _as_stage=False):
     if not _as_stage:
         # Reference to a pure function — implicit callables (TryInvoke semantics)
         if tag in ("value.reference", "value.namespace"):
-            result = _try_eval_reference(cop, pure_blocks, interp)
+            result = _try_eval_reference(cop, namespace, interp)
             if result is not None:
                 return result
 
         # value.binding{pure_ref, const_args} — explicit call with arguments
         if tag == "value.binding":
-            result = _try_eval_binding(cop, kids, pure_blocks, interp)
+            result = _try_eval_binding(cop, kids, namespace, interp)
             if result is not None:
                 return result
 
     return cop
 
 
-def _pick_pure_block(qualified, pure_blocks, input_value):
-    """Pick the best matching pure Block for the given input value.
-
-    For a single qualified name (str), returns that block directly.
-    For a list of qualified names (overloads), morphs the input against
-    each block's input_shape and returns the highest-scoring match.
-
-    Args:
-        qualified: (str | list) Qualified name(s) of candidate blocks
-        pure_blocks: Dict {qualified_name: Block}
-        input_value: (Value) Current piped input for dispatch scoring
-
-    Returns:
-        (Block | None) Best matching block, or None
-    """
-    if isinstance(qualified, str):
-        return pure_blocks.get(qualified)
-
-    # Multiple overloads — dispatch by morphing input against each block's shape
-    best_block = None
-    best_score = None
-    for name in qualified:
-        block = pure_blocks.get(name)
-        if block is None:
-            continue
-        shape = block.input_shape if block.input_shape is not None else comp.shape_any
-        try:
-            result = comp.morph(input_value, shape, None)
-            if not result.failure_reason:
-                if best_score is None or result.score > best_score:
-                    best_score = result.score
-                    best_block = block
-        except Exception:
-            pass
-    return best_block
-
-
-def _try_eval_reference(cop, pure_blocks, interp):
+def _try_eval_reference(cop, namespace, interp):
     """Try to evaluate a reference to a pure function as a callable.
 
     Handles both value.reference and value.namespace nodes, and both
@@ -248,7 +254,7 @@ def _try_eval_reference(cop, pure_blocks, interp):
 
     nil_val = comp.Value.from_python(comp.tag_nil)
     empty = comp.Value.from_python({})
-    block = _pick_pure_block(qualified, pure_blocks, nil_val)
+    block = _resolve_pure_callable(qualified, namespace, nil_val)
     if block is None:
         return None
 
@@ -259,7 +265,7 @@ def _try_eval_reference(cop, pure_blocks, interp):
         return None
 
 
-def _try_eval_binding(cop, kids, pure_blocks, interp):
+def _try_eval_binding(cop, kids, namespace, interp):
     """Try to evaluate value.binding if callable is pure and args are constant.
 
     Handles both value.reference and value.namespace callables, and both
@@ -288,8 +294,12 @@ def _try_eval_binding(cop, kids, pure_blocks, interp):
     if args_const is None:
         return None
 
+    # Check block arg purity: if args contain callable values, they must be pure
+    if not _args_are_pure(args_const):
+        return None
+
     nil_val = comp.Value.from_python(comp.tag_nil)
-    block = _pick_pure_block(qualified, pure_blocks, nil_val)
+    block = _resolve_pure_callable(qualified, namespace, nil_val)
     if block is None:
         return None
 
@@ -300,7 +310,7 @@ def _try_eval_binding(cop, kids, pure_blocks, interp):
         return None
 
 
-def _eval_pure_pipeline(cop, pure_blocks, interp):
+def _eval_pure_pipeline(cop, namespace, interp):
     """Evaluate leading pure stages of a pipeline at compile time.
 
     Evaluates pipeline stages left-to-right.  Each stage feeds its result
@@ -313,7 +323,7 @@ def _eval_pure_pipeline(cop, pure_blocks, interp):
 
     Args:
         cop: value.pipeline COP node
-        pure_blocks: Dict of compiled pure blocks
+        namespace: (dict) Module namespace for pure callable lookup
         interp: Interpreter
 
     Returns:
@@ -324,7 +334,7 @@ def _eval_pure_pipeline(cop, pure_blocks, interp):
         return cop
 
     # Recurse into first stage (the initial value being piped)
-    first = _eval_pure_in_cop(stages[0], pure_blocks, interp)
+    first = _eval_pure_in_cop(stages[0], namespace, interp)
     current_value = _get_constant(first)
 
     if current_value is None:
@@ -332,7 +342,7 @@ def _eval_pure_pipeline(cop, pure_blocks, interp):
         new_stages = [first]
         changed = first is not stages[0]
         for stage in stages[1:]:
-            res = _eval_pure_in_cop(stage, pure_blocks, interp, _as_stage=True)
+            res = _eval_pure_in_cop(stage, namespace, interp, _as_stage=True)
             new_stages.append(res)
             if res is not stage:
                 changed = True
@@ -346,15 +356,19 @@ def _eval_pure_pipeline(cop, pure_blocks, interp):
         qualified, args_cop = _get_pipeline_stage_parts(stage)
         if qualified is None:
             break
-        block = _pick_pure_block(qualified, pure_blocks, current_value)
+        block = _resolve_pure_callable(qualified, namespace, current_value)
         if block is None:
             break
 
         # Fold args for this stage (including all-constant structs)
-        stage_evaled = _eval_pure_in_cop(args_cop, pure_blocks, interp) if args_cop is not None else None
+        stage_evaled = _eval_pure_in_cop(args_cop, namespace, interp) if args_cop is not None else None
         args_value = _eval_const_cop(stage_evaled, interp) if stage_evaled is not None else comp.Value.from_python({})
         if args_cop is not None and args_value is None:
             break  # Args not constant
+
+        # Check block arg purity
+        if not _args_are_pure(args_value):
+            break
 
         try:
             current_value = _execute_pure_block(block, current_value, args_value, interp)
@@ -372,7 +386,7 @@ def _eval_pure_pipeline(cop, pure_blocks, interp):
         const_cop = _make_constant(stages[0], current_value)
         remaining = [const_cop]
         for stage in stages[evaluated_up_to + 1:]:
-            remaining.append(_eval_pure_in_cop(stage, pure_blocks, interp, _as_stage=True))
+            remaining.append(_eval_pure_in_cop(stage, namespace, interp, _as_stage=True))
         if len(remaining) == 1:
             return remaining[0]
         return comp.cop_rebuild(cop, remaining)
@@ -381,7 +395,7 @@ def _eval_pure_pipeline(cop, pure_blocks, interp):
     new_stages = [first]
     changed = first is not stages[0]
     for stage in stages[1:]:
-        res = _eval_pure_in_cop(stage, pure_blocks, interp, _as_stage=True)
+        res = _eval_pure_in_cop(stage, namespace, interp, _as_stage=True)
         new_stages.append(res)
         if res is not stage:
             changed = True
@@ -398,7 +412,7 @@ def _get_pipeline_stage_parts(stage_cop):
     - value.binding{reference/namespace, args}: piped input + args
 
     qualified may be a str (single overload) or list (multiple overloads).
-    Caller uses _pick_pure_block to resolve.
+    Caller uses _resolve_pure_callable to resolve.
 
     Returns:
         (str | list | None, args_cop or None)
@@ -422,6 +436,45 @@ def _get_pipeline_stage_parts(stage_cop):
 
     return None, None
 
+
+# ---------------------------------------------------------------------------
+# Block arg purity check
+# ---------------------------------------------------------------------------
+
+def _args_are_pure(args_value):
+    """Check that any callable values in args are pure.
+
+    When a pure function receives block arguments (from :block parameters),
+    all such block args must themselves be pure for the fold to be safe.
+
+    Args:
+        args_value: (Value) The argument struct
+
+    Returns:
+        (bool) True if all callable args are pure (or there are no callable args)
+    """
+    if not isinstance(args_value.data, dict):
+        # Scalar arg — check if it's a callable
+        if isinstance(args_value.data, comp.Block):
+            return args_value.data.pure
+        if isinstance(args_value.data, comp.InternalCallable):
+            return args_value.data.pure
+        return True
+
+    # Struct — check all fields
+    for key, val in args_value.data.items():
+        if isinstance(val.data, comp.Block):
+            if not val.data.pure:
+                return False
+        elif isinstance(val.data, comp.InternalCallable):
+            if not val.data.pure:
+                return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Execution and constant helpers
+# ---------------------------------------------------------------------------
 
 def _execute_pure_block(block, input_value, args_value, interp):
     """Execute a pure block or internal callable with given piped input and args.

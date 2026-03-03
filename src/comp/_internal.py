@@ -251,7 +251,6 @@ class SystemModule(comp.Module):
         self._add_callable("mask", _builtin_mask, pure=True)
 
         self._add_callable("item-at", _builtin_item_at, pure=True)
-        self._add_callable("items-at", _builtin_items_at, pure=True)
         self._add_callable("field-name", _builtin_field_name, pure=True)
         self._add_callable("field-value", _builtin_field_value, pure=True)
         self._add_callable("merge", _builtin_merge, pure=True)
@@ -262,7 +261,7 @@ class SystemModule(comp.Module):
         self._add_callable("update", _builtin_update)
         self._add_callable("flat", _builtin_flat)
         self._add_callable("reduce", _builtin_reduce)
-        self._add_callable("forever", _builtin_forever)
+        self._add_callable("forever", _builtin_forever, pure=True)
 
         self.finalize()
 
@@ -478,7 +477,6 @@ def _builtin_mask(input_val, args_val, frame):
     })
 
 
-
 def _builtin_item_at(input_val, args_val, frame):
     """Get a single item struct from the positional index of an existing struct.
 
@@ -501,35 +499,6 @@ def _builtin_item_at(input_val, args_val, frame):
     else:
         item = {item[0]: item[1]}
     return comp.Value.from_python(item)
-
-
-def _builtin_items_at(input_val, args_val, frame):
-    """Collect multiple positional indexes of a struct into a new struct.
-
-    """
-    if input_val.shape != comp.shape_struct:
-        raise comp.CodeError("items-at requires struct input")
-
-    indicesval = args_val.positional(0)
-    if indicesval.shape != comp.shape_struct:
-        raise comp.CodeError("items-at param must be a struct of numbers")
-    
-    indices = []
-    for indexval in indicesval.data.values():
-        if indexval.shape != comp.shape_num:   # needs to be an index integer, maybe allows negative lookup?
-            raise comp.CodeError("items-at param must be an index")
-        indices.append(int(indexval.data))
-
-    items = list(input_val.data.items())
-
-    results = {}
-    for index in indices:
-        item = items[index]
-        if isinstance(item[0], comp.Unnamed):
-            results[comp.Unnamed()] = item[1]
-        else:
-            results[item[0]] = item[1]
-    return comp.Value.from_python(results)
 
 
 def _builtin_field_name(input_val, args_val, frame):

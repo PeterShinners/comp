@@ -12,7 +12,7 @@ __all__ = [
 ]
 
 
-def generate_code_for_definition(cop, dispatch_own_name=None, dispatch_set_name=None):
+def generate_code_for_definition(cop, dispatch_own_name=None, dispatch_set_name=None, pure=False):
     """Generate instruction sequence for a single definition.
     
     This is the main entry point for code generation. Takes a Definition
@@ -25,6 +25,7 @@ def generate_code_for_definition(cop, dispatch_own_name=None, dispatch_set_name=
         cop: (Value) cop nodes
         dispatch_own_name: (str | None) Qualified name of this definition (for !forward)
         dispatch_set_name: (str | None) Base name for DefinitionSet lookup (for !forward)
+        pure: (bool) Whether this definition is pure (propagated to built blocks)
         
     Returns:
         List[Instruction]: Instruction sequence to compute the value
@@ -34,7 +35,7 @@ def generate_code_for_definition(cop, dispatch_own_name=None, dispatch_set_name=
         return []
 
     # Create a code generation context
-    ctx = CodeGenContext(dispatch_own_name=dispatch_own_name, dispatch_set_name=dispatch_set_name)
+    ctx = CodeGenContext(dispatch_own_name=dispatch_own_name, dispatch_set_name=dispatch_set_name, is_pure=pure)
 
     # Generate instructions for the definition's resolved COP
     # The result is left in a register, no final store needed
@@ -59,10 +60,11 @@ class CodeGenContext:
     Operand references are integers pointing to previous instruction indices.
     """
     
-    def __init__(self, dispatch_own_name=None, dispatch_set_name=None):
+    def __init__(self, dispatch_own_name=None, dispatch_set_name=None, is_pure=False):
         self.instructions = []
         self.dispatch_own_name = dispatch_own_name
         self.dispatch_set_name = dispatch_set_name
+        self.is_pure = is_pure
     
     def emit(self, instr):
         """Emit an instruction and return its index (the implicit result register)."""
@@ -628,13 +630,14 @@ class CodeGenContext:
         body_cop = kids[1]       # struct definition with body
         
         # Build body instructions in a separate context
-        body_ctx = CodeGenContext()
+        body_ctx = CodeGenContext(is_pure=self.is_pure)
         body_ctx._build_value_ensure_register(body_cop)
         
         instr = comp._instructions.BuildBlock(
             cop=cop,
             signature_cop=signature_cop,
-            body_instructions=body_ctx.instructions
+            body_instructions=body_ctx.instructions,
+            pure=self.is_pure,
         )
         return self.emit(instr)
 
@@ -712,7 +715,7 @@ class CodeGenContext:
             body_cop = comp.create_cop("statement.define", [])
 
         # Build body instructions in a separate context
-        body_ctx = CodeGenContext()
+        body_ctx = CodeGenContext(is_pure=self.is_pure)
         body_ctx._build_value_ensure_register(body_cop)
 
         block_reg = self.emit(comp._instructions.BuildBlock(
@@ -721,6 +724,7 @@ class CodeGenContext:
             body_instructions=body_ctx.instructions,
             dispatch_own_name=self.dispatch_own_name,
             dispatch_set_name=self.dispatch_set_name,
+            pure=self.is_pure,
         ))
 
         # If there was a wrapper, apply it to the compiled Block at definition time:
@@ -1097,7 +1101,7 @@ class CodeGenContext:
             body_kids = kids
 
         # Build body instructions from the body statement children
-        body_ctx = self.__class__()
+        body_ctx = self.__class__(is_pure=self.is_pure)
         result = None
         expr_result = None
         has_trailing_let = False
@@ -1129,6 +1133,7 @@ class CodeGenContext:
             cop=cop,
             signature_cop=sig_cop,
             body_instructions=body_ctx.instructions,
+            pure=self.is_pure,
         )
         return self.emit(instr)
 

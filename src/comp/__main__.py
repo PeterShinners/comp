@@ -647,6 +647,11 @@ def main():
         return
 
     if args.cop or args.unparse:
+        if args.pure:
+            # Full build pipeline needed so imported pure definitions
+            # are compiled/executed and available for folding.
+            interp.build(mod, fold=True, pure=True)
+
         defs = mod.definitions()
         namespace = mod.namespace()
 
@@ -655,11 +660,6 @@ def main():
             for name, definition in defs.items():
                 if not definition.resolved_cop:
                     definition.resolved_cop = comp.cop_resolve_names(definition.original_cop, namespace)
-                    definition.resolved_cop = comp.coptimize(definition.resolved_cop, True, namespace)
-
-            if args.pure:
-                comp.evaluate_pure_definitions(defs, interp)
-                for name, definition in defs.items():
                     definition.resolved_cop = comp.coptimize(definition.resolved_cop, True, namespace)
 
         # Sort definitions by source position
@@ -690,7 +690,7 @@ def main():
                 if not args.raw:
                     startup_cop = comp.cop_resolve_names(startup_cop, namespace)
                     startup_cop = comp.coptimize(startup_cop, True, namespace,
-                                                 pure=args.pure, defs=defs, interp=interp)
+                                                 pure=args.pure, defs=namespace, interp=interp)
                 print(f"\n{'='*60}")
                 print(f"!startup {startup_name}")
                 print(f"{'='*60}")
@@ -764,7 +764,7 @@ def main():
             if startup_cop is not None:
                 resolved_startup = comp.cop_resolve_names(startup_cop, namespace)
                 resolved_startup = comp.coptimize(resolved_startup, True, namespace,
-                                                  pure=args.pure, defs=defs, interp=interp)
+                                                  pure=args.pure, defs=namespace, interp=interp)
                 startup_instructions = comp.generate_code_for_definition(resolved_startup)
                 print(f"\n!startup {startup_name}")
                 print(f"Source: {comp.cop_unparse(startup_cop)}")
@@ -800,7 +800,7 @@ def main():
             if startup_cop is not None:
                 resolved_startup = comp.cop_resolve_names(startup_cop, namespace)
                 resolved_startup = comp.coptimize(resolved_startup, True, namespace,
-                                                  pure=args.pure, defs=defs, interp=interp)
+                                                  pure=args.pure, defs=namespace, interp=interp)
                 startup_instructions = comp.generate_code_for_definition(resolved_startup)
 
                 if args.trace:

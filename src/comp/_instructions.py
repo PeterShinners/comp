@@ -690,12 +690,13 @@ class UnwrapStatementHandle(Instruction):
 class BuildBlock(Instruction):
     """Build a block/function value."""
 
-    def __init__(self, cop, signature_cop, body_instructions, dispatch_own_name=None, dispatch_set_name=None):
+    def __init__(self, cop, signature_cop, body_instructions, dispatch_own_name=None, dispatch_set_name=None, pure=False):
         super().__init__(cop)
         self.signature_cop = signature_cop
         self.body_instructions = body_instructions
         self.dispatch_own_name = dispatch_own_name
         self.dispatch_set_name = dispatch_set_name
+        self.pure = pure
 
     def execute(self, frame):
         # Create a Block object and store the execution data
@@ -707,6 +708,7 @@ class BuildBlock(Instruction):
         block.signature_cop = self.signature_cop
         block.dispatch_own_name = self.dispatch_own_name
         block.dispatch_set_name = self.dispatch_set_name
+        block.pure = self.pure
 
         # Parse signature to extract parameter names and shapes.
         # Two formats may appear depending on origin:
