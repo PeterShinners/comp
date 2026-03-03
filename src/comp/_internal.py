@@ -210,9 +210,12 @@ class SystemModule(comp.Module):
         self._add_tag("fail.reference.undefined", comp.tag_fail_reference_undefined)
         self._add_tag("fail.reference.ambiguous", comp.tag_fail_reference_ambiguous)
         self._add_tag("fail.invoke", comp.tag_fail_invoke)
+        self._add_tag("flow-control", comp.tag_flow)
+        self._add_tag("flow-control.skip", comp.tag_flow_skip)
+        self._add_tag("flow-control.stop", comp.tag_flow_stop)
         self._add_tag("less", comp.tag_less)
         self._add_tag("equal", comp.tag_equal)
-        self._add_tag("greater", comp.tag_greater)
+        self._add_tag("greater", comp.tag_greater)  
         self._add_tag("ord.less", comp.tag_less)
         self._add_tag("ord.equal", comp.tag_equal)
         self._add_tag("ord.greater", comp.tag_greater)
@@ -239,19 +242,27 @@ class SystemModule(comp.Module):
         self._add_shape("failure", comp.shape_failure)
 
         # Builtin callables
-        self._add_callable("pass",   _builtin_pass,   pure=True)
-        self._add_callable("tee",    _builtin_tee,    pure=True)
-        self._add_callable("fit",    _builtin_fit,    pure=True, input_shape=comp.shape_num)
-        self._add_callable("wrap",   _builtin_wrap)
-        self._add_callable("morph",  _builtin_morph,  pure=True)
-        self._add_callable("mask",   _builtin_mask,   pure=True)
-        self._add_callable("abs",    _builtin_abs,    pure=True)
+        self._add_callable("pass", _builtin_pass, pure=True)
+        self._add_callable("tee", _builtin_tee, pure=True)
+        self._add_callable("fit", _builtin_fit, pure=True, input_shape=comp.shape_num)
         self._add_callable("output", _builtin_output)
-        self._add_callable("fmt",    _builtin_fmt,    pure=True)
-        self._add_callable("apply",  _builtin_apply)
+
+        self._add_callable("morph", _builtin_morph, pure=True)
+        self._add_callable("mask", _builtin_mask, pure=True)
+
+        self._add_callable("item-at", _builtin_item_at, pure=True)
+        self._add_callable("items-at", _builtin_items_at, pure=True)
+        self._add_callable("field-name", _builtin_field_name, pure=True)
+        self._add_callable("field-value", _builtin_field_value, pure=True)
+        self._add_callable("merge", _builtin_merge, pure=True)
+
+        self._add_callable("wrap", _builtin_wrap)
+        self._add_callable("fmt", _builtin_fmt, pure=True)
+        self._add_callable("apply", _builtin_apply)
         self._add_callable("update", _builtin_update)
-        self._add_callable("flat",   _builtin_flat)
+        self._add_callable("flat", _builtin_flat)
         self._add_callable("reduce", _builtin_reduce)
+        self._add_callable("forever", _builtin_forever)
 
         self.finalize()
 
@@ -467,6 +478,177 @@ def _builtin_mask(input_val, args_val, frame):
     })
 
 
+
+def _builtin_item_at(input_val, args_val, frame):
+    """Get a single item struct from the positional index of an existing struct.
+
+    This single item struct will contain exactly one value, with either
+    a named or unnamed field.
+    
+    """
+    if input_val.shape != comp.shape_struct:
+        raise comp.CodeError("item-at requires struct input")
+
+    indexval = args_val.positional(0)
+    if indexval.shape != comp.shape_num:   # needs to be an index integer, maybe allows negative lookup?
+        raise comp.CodeError("item-at param must be an index")
+
+    items = list(input_val.data.items())
+    item = items[int(indexval.data)]
+
+    if isinstance(item[0], comp.Unnamed):
+        item = [item[1]]
+    else:
+        item = {item[0]: item[1]}
+    return comp.Value.from_python(item)
+
+
+def _builtin_items_at(input_val, args_val, frame):
+    """Collect multiple positional indexes of a struct into a new struct.
+
+    """
+    if input_val.shape != comp.shape_struct:
+        raise comp.CodeError("items-at requires struct input")
+
+    indicesval = args_val.positional(0)
+    if indicesval.shape != comp.shape_struct:
+        raise comp.CodeError("items-at param must be a struct of numbers")
+    
+    indices = []
+    for indexval in indicesval.data.values():
+        if indexval.shape != comp.shape_num:   # needs to be an index integer, maybe allows negative lookup?
+            raise comp.CodeError("items-at param must be an index")
+        indices.append(int(indexval.data))
+
+    items = list(input_val.data.items())
+
+    results = {}
+    for index in indices:
+        item = items[index]
+        if isinstance(item[0], comp.Unnamed):
+            results[comp.Unnamed()] = item[1]
+        else:
+            results[item[0]] = item[1]
+    return comp.Value.from_python(results)
+
+
+def _builtin_field_name(input_val, args_val, frame):
+    """Get the name for a simple single item struct.
+
+    This is expected to work on a simple, single-item structure, as returned
+    by `item-at`.
+    
+    This will fail if the field has no name or the struct doesn't have a
+    single value.
+        
+    """
+    if input_val.shape != comp.shape_struct:
+        raise comp.CodeError("field-name requires struct input")
+    if not input_val.data:
+        raise comp.CodeError("field-name got an empty struct")
+    if len(input_val.data) != 1:
+        raise comp.CodeError("field-name struct must be a single item")
+
+    key = list(input_val.data.keys())[0]
+    if isinstance(key, comp.Unnamed):
+        raise comp.CodeError("field-name field is unnamed")
+    return key
+
+
+def _builtin_field_value(input_val, args_val, frame):
+    """Get the value for a simple single item struct.
+
+    This is expected to work on a simple, single-item structure, as returned
+    by `item-at`.
+    
+    This will fail if the struct doesn't have a single value.
+        
+    """
+    if input_val.shape != comp.shape_struct:
+        raise comp.CodeError("field-value requires struct input")
+    if not input_val.data:
+        raise comp.CodeError("field-value got an empty struct")
+    if len(input_val.data) != 1:
+        raise comp.CodeError("field-value struct must be a single item")
+
+    value = list(input_val.data.values())[0]
+    return value
+
+
+def _builtin_merge(input_val, args_val, frame):
+    """Merge multiple structs into a single resulting structure.
+
+    Fields each struct are appended into a new structure, or if given
+    a conflicting field name will insert the new value at the original position.
+    
+    This will fail if the struct is empty.
+        
+    """
+    if input_val.shape != comp.shape_struct:
+        raise comp.CodeError("merge requires struct input")
+    if len(input_val.data) == 0:
+        raise comp.CodeError("merge input must not be empty")
+
+    result = {}
+    for container in input_val.data.values():
+        if container.shape != comp.shape_struct:
+            raise comp.CodeError("merge input values must be structs")
+        for key, value in container.data.items():
+            if isinstance(key, comp.Unnamed):
+                key = comp.Unnamed()
+            result[key] = value
+
+    return comp.Value.from_python(result)
+
+
+def _builtin_forever(input_val, args_val, frame):
+    """Loop forever, calling a block repeatedly until it returns ~stop.
+
+    The piped input is the initial accumulator.  The first positional
+    argument is the block to invoke on each iteration.  The block
+    receives the current accumulator as piped input ($).
+
+    Flow-control tags returned by the block:
+        ~flow-control.stop  — exit the loop, return current accumulator
+        ~flow-control.skip  — skip this iteration (acc unchanged), continue
+
+    Any other value becomes the new accumulator for the next iteration.
+
+    Usage:  initial | forever :(... body ...)
+
+    Example:
+        0 | forever :(
+            !on $ >= 10
+            ~true stop
+            ~false ($ + 1)
+        )
+        /// returns 10
+    """
+    args_data = args_val.data if isinstance(args_val.data, dict) else {}
+
+    # Get the block from the first positional arg
+    block_val = None
+    for k, v in args_data.items():
+        if isinstance(k, comp.Unnamed):
+            block_val = v
+            break
+
+    if block_val is None:
+        raise comp.CodeError("forever requires a callable as positional argument")
+
+    _empty_args = comp.Value.from_python({})
+    acc = input_val
+
+    while True:
+        value = frame.invoke_block(block_val, _empty_args, piped=acc)
+        if isinstance(value.data, comp.Tag):
+            if value.data is comp.tag_flow_stop:
+                break
+            if value.data is comp.tag_flow_skip:
+                continue
+        acc = value
+
+    return acc
 
 # Global flag for colorization - will be replaced by context system later
 _should_colorize = None
@@ -742,20 +924,6 @@ def _builtin_fmt(input_val, args_val, frame):
     parsed = _fmt.parse_format_text(fmt_val.data)
     result = _fmt.apply_format(parsed, input_val)
     return comp.Value.from_python(result)
-
-
-def _builtin_abs(input_val, args_val, frame):
-    """Return the absolute value of the first argument."""
-    val = args_val.positional(0)
-    if val is None:
-        raise ValueError("abs requires one argument")
-    scalar = val.as_scalar()
-    if scalar.shape != comp.shape_num:
-        raise TypeError(f"abs requires a number, got {scalar.format()}")
-    import decimal
-    n = scalar.data
-    result = n.copy_abs() if isinstance(n, decimal.Decimal) else abs(n)
-    return comp.Value(result)
 
 
 # Registry of internal modules

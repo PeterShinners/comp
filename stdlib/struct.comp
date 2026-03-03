@@ -27,9 +27,6 @@
 )
 
 
-// Need a "items" type function that gets pairs of name/value
-
-
 
 // /// Extract a sub-range of fields by position
 // !pure slice ~struct (
@@ -74,12 +71,6 @@
 //     ))
 //     acc.result
 // )
-
-/// Merge another struct's fields onto this one (right-biased)
-!pure merge ~struct @update (
-    :param updates~struct
-    updates
-)
 
 // /// Take the first N elements
 // !pure take ~struct (

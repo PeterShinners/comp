@@ -1,115 +1,300 @@
 /// Iteration and looping functions
-/// Functions for mapping, filtering, and reducing over structs.
+///
+/// Core iteration primitives built on the `forever` builtin.
+/// The layering is:
+///   forever (builtin) → generate / iterate → range, map, where, reduce
+
+!import s comp "struct"
 
 
-!tag flow-control {skip stop else}  // this may conflict with a builtin else func?
 
 
-/// Stream of an infinite series of integers, starting from 0
-!pure counter (
-    !let count 0
-    !defer {
-        count
-        !let count count + 1
-    }
-)
-
-
-/// Generate range of numbers
-!pure range (
-    :param start~num=0 
-    :param end~num 
-    :param step~num=1
-
-    // should deal with negatives? or reverse ranges? ... eventually
-
-    !on (step == 0)
-    ~true !fail {fail.value message="range step cannot be zero"}
-
-    unfold :seed=start (
-        !on ($ >= end)
-        ~true done
-        ~false {value=$ next=($ + step)}
+/// Transform each value in a struct by applying a block.
+///
+/// The transform block receives each raw value as piped input ($).
+/// Field names are not preserved — the output is a positional struct.
+///
+/// Examples:
+///   {1 2 3} | map :($ * 10)
+///   // {10 20 30}
+///
+///   {a=1 b=2 c=3} | map :($ + 100)
+///   // {101 102 103}
+///
+///   range :1 :5 | map :($ * $)
+///   // {1 4 9 16 25}
+!pure map ~struct (
+    :block transform~any
+    $ | iterate :(
+        $.item | field-value | transform
     )
 )
 
-// /// Transform each value in a struct
-// !pure map ~struct (
-//     :block op~any
-//     $ | reduce :initial={} :(
-//         :param item~any
-//         $ | append :(item | op)
-//     )
-// )
 
-// /// Keep only elements where test returns true
-// !pure filter ~struct (
-//     :block test~any
-//     $ | reduce :initial={} :(
-//         :param item~any
-//         !on (item | test)
-//         ~true ($ | append :item)
-//         ~false $
-//     )
-// )
-
-// /// Apply an operation to each element for side effects
-// !func each ~struct (
-//     :block op~any
-//     $ | reduce :initial={} :(
-//         :param item~any
-//         item | op
-//         $
-//     )
-//     $$
-// )
+/// Filter a struct, keeping only values where a predicate returns true.
+///
+/// The test block receives each raw value as piped input ($) and should
+/// return true or false. Values where test returns true are kept;
+/// others are excluded. Field names are not preserved.
+///
+/// Examples:
+///   {1 2 3 4 5} | where :($ > 3)
+///   // {4 5}
+///
+///   range :1 :10 | where :($ % 2 == 0)
+///   // {2 4 6 8 10}
+///
+///   {a=1 b=20 c=3 d=40} | where :($ >= 10)
+///   // {20 40}
+!pure where ~struct (
+    :block test~any
+    $ | iterate :(
+        !let value ($.item | field-value)
+        // Test the value; keep it or skip
+        !on (value | test)
+        ~true value
+        ~false skip
+    )
+)
 
 
-// /// Test if any element satisfies a condition
-// !pure any ~struct (
-//     :block test~any
-//     $ | reduce :initial=false :(
-//         :param item~any
-//         !on $
-//         ~true true
-//         ~false (item | test)
-//     )
-// )
+/// Test if any element in a struct satisfies a predicate.
+///
+/// Short-circuits: returns true as soon as the first match is found
+/// without processing remaining elements.
+///
+/// This is similar to Python's `any` builtin function.
+///
+/// Examples:
+///   {1 2 3} | some :($ > 2)
+///   // true
+///
+///   {1 2 3} | some :($ > 10)
+///   // false
+///
+///   {false false true false} | some :pass
+///   // true
+!pure some ~struct (
+    :block test~any
+    !let found false
+    $ | iterate :(
+        !let value ($.item | field-value)
+        !on (value | test)
+        ~true (!let found true)
+        ~false nil
+        // Last expression: stop on match, skip on no match
+        !on found
+        ~true stop
+        ~false skip
+    )
+    found
+)
 
-// /// Test if all elements satisfy a condition
-// !pure all ~struct (
-//     :block test~any
-//     $ | reduce :initial=true :(
-//         :param item~any
-//         !on $
-//         ~false false
-//         ~else (item | test)
-//     )
-// )
 
-// /// Find the first element matching a condition
-// !pure find ~struct (
-//     :block test~any
-//     !let acc ($ | reduce :initial={found=false} :(
-//         :param item~any
-//         !on $.found
-//         ~true $
-//         ~false (
-//             !on (item | test)
-//             ~true {found=true value=item}
-//             ~false $
-//         )
-//     ))
-//     acc.value
-// )
+/// Test if all elements in a struct satisfy a predicate.
+///
+/// Short-circuits: returns false as soon as the first non-match is found
+/// without processing remaining elements.
+///
+///
+/// This is similar to Python's `all` builtin function.
+///
+/// Examples:
+///   {2 4 6} | every :($ > 0)
+///   // true
+///
+///   {2 -3 6} | every :($ > 0)
+///   // false
+///
+///   {true true true} | every :pass
+///   // true
+!pure every ~struct (
+    :block test~any
+    !let passed true
+    $ | iterate :(
+        !let value ($.item | field-value)
+        !on (value | test)
+        ~true nil
+        ~false (!let passed false)
+        // Last expression: stop on failure, skip on pass
+        !on passed
+        ~false stop
+        ~true skip
+    )
+    passed
+)
 
-// /// Count elements matching an optional condition
-// !pure count ~struct (
-//     :block test~any=pass
-//     $ | reduce :initial=0 :(
-//         :param item~any
-//         !on (item | test)
-//         ~true ($ + 1)
-//         ~false $
-//     )
-// )
+/// Generate a struct of numbers from start to end (inclusive).
+///
+/// Uses generate with the current number as state. Each iteration
+/// checks if we've passed the end, and if not, advances by step.
+///
+/// Args:
+///   start: (num) First value, default 0
+///   end:   (num) Last value (inclusive)
+///   step:  (num) Increment between values, default 1
+///
+/// Examples:
+///   range :5         // {0 1 2 3 4 5}
+///   range :1 :5      // {1 2 3 4 5}
+///   range :0 :10 :step=3   // {0 3 6 9}
+!pure range (
+    :param start~num=0
+    :param end~num
+    :param step~num=1
+    // State is the current number; generate collects it before advancing
+    start | generate :(
+        !on $ > end
+        ~true stop
+        ~false ($ + step)
+    )
+)
+
+
+/// Fold a struct down to a single accumulated value.
+///
+/// Iterates each field in order, calling the fold block for each item.
+/// The fold block receives the current item as a positional argument
+/// and the running accumulator as piped input ($).
+///
+/// Args:
+///   initial: (any) Starting accumulator value
+///   fold:    (block) Called as `acc | fold :item` for each element
+///
+/// Examples:
+///   // Sum numbers
+///   {1 2 3 4 5} | reduce :initial=0 :($ + $$.#1)
+///
+///   // Count items
+///   {a b c} | reduce :initial=0 :($ + 1)
+!pure reduce ~struct (
+    :param initial~any
+    :block fold~any
+    !let items $
+    !let idx 0
+    // Pipe initial accumulator into forever; $ is the running total
+    initial | forever :(
+        !on idx >= (items | length)
+        ~true stop
+        // Call fold with current item; $ inside fold is the accumulator
+        ~false (items.#(idx) | fold)
+        !let idx idx + 1
+    )
+)
+
+
+/// Iterate over each field of a struct, calling a block for each one.
+///
+/// The op block receives a context struct as piped input ($):
+///   $.position  — zero-based index of the current field
+///   $.item      — single-item struct pair (e.g. {3} or {name=val})
+///   $.accum     — the return value of the previous iteration (nil for first)
+///
+/// The op block's return value controls accumulation:
+///   - Return `skip` to exclude this item from the output
+///   - Return `stop` to break early and return what's been collected so far
+///   - Any other value is appended to the output struct
+///
+/// This is a lower level looping function primarily used when looping over
+/// values in a structure.
+///
+/// Examples:
+///   // Double each value, collecting results
+///   {1 2 3} | iterate :(
+///       $.item | field-value | ($ * 2)
+///   )
+///   // {2 4 6}
+///
+///   // Collect only even-positioned items
+///   {a b c d e} | iterate :(
+///       !on $.position % 2 == 0
+///       ~true ($.item | field-value)
+///       ~false skip
+///   )
+///   // {a c e}
+!pure iterate ~struct (
+    :block op~nil
+    !let items $
+    !let acc {}
+    !let len (items | s.length)
+    // State struct carries position and previous result through forever
+    {position=0 accum=nil} | forever :(
+        // Extract position from state (needed as a local for item-at arg)
+        !let pos $.position
+        // Bounds check first — handles empty structs and loop termination
+        !on pos < len
+        ~false stop
+        ~true (
+            // Get the single-item struct pair at this index
+            !let entry (items | item-at :pos)
+            // Call the op block with full context
+            !let result ({position=pos item=entry accum=$.accum} | op)
+            // Check if op returned a flow-control tag
+            !on result
+            // Propagate skip/stop — skip means don't accumulate, stop means break
+            ~flow-control result
+            // Normal value — append to the output
+            ~any (!let acc ({acc {result}} | merge))
+            // Advance position or continue
+            {position=(pos + 1) accum=result}
+        )
+    )
+    acc
+)
+
+
+
+
+/// Generate a struct by repeatedly calling a block until it signals `stop`.
+///
+/// The piped input becomes the initial generator state, available as `$`
+/// inside the gen block. Each iteration, the gen block returns the NEXT
+/// state. The CURRENT `$` (before advancing) is accumulated into the output.
+///
+/// This is the lowest level building block for iterative calls. It manages
+/// accumulating values and handling the flow control `stop` and `skip`
+/// as operators.
+///
+/// Flow control:
+///   - Return `stop` to end generation
+///   - Return `skip` to advance state without accumulating
+///   - Any other return value becomes the next state and current `$` is collected
+///
+/// Examples:
+///   // Generate squares: state is the current number
+///   1 | generate :(
+///       !on $ > 5
+///       ~true stop
+///       ~false ($ + 1)
+///   )
+///   /// {1 2 3 4 5}
+///
+///   // Fibonacci-like: state is just a counter, use closure for real state
+///   !let a 0
+///   !let b 1
+///   0 | generate :(
+///       !let temp b
+///       !let b a + b
+///       !let a temp
+///       !on $ >= 5
+///       ~true stop
+///       ~false ($ + 1)
+///   )
+///   /// accumulates $ (the counter), not the fib values
+!pure generate (
+    :block gen~nil
+    !let acc {}
+    // Pipe initial state into forever; $ is the running state
+    $ | forever :(
+        // Call gen with current state to get next state
+        !let next ($ | gen)
+        !on next
+        // Propagate stop/skip to forever
+        ~flow-control next
+        // Accumulate current state ($), then advance to next
+        ~any (!let acc ({acc {$}} | merge))
+        next
+    )
+    acc
+)
+

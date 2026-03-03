@@ -702,7 +702,7 @@ class BuildBlock(Instruction):
         block = comp.Block("anonymous", private=False)
         block.module = frame.module  # Capture the defining module
         block.body_instructions = self.body_instructions
-        block.closure_env = dict(frame.env)
+        block.closure_env = frame.env
         block.captured_dollar_vars = dict(frame._dollar_vars)
         block.signature_cop = self.signature_cop
         block.dispatch_own_name = self.dispatch_own_name
@@ -1656,7 +1656,7 @@ class DispatchOn(Instruction):
                 matched = (comp._ops.compare("==", condition_val, pattern_val).data is comp.tag_true)
 
             if matched:
-                result_frame = frame._make_child_frame(dict(frame.env), module=frame.module)
+                result_frame = frame._make_child_frame(frame.env, module=frame.module)
                 result_frame._dollar_vars = dict(frame._dollar_vars)
                 # Propagate branch failure to the parent frame so fast-forward
                 # continues and invoke_block can detect and raise it.

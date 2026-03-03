@@ -1078,23 +1078,31 @@ class CodeGenContext:
             return self._build_value_ensure_register(cop)
 
     def _build_inline_block_with_signature(self, cop, kids):
-        """Build an inline block from a statement.define that has a block.signature.
+        """Build an inline block from a statement.define in callable/args position.
 
         When a binding argument like :(:param item~any expr) appears inside
         _build_args_struct, the (:param ...) creates a statement.define with a
         leading block.signature child.  This method compiles it into a proper
         BuildBlock so that parameter declarations take effect and the block
         can be invoked repeatedly by builtins like reduce.
-        """
-        sig_cop = kids[0]
 
-        # Build body instructions from the remaining statement children
+        When there is no block.signature (e.g. :($ * 10)), an empty signature
+        is synthesized and all kids are treated as body statements.
+        """
+        if kids and comp.cop_tag(kids[0]) == "block.signature":
+            sig_cop = kids[0]
+            body_kids = kids[1:]
+        else:
+            sig_cop = comp.create_cop("block.signature", [])
+            body_kids = kids
+
+        # Build body instructions from the body statement children
         body_ctx = self.__class__()
         result = None
         expr_result = None
         has_trailing_let = False
 
-        for kid in kids[1:]:
+        for kid in body_kids:
             kid_tag = comp.cop_tag(kid)
             if kid_tag == "statement.field":
                 inner = _cop_kids(kid)
