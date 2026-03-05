@@ -243,8 +243,6 @@
 )
 
 
-
-
 /// Generate a struct by repeatedly calling a block until it signals `stop`.
 ///
 /// The piped input becomes the initial generator state, available as `$`

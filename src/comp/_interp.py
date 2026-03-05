@@ -226,6 +226,36 @@ class Interp:
         frame = ExecutionFrame(env, interp=self, module=module)
         return frame.run(instructions)
 
+    def build_namespace(self, module):
+        """Build namespaces for a module and all its dependencies.
+
+        Runs passes 1-4 (definitions, namespace, resolve aliases, apply aliases)
+        on all modules in the dependency graph. This is sufficient for namespace
+        inspection without doing the full build pipeline.
+
+        Modules with parse errors in their definitions are skipped — the error
+        is stored on the import record so downstream code can report it.
+
+        Args:
+            module: (Module) The root module
+        """
+        all_modules = self._collect_modules(module)
+        failed = set()
+        for mod in all_modules:
+            try:
+                mod.definitions()
+            except (comp.ParseError, comp.CodeError):
+                failed.add(id(mod))
+        for mod in all_modules:
+            if id(mod) not in failed:
+                mod.namespace()
+        for mod in all_modules:
+            if id(mod) not in failed:
+                mod.resolve_deferred()
+        for mod in all_modules:
+            if id(mod) not in failed:
+                mod.apply_aliases()
+
     def build(self, module, fold=True, pure=False):
         """Build a module and all its dependencies through the full pipeline.
 
@@ -236,10 +266,12 @@ class Interp:
         Build passes (each applied to ALL modules before the next begins):
         1. Definitions — lark parse statements into cop nodes
         2. Namespace — merge imports + local definitions
-        3. Resolution — cop_resolve_names on every definition
-        4. Fold/Optimize — coptimize for constant folding (optional)
-        5. Codegen — generate instruction sequences
-        6. Execute — run instructions to populate definition values
+        3. Resolve aliases — resolve alias/export refs against namespace
+        4. Apply aliases — inject resolved aliases into all namespaces
+        5. Resolution — cop_resolve_names on every definition
+        6. Fold/Optimize — coptimize for constant folding (optional)
+        7. Codegen — generate instruction sequences
+        8. Execute — run instructions to populate definition values
 
         Args:
             module: (Module) The root module to build
@@ -260,7 +292,15 @@ class Interp:
         for mod in all_modules:
             mod.namespace()
 
-        # Pass 3: Resolution — resolve all identifier cop nodes
+        # Pass 3: Resolve aliases — resolve alias/export refs against namespace
+        for mod in all_modules:
+            mod.resolve_deferred()
+
+        # Pass 4: Apply aliases — inject resolved aliases into all namespaces
+        for mod in all_modules:
+            mod.apply_aliases()
+
+        # Pass 5: Resolution — resolve all identifier cop nodes
         for mod in all_modules:
             mod_defs = mod.definitions()
             mod_ns = mod.namespace()
@@ -270,7 +310,7 @@ class Interp:
                         defn.original_cop, mod_ns
                     )
 
-        # Pass 4: Fold/Optimize — constant folding
+        # Pass 6: Fold/Optimize — constant folding
         if fold:
             for mod in all_modules:
                 mod_defs = mod.definitions()
@@ -280,7 +320,7 @@ class Interp:
                         defn.resolved_cop, True, mod_ns
                     )
 
-        # Pass 4b: Pure evaluation (optional)
+        # Pass 6b: Pure evaluation (optional)
         if pure:
             # Pre-execute pure definitions so their values are available
             # for folding. Modules are in dependency order, so imported
@@ -316,7 +356,7 @@ class Interp:
                             defn.resolved_cop, True, mod_ns
                         )
 
-        # Pass 5: Codegen — generate instructions for all definitions
+        # Pass 7: Codegen — generate instructions for all definitions
         for mod in all_modules:
             mod_defs = mod.definitions()
             for name, defn in mod_defs.items():

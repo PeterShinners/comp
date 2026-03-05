@@ -218,8 +218,7 @@ def prettyimports(module, visited=None, prefix=""):
 def prettynamespace(namespace):
     """Show the finalized namespace for a module."""
     for name, defset in sorted(namespace.items()):
-        value = defset.scalar()
-        if value and value.module_id == "system#0000":
+        if all(d.module_id == "system#0000" for d in defset.definitions):
             continue
         defs = [f"{d.module_id}:{d.qualified}" for d in defset.definitions]
         if len(defset.definitions) > 1:
@@ -653,6 +652,8 @@ def main():
             interp.build(mod, fold=True, pure=True)
 
         defs = mod.definitions()
+        if not args.pure:
+            interp.build_namespace(mod)
         namespace = mod.namespace()
 
         if not args.raw:
@@ -704,6 +705,7 @@ def main():
         return
 
     if args.definitions:
+        interp.build_namespace(mod)
         defs = mod.definitions()
         for name, definition in sorted(defs.items()):
             unparse = comp.cop_unparse(definition.original_cop)
@@ -717,6 +719,12 @@ def main():
                 value = f"{value.shape.qualified}"
                 value = value.format()
             print(f"{name:16}  {f'({shape_name})':8s} {value} {unparse}")
+        if mod._deferred_defs:
+            if defs:
+                print()
+            for kind, def_name, def_ref, is_private in mod._deferred_defs:
+                private_marker = " (private)" if is_private else ""
+                print(f"!{kind} {def_name} -> {def_ref}{private_marker}")
         return
 
     if args.describe:
@@ -726,6 +734,7 @@ def main():
         return
 
     if args.namespace:
+        interp.build_namespace(mod)
         ns = mod.namespace()
         prettynamespace(ns)
         return
@@ -809,10 +818,12 @@ def main():
                     startup_block = frame.run(startup_instructions)
                     if startup_block is not None and isinstance(startup_block.data, comp.Block):
                         try:
-                            frame.invoke_block(startup_block, context, piped=None)
+                            result = frame.invoke_block(startup_block, context, piped=None)
                         except comp._interp.CompFail as e:
                             print(_format_failure_cli(e.value, source_file=args.source), file=sys.stderr)
                             sys.exit(1)
+                        if result is not None:
+                            print(result.format())
                 else:
                     startup_block = interp.execute(startup_instructions, env, module=mod)
                     if startup_block is not None and isinstance(startup_block.data, comp.Block):
@@ -822,6 +833,8 @@ def main():
                         except comp._interp.CompFail as e:
                             print(_format_failure_cli(e.value, source_file=args.source), file=sys.stderr)
                             sys.exit(1)
+                        if result is not None:
+                            print(result.format())
             else:
                 # No startup found - fall back to printing all definition values
                 print("\nResults:")

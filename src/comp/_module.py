@@ -45,9 +45,15 @@ class Module:
         # Module-level values (from !mod statements)
         self._mod_values = None
 
-        # Alias statements: list of (alias_name, ref_string, is_private)
-        # Populated during definitions(), resolved during namespace()
-        self._alias_stmts = []
+        # Deferred definitions: list of (kind, name, ref_string, is_private)
+        # kind is "alias" or "export"
+        # Populated during definitions(), resolved during resolve_deferred()
+        self._deferred_defs = []
+
+        # Resolved alias/export definitions for cross-module visibility.
+        # Dict of {alias_name: Definition} — same shape as definitions() returns.
+        # Only public aliases/exports are stored here. Populated by resolve_deferred().
+        self._exported_aliases = {}
 
     def __repr__(self):
         return f"Module<{self.token}>"
@@ -246,6 +252,8 @@ class Module:
                 self._process_mod_statement(stmt)
             elif operator == "alias":
                 self._process_alias_statement(stmt)
+            elif operator == "export":
+                self._process_export_statement(stmt)
             else:
                 pass  # Handle import, package, startup separately
 
@@ -383,7 +391,7 @@ class Module:
     def _process_alias_statement(self, stmt):
         """Process a !alias statement, queuing for namespace-time resolution.
 
-        Aliases are resolved during namespace() once imports are available.
+        Aliases are resolved during namespace() against the namespace.
         Syntax: !alias NAME REFERENCE  (NAME may carry & for private)
         """
         raw_name = stmt.get("name")
@@ -391,7 +399,20 @@ class Module:
         alias_name = raw_name[:-1] if is_private else raw_name
         alias_ref = stmt.get("body", "").strip()
         if alias_ref:
-            self._alias_stmts.append((alias_name, alias_ref, is_private))
+            self._deferred_defs.append(("alias", alias_name, alias_ref, is_private))
+
+    def _process_export_statement(self, stmt):
+        """Process a !export statement, queuing for namespace-time resolution.
+
+        Exports are resolved during namespace() against the imports.
+        Syntax: !export NAME IMPORT_NAME  (NAME may carry & for private)
+        """
+        raw_name = stmt.get("name")
+        is_private = raw_name.endswith("&")
+        export_name = raw_name[:-1] if is_private else raw_name
+        export_ref = stmt.get("body", "").strip()
+        if export_ref:
+            self._deferred_defs.append(("export", export_name, export_ref, is_private))
 
     def _statement_identifier(self, identifier_cop):
         """Extract name from value.identifier COP node.
@@ -510,15 +531,6 @@ class Module:
             self._namespace = dict(sys.namespace())
 
         for import_name, (import_module, import_err) in self._imports.items():
-            # Trigger the import module's namespace build if it hasn't started yet.
-            # This ensures _apply_aliases() has run so alias definitions appear in
-            # import_module._definitions before we pull them into our own namespace.
-            # Skip if already mid-build (_namespace not None) to avoid circular issues.
-            if import_module is not None and import_module._namespace is None:
-                try:
-                    import_module.namespace()
-                except Exception:
-                    pass  # errors surface via import_err or the check above
             import_definitions = import_module.definitions()
             import_namespace = create_namespace(import_definitions, import_name)
             self._namespace = merge_namespace(self._namespace, import_namespace, clobber=False)
@@ -527,88 +539,162 @@ class Module:
         namespace = create_namespace(defs, None)
         self._namespace = merge_namespace(self._namespace, namespace, clobber=True)
 
-        self._apply_aliases()
-
         return self._namespace
 
-    def _apply_aliases(self):
-        """Resolve queued !alias statements against the current namespace.
+    def resolve_deferred(self):
+        """Resolve queued alias and export refs against the namespace.
 
-        Called once at the end of namespace() after all imports and local
-        definitions have been merged.  For each alias:
-        - Creates new Definitions that share the target's COP / value / instructions
-        - Injects all name permutations into self._namespace
-        - Adds non-private alias Definitions to self._definitions so they
-          are visible to modules that import this one
+        Pass 3: Called by the interpreter after all module namespaces are
+        built. Resolves alias/export references to concrete Definitions
+        and stores public results in _exported_aliases for cross-module
+        propagation. Does NOT modify any namespace.
+
+        Aliases resolve against the namespace (local defs + imports).
+        Exports resolve against the imports only.
         """
-        alias_counters = {}
-        for alias_name, alias_ref, is_private in self._alias_stmts:
-            target_entry = self._namespace.get(alias_ref)
-            if target_entry is None:
-                continue  # unresolved reference — silently skip for now
+        if not self._deferred_defs:
+            return
 
-            if isinstance(target_entry, DefinitionSet):
-                target_defs = list(target_entry.definitions)
-            elif isinstance(target_entry, Definition):
-                target_defs = [target_entry]
-            elif isinstance(target_entry, Ambiguous):
-                target_defs = list(target_entry.definitions)
-            else:
+        # Build lookup of alias names to their refs for recursive resolution.
+        # Multiple aliases can share a name (overload dispatch), so group them.
+        alias_lookup = {}
+        for kind, name, ref, is_private in self._deferred_defs:
+            if kind == "alias":
+                alias_lookup.setdefault(name, []).append((ref, is_private))
+
+        # Cache of already-resolved alias names -> list of Definition
+        resolved_cache = {}
+        # Set of alias names currently being resolved (cycle detection)
+        resolving = set()
+
+        def resolve_alias_ref(ref):
+            """Resolve an alias reference against the namespace.
+
+            Follows alias chains recursively.  Returns a list of Definition
+            objects from the end of the chain, or an empty list if unresolvable.
+            """
+            entry = self._namespace.get(ref)
+            if entry is not None:
+                if isinstance(entry, DefinitionSet):
+                    return list(entry.definitions)
+                elif isinstance(entry, Definition):
+                    return [entry]
+                elif isinstance(entry, Ambiguous):
+                    return list(entry.definitions)
+
+            # Check if ref is a pending alias in this module
+            if ref in alias_lookup:
+                return resolve_alias_name(ref)
+
+            return []
+
+        def resolve_alias_name(name):
+            """Resolve all refs for a given alias name, with cycle detection."""
+            if name in resolved_cache:
+                return resolved_cache[name]
+
+            if name in resolving:
+                raise comp.CodeError(f"Circular alias: {name}")
+
+            resolving.add(name)
+            result = []
+            for ref, _is_private in alias_lookup[name]:
+                result.extend(resolve_alias_ref(ref))
+            resolving.discard(name)
+
+            resolved_cache[name] = result
+            return result
+
+        def resolve_export_ref(ref):
+            """Resolve an export reference against the imports only."""
+            if ref not in self._imports:
+                return []
+            import_module, import_err = self._imports[ref]
+            if import_module is None or import_err:
+                return []
+            return list(import_module.definitions().values())
+
+        # Resolve each deferred def and store results.
+        # _resolved_deferred: list of (kind, name, defs, is_private)
+        # _exported_aliases: {alias_name: set of Definition} for public aliases
+        #   visible to importers. Keyed by the alias name, not the definition's
+        #   qualified name.
+        self._resolved_deferred = []
+        self._exported_aliases = {}
+
+        # Two-pass: resolve exports first so aliases can reference exported names.
+        # Pass A: exports — resolve and inject into namespace immediately
+        for kind, def_name, def_ref, is_private in self._deferred_defs:
+            if kind != "export":
                 continue
-
-            alias_defs = []
-            for tdef in sorted(target_defs, key=lambda d: d.qualified):
+            target_defs = resolve_export_ref(def_ref)
+            if not target_defs:
+                continue
+            for tdef in target_defs:
+                if tdef.private:
+                    continue
+                qualified_name = f"{def_name}.{tdef.qualified}"
+                self._resolved_deferred.append((kind, qualified_name, {tdef}, is_private))
+                if not is_private:
+                    self._exported_aliases.setdefault(qualified_name, set()).add(tdef)
+                # Inject into namespace so aliases in pass B can find these
+                _inject_ns(self._namespace, qualified_name, {tdef})
                 if tdef.auto_suffix:
-                    # Overloaded: allocate an alias.i001 / alias.i002 … qualified name
-                    count = alias_counters.get(alias_name, 0) + 1
-                    alias_counters[alias_name] = count
-                    alias_qualified = f"{alias_name}.i{count:03d}"
-                    alias_auto_suffix = True
-                else:
-                    alias_qualified = alias_name
-                    alias_auto_suffix = False
+                    parts = tdef.qualified.split(".")
+                    base = ".".join(parts[:-1])
+                    if base:
+                        base_name = f"{def_name}.{base}"
+                        self._resolved_deferred.append((kind, base_name, {tdef}, is_private))
+                        if not is_private:
+                            self._exported_aliases.setdefault(base_name, set()).add(tdef)
+                        _inject_ns(self._namespace, base_name, {tdef})
 
-                alias_def = Definition(
-                    alias_qualified, self.token, tdef.original_cop, tdef.shape,
-                    private=is_private, auto_suffix=alias_auto_suffix
-                )
-                alias_def.pure = tdef.pure
-                alias_def.resolved_cop = tdef.resolved_cop
-                alias_def.value = tdef.value
-                alias_def.instructions = tdef.instructions
-                alias_defs.append(alias_def)
+        # Pass B: aliases — can now reference exported names
+        for kind, def_name, def_ref, is_private in self._deferred_defs:
+            if kind != "alias":
+                continue
+            target_defs = resolve_alias_ref(def_ref)
+            if not target_defs:
+                continue
+            self._resolved_deferred.append((kind, def_name, set(target_defs), is_private))
+            if not is_private:
+                self._exported_aliases.setdefault(def_name, set()).update(target_defs)
 
-                if not is_private:
-                    self._definitions[alias_qualified] = alias_def
+    def apply_aliases(self):
+        """Inject resolved aliases into namespaces.
 
-            # Build a single DefinitionSet for all overloads of this alias
-            alias_def_set = DefinitionSet()
-            for alias_def in alias_defs:
-                alias_def_set.definitions.add(alias_def)
+        Pass 4: Called by the interpreter after all modules have run
+        resolve_deferred(). Injects resolved aliases into this module's
+        own namespace, then merges imported modules' exported aliases
+        under their import prefixes.
+        """
+        # Inject own resolved aliases (public + private) into own namespace
+        if hasattr(self, "_resolved_deferred"):
+            for kind, name, defs, is_private in self._resolved_deferred:
+                _inject_ns(self._namespace, name, defs)
 
-            # Collect every permutation name for this alias
-            all_perms = set()
-            for alias_def in alias_defs:
-                for perm_name in _identifier_permutations(alias_def, None):
-                    all_perms.add(perm_name)
-
-            # Non-private aliases REPLACE existing entries (disambiguation).
-            # Private aliases only add (local name shorthand only).
-            for perm_name in all_perms:
-                if not is_private:
-                    self._namespace[perm_name] = alias_def_set
-                else:
-                    existing = self._namespace.get(perm_name)
-                    if existing is None:
-                        self._namespace[perm_name] = DefinitionSet()
-                        existing = self._namespace[perm_name]
-                    if isinstance(existing, DefinitionSet):
-                        existing.definitions.update(alias_def_set.definitions)
+        # Merge imported modules' exported aliases with import prefix
+        if self._imports:
+            for import_name, (import_module, import_err) in self._imports.items():
+                if import_module is None or import_err:
+                    continue
+                if not import_module._exported_aliases:
+                    continue
+                for alias_name, alias_defs in import_module._exported_aliases.items():
+                    # Generate prefixed + unprefixed permutations from the alias name
+                    parts = alias_name.split(".")
+                    parts_prefixed = [import_name] + parts
+                    for part_list in (parts_prefixed, parts):
+                        for i in range(len(part_list)):
+                            perm = ".".join(part_list[i:])
+                            _inject_ns(self._namespace, perm, alias_defs)
 
     def finalize(self):
         """Build namespace and resolve identifiers. Auto-calls definitions if needed."""
         definitions = self.definitions()
         namespace = self.namespace()
+        self.resolve_deferred()
+        self.apply_aliases()
         for definition in definitions.values():
             if definition.resolved_cop is not None:
                 continue
@@ -666,6 +752,17 @@ class Definition:
     def __repr__(self):
         shape_name = self.shape.qualified
         return f"Definition<{self.qualified}:{shape_name}>"
+
+
+def _inject_ns(namespace, name, defs):
+    """Add definitions to a namespace under the given name."""
+    existing = namespace.get(name)
+    if existing is not None and isinstance(existing, DefinitionSet):
+        existing.definitions.update(defs)
+    else:
+        new_set = DefinitionSet()
+        new_set.definitions.update(defs)
+        namespace[name] = new_set
 
 
 def create_namespace(definitions, prefix):

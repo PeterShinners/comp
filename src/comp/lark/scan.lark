@@ -34,6 +34,7 @@ PURE_OP.7: "!pure"
 SHAPE_OP.7: "!shape"
 TAG_OP.7: "!tag"
 ALIAS_OP.7: "!alias"
+EXPORT_OP.7: "!export"
 STARTUP_OP.7: "!startup"
 MOD_OP.7: "!mod"
 PACKAGE_OP.7: "!package"
@@ -42,7 +43,7 @@ CONTEXT_OP.7: "!context"
 // Module definition - operator followed by zero or more non-operator tokens
 mod_definition: mod_op other_token*
 
-?mod_op: IMPORT_OP | FUNC_OP | PURE_OP | SHAPE_OP | TAG_OP | ALIAS_OP | STARTUP_OP | MOD_OP | PACKAGE_OP | CONTEXT_OP
+?mod_op: IMPORT_OP | FUNC_OP | PURE_OP | SHAPE_OP | TAG_OP | ALIAS_OP | EXPORT_OP | STARTUP_OP | MOD_OP | PACKAGE_OP | CONTEXT_OP
 
 
 // Other tokens - everything that's not a module operator

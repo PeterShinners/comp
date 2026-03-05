@@ -96,7 +96,7 @@
         },
         {
           "comment": "!alias name — namespace alias",
-          "match": "(!alias)\\s+([a-zA-Z_][a-zA-Z0-9_-]*&?)\\s+([a-zA-Z_][a-zA-Z0-9_.-]*)",
+          "match": "(!alias|!export)\\s+([a-zA-Z_][a-zA-Z0-9_-]*&?)\\s+([a-zA-Z_][a-zA-Z0-9_.-]*)",
           "captures": {
             "1": { "name": "keyword.declaration.module.comp" },
             "2": { "name": "entity.name.tag.comp" },
