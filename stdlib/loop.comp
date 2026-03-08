@@ -4,7 +4,7 @@
 /// The layering is:
 ///   forever (builtin) → generate / iterate → range, map, where, reduce
 
-!import s comp "struct"
+!import s = comp "struct"
 
 
 
@@ -15,18 +15,18 @@
 /// Field names are not preserved — the output is a positional struct.
 ///
 /// Examples:
-///   {1 2 3} | map :($ * 10)
+///   {1 2 3} ->` map :($ * 10)
 ///   // {10 20 30}
 ///
-///   {a=1 b=2 c=3} | map :($ + 100)
+///   {a=1 b=2 c=3} ->` map :($ + 100)
 ///   // {101 102 103}
 ///
-///   range :1 :5 | map :($ * $)
+///   range :1 :5 ->` map :($ * $)
 ///   // {1 4 9 16 25}
-!pure map ~struct (
+!pure map = ~struct (
     :block transform~any
-    $ | iterate :(
-        $.item | field-value | transform
+    $ ->` iterate :(
+        $.item ->` field-value ->` transform
     )
 )
 
@@ -38,20 +38,20 @@
 /// others are excluded. Field names are not preserved.
 ///
 /// Examples:
-///   {1 2 3 4 5} | where :($ > 3)
+///   {1 2 3 4 5} ->` where :($ > 3)
 ///   // {4 5}
 ///
-///   range :1 :10 | where :($ > 5)
+///   range :1 :10 ->` where :($ > 5)
 ///   // {6 7 8 9 10}
 ///
-///   {a=1 b=20 c=3 d=40} | where :($ >= 10)
+///   {a=1 b=20 c=3 d=40} ->` where :($ >= 10)
 ///   // {20 40}
-!pure where ~struct (
+!pure where = ~struct (
     :block test~any
-    $ | iterate :(
-        !let value ($.item | field-value)
+    $ ->` iterate :(
+        !let value ($.item ->` field-value)
         // Test the value; keep it or skip
-        !on (value | test)
+        !on (value ->` test)
         ~true value
         ~false skip
     )
@@ -66,20 +66,20 @@
 /// This is similar to Python's `any` builtin function.
 ///
 /// Examples:
-///   {1 2 3} | some :($ > 2)
+///   {1 2 3} ->` some :($ > 2)
 ///   // true
 ///
-///   {1 2 3} | some :($ > 10)
+///   {1 2 3} ->` some :($ > 10)
 ///   // false
 ///
-///   {false false true false} | some :pass
+///   {false false true false} ->` some :pass
 ///   // true
-!pure some ~struct (
+!pure some = ~struct (
     :block test~any
     !let found false
-    $ | iterate :(
-        !let value ($.item | field-value)
-        !on (value | test)
+    $ ->` iterate :(
+        !let value ($.item ->` field-value)
+        !on (value ->` test)
         ~true (!let found true)
         ~false nil
         // Last expression: stop on match, skip on no match
@@ -100,20 +100,20 @@
 /// This is similar to Python's `all` builtin function.
 ///
 /// Examples:
-///   {2 4 6} | every :($ > 0)
+///   {2 4 6} ->` every :($ > 0)
 ///   // true
 ///
-///   {2 -3 6} | every :($ > 0)
+///   {2 -3 6} ->` every :($ > 0)
 ///   // false
 ///
-///   {true true true} | every :pass
+///   {true true true} ->` every :pass
 ///   // true
-!pure every ~struct (
+!pure every = ~struct (
     :block test~any
     !let passed true
-    $ | iterate :(
-        !let value ($.item | field-value)
-        !on (value | test)
+    $ ->` iterate :(
+        !let value ($.item ->` field-value)
+        !on (value ->` test)
         ~true nil
         ~false (!let passed false)
         // Last expression: stop on failure, skip on pass
@@ -138,12 +138,12 @@
 ///   range :5         // {0 1 2 3 4 5}
 ///   range :1 :5      // {1 2 3 4 5}
 ///   range :0 :10 :step=3   // {0 3 6 9}
-!pure range (
+!pure range = ~nil (
     :param start~num=0
     :param end~num
     :param step~num=1
     // State is the current number; generate collects it before advancing
-    start | generate :(
+    start ->` generate :(
         !on $ > end
         ~true stop
         ~false ($ + step)
@@ -159,25 +159,25 @@
 ///
 /// Args:
 ///   initial: (any) Starting accumulator value
-///   fold:    (block) Called as `acc | fold :item` for each element
+///   fold:    (block) Called as `acc ->` fold :item` for each element
 ///
 /// Examples:
 ///   // Sum numbers
-///   {1 2 3 4 5} | reduce :initial=0 :($ + $$.#1)
+///   {1 2 3 4 5} ->` reduce :initial=0 :($ + $$.#1)
 ///
 ///   // Count items
-///   {a b c} | reduce :initial=0 :($ + 1)
+///   {a b c} ->` reduce :initial=0 :($ + 1)
 !pure reduce ~struct (
     :param initial~any
     :block fold~any
     !let items $
     !let idx 0
     // Pipe initial accumulator into forever; $ is the running total
-    initial | forever :(
-        !on idx >= (items | length)
+    initial ->` forever :(
+        !on idx >= (items ->` length)
         ~true stop
         // Call fold with current item; $ inside fold is the accumulator
-        ~false (items.#(idx) | fold)
+        ~false (items.#(idx) ->` fold)
         !let idx idx + 1
     )
 )
@@ -200,25 +200,25 @@
 ///
 /// Examples:
 ///   // Double each value, collecting results
-///   {1 2 3} | iterate :(
-///       $.item | field-value | ($ * 2)
+///   {1 2 3} ->` iterate :(
+///       $.item ->` field-value ->` ($ * 2)
 ///   )
 ///   // {2 4 6}
 ///
 ///   // Collect only the first 3 items using position
-///   {10 20 30 40 50} | iterate :(
+///   {10 20 30 40 50} ->` iterate :(
 ///       !on $.position < 3
-///       ~true ($.item | field-value)
+///       ~true ($.item ->` field-value)
 ///       ~false stop
 ///   )
 ///   // {10 20 30}
-!pure iterate ~struct (
+!pure iterate = ~struct (
     :block op~nil
-    !let items $
-    !let acc {}
-    !let len (items | s.length)
+    !let items = $
+    !let acc = {}
+    !let len = (items ->` s.length)
     // State struct carries position and previous result through forever
-    {position=0 accum=nil} | forever :(
+    {position=0 accum=nil} ->` forever :(
         // Extract position from state (needed as a local for item-at arg)
         !let pos $.position
         // Bounds check first — handles empty structs and loop termination
@@ -226,15 +226,15 @@
         ~false stop
         ~true (
             // Get the single-item struct pair at this index
-            !let entry (items | item-at :pos)
+            !let entry = (items ->` item-at :pos)
             // Call the op block with full context
-            !let result ({position=pos item=entry accum=$.accum} | op)
+            !let result = ({position=pos item=entry accum=$.accum} ->` op)
             // Check if op returned a flow-control tag
             !on result
             // Propagate skip/stop — skip means don't accumulate, stop means break
             ~flow-control result
             // Normal value — append to the output
-            ~any (!let acc ({acc {result}} | merge))
+            ~any (!let acc ({acc {result}} ->` merge))
             // Advance position or continue
             {position=(pos + 1) accum=result}
         )
@@ -260,7 +260,7 @@
 ///
 /// Examples:
 ///   // Generate squares: state is the current number
-///   1 | generate :(
+///   1 ->` generate :(
 ///       !on $ > 5
 ///       ~true stop
 ///       ~false ($ + 1)
@@ -268,29 +268,29 @@
 ///   /// {1 2 3 4 5}
 ///
 ///   // Fibonacci-like: state is just a counter, use closure for real state
-///   !let a 0
-///   !let b 1
-///   0 | generate :(
-///       !let temp b
-///       !let b a + b
-///       !let a temp
+///   !let a = 0
+///   !let b = 1
+///   0 ->` generate :(
+///       !let temp = b
+///       !let b = a + b
+///       !let a = temp
 ///       !on $ >= 5
 ///       ~true stop
 ///       ~false ($ + 1)
 ///   )
 ///   /// accumulates $ (the counter), not the fib values
-!pure generate (
+!pure generate = ~nil (
     :block gen~nil
-    !let acc {}
+    !let acc = {}
     // Pipe initial state into forever; $ is the running state
-    $ | forever :(
+    $ ->` forever :(
         // Call gen with current state to get next state
-        !let next ($ | gen)
+        !let next = ($ ->` gen)
         !on next
         // Propagate stop/skip to forever
         ~flow-control next
         // Accumulate current state ($), then advance to next
-        ~any (!let acc ({acc {$}} | merge))
+        ~any (!let acc = ({acc {$}} ->` merge))
         next
     )
     acc
@@ -312,25 +312,25 @@
 ///   end:   (num) Position to stop before (exclusive), default length
 ///
 /// Examples:
-///   {10 20 30 40 50} | slice :end=3
+///   {10 20 30 40 50} ->` slice :end=3
 ///   // {10 20 30}
 ///
-///   {10 20 30 40 50} | slice :start=2
+///   {10 20 30 40 50} ->` slice :start=2
 ///   // {30 40 50}
 ///
-///   {10 20 30 40 50} | slice :start=1 :end=4
+///   {10 20 30 40 50} ->` slice :start=1 :end=4
 ///   // {20 30 40}
-!pure slice ~struct (
+!pure slice = ~struct (
     :param start~num=0
     :param end~num=-1
     // Use -1 sentinel to mean "to the end"
-    !let actual-end end
+    !let actual-end = end
     !on end == -1
-    ~true (!let actual-end ($ | s.length))
+    ~true (!let actual-end = ($ ->` s.length))
     ~false nil
-    $ | iterate :(
+    $ ->` iterate :(
         !on ($.position >= start !and $.position < actual-end)
-        ~true ($.item | field-value)
+        ~true ($.item ->` field-value)
         ~false (
             // Past the end — stop early
             !on $.position >= actual-end
@@ -344,21 +344,21 @@
 /// Get the first value from a struct.
 ///
 /// Examples:
-///   {10 20 30} | first   // 10
-///   {x=10 y=20} | first  // 10
-!pure first ~struct (
-    $ | item-at :0 | field-value
+///   {10 20 30} ->` first   // 10
+///   {x=10 y=20} ->` first  // 10
+!pure first = ~struct (
+    $ ->` item-at :0 ->` field-value
 )
 
 
 /// Get the last value from a struct.
 ///
 /// Examples:
-///   {10 20 30} | last    // 30
-///   {x=10 y=20} | last   // 20
-!pure last ~struct (
-    !let idx (($ | s.length) - 1)
-    $ | item-at :idx | field-value
+///   {10 20 30} ->` last    // 30
+///   {x=10 y=20} ->` last   // 20
+!pure last = ~struct (
+    !let idx = (($ ->` s.length) - 1)
+    $ ->` item-at :idx ->` field-value
 )
 
 
@@ -368,15 +368,15 @@
 /// with values in reverse order.
 ///
 /// Examples:
-///   {1 2 3} | reverse       // {3 2 1}
-///   {a=1 b=2 c=3} | reverse // {3 2 1}
-!pure reverse ~struct (
-    !let data $
-    !let len ($ | s.length)
-    !let last-idx (len - 1)
-    range :0 :last-idx | map :(
-        !let idx (len - $ - 1)
-        data | item-at :idx | field-value
+///   {1 2 3} ->` reverse       // {3 2 1}
+///   {a=1 b=2 c=3} ->` reverse // {3 2 1}
+!pure reverse = ~struct (
+    !let data = $
+    !let len = ($ ->` s.length)
+    !let last-idx = (len - 1)
+    range :0 :last-idx ->` map :(
+        !let idx = (len - $ - 1)
+        data ->` item-at :idx ->` field-value
     )
 )
 

@@ -11,16 +11,16 @@ Highlights:
 
 */
 
-!import http comp "http-server"
-!import redis comp "redis"
-!import url comp "core/url"
-!import template comp "core/template"
+!import http = comp "http-server"
+!import redis = comp "redis"
+!import url = comp "core/url"
+!import template = comp "core/template"
 
-!package name "shortly"
-!package version "1.0.0"
+!package name = "shortly"
+!package version = "1.0.0"
 
 
-!shape details ~{
+!shape details = ~{
     id~text 
     target~text 
     clicks~num = 0
@@ -28,10 +28,10 @@ Highlights:
 
 
 /// Module configuration, overridable at startup
-!mod server.static "./static"
-!mod server.templates "./templates"
-!mod redis {host="localhost" port=6379}
-!mod keys {
+!mod server.static = "./static"
+!mod server.templates = "./templates"
+!mod redis = {host="localhost" port=6379}
+!mod keys = {
     target = "url-target:%()"
     counter = "click-count:%()"
     reverse = "reverse-url:%()"
@@ -39,61 +39,61 @@ Highlights:
 }
 
 
-!context web {
+!context web = {
     redis-db = redis.connection
 }
 
 
-!startup web (
+!startup web = (
     $ 
-    | dispatch
-    | post :"/" (link-create)
-    | get :"/" (response-template :"newurl.html")
-    | get :"/{id}" (link-redirect)
-    | get :"/{id}.json" (link-details)
-    | missing (response-template :"404.html" :status=404)
+    -> dispatch
+    -> post :"/" (link-create)
+    -> get :"/" (response-template :"newurl.html")
+    -> get :"/{id}" (link-redirect)
+    -> get :"/{id}.json" (link-details)
+    -> missing (response-template :"404.html" :status=404)
     //x or perhaps something with an `!on` here?
 )
 
 
 /// Accept a URL submission and redirect to its detail page
-!func link-create ~http.request (
+!func link-create = ~http.request (
     $.form.url
-    unless :$ | url.parse | $.scheme | in :{"http" "https"} :(
+    unless :$ -> url.parse -> $.scheme -> in :{"http" "https"} :(
         {error="Please enter a valid URL" url=$$.form.url}
-        | response-template :"newurl.html"
+        -> response-template :"newurl.html"
     )
-    | insert-url
-    | http.redirect :"/%($.id).json"
+    -> insert-url
+    -> http.redirect :"/%($.id).json"
 )
 
 
 /// Redirect short URL to its target, incrementing click count
-!func link-redirect ~http.request (
-    $.params.id | fetch-details | increment
+!func link-redirect = ~http.request (
+    $.params.id -> fetch-details -> increment
     http.redirect :$.target
 )
 
 
 /// Render detail page for a short URL
-!func link-details ~http.request (
-    $.params.id | fetch-details | response-json
+!func link-details = ~http.request (
+    $.params.id -> fetch-details -> response-json
 )
 
 
 /// Look up or create a short URL entry
-!func insert-url ~text (
-    $ | fmt :mod.keys.reverse
-    | redis.get
-    | if-nil :(
-        !let id mod.keys.total | redis.incr | base36-encode
+!func insert-url = ~text (
+    $ -> fmt :mod.keys.reverse
+    -> redis.get
+    -> if-nil :(
+        !let id mod.keys.total -> redis.incr -> base36-encode
         {
-            'id | fmt :mod.keys.target' = $$
-            'id | fmt :mod.keys.counter' = 1
-            '$$ | fmt :mod.keys.reverse' = id
+            'id -> fmt :mod.keys.target' = $$
+            'id -> fmt :mod.keys.counter' = 1
+            '$$ -> fmt :mod.keys.reverse' = id
             //x the single quote field expression needs to be ok for pipelines            
         }
-        | redis.mset
+        -> redis.mset
         id
     )
     response-redirect :@fmt"/%().json"
@@ -101,35 +101,35 @@ Highlights:
 
 
 /// Fetch details for a short URL id
-!func fetch-details ~text {
+!func fetch-details = ~text {
     {
-        target = $ | fmt :mod.keys.target
-        clicks = $ | fmt :mod.keys.counter
+        target = $ -> fmt :mod.keys.target
+        clicks = $ -> fmt :mod.keys.counter
     }
-    | redis.mget
-    | defaults :clicks=0
+    -> redis.mget
+    -> defaults :clicks=0
 }
 
 
 /// Increment the click counter for a URL
-!func increment ~detail* ( 
+!func increment = ~detail* ( 
     $.id 
-    | fmt :mod.keys.counter
-    | redis.incr
+    -> fmt :mod.keys.counter
+    -> redis.incr
 )
 
 
 /// Encode a number in base36
-!pure base36-encode ~num (
-    !let charset "0123456789abcdefghijklmnopqrstuvwxyz"
-    !let result ""
-    !let n $
+!pure base36-encode = ~num (
+    !let charset = "0123456789abcdefghijklmnopqrstuvwxyz"
+    !let result = ""
+    !let n = $
 
-    n | while :($ > 0
-        !let div ($ | divmod :(charset | length))
-        !let result ((charset | char-at-index :div.remainder) | join result)
+    n -> while :($ > 0
+        !let div ($ -> divmod :(charset -> length))
+        !let result ((charset -> char-at-index :div.remainder) -> join result)
         div.quotient
     )
 
-    $.result | if-empty :(charset | first)
+    $.result -> if-empty :(charset -> first)
 )

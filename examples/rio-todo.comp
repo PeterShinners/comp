@@ -15,16 +15,16 @@ Highlights:
 
 */
 
-!import rio comp "@gh/rio-dev/rio-comp"
+!import rio = comp "@gh/rio-dev/rio-comp"
 
 
-!shape todo ~{
+!shape todo = ~{
     title~text
     complete~bool = false
     id~id
 }
 
-!shape state ~{
+!shape state = ~{
     todos~todo* = {}
     input~text = ""
     filter~visibility = all
@@ -33,7 +33,7 @@ Highlights:
 !tag visibility {all active complete}
 
 
-!startup rio {
+!startup rio = {
     title = "Todo"
     state = state
     component = todo-app

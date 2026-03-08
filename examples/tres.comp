@@ -1,0 +1,46 @@
+/**
+Three.js hello world - rotating green cube
+
+Demonstrates scene construction via pipelines, immutable scene graph,
+and animation loop with time-based transforms.
+
+- Scene, camera, and renderer are assembled via pipelines
+- `!animate` describes per-frame transforms as pure functions of time
+- Mutations (rotation) are expressed as derived values, not assignments
+*/
+
+!import three comp "three-comp@1.0.0"
+
+
+!startup scene {
+    three.scene
+    | add :(
+        three.mesh
+            :geometry = (three.box-geometry :1 :1 :1)
+            :material = (three.mesh-basic-material :color=0x00ff00)
+    )
+}
+
+!let camera
+    three.perspective-camera
+        :fov    = 75
+        :aspect = (three.window.width / three.window.height)
+        :near   = 0.1
+        :far    = 1000
+    | set :position.z = 5
+
+!let renderer
+    three.webgl-renderer
+    | set-size :(three.window.width three.window.height)
+    | attach :document.body
+
+
+!animate (time~number :scene :camera :renderer) (
+    !let cube (scene | find :three.mesh)
+
+    cube
+    | set :rotation.x = (time / 2000)
+    | set :rotation.y = (time / 1000)
+
+    renderer | render :scene :camera
+)

@@ -11,28 +11,28 @@
 // ===== Numeric unit families =====
 
 /// Physical measurements — length, time, temperature, mass
-!tag measure { length time temperature mass angle }
+!tag measure = { length time temperature mass angle }
 
 /// Length units (base: meter)
-!tag measure.length { meter centimeter kilometer foot inch mile }
+!tag measure =.length { meter centimeter kilometer foot inch mile }
 
 /// Time units (base: second)
-!tag measure.time { second millisecond minute hour }
+!tag measure =.time { second millisecond minute hour }
 
 /// Temperature units (base: celsius)
-!tag measure.temperature { celsius fahrenheit kelvin }
+!tag measure =.temperature { celsius fahrenheit kelvin }
 
 /// Mass units (base: gram)
-!tag measure.mass { gram kilogram pound ounce }
+!tag measure =.mass { gram kilogram pound ounce }
 
 /// Angle units (base: degree)
-!tag measure.angle { degrees radians }
+!tag measure =.angle { degrees radians }
 
 // ===== Text format tags =====
 
 /// Domain markers for string values — used by IDEs for syntax highlighting
 /// and by the formatting engine for context-aware escaping.
-!tag format { sql html regex shell url json csv }
+!tag format = { sql html regex shell url json csv }
 
 
 // ===== Unit preservation =====
@@ -42,9 +42,9 @@
 /// original unit to the result.
 ///
 /// Usage:
-///   !pure uppercase ~text @preserve-unit (
-///       $ | py.pure-call :"str.upper"
+///   !pure uppercase = ~text @preserve-unit (
+///       $ -> py.pure-call :"str.upper"
 ///   )
-!func preserve-unit (
-    ($ | apply)[$.input | get-unit-tag]
+!func preserve-unit = (
+    ($ -> apply)[$.input -> get-unit-tag]
 )

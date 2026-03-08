@@ -2,17 +2,17 @@
 /// Functions for field access, membership, slicing, and structural transforms.
 /// No imports — uses only system builtins (length, at, append, reduce).
 
-!import py comp "py"
+!import py = comp "py"
 
 
 /// Get number of fields in struct
-!pure length ~struct (
-    {$} | py.pure-call :"len"
+!pure length = ~struct (
+    {$} -> py.pure-call :"len"
 )
 
 /// Test if struct has no fields
-!pure is-empty ~struct (
-    !not ({$} | py.pure-call :"bool")
+!pure is-empty = ~struct (
+    !not ({$} -> py.pure-call :"bool")
 )
 
 

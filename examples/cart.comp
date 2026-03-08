@@ -17,34 +17,34 @@ Highlights:
 
 */
 
-!import stdloop comp "loop"
-!import stdstruct comp "struct"
+!import stdloop = comp "std:loop"
+!import stdstruct = comp "std:struct"
 
-!shape item ~{name~text price~num quantity~num=1}
-!shape cart ~{items~item* discount~num=0}
+!shape item = ~{name~text price~num quantity~num=1}
+!shape cart = ~{items~item* discount~num=0}
 
-!startup main (
+!startup main = (
     {
         {"Apple" price=1.00}
         {"Banana" price=0.50 quantity=2}
         {"Apple" 1.00 quantity=2}  // replaces previous apples
     }
-    | map :(item)  // morph each simple structure into a full cart item
-    | reduce :(upsert :($.name))
-    | cart :discount=0.2
-    | total
-    | output :"Total: %()"
+    -> map :(item)  // morph each simple structure into a full cart item
+    -> reduce :(upsert :($.name))
+    -> cart :discount=0.2
+    -> total
+    -> output :"Total: %()"
 )
 
-!pure total ~cart ( 
-    $.items | sum :($.price * $.quantity) * (1 - $.discount)
+!pure total = ~cart ( 
+    $.items -> sum :($.price * $.quantity) * (1 - $.discount)
     // Operator precedence applies the final multiplication to the sum
 )
 
 /// Insert or update an item in a collection
-!pure upsert ~any* (
+!pure upsert = ~any* (
     :param item ~item
     :block key ~item = pass
 
-    $ | replace :limit=1 :key :item | else :(append :item)
+    $ -> replace :limit=1 :key :item | else :(append :item)
 )

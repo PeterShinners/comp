@@ -9,7 +9,7 @@
 
 
 /// Inclusive minimum bound: value must be >= amount
-!pure ge ~num (
+!pure ge = ~num (
     :param amount~num
     !on $ < amount
     ~true !fail {fail.value message="Value is below minimum"}
@@ -17,7 +17,7 @@
 )
 
 /// Inclusive maximum bound: value must be <= amount
-!pure le ~num (
+!pure le = ~num (
     :param amount~num
     !on $ > amount
     ~true !fail {fail.value message="Value is above maximum"}
@@ -25,7 +25,7 @@
 )
 
 /// Exclusive lower bound: value must be > amount
-!pure gt ~num (
+!pure gt = ~num (
     :param amount~num
     !on $ <= amount
     ~true !fail {fail.value message="Value must be above bound"}
@@ -33,7 +33,7 @@
 )
 
 /// Exclusive upper bound: value must be < amount
-!pure lt ~num (
+!pure lt = ~num (
     :param amount~num
     !on $ >= amount
     ~true !fail {fail.value message="Value must be below bound"}
@@ -41,7 +41,7 @@
 )
 
 /// Equality constraint: value must equal amount exactly
-!pure eq ~num (
+!pure eq = ~num (
     :param amount~num
     !on $ == amount
     ~false !fail {fail.value message="Value must equal the required amount"}
@@ -49,16 +49,16 @@
 )
 
 /// Equality constraint: value must be one of the given values
-!pure eq ~num (
+!pure eq = ~num (
     :param amount~num*1+
-    !let in-set ({amount $} | py.pure-call :"operator.contains")
+    !let in-set = ({amount $} | py.pure-call :"operator.contains")
     !on in-set
     ~false !fail {fail.value message="Value must be one of the allowed values"}
     ~true true
 )
 
 /// Inequality constraint: value must not equal amount
-!pure ne ~num (
+!pure ne = ~num (
     :param amount~num
     !on $ == amount
     ~true !fail {fail.value message="Value must not equal the excluded amount"}
@@ -66,38 +66,38 @@
 )
 
 /// Inequality constraint: value must not be any of the given values
-!pure ne ~num (
+!pure ne = ~num (
     :param amount~num*1+
-    !let in-set ({amount $} | py.pure-call :"operator.contains")
+    !let in-set = ({amount $} | py.pure-call :"operator.contains")
     !on in-set
     ~true !fail {fail.value message="Value must not be any of the excluded values"}
     ~false true
 )
 
 /// Integer constraint: value must have no fractional part
-!pure integer ~num (
-    !let parts ({$ 1} | py.pure-call :"divmod")
+!pure integer = ~num (
+    !let parts = ({$ 1} | py.pure-call :"divmod")
     !on (parts.#1 == 0)
     ~true true
     ~false !fail {fail.value message="Value must be an integer"}
 )
 
 /// ASCII constraint: text must contain only ASCII characters (codepoints 0-127)
-!pure ascii ~text (
+!pure ascii = ~text (
     !on (py.call :module="str" :method="isascii" :{text=$})
     ~false !fail {fail.value message="Text contains non-ASCII characters"}
     ~true true
 )
 
 /// Non-empty constraint: text must have at least one character
-!pure non-empty ~text (
+!pure non-empty = ~text (
     !on ($ | length) == 0
     ~true !fail {fail.value message="Text must not be empty"}
     ~false true
 )
 
 /// Single-character constraint: text must be exactly one character
-!pure single-char ~text (
+!pure single-char = ~text (
     !on ($ | length) == 1
     ~true true
     ~false !fail {fail.value message="Text must be exactly one character"}
@@ -106,9 +106,9 @@
 /// Size constraint: text length must be exact or within a range.
 /// Pass an exact count: size=3
 /// Pass a min/max range struct: size={1 32}
-!pure size ~text (
+!pure size = ~text (
     :param range~{~index ~index}|index
-    !let n ($ | length)
+    !let n = ($ | length)
     !on range
     ~num (
         !on (n == range)
@@ -129,9 +129,9 @@
 /// Size constraint: collection length must be exact or within a range.
 /// Pass an exact count: size=3
 /// Pass a min/max range struct: size={1 32}
-!pure size ~struct (
+!pure size = ~struct (
     :param range~{~index ~index}|index
-    !let n ($ | length)
+    !let n = ($ | length)
     !on range
     ~num (
         !on (n == range)
@@ -150,9 +150,9 @@
 )
 
 /// Pattern match constraint: text must match the given regex pattern
-!pure match ~text (
+!pure match = ~text (
     :param pattern ~text
-    !let result ({pattern $} | py.pure-call :"re.fullmatch")
+    !let result = ({pattern $} | py.pure-call :"re.fullmatch")
     !on (result == nil)
     ~true !fail {fail.value message="Text does not match pattern"}
     ~false true

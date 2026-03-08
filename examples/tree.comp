@@ -12,26 +12,26 @@ Highlights
 
 */
 
-!shape tree ~{value~num left~branch right~branch}
-!shape branch ~tree | nil = nil
+!shape tree = ~{value~num left~branch right~branch}
+!shape branch = ~tree | nil = nil
 
 
-!startup main (
+!startup main = (
     {5 3 8 1 7 9}
-    | reduce :initial=nil :tree-insert
-    | tree-values
-    | output
+    -> reduce :initial=nil :tree-insert
+    -> tree-values
+    -> output
 )
 
 
 /// Add new value into tree, dispatched on nil vs tree
-!pure tree-insert  ~nil (
+!pure tree-insert = ~nil (
     :param value~num
 
-    tree :value=value
+    {value} -> tree
 )
 
-!pure tree-insert ~tree @update(
+!pure tree-insert = ~tree @update(
     :param value~num
 
     !on value <> $.value
@@ -41,13 +41,13 @@ Highlights
 
 
 /// Check if tree contains value
-!pure tree-contains ~nil (
+!pure empty.tree-contains = ~nil (
     :param value~num
 
     false
 )
 
-!pure tree-contains ~tree (
+!pure tree-contains = ~tree (
     :param value~num
 
     !on value <> $.value
@@ -58,7 +58,7 @@ Highlights
 
 
 /// Iterate values from tree in order
-!pure tree-values ~nil {
+!pure empty.tree-values = ~nil {
 }
 
 !pure tree-values ~tree @flat{

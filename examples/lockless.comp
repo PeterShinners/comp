@@ -13,29 +13,29 @@ Highlights:
   implementation
 */
 
-!import atomic comp "atomic"
+!import atomic = comp "atomic"
 
-!shape node ~{value~text  next~node|nil}
-!shape stack ~{head~node|nil  version~num}
+!shape node = ~{value~text  next~node|nil}
+!shape stack = ~{head~node|nil  version~num}
 
 
-!startup main (
-    (nil 0)
-    | stack-push :"first"
-    | stack-push :"second"
-    | stack-push :"third"
-	| forever :(
-		stack-pop | output :"Popped: %()" |? break
+!startup main = (
+    {nil 0}
+    -> stack-push :"first"
+    -> stack-push :"second"
+    -> stack-push :"third"
+	-> forever :(
+		stack-pop -> output :"Popped: %()" ?> break
     )
-    | output :"Stack empty, done"
+    -> output :"Stack empty, done"
 )
 
 
 /// Push a value onto the stack, retrying on contention
-!func stack-push ~stack (
+!func stack-push = ~stack (
     param value ~text
 
-    $ | atomic.swap :{
+    $ -> atomic.swap :{
         head = {value=$.value next=$.head}
         version = $.version + 1
         //x this isn't right? increment by one? that doesn't feel like it would catch conflicts?
@@ -45,8 +45,8 @@ Highlights:
 
 /// Pop a value from the stack, retrying on contention
 /// Fails if stack is empty
-!func stack-pop ~stack (
-    $ | atomic.swap :{
+!func stack-pop = ~stack (
+    $ -> atomic.swap :{
 		head = $.head.next
 		version = $.version + 1
     }

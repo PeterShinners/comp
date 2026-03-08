@@ -27,6 +27,7 @@ represent idiomatic and clean code. Comp aims for this excellence.
 /// Display recent starred issues from a GitHub repository.
 // Inspired by https://julianhofer.eu/blog/2025/nushell/
 
+!import unit comp "stdlib:unit"
 !import gh comp "github-comp@1.0.2"
 !import table comp "table-formatter"
 
@@ -35,9 +36,9 @@ represent idiomatic and clean code. Comp aims for this excellence.
     !let cutoff (datetime.now - 1[week])
 
     gh.issue-list :fields={"created-at" "reaction-groups" "title" "url"}
-    | where :($created-at >= cutoff)
-    | map :($thumbs-up = $reaction-groups | count :($content == "thumbs-up"))
-    | sort :reverse :($thumbs-up)
+    | where :($.created-at >= cutoff)
+    | map :($.thumbs-up = $.reaction-groups | count :($.content == "thumbs-up"))
+    | sort :reverse :($.thumbs-up)
     | first :5
     | select :{"thumbs-up"="👍" "title" "url"}
     | table.markdown
@@ -85,10 +86,10 @@ What a fantastic journey this has been. There's so much potential for Comp, but 
 still has a long way to go. Along the way I've been introduced to a massive amount
 of great ideas. I'll call out a few special acknowledgements.
 
-- **Python** is where I get the most out of my development.
+- **Python** is where I get the most out of my development
 - **Nushell** such a spectacular job with their syntax and approachability
 - **Rhombus** showing me all these functional ideas in a style I appreciate
-- **Cue** really kicked off so many ideas of merging data and definition
+- **Cue** kicked off so many ideas of merging data and definition
 
 ## Getting Started
 

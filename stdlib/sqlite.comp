@@ -1,14 +1,14 @@
 /// Simple SQLite interface for Comp
 /// Basic database operations using Python's sqlite3 module.
 
-!import py comp "core:python"
+!import py = comp "core:python"
 
 
-!shape handle-db ~{}
+!shape handle-db = ~{}
 
-!tag isolation {deferred exclusive immediate none}
+!tag isolation = {deferred exclusive immediate none}
 
-!tag fail {
+!tag fail = {
     interface       /// Connection/cursor management errors
     database        /// Database file/format errors
     data            /// Data type conversion errors
@@ -19,12 +19,12 @@
     notsupported    /// Feature not supported
 }
 
-!shape connect-args ~{
+!shape connect-args = ~{
     timeout~num = 5
     isolation-level~isolation = isolation.deferred
 }
 
-!shape execute-result ~{
+!shape execute-result = ~{
     rows~struct
     columns~struct
     row-id~num
@@ -33,7 +33,7 @@
 
 
 /// Map Python sqlite3 exception types to Comp fail tags
-!let exception-tags {
+!pure exception-tags = {
     interface-error = fail.interface
     database-error = fail.database
     data-error = fail.data
@@ -46,14 +46,14 @@
 
 
 /// Test function that raises a Python sqlite exception
-!func test-sqlite-error (
+!func test-sqlite-error = (
     py.call-func :name="sqlite3.connect"
         {database="/invalid/path/that/does/not/exist/test.db"}
 )
 
 
 /// Open database connection from file path
-!func database-file ~text (
+!func database-file ~text = (
     :params connect-args
     !let pydb (py.call-func :name="sqlite3.connect" {database=$})
     !let db (grab-handle :handle-db)
@@ -61,31 +61,31 @@
 )
 
 /// Open database connection from URL
-!func database-url ~text (
+!func database-url ~text = (
     :params connect-args
-    !let pydb (py.call-func :name="sqlite3.connect" :{database=$ url=true})
-    !let db (grab-handle :handle-db)
+    !let pydb = (py.call-func :name="sqlite3.connect" :{database=$ url=true})
+    !let db = (grab-handle :handle-db)
     db @update :{private.py = pydb}
 )
 
 /// Open in-memory database
-!func database-memory (
+!func database-memory = (
     :params connect-args
-    !let pydb (py.call-func :name="sqlite3.connect" :{database=":memory:"})
-    !let db (grab-handle :handle-db)
+    !let pydb = (py.call-func :name="sqlite3.connect" :{database=":memory:"})
+    !let db = (grab-handle :handle-db)
     db @update :{private.py = pydb}
 )
 
 /// Execute SQL statement and return results
-!func execute ~{db~handle-db} (
+!func execute ~{db~handle-db} = (
     :param sql~text
 
-    !let cursor (py.call :method="cursor" {self=$.db.private.py})
-    !let exec (py.call :method="execute" :{self=cursor sql})
-    !let cursor-vars (py.call :method="vars" :{self=cursor})
+    !let cursor = (py.call :method="cursor" {self=$.db.private.py})
+    !let exec = (py.call :method="execute" :{self=cursor sql})
+    !let cursor-vars = (py.call :method="vars" :{self=cursor})
 
     execute-result {
-        rows = (py.call :method="fetchall" :{self=cursor} | py.pull)
+        rows = (py.call :method="fetchall" :{self=cursor} -> py.load)
         columns = cursor-vars.description
         row-id = cursor-vars.lastrowid
         row-count = cursor-vars.rowcount
@@ -93,6 +93,6 @@
 )
 
 /// Called automatically as handle is dropped
-!func drop-handle ~{db~handle-db} (
+!func drop-handle = ~{db~handle-db} (
     py.call :method="close" :{self=$.db.private.py}
 )

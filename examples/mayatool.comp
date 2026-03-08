@@ -9,7 +9,7 @@ Highlights:
 - `!on` dispatches on `maya.exists` result, the "does this node exist" check becomes a branch rather than an if/else
 */
 
-!import maya comp "maya-comp-spectacular@1.0.3"
+!import maya = comp "maya-comp-spectacular@1.0.3"
 
 
 /**
@@ -21,11 +21,14 @@ between them, preserving positioning when reparenting.
 Based on https://github.com/TrevisanGMW/gt-tools
 */
 
-!shape layer-config ~{
+!tag parent-type = {parent selection}
+!tag layer-type = {joint locator group}
+
+!shape layer-config = ~{
     suffix ~text
-    parent-type ~parent | selection
-    layer-type ~joint | locator | group
-    outliner-color ~{~num ~num ~num} = {1.0 0.5 0.0}
+    parent-type ~parent-type
+    layer-type ~layer-type
+    outliner-color ~num*3 = {1.0 0.5 0.0}
 }
 
 
@@ -34,24 +37,24 @@ Based on https://github.com/TrevisanGMW/gt-tools
 
     //x !transact {maya.scene maya.preserve-selection}
     maya.selection
-    | map :(
-        !let parent ($ | maya.get-parent)
-        !let transform parent
-        | maya.create-node
+    -> map :(
+        !let parent = ($ -> maya.get-parent)
+        !let transform = parent
+        -> maya.create-node
             :config.layer-type
             :name=@fmt"%(name)%(config.suffix)"
-        | maya.set-attr :use-outliner-color=true
-        | maya.set-attr :outliner-color=config.outliner-color
-        | maya.parent :parent
+        -> maya.set-attr :use-outliner-color=true
+        -> maya.set-attr :outliner-color=config.outliner-color
+        -> maya.parent :parent
 
-        !let target !on config.parent-type == parent
+        !let target = !on config.parent-type == parent
         ~true parent
         ~false $
 
-        !on (target | maya.exists)
-        ~true (target | maya.constrain :transform)
+        !on (target -> maya.exists)
+        ~true (target -> maya.constrain :transform)
 
-        ($ | maya.parent :transform)
+        ($ -> maya.parent :transform)
     )
 )
 
@@ -64,29 +67,29 @@ around the selected objects.
 Based on https://github.com/nestrada2/bubbles
 */
 
-!shape bubble-args ~{
+!shape bubble-args = ~{
     count ~num = 10
-    radius-range ~{~num ~num} = {0.1 0.5}
-    position-range ~{~num ~num} = {0.1 5.0}
+    radius-range ~num*2 = {0.1 0.5}
+    position-range ~num*2 = {0.1 5.0}
 }
 
 
-!func create-bubbles ~dag-path* (
+!func create-bubbles = ~dag-path* (
     :param config ~bubble-args
 
     //x !transact {maya.scene}
 
-    !let group ($ | maya.create-node :group :name="bubbles" | maya.select :replace)
+    !let group = ($ -> maya.create-node :group :name="bubbles" -> maya.select :replace)
 
     //x !transact {maya.preserve-selection}
 
-    $ | map :(
-        !let position repeat :3 :(config.position-range | random)
-        !let dag-path $
-        | group
-        | maya.poly-sphere
+    $ -> map :(
+        !let position = repeat :3 :(config.position-range -> random)
+        !let dag-path = $
+        -> group
+        -> maya.poly-sphere
             :name=@fmt"bubble-%($.name)"
-            :radius=(config.radius-range | random)
-        | maya.xform :position=position
+            :radius=(config.radius-range -> random)
+        -> maya.xform :position=position
     )
 )
