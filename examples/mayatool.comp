@@ -29,28 +29,27 @@ Based on https://github.com/TrevisanGMW/gt-tools
     !param outliner-color ~num*3 = {1.0 0.5 0.0}
 
     //x !transact {maya.scene maya.preserve-selection}
-    maya.selection
-    -> map :(
-        !my parent $ -> maya.get-parent >>
-        !my transform parent
-        -> maya.create-node
-            layer-type
-            name=@fmt"between%(suffix)"
-        -> maya.set-attr use-outliner-color=true
-        -> maya.set-attr outliner-color=outliner-color
-        -> maya.parent parent
-        >>
+    [maya.selection
+	| map :(
+		!my parent [$ | maya.get-parent]
+		!my transform [parent
+			| maya.create-node
+				layer-type
+				name=@fmt"between%(suffix)"
+			| maya.set-attr use-outliner-color=true
+			| maya.set-attr outliner-color=outliner-color
+			| maya.parent parent
+		]
 
         !my target !on parent-type == parent
         ~true parent
         ~false $
 
-        !on target -> maya.exists >>
-        ~true target -> maya.constrain transform >>
+        !on [target | maya.exists]
+        ~true [target | maya.constrain transform]
 
-        $ -> maya.parent transform >>
-    )
-    >>
+        [$ | maya.parent transform]
+	)]
 )
 
 
@@ -68,25 +67,25 @@ Based on https://github.com/nestrada2/bubbles
     !param position-range ~num*2 = {0.1 5.0}
 
 	// defered partials allow repeated use later
-	!my rand-size :(radius-range -> random)
-	!my rand-move :(repeat 3 :(position-range -> random >>))
+	!my rand-size :[radius-range | random]
+	!my rand-move :[repeat 3 :[position-range | random]]
 
     //todo !transact {maya.scene}
 
-    !my group $ -> maya.create-node group name="bubbles" -> maya.select replace >>
+!my group [$ | maya.create-node group name="bubbles" | maya.select replace]
 
 	//todo nowhere does this use count?
 
     //todo !transact {maya.preserve-selection}
 
-    $ -> map :(
+    [$ | map :(
         !my dag-path $
-        -> group
-        -> maya.poly-sphere
+        [dag-path
+        | group
+        | maya.poly-sphere
             name=@fmt"bubble-%($.name)"
-            radius=rand-radius >>
-        -> maya.xform position=rand-move >>
-        >>
-    ) 
-	>>
+            radius=rand-radius
+        | maya.xform position=rand-move
+        ]
+	)]
 )

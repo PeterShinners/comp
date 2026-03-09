@@ -51,7 +51,7 @@
 /// Equality constraint: value must be one of the given values
 !pure eq ~num (
     !param amount ~num*1+
-    !my in-set ({amount $} -> py.pure-call "operator.contains" >>)
+    !my in-set [{amount $} | py.pure-call "operator.contains"]
     !on in-set
     ~false !fail.value "Value must be one of the allowed values"
     ~true true
@@ -68,7 +68,7 @@
 /// Inequality constraint: value must not be any of the given values
 !pure ne ~num (
     !param amount ~num*1+
-    !my in-set ({amount $} -> py.pure-call "operator.contains" >>)
+    !my in-set [{amount $} | py.pure-call "operator.contains"]
     !on in-set
     ~true !fail.value "Value must not be any of the excluded values"
     ~false true
@@ -76,7 +76,7 @@
 
 /// Integer constraint: value must have no fractional part
 !pure integer ~num (
-    !my parts ({$ 1} -> py.pure-call "divmod" >>)
+    !my parts [{$ 1} | py.pure-call "divmod"]
     !on (parts.#1 == 0)
     ~true true
     ~false !fail.value "Value must be an integer"
@@ -84,21 +84,21 @@
 
 /// ASCII constraint: text must contain only ASCII characters (codepoints 0-127)
 !pure ascii ~text (
-    !on ({$ "isascii"} -> py.call module="str" method="isascii" {text=$} >>)
+    !on [{$ "isascii"} | py.call module="str" method="isascii" {text=$}]
     ~false !fail.value "Text contains non-ASCII characters"
     ~true true
 )
 
 /// Non-empty constraint: text must have at least one character
 !pure non-empty ~text (
-    !on $ -> length >> == 0
+    !on [$ | length] == 0
     ~true !fail.value "Text must not be empty"
     ~false true
 )
 
 /// Single-character constraint: text must be exactly one character
 !pure single-char ~text (
-    !on $ -> length >> == 1
+    !on [$ | length] == 1
     ~true true
     ~false !fail.value "Text must be exactly one character"
 )
@@ -108,7 +108,7 @@
 /// Pass a min/max range struct: size={1 32}
 !pure size ~text (
     !param range ~({~index ~index} | index)
-    !my n $ -> length >>
+    !my n [$ | length]
     !on range
     ~num (
         !on (n == range)
@@ -131,7 +131,7 @@
 /// Pass a min/max range struct: size={1 32}
 !pure size ~struct (
     !param range ~({~index ~index} | index) /// pass specific size or a pair representing an inclusive range
-    !my n $ -> length >>
+    !my n [$ | length]
     !on range
     ~num (
         !on (n == range)
@@ -152,7 +152,7 @@
 /// Pattern match constraint: text must match the given regex pattern
 !pure match ~text (
     !param pattern ~text
-    !my result {pattern $} -> py.pure-call "re.fullmatch" >>
+    !my result [{pattern $} | py.pure-call "re.fullmatch"]
     !on (result == nil)
     ~true !fail.value "Text does not match pattern"
     ~false true

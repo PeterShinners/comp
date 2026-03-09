@@ -22,46 +22,46 @@
 // Constants //
 
 /// Ratio of a circle's circumference to its diameter
-!pure pi ~nil (nil -> py.load-const "math.pi" >>)
+!pure pi ~nil [nil | py.load-const "math.pi"]
 
 /// Euler's number, base of natural logarithm
-!pure e ~nil (nil -> py.load-const "math.e" >>)
+!pure e ~nil [nil | py.load-const "math.e"]
 
 /// 2π — full turn in radians
-!pure tau ~nil (nil -> py.load-const "math.tau" >>)
+!pure tau ~nil [nil | py.load-const "math.tau"]
 
 
 // Rounding //
 
 /// Round to nearest integer (or to given decimal places)
 /// Uses Decimal arithmetic — respects the current decimal context rounding mode
-!pure round ~num @preserve-unit (
+!pure round ~num @preserve-unit [
     !param digits ~num<integer> = 0
-    {$ digits} -> py.pure-call "round" >>
-)
+    {$ digits} | py.pure-call "round"
+]
 
 /// Round down toward negative infinity
-!pure floor ~num @preserve-unit (
-    $ -> py.pure-call "math.floor" >>
-)
+!pure floor ~num @preserve-unit [
+    $ | py.pure-call "math.floor"
+]
 
 /// Round up toward positive infinity
-!pure ceiling ~num @preserve-unit (
-    $ -> py.pure-call "math.ceil" >>
-)
+!pure ceiling ~num @preserve-unit [
+    $ | py.pure-call "math.ceil"
+]
 
 /// Round toward zero, discarding any fractional part
-!pure truncate ~num @preserve-unit (
-    $ -> py.pure-call "math.trunc" >>
-)
+!pure truncate ~num @preserve-unit [
+    $ | py.pure-call "math.trunc"
+]
 
 
 // Basic arithmetic //
 
 /// Absolute value — uses Decimal.copy_abs to avoid any sign-bit twiddling
-!pure abs ~num @preserve-unit (
-    $ -> py.pure-call "decimal.Decimal.copy_abs" >>
-)
+!pure abs ~num @preserve-unit [
+    $ | py.pure-call "decimal.Decimal.copy_abs"
+]
 
 /// Sign of a number: ord.less for negative, ord.equal for zero, ord.greater for positive
 !pure sign ~num (
@@ -75,54 +75,54 @@
 /// Returns {quotient remainder} — quotient is floor division, remainder is modulo.
 !pure divmod ~num (
     !param divisor ~num<ne=0>
-    !my parts ({$ divisor} -> py.pure-call "divmod" >>)
+    !my parts [{$ divisor} | py.pure-call "divmod"]
     {quotient=parts.#0 remainder=parts.#1}
 )
 
 /// Raise base to an exponent
-!pure pow ~num (
+!pure pow ~num [
     !param exp ~num
-    {$ exp} -> py.pure-call "math.pow" >>
-)
+    {$ exp} | py.pure-call "math.pow"
+]
 
 /// Square root — full precision via Decimal.sqrt, fails on negative input
-!pure sqrt ~num (
-    $ -> py.pure-call "decimal.Decimal.sqrt" >>
-)
+!pure sqrt ~num [
+    $ | py.pure-call "decimal.Decimal.sqrt"
+]
 
 
 // Logarithms //
 
 /// Natural logarithm (base e), or logarithm to a given base
 !pure log ~num (
-    !param base ~num<gt=1>|nil = nil
+    !param base ~(num<gt=1>|nil) = nil
     !on (base == nil)
-    ~true ($ -> py.pure-call "math.log" >>)
-    ~false ({$ base} -> py.pure-call "math.log" >>)
+    ~true [$ | py.pure-call "math.log"]
+    ~false [{$ base} | py.pure-call "math.log"]
 )
 
 /// Base-2 logarithm
-!pure log2 ~num (
-    $ -> py.pure-call "math.log2" >>
-)
+!pure log2 ~num [
+    $ | py.pure-call "math.log2"
+]
 
 /// Base-10 logarithm
-!pure log10 ~num (
-    $ -> py.pure-call "math.log10" >>
-)
+!pure log10 ~num [
+    $ | py.pure-call "math.log10"
+]
 
 
 // Trigonometry //
 
 /// Sine of an angle in radians
-!pure sin ~num (
-    $ -> py.pure-call "math.sin" >>
-)
+!pure sin ~num [
+    $ | py.pure-call "math.sin"
+]
 
 /// Cosine of an angle in radians
-!pure cos ~num (
-    $ -> py.pure-call "math.cos" >>
-)
+!pure cos ~num [
+    $ | py.pure-call "math.cos"
+]
 
 
 // Range //

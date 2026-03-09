@@ -32,16 +32,16 @@ represent idiomatic and clean code. Comp aims for this excellence.
 
 !startup main (
     !ctx repo "nushell/nushell"
-    !my cutoff (datetime.now >> - 1[week])
+    !my cutoff [datetime.now] - 1`week
 
-    gh.issue-list fields={"created-at" "reaction-groups" "title" "url"}
-    -> where :($.created-at >= cutoff)
-    -> map :($.thumbs-up = $.reaction-groups -> count :($.content == "thumbs-up"))
-    -> sort reverse :($.thumbs-up)
-    -> first 5
-    -> select {"thumbs-up"="\uD83D\uDC4D" "title" "url"}
-    -> table.markdown
-    >>
+    [gh.issue-list fields={"created-at" "reaction-groups" "title" "url"}
+    | where :($.created-at >= cutoff)
+    | map :($.thumbs = [$.reaction-groups | count :($.content == "thumbs-up")])
+    | sort reverse :($.thumbs)
+    | first 5
+    | select {"thumbs"="👍" "title" "url"}
+    | table.markdown
+    ]
 )
 ```
 

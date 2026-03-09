@@ -25,7 +25,7 @@
 ///   // {1 4 9 16 25}
 !pure map ~struct (
     !param transform ~any
-    $ -> iterate :($.item -> field-value -> transform) >>
+    [$ | iterate :[$.item | field-value | transform]]
 )
 
 
@@ -46,13 +46,13 @@
 ///   // {20 40}
 !pure where ~struct (
     !param test ~any
-    $ -> iterate :(
-        !my value $.item -> field-value >>
+    [$ | iterate :(
+        !my value [$.item | field-value]
         // Test the value; keep it or skip
-        !on value -> test >>
+        !on [value | test]
         ~true value
         ~false skip
-    ) >>
+    )]
 )
 
 
@@ -75,16 +75,16 @@
 !pure some ~struct (
     !param test ~any
     !my found false
-    $ -> iterate :(
-        !my value $.item -> field-value >>
-        !on value -> test >>
+    [$ | iterate :(
+        !my value [$.item | field-value]
+        !on [value | test]
         ~true (!my found true) // todo what is the value of this thing?
         ~false nil
         // Last expression: stop on match, skip on no match
         !on found
         ~true stop
         ~false skip
-    ) >>
+    )]
     found
 )
 
@@ -109,16 +109,16 @@
 !pure every ~struct (
     !param test ~any
     !my passed true
-    $ -> iterate :(
-        !my value $.item -> field-value >>
-        !on value -> test >>
+    [$ | iterate :(
+        !my value [$.item | field-value]
+        !on [value | test]
         ~true nil
         ~false (!my passed false)
         // Last expression: stop on failure, skip on pass
         !on passed
         ~false stop
         ~true skip
-    ) >>
+    )]
     passed
 )
 
@@ -141,12 +141,11 @@
     !param end ~num
     !param step ~num = 1
     // State is the current number; generate collects it before advancing
-    start -> generate :(
+    [start | generate :(
         !on $ > end
         ~true stop
         ~false ($ + step)
-    ) 
-    >>
+    )]
 )
 
 
@@ -172,13 +171,13 @@
     !my items $
     !my idx 0
     // Pipe initial accumulator into forever; $ is the running total
-    initial -> forever :(
-        !on idx >= (items -> length >>)
+    [initial | forever :(
+        !on idx >= [items | length]
         ~true stop
         // Call fold with current item; $ inside fold is the accumulator
-        ~false items.#(idx) -> fold >>
+        ~false [items.#(idx) | fold]
         !my idx idx + 1
-    ) >>
+    )]
 )
 
 
@@ -215,9 +214,9 @@
     !param op ~nil
     !my items $
     !my acc {}
-    !my len items -> s.length >>
+    !my len [items | s.length]
     // State struct carries position and previous result through forever
-    {position=0 accum=nil} -> forever :(
+    [{position=0 accum=nil} | forever :(
         // Extract position from state (needed as a local for item-at arg)
         !my pos $.position
         // Bounds check first — handles empty structs and loop termination
@@ -225,19 +224,19 @@
         ~false stop
         ~true (
             // Get the single-item struct pair at this index
-            !my entry items -> item-at pos >>
+            !my entry [items | item-at pos]
             // Call the op block with full context
-            !my result {position=pos item=entry accum=$.accum} -> op >>
+            !my result [{position=pos item=entry accum=$.accum} | op]
             // Check if op returned a flow-control tag
             !on result
             // Propagate skip/stop — skip means don't accumulate, stop means break
             ~flow-control result
             // Normal value — append to the output
-            ~any (!my acc {acc {result}} -> merge >>)
+            ~any (!my acc [{acc {result}} | merge])
             // Advance position or continue
             {position=(pos + 1) accum=result}
         )
-    ) >>
+    )]
     acc
 )
 
@@ -282,17 +281,16 @@
     !param gen ~nil
     !my acc {}
     // Pipe initial state into forever; $ is the running state
-    $ -> forever :(
+    [$ | forever :(
         // Call gen with current state to get next state
-        !my next $ -> gen >>
+        !my next [$ | gen]
         !on next
         // Propagate stop/skip to forever
         ~flow-control next
         // Accumulate current state ($), then advance to next
-        ~any !my acc {acc {$}} -> merge >>
+        ~any !my acc [{acc {$}} | merge]
         next
-    ) 
-    >>
+    )]
     acc
 )
 
@@ -326,19 +324,18 @@
     // Use -1 sentinel to mean "to the end"
     !my actual-end end
     !on end == -1
-    ~true !my actual-end $ -> s.length >>
+    ~true !my actual-end [$ | s.length]
     ~false nil
-    $ -> iterate :(
+    [$ | iterate :(
         !on ($.position >= start !and $.position < actual-end)
-        ~true $.item -> field-value >>
+        ~true [$.item | field-value]
         ~false (
             // Past the end — stop early
             !on $.position >= actual-end
             ~true stop
             ~false skip
         )
-    ) 
-    >>
+    )]
 )
 
 
@@ -347,9 +344,9 @@
 /// Examples:
 ///   {10 20 30} -> first   // 10
 ///   {x=10 y=20} -> first  // 10
-!pure first ~struct (
-    $ -> item-at 0 -> field-value >>
-)
+!pure first ~struct [
+    $ | item-at 0 | field-value
+]
 
 
 /// Get the last value from a struct.
@@ -358,8 +355,8 @@
 ///   {10 20 30} -> last    // 30
 ///   {x=10 y=20} -> last   // 20
 !pure last ~struct (
-    !my idx $ -> s.length >> - 1
-    $ -> item-at idx -> field-value >>
+    !my idx [$ | s.length] - 1
+    [$ | item-at idx | field-value]
 )
 
 
@@ -373,13 +370,12 @@
 ///   {a=1 b=2 c=3} -> reverse // {3 2 1}
 !pure reverse ~struct (
     !my data $
-    !my len $ -> s.length >>
+    !my len [$ | s.length]
     !my last-idx len - 1
-    range 0 last-idx -> map :(
+    [range 0 last-idx | map :(
         !my idx (len - $ - 1)
-        data -> item-at idx -> field-value >>
-    ) 
-    >>
+        [data | item-at idx | field-value]
+    )]
 )
 
 

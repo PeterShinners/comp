@@ -26,60 +26,53 @@ using shape-based function overloading.
 
 
 !startup game (
-    !my window 
+    !my window [
 	pg.display
-	-> window {1280 480} scaled
-	-> caption "Monkey Fever"
-	-> mouse-visible false
-	>>
+	| window {1280 480} scaled
+	| caption "Monkey Fever"
+	| mouse-visible false
+	]
 
     !my state {
-        bgd = {window.size fill={0.7 0.9 0.7}} -> card >>
-        fist = {res.fist pivot={235 80}} -> card >>
-        chimp = {res.chimp pivot=center} -> card >>
+        bgd = [{window.size fill={0.7 0.9 0.7}} | card]
+        fist = [{res.fist pivot={235 80}} | card]
+        chimp = [{res.chimp pivot=center} | card]
     }
 
-    pg.loop window quit-on={event.quit key.escape} :(
+    [pg.loop window quit-on={event.quit key.escape} :(
 		!param state ~state // loop sets this up as context?
-        $.events -> each handle >>
-		$.draw
-        -> clear {0.7 0.9 0.7}
-        -> draw-cards {state.chimp state.fist}
-		>>
-	) 
-    >>
+        [$.events | each handle]
+		[$.draw
+        | clear {0.7 0.9 0.7}
+        | draw-cards {state.chimp state.fist}]
+	)]
 )
 
 
 /// Handle mouse down: punch and check for hit
-!func handle ~pg.event @update(
+!func down.handle ~pg.event<type=mouse.up> @update (
     !param state ~state
-    !on {state.fist state.chimp} -> intersect overlap=5 >>
+    !on [state.fist state.chimp | intersect overlap=5]
     ~true {
-        chimp.rotate = (state.chimp.rotate -> spin 360 0.5 ease-out >>)
-        chimp.translate.x = (state.chimp.translate.x -> update after=chimp.rotate >>)
-        commands = (audio.play res.punch >>)
+        chimp.rotate = [state.chimp.rotate | spin 360 0.5 ease-out]
+        chimp.translate.x = [state.chimp.translate.x | update after=chimp.rotate]
+        commands = [audio.play res.punch]
     }
     ~false {
-        commands = (audio.play res.whiff >>)
+        commands = [audio.play res.whiff]
     }
 )
 
 
 /// Handle mouse up: retract fist
-!func handle ~pg.event<type=mouse.up> (     //x this isn't a legal way to do equality of fields
-	//x how to make value based types from fields like this?
+!func up.handle ~pg.event<type=mouse.up> @update (     //x this isn't a legal way to do equality of fields
 	!param state ~state
-	state.fist -> move {-10 -90} >>
+	[state.fist | move {-10 -90}]
 )
-
-//x note, realistically these handlers want take state as input and event as a modifier
-// that could be ok if there was a function that dispatched based on modifiers
-// instead of the input shape?
 
 
 /// Handle mouse move: track fist position
-!func handle ~pg.event<type=mouse.move> (   //x this isn't a legal way to do equality of fields
+!func move.handle ~pg.event<type=mouse.move> @update (   //x this isn't a legal way to do equality of fields
 	!param state ~state
-	state.fist -> position $.position >>
+	[state.fist | position $.position]
 )

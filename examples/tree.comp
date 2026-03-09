@@ -13,45 +13,46 @@ Highlights
 */
 
 !shape tree ~{value~num left~branch right~branch}
-!shape branch ~tree | nil = nil
+!shape branch ~(tree | nil) = nil
 
 
-!startup main (
-    {5 3 8 1 7 9}
-    -> reduce initial=nil tree-insert
-    -> tree-values
-    -> output
-    >>
-)
+!startup main [
+	{5 3 8 1 7 9}
+	| reduce initial=nil tree-insert
+	| tree-values
+	| output
+]
 
 
 /// Add new value into tree, dispatched on nil vs tree
-!pure empty.tree-insert ~nil (
-    !param value ~num
-    tree value=value >>
-)
+!pure empty.tree-insert ~nil [
+	!param value ~num
+
+	{value} | tree
+]
 
 !pure tree-insert ~tree @update(
-    !param value ~num
-    !on value <> $.value
-    ~less {left = $.left -> tree-insert value >>}
-    ~else {right = $.right -> tree-insert value >>}
+	!param value ~num
+
+	!on value <> $.value
+	~less {left = [$.left | tree-insert value]}
+	~any {right = [$.right | tree-insert value]}
 )
 
 
 /// Check if tree contains value
 !pure empty.tree-contains ~nil (
-    !param value ~num
-    false
+	!param value ~num
+	false
 )
 
 !pure tree-contains ~tree (
-    !param value ~num
+	!param value ~num
 
-    !on value <> $.value
-    ~less $.left -> tree-contains value >>
-    ~greater $.right -> tree-contains value >>
-    ~equal true
+	!on value <> $.value
+	~less [$.left | tree-contains value]
+	~greater [$.right | tree-contains value]
+	~equal true
 )
 
 
@@ -59,8 +60,8 @@ Highlights
 !pure empty.tree-values ~nil {
 }
 
-!pure tree-values ~tree @flat{
-    $.left -> tree-values >>
-    {$.value}
-    $.right -> tree-values >>
+!pure tree-values ~tree @flat {
+	[$.left | tree-values]
+	{$.value}
+	[$.right | tree-values]
 }

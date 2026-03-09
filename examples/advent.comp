@@ -7,19 +7,18 @@ Highlights:
 - No `%` modifier operator, but the math `divmod` functions works cleanly
 */
 
-!func aoc-2025-day1 (
-    read-lines
-    -> map parse
-    -> accumulate 50 :($.accum + $.value)
-    -> count :(($ -> divmod 100).remainder == 0)
-    -> output
-    >>
-)
+!func aoc-2025-day1 [
+	read-lines
+	| map parse
+	| accumulate 50 :($.accum + $.value)
+	| count :([$ | divmod 100].remainder == 0)
+	| output
+]
 
 !pure parse ~text (
-    !my sign ($.#0 == "R") -> pick 1 -1 >>
-    !my step $ -> slice 1 -> parse-num >>
-    sign * step
+	!my sign [($.#0 == "R") | pick 1 -1]
+	!my step [$ | slice 1 | parse-num]
+	sign * step
 )
 
 
@@ -36,34 +35,32 @@ Highlights:
 - The main pipeline reads as a recipe: parse, expand, group, filter, sum
 */
 
-!startup main (
-    read-lines
-    -> parse-entries
-    -> map @flat :($.path -> path-ancestors -> map :{path=$ size=$$.size})
-    -> group :($.path) -> sum :($.size)
-    -> values
-    -> where :($ <= 100000)
-    -> sum
-    -> output
-    >>
-)
+!startup main [
+	read-lines
+	| parse-entries
+	| map @flat :[$.path | path-ancestors | map :{path=$ size=$$.size}]
+	| group :($.path) | sum :($.size)
+	| values
+	| where :($ <= 100000)
+	| sum
+	| output
+]
 
 !func parse-entries ~texts (
-    !my cwd "/"
-    $ -> map :(
-        !on $ -> slice 0 4
-        ~text<eq="$ ls"> skip
-        ~text<eq="dir "> skip
-        ~text<eq="$ cd"> (!my cwd $ -> slice 5 -> path-resolve cwd >> skip)
-        ~any {path=cwd size=$ -> split-whitespace limit=1 -> $.#0 -> parse-num >>}
-    )
+	!my cwd "/"
+	[$ | map :[
+		!on [$ | slice 0 4]
+		~text<eq="$ ls"> skip
+		~text<eq="dir "> skip
+		~text<eq="$ cd"> (!my cwd [$ | slice 5 | path-resolve cwd] skip)
+		~any {path=cwd size=[$ | split-whitespace limit=1 | $.#0 | parse-num]}
+	]]
 )
 
 /// All ancestor paths including self
 /// "/a/e" -> {"/" "/a" "/a/e"}
-!pure path-ancestors ~text (
-    $ -> split "/"
-    -> accumulate "" :($.accum -> join "/" $.value)
-    -> map :($ -> if-empty "/")
-    >>
-)
+!pure path-ancestors ~text [
+	$ | split "/"
+	| accumulate "" :[$.accum | join "/" $.value]
+	| map :[$ | if-empty "/"]
+]

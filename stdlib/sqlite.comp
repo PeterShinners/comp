@@ -46,34 +46,33 @@
 
 
 /// Test function that raises a Python sqlite exception
-!func test-sqlite-error (
+!func test-sqlite-error [
     py.call-func name="sqlite3.connect"
         {database="/invalid/path/that/does/not/exist/test.db"}
-    >>
-)
+]
 
 
 /// Open database connection from file path
 !func database-file ~text (
     !param params ~connect-args
-    !my pydb (py.call-func name="sqlite3.connect" {database=$} >>)
-    !my db (grab-handle handle-db >>)
+    !my pydb [py.call-func name="sqlite3.connect" {database=$}]
+    !my db [grab-handle handle-db]
     db @update {private.py = pydb}
 )
 
 /// Open database connection from URL
 !func database-url ~text (
     !param params ~connect-args
-    !my pydb (py.call-func name="sqlite3.connect" :{database=$ url=true} >>)
-    !my db (grab-handle handle-db >>)
+    !my pydb [py.call-func name="sqlite3.connect" :{database=$ url=true}]
+    !my db [grab-handle handle-db]
     db @update :{private.py = pydb}
 )
 
 /// Open in-memory database
 !func database-memory (
     !param params ~connect-args
-    !my pydb (py.call-func name="sqlite3.connect" :{database=":memory:"} >>)
-    !my db (grab-handle handle-db >>)
+    !my pydb [py.call-func name="sqlite3.connect" :{database=":memory:"}]
+    !my db [grab-handle handle-db]
     db @update :{private.py = pydb}
 )
 
@@ -81,20 +80,19 @@
 !func execute ~{db~handle-db} (
     !param sql ~text
 
-    !my cursor (py.call method="cursor" {self=$.db.private.py} >>)
-    !my exec (py.call method="execute" :{self=cursor sql} >>)
-    !my cursor-vars (py.call method="vars" :{self=cursor} >>)
+    !my cursor [py.call method="cursor" {self=$.db.private.py}]
+    !my exec [py.call method="execute" :{self=cursor sql}]
+    !my cursor-vars [py.call method="vars" :{self=cursor}]
 
     execute-result {
-        rows = (py.call method="fetchall" :{self=cursor} -> py.pull >>)
+        rows = [py.call method="fetchall" :{self=cursor} | py.pull]
         columns = cursor-vars.description
         row-id = cursor-vars.lastrowid
         row-count = cursor-vars.rowcount
     }
-    >>
 )
 
 /// Called automatically as handle is dropped
-!func drop-handle ~{db~handle-db} (
-    py.call method="close" :{self=$.db.private.py} >>
-)
+!func drop-handle ~{db~handle-db} [
+    py.call method="close" :{self=$.db.private.py}
+]
