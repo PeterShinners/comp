@@ -10,117 +10,117 @@
 
 /// Inclusive minimum bound: value must be >= amount
 !pure ge ~num (
-    :param amount~num
+    !param amount ~num
     !on $ < amount
-    ~true !fail {fail.value message="Value is below minimum"}
+    ~true !fail.value "Value is below minimum"
     ~false true
 )
 
 /// Inclusive maximum bound: value must be <= amount
 !pure le ~num (
-    :param amount~num
+    !param amount ~num
     !on $ > amount
-    ~true !fail {fail.value message="Value is above maximum"}
+    ~true !fail.value "Value is above maximum"
     ~false true
 )
 
 /// Exclusive lower bound: value must be > amount
 !pure gt ~num (
-    :param amount~num
+    !param amount ~num
     !on $ <= amount
-    ~true !fail {fail.value message="Value must be above bound"}
+    ~true !fail.value "Value must be above bound"
     ~false true
 )
 
 /// Exclusive upper bound: value must be < amount
 !pure lt ~num (
-    :param amount~num
+    !param amount ~num
     !on $ >= amount
-    ~true !fail {fail.value message="Value must be below bound"}
+    ~true !fail.value "Value must be below bound"
     ~false true
 )
 
 /// Equality constraint: value must equal amount exactly
 !pure eq ~num (
-    :param amount~num
+    !param amount ~num
     !on $ == amount
-    ~false !fail {fail.value message="Value must equal the required amount"}
+    ~false !fail.value "Value must equal the required amount"
     ~true true
 )
 
 /// Equality constraint: value must be one of the given values
 !pure eq ~num (
-    :param amount~num*1+
-    !let in-set ({amount $} | py.pure-call :"operator.contains")
+    !param amount ~num*1+
+    !my in-set ({amount $} -> py.pure-call "operator.contains" >>)
     !on in-set
-    ~false !fail {fail.value message="Value must be one of the allowed values"}
+    ~false !fail.value "Value must be one of the allowed values"
     ~true true
 )
 
 /// Inequality constraint: value must not equal amount
 !pure ne ~num (
-    :param amount~num
+    !param amount ~num
     !on $ == amount
-    ~true !fail {fail.value message="Value must not equal the excluded amount"}
+    ~true !fail.value "Value must not equal the excluded amount"
     ~false true
 )
 
 /// Inequality constraint: value must not be any of the given values
 !pure ne ~num (
-    :param amount~num*1+
-    !let in-set ({amount $} | py.pure-call :"operator.contains")
+    !param amount ~num*1+
+    !my in-set ({amount $} -> py.pure-call "operator.contains" >>)
     !on in-set
-    ~true !fail {fail.value message="Value must not be any of the excluded values"}
+    ~true !fail.value "Value must not be any of the excluded values"
     ~false true
 )
 
 /// Integer constraint: value must have no fractional part
 !pure integer ~num (
-    !let parts ({$ 1} | py.pure-call :"divmod")
+    !my parts ({$ 1} -> py.pure-call "divmod" >>)
     !on (parts.#1 == 0)
     ~true true
-    ~false !fail {fail.value message="Value must be an integer"}
+    ~false !fail.value "Value must be an integer"
 )
 
 /// ASCII constraint: text must contain only ASCII characters (codepoints 0-127)
 !pure ascii ~text (
-    !on (py.call :module="str" :method="isascii" :{text=$})
-    ~false !fail {fail.value message="Text contains non-ASCII characters"}
+    !on ({$ "isascii"} -> py.call module="str" method="isascii" {text=$} >>)
+    ~false !fail.value "Text contains non-ASCII characters"
     ~true true
 )
 
 /// Non-empty constraint: text must have at least one character
 !pure non-empty ~text (
-    !on ($ | length) == 0
-    ~true !fail {fail.value message="Text must not be empty"}
+    !on $ -> length >> == 0
+    ~true !fail.value "Text must not be empty"
     ~false true
 )
 
 /// Single-character constraint: text must be exactly one character
 !pure single-char ~text (
-    !on ($ | length) == 1
+    !on $ -> length >> == 1
     ~true true
-    ~false !fail {fail.value message="Text must be exactly one character"}
+    ~false !fail.value "Text must be exactly one character"
 )
 
 /// Size constraint: text length must be exact or within a range.
 /// Pass an exact count: size=3
 /// Pass a min/max range struct: size={1 32}
 !pure size ~text (
-    :param range~{~index ~index}|index
-    !let n ($ | length)
+    !param range ~({~index ~index} | index)
+    !my n $ -> length >>
     !on range
     ~num (
         !on (n == range)
         ~true true
-        ~false !fail {fail.value message="Text must be exactly this length"}
+        ~false !fail.value "Text must be exactly this length"
     )
     ~struct (
         !on (n < range.#0)
-        ~true !fail {fail.value message="Text is too short"}
+        ~true !fail.value "Text is too short"
         ~false (
             !on (n > range.#1)
-            ~true !fail {fail.value message="Text is too long"}
+            ~true !fail.value "Text is too long"
             ~false true
         )
     )
@@ -130,20 +130,20 @@
 /// Pass an exact count: size=3
 /// Pass a min/max range struct: size={1 32}
 !pure size ~struct (
-    :param range~{~index ~index}|index
-    !let n ($ | length)
+    !param range ~({~index ~index} | index) /// pass specific size or a pair representing an inclusive range
+    !my n $ -> length >>
     !on range
     ~num (
         !on (n == range)
         ~true true
-        ~false !fail {fail.value message="Collection must be exactly this size"}
+        ~false !fail.value "Collection must be exactly this size"
     )
     ~struct (
         !on (n < range.#0)
-        ~true !fail {fail.value message="Collection is too small"}
+        ~true !fail.value "Collection is too small"
         ~false (
             !on (n > range.#1)
-            ~true !fail {fail.value message="Collection is too large"}
+            ~true !fail.value "Collection is too large"
             ~false true
         )
     )
@@ -151,9 +151,9 @@
 
 /// Pattern match constraint: text must match the given regex pattern
 !pure match ~text (
-    :param pattern ~text
-    !let result ({pattern $} | py.pure-call :"re.fullmatch")
+    !param pattern ~text
+    !my result {pattern $} -> py.pure-call "re.fullmatch" >>
     !on (result == nil)
-    ~true !fail {fail.value message="Text does not match pattern"}
+    ~true !fail.value "Text does not match pattern"
     ~false true
 )

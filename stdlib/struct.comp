@@ -7,12 +7,12 @@
 
 /// Get number of fields in struct
 !pure length ~struct (
-    {$} | py.pure-call :"len"
+    {$} -> py.pure-call "len" >>
 )
 
 /// Test if struct has no fields
 !pure is-empty ~struct (
-    !not ({$} | py.pure-call :"bool")
+    !not ({$} -> py.pure-call "bool" >>)
 )
 
 

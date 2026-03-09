@@ -34,7 +34,7 @@ def coptimize(cop, fold, namespace, references=None, locals_defined=None,
         references: (set | None) If provided, collects qualified names of all
             resolved namespace references discovered during optimization
         locals_defined: (set | None) If provided, collects names of all local
-            variables defined by op.let statements in the tree
+            variables defined by op.my statements in the tree
         pure: (bool) Whether to evaluate pure function invocations
         defs: (dict | None) Module namespace dict for pure callable lookup,
             required when pure=True
@@ -62,7 +62,7 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
         namespace: (dict | None) Namespace for lookups
         locals: (set) Local variable names to resolve as value.local
         references: (set) Collects discovered namespace reference names
-        locals_defined: (set | None) Collects names defined by op.let
+        locals_defined: (set | None) Collects names defined by op.my
 
     Returns:
         (Value) Optimized COP node
@@ -112,7 +112,7 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
     if tag == "value.block":
         return _optimize_block(cop, fold, namespace, locals, references, locals_defined)
 
-    # --- Sequential containers: track op.let / named-field bindings ---
+    # --- Sequential containers: track op.my / named-field bindings ---
     if tag in ("statement.define", "struct.define"):
         return _optimize_sequential(cop, fold, namespace, locals, references, locals_defined)
 
@@ -123,7 +123,7 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
     # --- Let/ctx bindings: name child is a declaration, not a reference ---
     # kids[0] is the binding name (ident.token / value.identifier used as lvalue)
     # kids[1] is the value expression to optimize normally
-    if tag in ("op.let", "op.ctx"):
+    if tag in ("op.my", "op.ctx"):
         kids = comp.cop_kids(cop)
         if len(kids) >= 2:
             new_value = _coptimize_walk(kids[1], fold, namespace, locals, references, locals_defined)
@@ -304,7 +304,7 @@ def _optimize_sequential(cop, fold, namespace, locals, references, locals_define
     """Optimize a sequential container, tracking bindings across children.
 
     Handles both statement.define and struct.define.  Each child is processed
-    in order.  After a child that binds a name (op.let, op.ctx, or
+    in order.  After a child that binds a name (op.my, op.ctx, or
     struct.namefield), the bound name is added to the active locals set so
     subsequent siblings resolve it as value.local.
 
@@ -314,7 +314,7 @@ def _optimize_sequential(cop, fold, namespace, locals, references, locals_define
         namespace: (dict | None) Namespace
         locals: (set) Inherited locals from outer scope
         references: (set) Collects discovered namespace reference names
-        locals_defined: (set | None) Collects names defined by op.let
+        locals_defined: (set | None) Collects names defined by op.my
 
     Returns:
         (Value) Optimized node
@@ -358,7 +358,7 @@ def _optimize_sequential(cop, fold, namespace, locals, references, locals_define
 def _extract_let_name(cop):
     """Extract the bound variable name from a binding node.
 
-    Only op.let and op.ctx create local variable bindings.
+    Only op.my and op.ctx create local variable bindings.
     struct.namefield contributes to the outgoing structure but does NOT
     create a local visible to subsequent siblings.
 
@@ -374,7 +374,7 @@ def _extract_let_name(cop):
         if kids:
             return _extract_let_name(kids[0])
         return None
-    if tag in ("op.let", "op.ctx"):
+    if tag in ("op.my", "op.ctx"):
         kids = comp.cop_kids(cop)
         if kids:
             return _get_ident_name(kids[0])
@@ -597,7 +597,7 @@ def _optimize_block(cop, fold, namespace, locals, references, locals_defined=Non
     if sig_tag == "block.signature":
         for field_cop in comp.cop_kids(signature_cop):
             field_tag = comp.cop_tag(field_cop)
-            if field_tag in ("signature.param", "signature.block"):
+            if field_tag in ("signature.param",):
                 try:
                     param_name = field_cop.to_python("name")
                     if param_name:

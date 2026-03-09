@@ -46,5 +46,5 @@
 ///       $ | py.pure-call :"str.upper"
 ///   )
 !func preserve-unit (
-    ($ | apply)[$.input | get-unit-tag]
+    ($ -> apply >>)[$.input -> get-unit-tag >>]
 )

@@ -607,7 +607,7 @@ def _walk_params(cop, result):
     if tag == "signature.param":
         _collect_param(cop, "param", result)
         return  # params don't nest
-    if tag == "signature.block":
+    if tag == "signature.param":
         _collect_param(cop, "block", result)
         return
 

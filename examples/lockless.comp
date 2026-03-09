@@ -6,48 +6,49 @@ Highlights:
 
 - `atomic.swap` handles the compare-and-swap retry loop, the block describes the
   desired next state, the function handles contention
-- `forever` with `|?` break creates an infinite loop that terminates on failure,
+- `forever` with `->?` break creates an infinite loop that terminates on failure,
   no while/break keywords needed
-- Shape dispatch means `stack-push` and `stack-pop` only accept `~stack` values,
+- Shape dispatch means `push` and `pop` only accept `~stack` values,
   invalid data fails at the call boundary, not somewhere deep in the
   implementation
 */
 
 !import atomic comp "atomic"
 
-!shape node ~{value~text  next~node|nil}
-!shape stack ~{head~node|nil  version~num}
+!shape node ~{value~text  next~(node|nil)}
+!shape stack ~{head~(node|nil)  version~num}
 
 
 !startup main (
-    (nil 0)
-    | stack-push :"first"
-    | stack-push :"second"
-    | stack-push :"third"
-	| forever :(
-		stack-pop | output :"Popped: %()" |? break
+    {nil 0}
+    -> push "first"
+    -> push "second"
+    -> push "third"
+	-> forever :(
+		pop >> -> output "Popped: %()" ->? break
     )
-    | output :"Stack empty, done"
+    >>
 )
 
 
 /// Push a value onto the stack, retrying on contention
-!func stack-push ~stack (
-    param value ~text
+!func push ~stack (
+    !param value ~text
 
-    $ | atomic.swap :{
-        head = {value=$.value next=$.head}
+    $ -> atomic.swap :{
+        head = {value=value next=$.head}
         version = $.version + 1
-        //x this isn't right? increment by one? that doesn't feel like it would catch conflicts?
-    }
+    } 
+    >>
 )
 
 
 /// Pop a value from the stack, retrying on contention
 /// Fails if stack is empty
-!func stack-pop ~stack (
-    $ | atomic.swap :{
+!func pop ~stack (
+    $ -> atomic.swap :{
 		head = $.head.next
 		version = $.version + 1
-    }
+    } 
+    >>
 )

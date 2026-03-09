@@ -323,7 +323,7 @@ def cop_unparse(cop):
         case "signature.param":
             try:
                 name = cop.to_python("name", "")
-                parts = [":param"]
+                parts = ["!param"]
                 if name:
                     parts.append(name)
                 for kid in kids:
@@ -331,18 +331,6 @@ def cop_unparse(cop):
                 return " ".join(parts)
             except (KeyError, AttributeError):
                 return "<?param?>"
-        
-        case "signature.block":
-            try:
-                name = cop.to_python("name", "")
-                parts = [":block"]
-                if name:
-                    parts.append(name)
-                for kid in kids:
-                    parts.append(cop_unparse(kid))
-                return " ".join(parts)
-            except (KeyError, AttributeError):
-                return "<?block?>"
         
         # Statement structure
         case "statement.define":
@@ -370,10 +358,8 @@ def cop_unparse(cop):
             return " ".join(parts)
         
         case "value.block":
-            if len(kids) >= 2:
-                sig_str = cop_unparse(kids[0])
-                body_str = cop_unparse(kids[1])
-                return f":{sig_str}{body_str}" if sig_str else f":{body_str}"
+            if kids:
+                return f":({cop_unparse(kids[0])})"
             return "<?block?>"
         
         # Value expressions
@@ -512,45 +498,47 @@ def cop_unparse(cop):
             parts = []
             for kid in kids:
                 parts.append(cop_unparse(kid))
-            return " | ".join(parts)
+            result = " -> ".join(parts)
+            # Check for pump flag
+            try:
+                pump = cop.field("pump")
+                if pump is not None:
+                    result += " >>"
+            except (KeyError, AttributeError):
+                pass
+            return result
 
         case "value.pipeline_fallback":
             if kids:
-                return f"|? {cop_unparse(kids[0])}"
-            return "|?"
+                return f"->? {cop_unparse(kids[0])}"
+            return "->?"
         
-        # Binding (e.g., foo :bar, foo :x=1)
+        # Binding (e.g., foo bar, foo x=1)
         case "value.binding":
             if len(kids) >= 2:
                 callable_part = cop_unparse(kids[0])
 
-                # Unparse binding arguments directly with : prefix
-                # Get children of the struct.define
+                # Unparse binding arguments
                 binding_kids = cop_kids(kids[1])
                 if not binding_kids:
-                    # Empty bindings
-                    return f"{callable_part} :"
+                    return callable_part
 
-                # Unparse each binding argument
                 binding_parts = []
                 for binding_kid in binding_kids:
                     binding_tag = cop_tag(binding_kid)
                     if binding_tag == "struct.posfield":
-                        # Positional binding: :value
+                        # Bare positional binding: value
                         posfield_kids = cop_kids(binding_kid)
                         if posfield_kids:
-                            binding_parts.append(f":{cop_unparse(posfield_kids[0])}")
+                            binding_parts.append(cop_unparse(posfield_kids[0]))
                     elif binding_tag == "struct.namefield":
-                        # Named binding: :name=value
+                        # Named binding: name=value
                         namefield_kids = cop_kids(binding_kid)
                         if len(namefield_kids) >= 2:
-                            op = binding_kid.to_python("op", "=")
-                            binding_parts.append(f":{cop_unparse(namefield_kids[0])}{op}{cop_unparse(namefield_kids[1])}")
+                            binding_parts.append(f"{cop_unparse(namefield_kids[0])}={cop_unparse(namefield_kids[1])}")
                     else:
-                        # Unknown binding type
-                        binding_parts.append(f":{cop_unparse(binding_kid)}")
+                        binding_parts.append(cop_unparse(binding_kid))
 
-                # Join with spaces
                 return f"{callable_part} {' '.join(binding_parts)}"
             return "<?binding?>"
         
@@ -597,13 +585,13 @@ def cop_unparse(cop):
                 return cop_unparse(kids[0])
             return "<?posfield?>"
         
-        # Let statement
-        case "op.let":
+        # Local variable assignment
+        case "op.my":
             if len(kids) >= 2:
                 name = cop_unparse(kids[0])
                 value = cop_unparse(kids[1])
-                return f"!let {name} {value}"
-            return "<?let?>"
+                return f"!my {name} {value}"
+            return "<?my?>"
         
         case "op.on":
             # !on expression branch1 branch2 ...

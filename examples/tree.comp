@@ -18,51 +18,49 @@ Highlights
 
 !startup main (
     {5 3 8 1 7 9}
-    | reduce :initial=nil :tree-insert
-    | tree-values
-    | output
+    -> reduce initial=nil tree-insert
+    -> tree-values
+    -> output
+    >>
 )
 
 
 /// Add new value into tree, dispatched on nil vs tree
-!pure tree-insert  ~nil (
-    :param value~num
-
-    tree :value=value
+!pure empty.tree-insert ~nil (
+    !param value ~num
+    tree value=value >>
 )
 
 !pure tree-insert ~tree @update(
-    :param value~num
-
+    !param value ~num
     !on value <> $.value
-    ~less {left = ($.left | tree-insert :value)}
-    ~else {right = ($.right | tree-insert :value)}
+    ~less {left = $.left -> tree-insert value >>}
+    ~else {right = $.right -> tree-insert value >>}
 )
 
 
 /// Check if tree contains value
-!pure tree-contains ~nil (
-    :param value~num
-
+!pure empty.tree-contains ~nil (
+    !param value ~num
     false
 )
 
 !pure tree-contains ~tree (
-    :param value~num
+    !param value ~num
 
     !on value <> $.value
-    ~less ($.left | tree-contains :value)
-    ~greater ($.right | tree-contains :value)
+    ~less $.left -> tree-contains value >>
+    ~greater $.right -> tree-contains value >>
     ~equal true
 )
 
 
 /// Iterate values from tree in order
-!pure tree-values ~nil {
+!pure empty.tree-values ~nil {
 }
 
 !pure tree-values ~tree @flat{
-    ($.left | tree-values)
+    $.left -> tree-values >>
     {$.value}
-    ($.right | tree-values)
+    $.right -> tree-values >>
 }

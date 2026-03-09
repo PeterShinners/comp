@@ -45,16 +45,15 @@ def create_cop_module(module):
         "shape.repeat",  # (kids) array/repetition specification (0-2 number children)
         "shape.default",  # (kids) 1 kid - default value
         "signature.input",  # (kids) 1 kid - function input shape
-        "signature.param",  # (kids) 1 or 2 kids - :param declaration with shape and optional default
-        "signature.block",  # (kids) 1 or 2 kids - :block declaration with shape and optional default
+        "signature.param",  # (kids) 1 or 2 kids - !param declaration with shape and optional default
         "function.define",  # (sig, body) function definition with signature and body
         "function.signature",  # (kids) function signature (input shape)
         "function.body",  # (kids or sig+body) function body, may have block signature
         "block.signature",  # (kids) signature for block/statement (:param/:block declarations)
         "statement.define",  # (kids) sequence of statements
         "statement.field",  # (kids) single statement/expression in a sequence
-        "op.let",  # (kids) 2 kids - name and value for !let assignment
-        "op.ctx",  # (kids) 2 kids - name and value for !ctx (like !let, also updates frame context)
+        "op.my",  # (kids) 2 kids - name and value for !my assignment
+        "op.ctx",  # (kids) 2 kids - name and value for !ctx (like !my, also updates frame context)
         "op.defer",  # (kids) 1 kid - expression wrapped in a deferred (zero-arg) Block
         "op.forward",  # (kids) 0 kids - re-dispatch to next less-specific overload
         "op.on",  # (kids) expression and branches for !on dispatch
@@ -62,7 +61,7 @@ def create_cop_module(module):
         "struct.define",  # (kids)
         "struct.posfield",  # (kids) 1 kid
         "struct.namefield",  # (op, kids) 2 kids (name value)
-        "struct.letassign",  # (name, kids) 1 kid (value) [DEPRECATED - use op.let]
+        "struct.letassign",  # (name, kids) 1 kid (value) [DEPRECATED - use op.my]
         "mod.define",  # (kids)
         "mod.namefield",  # (op, kids) 2 kids (name value)
         "value.identassign",  # (kids)  same as identifier, but in an assignment
@@ -363,6 +362,13 @@ def lark_to_cop(tree):
             value_cop = lark_to_cop(kids[0])
             return _parsed(tree, "value.strip_unit", [value_cop])
 
+        case "cast_unit_expr":
+            # atom[expression] — apply a dynamically computed unit
+            # kids: [atom_tree, BRACKET_OPEN_token, expression_tree, BRACKET_CLOSE_token]
+            value_cop = lark_to_cop(kids[0])
+            unit_cop = lark_to_cop(kids[2])
+            return _parsed(tree, "value.cast_unit", [value_cop, unit_cop])
+
         # Operators
         case "binary_op":
             left = lark_to_cop(kids[0])
@@ -389,31 +395,123 @@ def lark_to_cop(tree):
             expr_cop = lark_to_cop(kids[1])
             return _parsed(tree, "op.fail", [expr_cop])
 
+        case "fail_shorthand":
+            # fail_shorthand: OP_FAIL DOT identifier expression
+            # Desugar !fail.TYPE expr into !fail {fail.TYPE message=expr}
+            # kids: [OP_FAIL, DOT, identifier_tree, expression_tree]
+            ident_cop = lark_to_cop(kids[2])
+            ident_kids = list(comp.cop_kids(ident_cop))
+            fail_token = _parsed(kids[0], "ident.token", [], value="fail")
+            fail_ident = _parsed(tree, "value.identifier", [fail_token] + ident_kids)
+            posfield = _parsed(tree, "struct.posfield", [fail_ident])
+            msg_name = _parsed(tree, "ident.token", [], value="message")
+            msg_value = lark_to_cop(kids[3])
+            namefield = _parsed(tree, "struct.namefield", [msg_name, msg_value], op="=")
+            struct = _parsed(tree, "struct.define", [posfield, namefield])
+            return _parsed(tree, "op.fail", [struct])
+
         case "pipeline":
-            # Walk kids: Tree=stage, Token=operator (| or |?)
-            # Wrap |? stages in value.pipeline_fallback so codegen can distinguish them.
+            # pipeline: binding_chain PUMP? ((ARROW | ARROWFALLBACK) pipeline_stage)+
+            # Kids: binding_chain, [PUMP], (ARROW/ARROWFALLBACK, pipeline_stage)+
             stages = []
-            for i, kid in enumerate(kids):
-                if not isinstance(kid, lark.Tree):
+            has_pump = False
+            for kid in kids:
+                if isinstance(kid, lark.Token):
+                    if kid.type == "PUMP":
+                        has_pump = True
+                    # ARROW/ARROWFALLBACK tokens are processed below with next stage
                     continue
+                # It's a tree node - either the binding_chain or a pipeline_stage
+                # Check if a pipeline_stage contains a PUMP token
+                if isinstance(kid, lark.Tree) and kid.data == "pipeline_stage":
+                    if any(isinstance(c, lark.Token) and c.type == "PUMP" for c in kid.children):
+                        has_pump = True
                 cop = lark_to_cop(kid)
-                # shape_atom returns a list when it has extras (unit/limits/repeat).
-                # Wrap in shape.define { shape.field { ... } } so codegen handles it
-                # as a morph callable (e.g. ~num*4 as a pipeline stage).
                 if isinstance(cop, list):
                     shape_field = _parsed(kid, "shape.field", cop)
                     cop = _parsed(kid, "shape.define", [shape_field])
                 if not stages:
                     stages.append(cop)
                 else:
-                    # Preceding sibling should be the operator token
-                    prev = kids[i - 1] if i > 0 else None
-                    op_val = prev.value if isinstance(prev, lark.Token) else "|"
-                    if op_val == "|?":
+                    # Check if preceding token was ARROWFALLBACK
+                    idx = kids.index(kid)
+                    prev = kids[idx - 1] if idx > 0 else None
+                    op_val = prev.value if isinstance(prev, lark.Token) else "->"
+                    if op_val == "->?":
                         stages.append(_parsed(kid, "value.pipeline_fallback", [cop]))
                     else:
                         stages.append(cop)
-            return _parsed(tree, "value.pipeline", stages)
+            extra = {"pump": comp.Value(comp.tag_true)} if has_pump else {}
+            return _parsed(tree, "value.pipeline", stages, **extra)
+
+        case "pumped":
+            # pumped: binding_chain PUMP
+            # Single expression pumped for execution
+            expr_cop = lark_to_cop(kids[0])
+            return _parsed(tree, "value.pipeline", [expr_cop], pump=comp.Value(comp.tag_true))
+
+        case "binding":
+            # binding: unary binding_arg+
+            # First child is the callable, rest are binding args
+            callable_cop = lark_to_cop(kids[0])
+            binding_cops = [lark_to_cop(kid) for kid in kids[1:]]
+            bindings_struct = _parsed(tree, "struct.define", binding_cops)
+            return _parsed(tree, "value.binding", [callable_cop, bindings_struct])
+
+        case "named_binding":
+            # named_binding: TOKENFIELD EQUALS unary
+            name_str = kids[0].value  # TOKENFIELD token
+            value_cop = lark_to_cop(kids[2])  # Skip EQUALS
+            name_cop = _parsed(tree, "ident.token", [], value=name_str)
+            return _parsed(tree, "struct.namefield", [name_cop, value_cop], op="=")
+
+        case "bare_binding":
+            # bare_binding: non_shape_atom
+            value_cop = lark_to_cop(kids[0])
+            return _parsed(tree, "struct.posfield", [value_cop])
+
+        case "pipeline_stage":
+            # pipeline_stage: unary PUMP? | unary pipeline_arg+ PUMP?
+            # Filter out PUMP tokens (pump is tracked by parent pipeline)
+            expr_kids = [kid for kid in kids if not (isinstance(kid, lark.Token) and kid.type == "PUMP")]
+            # If no args, just return the unary
+            if len(expr_kids) == 1:
+                return lark_to_cop(expr_kids[0])
+            # Has args - build a binding node
+            callable_cop = lark_to_cop(expr_kids[0])
+            binding_cops = [lark_to_cop(kid) for kid in expr_kids[1:]]
+            bindings_struct = _parsed(tree, "struct.define", binding_cops)
+            return _parsed(tree, "value.binding", [callable_cop, bindings_struct])
+
+        case "non_shape_atom":
+            # non_shape_atom has same structure as atom (wrapper* value | wrapper+ | forward_expr)
+            # Reuse atom handling logic: collect wrappers + base value
+            wrappers = []
+            base_tree = None
+            for kid in kids:
+                if isinstance(kid, lark.Tree):
+                    if kid.data == "wrapper":
+                        wrappers.append(kid)
+                    else:
+                        base_tree = kid
+            if base_tree is None:
+                if not wrappers:
+                    raise ValueError("non_shape_atom has no base value or wrappers")
+                return lark_to_cop(wrappers[0])
+            base_cop = lark_to_cop(base_tree)
+            if wrappers:
+                result = base_cop
+                for wrapper_tree in reversed(wrappers):
+                    wrapper_cop = lark_to_cop(wrapper_tree.children[1])
+                    result = _parsed(tree, "value.wrapper", [wrapper_cop, result])
+                return result
+            return base_cop
+
+        case "capture_expr":
+            # capture_expr: COLON statement | COLON structure
+            # Skip the COLON, process the statement/structure as a block value
+            body_cop = lark_to_cop(kids[1])
+            return _parsed(tree, "value.block", [body_cop])
 
         case "compare_op":
             left = lark_to_cop(kids[0])
@@ -560,10 +658,10 @@ def lark_to_cop(tree):
             items = []
             for kid in kids[start_idx:]:
                 item = lark_to_cop(kid)
-                # If item is not already a field wrapper (struct.namefield, op.let,
+                # If item is not already a field wrapper (struct.namefield, op.my,
                 # or op.ctx), wrap it in struct.posfield
                 item_tag = comp.cop_tag(item)
-                if item_tag not in ("struct.namefield", "op.let", "op.ctx"):
+                if item_tag not in ("struct.namefield", "op.my", "op.ctx"):
                     item = _parsed(kid, "struct.posfield", [item])
                 items.append(item)
 
@@ -630,6 +728,14 @@ def lark_to_cop(tree):
             root_cop = _parsed(kids[0], "ident.token", [], value=segments[0])
             return _parsed(tree, "struct.namefield", [root_cop, current], op="=")
 
+        case "expr_named_field":
+            # expr_named_field: QUOTE expression QUOTE EQUALS unary
+            # kids: QUOTE, expression, QUOTE, EQUALS, unary
+            expr_cop = lark_to_cop(kids[1])  # The expression between quotes
+            value_cop = lark_to_cop(kids[4])  # The value after EQUALS
+            name_cop = _parsed(tree, "ident.expr", [expr_cop])
+            return _parsed(tree, "struct.namefield", [name_cop, value_cop], op="=")
+
         case "dotted_path_atom":
             # dotted_path_atom: DOTTED_PATH
             # kids[0] = DOTTED_PATH token  e.g. "one.two.three"
@@ -648,12 +754,12 @@ def lark_to_cop(tree):
             value = lark_to_cop(kids[2])
             return _parsed(tree, "struct.namefield", [name, value], op=op)
 
-        case "let_assign":
-            # let_assign: OP_LET identifier expression
-            # kids[0] = OP_LET, kids[1] = identifier, kids[2] = expression
+        case "my_assign":
+            # my_assign: OP_MY identifier expression
+            # kids[0] = OP_MY, kids[1] = identifier, kids[2] = expression
             name = lark_to_cop(kids[1])
             value = lark_to_cop(kids[2])
-            return _parsed(tree, "op.let", [name, value])
+            return _parsed(tree, "op.my", [name, value])
 
         case "ctx_assign":
             # ctx_assign: OP_CTX identifier expression
@@ -1069,62 +1175,17 @@ def lark_to_cop(tree):
 
             return base_cop
 
-        case "binding_expr":
-            # binding_expr: unary (COLON binding_value)*
-            # If no bindings, just return the unary
-            if len(kids) == 1:
-                return lark_to_cop(kids[0])
-
-            # Has bindings - build a binding node
-            callable_cop = lark_to_cop(kids[0])
-
-            # Collect binding values (skip COLON tokens)
-            # Note: binding_value nodes may be inlined due to ? prefix in grammar
-            binding_cops = []
-            for i in range(1, len(kids)):
-                kid = kids[i]
-                # Skip COLON tokens
-                if isinstance(kid, lark.Token) and kid.type == "COLON":
-                    continue
-                # Process tree nodes - may be binding_value or inlined content
-                if isinstance(kid, lark.Tree):
-                    if kid.data == "binding_value":
-                        # Explicit binding_value node
-                        binding_cops.append(lark_to_cop(kid))
-                    else:
-                        # Inlined binding value (single unary expression)
-                        # Wrap it as a positional field
-                        value_cop = lark_to_cop(kid)
-                        binding_cops.append(_parsed(kid, "struct.posfield", [value_cop]))
-
-            # Build bindings structure
-            bindings_struct = _parsed(tree, "struct.define", binding_cops)
-
-            # Build binding node (interpreter will determine if/when to invoke)
-            # Kids as dict for named access
-            return _parsed(tree, "value.binding", [callable_cop,bindings_struct])
-
-        case "binding_value":
-            # binding_value: identifier EQUALS unary | unary
-            if len(kids) == 1:
-                # Just a value - positional field
-                value_cop = lark_to_cop(kids[0])
-                return _parsed(tree, "struct.posfield", [value_cop])
-            else:
-                # Named binding
-                name_cop = lark_to_cop(kids[0])
-                value_cop = lark_to_cop(kids[2])  # Skip EQUALS
-                return _parsed(tree, "struct.namefield", [name_cop, value_cop], op="=")
+        # binding_expr and binding_value removed — replaced by binding/named_binding/bare_binding
 
         case "signature":
-            # signature: (param_decl | block_decl)+
+            # signature: param_decl+
             # Convert to shape.define
             field_cops = [lark_to_cop(kid) for kid in kids]
             return _parsed(tree, "shape.define", field_cops)
 
         case "param_decl":
-            # param_decl: OP_PARAM identifier shape (EQUALS field_default_value)?
-            # kids[0] = OP_PARAM, kids[1] = identifier, kids[2] = shape, kids[3] = EQUALS (optional), kids[4] = simple_expr (optional)
+            # param_decl: OP_PARAM_DECL identifier shape (EQUALS field_default_value)?
+            # kids[0] = OP_PARAM_DECL, kids[1] = identifier, kids[2] = shape, kids[3] = EQUALS (optional), kids[4] = value (optional)
             name_cop = lark_to_cop(kids[1])
             shape_cop = lark_to_cop(kids[2])
 
@@ -1135,7 +1196,6 @@ def lark_to_cop(tree):
                 default_cop = lark_to_cop(kids[4])
 
             # Extract name as string for the field name
-            # name_cop is a value.identifier, extract the token value
             name_str = None
             if comp.cop_tag(name_cop) == "value.identifier":
                 first_kid = list(comp.cop_kids(name_cop))[0]
@@ -1143,39 +1203,10 @@ def lark_to_cop(tree):
                     name_str = first_kid.field("value").data
 
             # Build signature.param field
-            # shape_cop may be a list [type_spec, shape.default] when the shape
-            # grammar rule consumed an inline default (e.g. ~num=4).  Spread it.
             field_kids = list(shape_cop) if isinstance(shape_cop, list) else [shape_cop]
             if default_cop:
                 field_kids.append(default_cop)
             return _parsed(tree, "signature.param", field_kids, name=name_str)
-
-        case "block_decl":
-            # block_decl: OP_BLOCK identifier shape (EQUALS field_default_value)?
-            # Similar to param_decl
-            name_cop = lark_to_cop(kids[1])
-            shape_cop = lark_to_cop(kids[2])
-
-            # Check for default value
-            default_cop = None
-            if len(kids) > 3:
-                # Has default value (skip EQUALS at kids[3])
-                default_cop = lark_to_cop(kids[4])
-
-            # Extract name
-            name_str = None
-            if comp.cop_tag(name_cop) == "value.identifier":
-                first_kid = list(comp.cop_kids(name_cop))[0]
-                if comp.cop_tag(first_kid) == "ident.token":
-                    name_str = first_kid.field("value").data
-
-            # Build signature.block field with optional default
-            # shape_cop may be a list [type_spec, shape.default] when the shape
-            # grammar rule consumed an inline default.  Spread it.
-            field_kids = list(shape_cop) if isinstance(shape_cop, list) else [shape_cop]
-            if default_cop:
-                field_kids.append(default_cop)
-            return _parsed(tree, "signature.block", field_kids, name=name_str)
 
         case "dollarfield":
             # dollarfield: DOLLAR3 | DOLLAR2 | DOLLAR

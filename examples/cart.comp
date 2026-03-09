@@ -27,24 +27,23 @@ Highlights:
     {
         {"Apple" price=1.00}
         {"Banana" price=0.50 quantity=2}
-        {"Apple" 1.00 quantity=2}  // replaces previous apples
+        {"Apple" 1.00 quantity=2}  // replace previous apples
     }
-    | map :(item)  // morph each simple structure into a full cart item
-    | reduce :(upsert :($.name))
-    | cart :discount=0.2
-    | total
-    | output :"Total: %()"
+    -> map :(item)  // morph each simple structure into a full cart item
+    -> reduce :(upsert :($.name))
+    -> cart discount=0.2
+    -> total
+    -> output "Total: %()"
+    >>
 )
 
-!pure total ~cart ( 
-    $.items | sum :($.price * $.quantity) * (1 - $.discount)
-    // Operator precedence applies the final multiplication to the sum
+!pure total ~cart (
+    $.items -> sum :($.price * $.quantity) >> * (1 - $.discount)
 )
 
 /// Insert or update an item in a collection
 !pure upsert ~any* (
-    :param item ~item
-    :block key ~item = pass
-
-    $ | replace :limit=1 :key :item | else :(append :item)
+    !param value ~any
+    !param key ~pipe = pass
+    $ -> replace limit=1 key value -> else :(append value) >>
 )

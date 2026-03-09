@@ -5,7 +5,7 @@
 !pure origin ~nil {x=0 y=0}
 !pure transpose ~point {x=pt.y y=pt.x}
 !pure scale ~point {
-    :param s ~num 
-    x=$.x * s 
-    y=$.y * s
+    !param s ~num 
+    x=($.x * s) 
+    y=($.y * s)
 }

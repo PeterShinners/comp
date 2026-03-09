@@ -170,7 +170,7 @@ class LoadOverload(Instruction):
 class StoreLocal(Instruction):
     """Store a value into the local frame environment.
 
-    Used by op.let and struct.letassign to bind a name for subsequent
+    Used by op.my and struct.letassign to bind a name for subsequent
     LoadLocal references within the same function body.
     """
 
@@ -744,7 +744,7 @@ class BuildBlock(Instruction):
                             block.input_shape = resolved
                         break
 
-            elif field_tag in ("signature.param", "signature.block"):
+            elif field_tag in ("signature.param",):
                 # --- Named :param or :block declaration ---
                 try:
                     param_name = field_cop.to_python("name")
@@ -798,17 +798,10 @@ class BuildBlock(Instruction):
                         if resolved is not None:
                             param_type_shape = resolved
 
-                if field_tag == "signature.block":
-                    # :block — callable arg, bound as-is (no TryInvoke).
-                    # The declared shape (e.g. ~num) describes the type flowing through
-                    # the callable, not the type of the callable itself.  Use shape_any
-                    # for mask validation so that any callable passes the type check.
-                    sf = comp.ShapeField(name=param_name, shape=comp.shape_any, default=param_default)
-                    block_fields.append(sf)
-                else:
-                    # :param — value arg, TryInvoked when bound in invoke_block
-                    sf = comp.ShapeField(name=param_name, shape=param_type_shape, default=param_default)
-                    param_fields.append(sf)
+                # All params are now !param (no separate :block)
+                # Use the declared shape for type checking
+                sf = comp.ShapeField(name=param_name, shape=param_type_shape, default=param_default)
+                param_fields.append(sf)
 
             else:
                 # --- Legacy shape.field format (inline blocks) ---

@@ -3,7 +3,7 @@
 This module is responsible for a single pass: resolving every value.identifier
 in a COP tree to one of:
 
-    value.local     — a name bound by op.let, op.ctx, or a block parameter
+    value.local     — a name bound by op.my, op.ctx, or a block parameter
     value.namespace — a name found in the module/system namespace
     value.undefined — an unresolved name (grenade that explodes at codegen)
 
@@ -77,7 +77,7 @@ def _resolve_walk(cop, namespace, locals):
     if tag == "function.define":
         return _resolve_function(cop, namespace, locals)
 
-    # --- Sequential containers: track op.let / named-field bindings ---
+    # --- Sequential containers: track op.my / named-field bindings ---
     if tag in ("statement.define", "struct.define"):
         return _resolve_sequential(cop, namespace, locals)
 
@@ -86,7 +86,7 @@ def _resolve_walk(cop, namespace, locals):
         return _resolve_namefield(cop, namespace, locals)
 
     # --- Let/ctx bindings: name child is declaration, not reference ---
-    if tag in ("op.let", "op.ctx"):
+    if tag in ("op.my", "op.ctx"):
         kids = comp.cop_kids(cop)
         if len(kids) >= 2:
             new_value = _resolve_walk(kids[1], namespace, locals)
@@ -232,7 +232,7 @@ def _resolve_block(cop, namespace, locals):
     if sig_tag == "block.signature":
         for field_cop in comp.cop_kids(signature_cop):
             field_tag = comp.cop_tag(field_cop)
-            if field_tag in ("signature.param", "signature.block"):
+            if field_tag in ("signature.param",):
                 try:
                     param_name = field_cop.to_python("name")
                     if param_name:
@@ -289,7 +289,7 @@ def _resolve_sequential(cop, namespace, locals):
 
     Handles both statement.define (parenthesized blocks) and struct.define
     (brace blocks).  After each child is resolved, any name it binds
-    (via op.let, op.ctx, or struct.namefield) is added to the locals set
+    (via op.my, op.ctx, or struct.namefield) is added to the locals set
     so subsequent siblings can see it.
 
     Args:
@@ -311,7 +311,7 @@ def _resolve_sequential(cop, namespace, locals):
         sig_cop = kids[0]
         for field_cop in comp.cop_kids(sig_cop):
             field_tag = comp.cop_tag(field_cop)
-            if field_tag in ("signature.param", "signature.block"):
+            if field_tag in ("signature.param",):
                 try:
                     param_name = field_cop.to_python("name")
                     if param_name:
@@ -399,7 +399,7 @@ def _resolve_binding(cop, namespace, locals):
 def _extract_let_name(cop):
     """Extract the bound variable name from a binding node.
 
-    Only op.let and op.ctx create local variable bindings.
+    Only op.my and op.ctx create local variable bindings.
     struct.namefield contributes to the outgoing structure but does NOT
     create a local visible to subsequent siblings.
 
@@ -415,7 +415,7 @@ def _extract_let_name(cop):
         if kids:
             return _extract_let_name(kids[0])
         return None
-    if tag in ("op.let", "op.ctx"):
+    if tag in ("op.my", "op.ctx"):
         kids = comp.cop_kids(cop)
         if kids:
             return _get_ident_name(kids[0])

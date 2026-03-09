@@ -265,14 +265,14 @@ class CodeGenContext:
                     body_instructions=body_ctx.instructions,
                 ))
 
-            case "op.let":
+            case "op.my":
                 # !let name expr — evaluate expr, store in frame env, return the value
                 # Supports dotted paths: !let abc.xyz 4  → deep-set abc["xyz"] = 4
                 kids = _cop_kids(cop)
                 name_cop = kids[0] if kids else None
                 value_cop = kids[1] if len(kids) > 1 else None
                 if name_cop is None or value_cop is None:
-                    raise comp.CodeError("op.let requires a name and a value expression", cop)
+                    raise comp.CodeError("op.my requires a name and a value expression", cop)
                 path = _extract_path_segments(name_cop)
                 value_idx = self._build_value_ensure_register(value_cop)
                 if path and len(path) > 1:
@@ -281,7 +281,7 @@ class CodeGenContext:
                     ))
                 name = _extract_name(name_cop)
                 if name is None:
-                    raise comp.CodeError("op.let requires a name", cop)
+                    raise comp.CodeError("op.my requires a name", cop)
                 return self.emit(comp._instructions.StoreLocal(cop=cop, name=name, source=value_idx))
 
             case "op.ctx":
@@ -780,7 +780,7 @@ class CodeGenContext:
                 if inner:
                     inner_tag = comp.cop_tag(inner[0])
                     result = self._build_value_ensure_register(inner[0])
-                    if inner_tag == "op.let":
+                    if inner_tag == "op.my":
                         has_trailing_let = True
                     else:
                         expr_result = result
@@ -788,7 +788,7 @@ class CodeGenContext:
             else:
                 tag = comp.cop_tag(kid)
                 result = self._build_value_ensure_register(kid)
-                if tag == "op.let":
+                if tag == "op.my":
                     has_trailing_let = True
                 else:
                     expr_result = result
@@ -817,7 +817,7 @@ class CodeGenContext:
                 if inner:
                     fields.append((comp.Unnamed(), self._build_value_ensure_register(inner[0])))
 
-            elif tag == "op.let":
+            elif tag == "op.my":
                 # !let binding — side effect only, does not contribute a field
                 self._build_value_ensure_register(kid)
 
@@ -1005,7 +1005,7 @@ class CodeGenContext:
                 if inner:
                     fields.append((comp.Unnamed(), self._build_callable_ensure_register(inner[0])))
 
-            elif kid_tag in ("op.let", "op.ctx"):
+            elif kid_tag in ("op.my", "op.ctx"):
                 # Side-effect bindings — must still evaluate with full semantics
                 self._build_value_ensure_register(kid)
 
@@ -1121,14 +1121,14 @@ class CodeGenContext:
                 if inner:
                     inner_tag = comp.cop_tag(inner[0])
                     result = body_ctx._build_value_ensure_register(inner[0])
-                    if inner_tag == "op.let":
+                    if inner_tag == "op.my":
                         has_trailing_let = True
                     else:
                         expr_result = result
                         has_trailing_let = False
             else:
                 result = body_ctx._build_value_ensure_register(kid)
-                if comp.cop_tag(kid) == "op.let":
+                if comp.cop_tag(kid) == "op.my":
                     has_trailing_let = True
                 else:
                     expr_result = result

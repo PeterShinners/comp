@@ -70,7 +70,9 @@ STAR.6: "*"
 SLASH.6: "/"
 
 // Pipeline operators
-PIPEFALLBACK.6: "|?"
+ARROW.10: "->"
+ARROWFALLBACK.10: "->?"
+PUMP.10: ">>"
 FALLBACK.6: "??"
 
 // Field expression delimiter
@@ -79,7 +81,7 @@ QUOTE.6: "'"
 
 // ===== KEYWORDS & OPERATORS =====
 // Statement operators (high priority to match before standalone !)
-OP_LET.7: "!let"
+OP_MY.7: "!my"
 OP_CTX.7: "!ctx"
 OP_TRANSACT.7: "!transact"
 OP_ON.7: "!on"
@@ -94,8 +96,7 @@ OP_PULL.7: "!pull"
 OP_PUSH.7: "!push"
 
 // Declaration keywords
-OP_PARAM.7: ":param"
-OP_BLOCK.7: ":block"
+OP_PARAM_DECL.7: "!param"
 
 
 // ===== SHAPES =====
@@ -140,7 +141,7 @@ forward_expr: OP_FORWARD
 handle_grab: OP_GRAB expression
 handle_drop: OP_DROP expression
 handle_pull: OP_PULL expression
-handle_push: OP_PUSH expression expression
+handle_push: OP_PUSH unary expression
 
 ?expression: logic_or
            | transaction
@@ -153,6 +154,7 @@ handle_push: OP_PUSH expression expression
            | handle_push
 
 fail_expr: OP_FAIL expression
+         | OP_FAIL DOT identifier expression -> fail_shorthand
 
 ?logic_or: logic_and
          | logic_or LOR logic_and -> binary_op
@@ -178,11 +180,26 @@ fail_expr: OP_FAIL expression
 ?term: pipeline_expr
      | term (STAR | SLASH) pipeline_expr -> binary_op
 
-?pipeline_expr: binding_expr
-              | binding_expr ((PIPE | PIPEFALLBACK) binding_expr)+ -> pipeline
+?pipeline_expr: binding_chain
+              | binding_chain PUMP -> pumped
+              | binding_chain ((ARROW | ARROWFALLBACK) pipeline_stage)+ -> pipeline
+              | binding_chain PUMP ((ARROW | ARROWFALLBACK) pipeline_stage)+ -> pipeline
 
-?binding_expr: unary (COLON binding_value)*
-?binding_value: identifier EQUALS unary | unary
+?binding_chain: unary
+              | unary binding_arg+ -> binding
+
+binding_arg: TOKENFIELD EQUALS unary -> named_binding
+           | non_shape_atom -> bare_binding
+
+pipeline_stage: unary PUMP?
+              | unary pipeline_arg+ PUMP?
+
+pipeline_arg: TOKENFIELD EQUALS unary -> named_binding
+            | non_shape_atom -> bare_binding
+
+non_shape_atom: wrapper* (unitized_value | number | text | identifier | dotted_path_atom | statement | structure | capture_expr)
+              | wrapper+
+              | forward_expr
 
 ?unary: postfix
       | (PLUS | MINUS | LNOT) unary -> unary_op
@@ -191,10 +208,14 @@ postfield: nextfield (DOT nextfield)*
 ?postfix: atom
         | atom DOT postfield -> fieldaccess
         | atom BRACKET_OPEN BRACKET_CLOSE -> strip_unit
+        | atom BRACKET_OPEN expression BRACKET_CLOSE -> cast_unit_expr
 
-?atom: wrapper* (unitized_value | number | text | identifier | dotted_path_atom | shape | statement | structure)
+?atom: wrapper* (unitized_value | number | text | identifier | dotted_path_atom | shape | statement | structure | capture_expr)
      | wrapper+   // Standalone wrapper(s) as a value
      | forward_expr
+
+capture_expr: COLON statement
+            | COLON structure
 
 dotted_path_atom: DOTTED_PATH
 
@@ -226,18 +247,18 @@ statement_body: signature statement_item*
 structure_body: signature structure_item*
               | structure_item*
 
-statement_item: let_assign | ctx_assign | expression
-structure_item: let_assign | ctx_assign | field_or_expr
+statement_item: my_assign | ctx_assign | expression
+structure_item: my_assign | ctx_assign | field_or_expr
 
-field_or_expr: DOTTED_PATH EQUALS expression -> deep_named_field
-             | TOKENFIELD EQUALS expression -> named_field
-             | expression
+field_or_expr: DOTTED_PATH EQUALS unary -> deep_named_field
+             | TOKENFIELD EQUALS unary -> named_field
+             | QUOTE expression QUOTE EQUALS unary -> expr_named_field
+             | unary
 
-signature: (param_decl | block_decl)+
-param_decl: OP_PARAM identifier shape (EQUALS field_default_value)?
-block_decl: OP_BLOCK identifier shape (EQUALS field_default_value)?
+signature: param_decl+
+param_decl: OP_PARAM_DECL identifier shape (EQUALS field_default_value)?
 
-let_assign: OP_LET identifier expression
+my_assign: OP_MY identifier expression
 ctx_assign: OP_CTX identifier expression
 
 
@@ -245,9 +266,9 @@ ctx_assign: OP_CTX identifier expression
 // Dotted path: two or more TOKENFIELD segments separated by dots (e.g. one.two.three)
 // Priority 7 > TOKENFIELD.4 — only matched when the contextual lexer considers it valid,
 // i.e., at the start of field_or_expr (deep assignment LHS) or inside an expression atom.
-DOTTED_PATH.7: /[a-zA-Z_][\w-]*(\.[a-zA-Z_][\w-]*)+/
+DOTTED_PATH.7: /[a-zA-Z_]\w*(-\w+)*(\.[a-zA-Z_]\w*(-\w+)*)+/
 
-TOKENFIELD.4: /[a-zA-Z_][\w-]*(?!\.\d)/  // Negative lookahead prevents matching sibling numbers
+TOKENFIELD.4: /[a-zA-Z_]\w*(-\w+)*(?!\.\d)/  // Negative lookahead prevents matching sibling numbers
 
 indexfield: HASH INTEGER
 indexprfield: HASH PAREN_OPEN expression PAREN_CLOSE
