@@ -13,7 +13,7 @@ start_func: func_body  // !func name [~type] [@wrapper] body
 func_body: shape wrapper* func_struct
          | wrapper+ func_struct
          | func_struct
-func_struct: statement | structure
+func_struct: statement | structure | pipeline
 start_startup: startup_body  // !startup name [@wrapper] body
 startup_body: wrapper+ func_struct
             | func_struct
@@ -70,9 +70,7 @@ STAR.6: "*"
 SLASH.6: "/"
 
 // Pipeline operators
-ARROW.10: "->"
-ARROWFALLBACK.10: "->?"
-PUMP.10: ">>"
+PIPEFALLBACK.10: "|?"
 FALLBACK.6: "??"
 
 // Field expression delimiter
@@ -102,12 +100,10 @@ OP_PARAM_DECL.7: "!param"
 // ===== SHAPES =====
 shape: TILDE shape_union shape_default?
 ?shape_union: shape_atom (PIPE shape_atom)*
-shape_atom: (identifier | paren_shape | brace_shape) unit_suffix? limit_suffix? array_suffix?
+shape_atom: (identifier | paren_shape | brace_shape) limit_suffix? array_suffix?
 
-unit_suffix: BRACKET_OPEN identifier BRACKET_CLOSE
-
-// Value expression with unit annotation: 12[inch], "query"[sql], myvar[meter]
-unitized_value: (number | text | identifier) unit_suffix
+// Note: bracket-based unit syntax (12[inch]) has been replaced by backtick syntax.
+// Brackets are now used exclusively for pipelines.
 
 limit_field: (identifier EQUALS | DOTTED_PATH EQUALS)? simple_expr
 limit_suffix: ANGLE_OPEN limit_field+ ANGLE_CLOSE
@@ -177,13 +173,8 @@ fail_expr: OP_FAIL expression
 ?arithmetic: term
            | arithmetic (PLUS | MINUS | KEBAB_MINUS) term -> binary_op
 
-?term: pipeline_expr
-     | term (STAR | SLASH) pipeline_expr -> binary_op
-
-?pipeline_expr: binding_chain
-              | binding_chain PUMP -> pumped
-              | binding_chain ((ARROW | ARROWFALLBACK) pipeline_stage)+ -> pipeline
-              | binding_chain PUMP ((ARROW | ARROWFALLBACK) pipeline_stage)+ -> pipeline
+?term: binding_chain
+     | term (STAR | SLASH) binding_chain -> binary_op
 
 ?binding_chain: unary
               | unary binding_arg+ -> binding
@@ -191,13 +182,7 @@ fail_expr: OP_FAIL expression
 binding_arg: TOKENFIELD EQUALS unary -> named_binding
            | non_shape_atom -> bare_binding
 
-pipeline_stage: unary PUMP?
-              | unary pipeline_arg+ PUMP?
-
-pipeline_arg: TOKENFIELD EQUALS unary -> named_binding
-            | non_shape_atom -> bare_binding
-
-non_shape_atom: wrapper* (unitized_value | number | text | identifier | dotted_path_atom | statement | structure | capture_expr)
+non_shape_atom: wrapper* (number | text | identifier | dotted_path_atom | statement | structure | pipeline | capture_expr)
               | wrapper+
               | forward_expr
 
@@ -207,15 +192,14 @@ non_shape_atom: wrapper* (unitized_value | number | text | identifier | dotted_p
 postfield: nextfield (DOT nextfield)*
 ?postfix: atom
         | atom DOT postfield -> fieldaccess
-        | atom BRACKET_OPEN BRACKET_CLOSE -> strip_unit
-        | atom BRACKET_OPEN expression BRACKET_CLOSE -> cast_unit_expr
 
-?atom: wrapper* (unitized_value | number | text | identifier | dotted_path_atom | shape | statement | structure | capture_expr)
+?atom: wrapper* (number | text | identifier | dotted_path_atom | shape | statement | structure | pipeline | capture_expr)
      | wrapper+   // Standalone wrapper(s) as a value
      | forward_expr
 
 capture_expr: COLON statement
             | COLON structure
+            | COLON pipeline
 
 dotted_path_atom: DOTTED_PATH
 
@@ -240,6 +224,15 @@ dotted_path_atom: DOTTED_PATH
 
 statement: PAREN_OPEN statement_body PAREN_CLOSE
 structure: BRACE_OPEN structure_body BRACE_CLOSE
+pipeline: BRACKET_OPEN pipeline_body BRACKET_CLOSE
+
+pipeline_body: pipe_start (PIPE pipe_stage)* (PIPEFALLBACK pipe_stage)?
+pipe_start: signature statement_item+
+           | statement_item+
+pipe_stage: unary
+          | unary pipe_arg+
+pipe_arg: TOKENFIELD EQUALS unary -> named_binding
+        | non_shape_atom -> bare_binding
 
 statement_body: signature statement_item*
               | statement_item*

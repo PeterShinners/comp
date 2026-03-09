@@ -347,28 +347,6 @@ def lark_to_cop(tree):
             text_value = raw_value[1:-1] if len(raw_value) >= 2 else raw_value
             return _parsed(tree, "value.text", [], value=text_value)
 
-        case "unitized_value":
-            # (number | text | identifier) unit_suffix
-            # unit_suffix: BRACKET_OPEN identifier BRACKET_CLOSE
-            value_cop = lark_to_cop(kids[0])
-            unit_suffix_tree = kids[1]  # lark.Tree for unit_suffix
-            # unit_suffix children: BRACKET_OPEN, identifier_tree, BRACKET_CLOSE
-            unit_ident_cop = lark_to_cop(unit_suffix_tree.children[1])
-            return _parsed(tree, "value.cast_unit", [value_cop, unit_ident_cop])
-
-        case "strip_unit":
-            # atom[] — strip the unit annotation from a value
-            # kids: [atom_tree, BRACKET_OPEN_token, BRACKET_CLOSE_token]
-            value_cop = lark_to_cop(kids[0])
-            return _parsed(tree, "value.strip_unit", [value_cop])
-
-        case "cast_unit_expr":
-            # atom[expression] — apply a dynamically computed unit
-            # kids: [atom_tree, BRACKET_OPEN_token, expression_tree, BRACKET_CLOSE_token]
-            value_cop = lark_to_cop(kids[0])
-            unit_cop = lark_to_cop(kids[2])
-            return _parsed(tree, "value.cast_unit", [value_cop, unit_cop])
-
         # Operators
         case "binary_op":
             left = lark_to_cop(kids[0])
@@ -411,44 +389,71 @@ def lark_to_cop(tree):
             return _parsed(tree, "op.fail", [struct])
 
         case "pipeline":
-            # pipeline: binding_chain PUMP? ((ARROW | ARROWFALLBACK) pipeline_stage)+
-            # Kids: binding_chain, [PUMP], (ARROW/ARROWFALLBACK, pipeline_stage)+
+            # pipeline: BRACKET_OPEN pipeline_body BRACKET_CLOSE
+            # Skip brackets, process body
+            body_cop = lark_to_cop(kids[1])
+            return body_cop
+
+        case "pipeline_body":
+            # pipeline_body: pipe_start (PIPE pipe_stage)* (PIPEFALLBACK pipe_stage)?
+            # Build a value.pipeline COP from the pipe stages
             stages = []
-            has_pump = False
+            has_fallback = False
             for kid in kids:
                 if isinstance(kid, lark.Token):
-                    if kid.type == "PUMP":
-                        has_pump = True
-                    # ARROW/ARROWFALLBACK tokens are processed below with next stage
+                    if kid.type == "PIPEFALLBACK":
+                        has_fallback = True
                     continue
-                # It's a tree node - either the binding_chain or a pipeline_stage
-                # Check if a pipeline_stage contains a PUMP token
-                if isinstance(kid, lark.Tree) and kid.data == "pipeline_stage":
-                    if any(isinstance(c, lark.Token) and c.type == "PUMP" for c in kid.children):
-                        has_pump = True
                 cop = lark_to_cop(kid)
-                if isinstance(cop, list):
-                    shape_field = _parsed(kid, "shape.field", cop)
-                    cop = _parsed(kid, "shape.define", [shape_field])
-                if not stages:
-                    stages.append(cop)
+                if has_fallback and isinstance(kid, lark.Tree) and kid.data == "pipe_stage":
+                    # This stage follows |? — wrap in pipeline_fallback
+                    stages.append(_parsed(kid, "value.pipeline_fallback", [cop]))
+                    has_fallback = False
                 else:
-                    # Check if preceding token was ARROWFALLBACK
-                    idx = kids.index(kid)
-                    prev = kids[idx - 1] if idx > 0 else None
-                    op_val = prev.value if isinstance(prev, lark.Token) else "->"
-                    if op_val == "->?":
-                        stages.append(_parsed(kid, "value.pipeline_fallback", [cop]))
-                    else:
-                        stages.append(cop)
-            extra = {"pump": comp.Value(comp.tag_true)} if has_pump else {}
-            return _parsed(tree, "value.pipeline", stages, **extra)
+                    stages.append(cop)
 
-        case "pumped":
-            # pumped: binding_chain PUMP
-            # Single expression pumped for execution
-            expr_cop = lark_to_cop(kids[0])
-            return _parsed(tree, "value.pipeline", [expr_cop], pump=comp.Value(comp.tag_true))
+            # If only one stage (no pipes), just return the inner value
+            if len(stages) == 1:
+                return stages[0]
+            return _parsed(tree, "value.pipeline", stages)
+
+        case "pipe_start":
+            # pipe_start: signature? statement_item+
+            # Process like a statement body — last item is the pipeline input value
+            start_idx = 0
+            sig_cop = None
+            if kids and isinstance(kids[0], lark.Tree) and kids[0].data == "signature":
+                sig_cop = lark_to_cop(kids[0])
+                start_idx = 1
+
+            # Convert statement items
+            field_cops = []
+            for kid in kids[start_idx:]:
+                item_cop = lark_to_cop(kid)
+                field_cops.append(_parsed(kid, "statement.field", [item_cop]))
+
+            if len(field_cops) == 1 and sig_cop is None:
+                # Single expression, no signature — just return it directly
+                return lark_to_cop(kids[start_idx])
+
+            # Multiple items or has signature — wrap in statement.define
+            if sig_cop:
+                block_sig = _parsed(tree, "block.signature", list(comp.cop_kids(sig_cop)))
+                all_kids = [block_sig] + field_cops
+                return _parsed(tree, "statement.define", all_kids)
+            return _parsed(tree, "statement.define", field_cops)
+
+        case "pipe_stage":
+            # pipe_stage: unary | unary pipe_arg+
+            # Filter token children (shouldn't be any but be safe)
+            expr_kids = [kid for kid in kids if isinstance(kid, lark.Tree)]
+            if len(expr_kids) == 1:
+                return lark_to_cop(expr_kids[0])
+            # Has args — build a binding node
+            callable_cop = lark_to_cop(expr_kids[0])
+            binding_cops = [lark_to_cop(kid) for kid in expr_kids[1:]]
+            bindings_struct = _parsed(tree, "struct.define", binding_cops)
+            return _parsed(tree, "value.binding", [callable_cop, bindings_struct])
 
         case "binding":
             # binding: unary binding_arg+
@@ -469,19 +474,6 @@ def lark_to_cop(tree):
             # bare_binding: non_shape_atom
             value_cop = lark_to_cop(kids[0])
             return _parsed(tree, "struct.posfield", [value_cop])
-
-        case "pipeline_stage":
-            # pipeline_stage: unary PUMP? | unary pipeline_arg+ PUMP?
-            # Filter out PUMP tokens (pump is tracked by parent pipeline)
-            expr_kids = [kid for kid in kids if not (isinstance(kid, lark.Token) and kid.type == "PUMP")]
-            # If no args, just return the unary
-            if len(expr_kids) == 1:
-                return lark_to_cop(expr_kids[0])
-            # Has args - build a binding node
-            callable_cop = lark_to_cop(expr_kids[0])
-            binding_cops = [lark_to_cop(kid) for kid in expr_kids[1:]]
-            bindings_struct = _parsed(tree, "struct.define", binding_cops)
-            return _parsed(tree, "value.binding", [callable_cop, bindings_struct])
 
         case "non_shape_atom":
             # non_shape_atom has same structure as atom (wrapper* value | wrapper+ | forward_expr)

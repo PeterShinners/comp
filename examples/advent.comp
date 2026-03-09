@@ -16,7 +16,7 @@ Highlights:
 ]
 
 !pure parse ~text (
-	!my sign [($.#0 == "R") | pick 1 -1]
+	!my sign [($.#0 == "R") | pick 1 (-1)]
 	!my step [$ | slice 1 | parse-num]
 	sign * step
 )

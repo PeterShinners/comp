@@ -59,10 +59,10 @@ Highlights:
 /// Accept a URL submission and redirect to its detail page
 !func link-create ~http.request [
 	$.form.url
-	| unless [$ | url.parse | $.scheme | in {"http" "https"}] :(
+	| unless [$ | url.parse | $.scheme | in {"http" "https"}] :[
 		{error="Please enter a valid URL" url=$$.form.url}
 		| response-template "newurl.html"
-	)
+	]
 	| insert-url
 	| http.redirect "/%($.id).json"
 ]
@@ -85,7 +85,7 @@ Highlights:
 !func insert-url ~text [
 	$ | fmt mod.keys.reverse
 	| redis.get
-	| if-nil :(
+	| if-nil :[
 		!my id [mod.keys.total | redis.incr | base36-encode]
 		{
 			'[id | fmt mod.keys.target]' = $$
@@ -94,7 +94,7 @@ Highlights:
 			//x the single quote field expression needs to be ok for pipelines
 		}
 		| redis.mset
-	)
+	]
 	| response-redirect @fmt"/%().json"
 ]
 

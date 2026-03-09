@@ -288,7 +288,7 @@
         // Propagate stop/skip to forever
         ~flow-control next
         // Accumulate current state ($), then advance to next
-        ~any !my acc [{acc {$}} | merge]
+        ~any (!my acc [{acc {$}} | merge])
         next
     )]
     acc
@@ -324,7 +324,7 @@
     // Use -1 sentinel to mean "to the end"
     !my actual-end end
     !on end == -1
-    ~true !my actual-end [$ | s.length]
+    ~true (!my actual-end [$ | s.length])
     ~false nil
     [$ | iterate :(
         !on ($.position >= start !and $.position < actual-end)
