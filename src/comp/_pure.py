@@ -494,11 +494,17 @@ def _execute_pure_block(block, input_value, args_value, interp):
     Raises:
         RuntimeError: If a Block has no compiled body instructions
     """
-    block_val = comp.Value(block)
-    frame = comp.ExecutionFrame(env={}, interp=interp)
-
     if isinstance(block, comp.InternalCallable):
+        callable = comp.Callable(block.name)
+        callable.add_block(block)
+        block_val = comp.Value(callable)
+        frame = comp.ExecutionFrame(env={}, interp=interp)
         return frame.invoke_block(block_val, args_value, piped=input_value)
+
+    callable = comp.Callable(block.qualified)
+    callable.add_block(block)
+    block_val = comp.Value(callable)
+    frame = comp.ExecutionFrame(env={}, interp=interp)
 
     if block.body_instructions is None:
         raise RuntimeError(f"Block {block.qualified!r} has no compiled body instructions")

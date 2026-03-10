@@ -528,7 +528,7 @@ def _fold_namespace(cop, namespace):
 
     Works for both value.reference (legacy) and value.namespace nodes.
     Only folds true constant values (numbers, strings, tags, shapes).
-    Does NOT fold callable values (Block, InternalCallable) since those
+    Does NOT fold callable values (Callable, Block, InternalCallable) since those
     need to remain as references for proper invocation.
 
     Args:
@@ -558,7 +558,7 @@ def _fold_namespace(cop, namespace):
                 if defn.value is not None:
                     # Only fold non-callable constant values
                     val_data = defn.value.data
-                    if isinstance(val_data, (comp.Block, comp.InternalCallable)):
+                    if isinstance(val_data, (comp.Callable, comp.Block, comp.InternalCallable)):
                         return cop
                     return _make_constant(cop, defn.value)
     except (KeyError, AttributeError):

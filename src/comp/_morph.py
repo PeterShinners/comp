@@ -204,12 +204,16 @@ def _resolve_shape_field(field, frame):
             shape_val = comp._instructions._load_name(name, frame)
         except (NameError, AttributeError):
             return None
-        # Unwrap DefinitionSet
+        # Unwrap Callable (may contain a shape)
+        if shape_val and isinstance(shape_val.data, comp.Callable):
+            if shape_val.data.shape is not None:
+                field.shape = shape_val.data.shape
+                return field.shape
+        # Unwrap DefinitionSet (legacy path)
         if shape_val and isinstance(shape_val.data, comp.DefinitionSet):  # type: ignore[union-attr]
             for defn in shape_val.data.definitions:  # type: ignore[union-attr]
                 dv = comp._instructions._ensure_definition_value(defn, frame)
                 if dv and isinstance(dv.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):  # type: ignore[union-attr]
-                    # Cache the resolved shape back into the field for next time
                     field.shape = dv.data  # type: ignore[union-attr]
                     return field.shape
         if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):  # type: ignore[union-attr]

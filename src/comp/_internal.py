@@ -681,7 +681,7 @@ def _builtin_apply(input_val, args_val, frame):
     if isinstance(statement.data, comp.StatementHandle):
         statement = statement.data.val
 
-    if isinstance(statement.data, (comp.Block, comp.InternalCallable, comp.DefinitionSet)):
+    if isinstance(statement.data, (comp.Callable, comp.Block, comp.InternalCallable)):
         return frame.invoke_block(statement, params, piped=input_v)
     return statement
 
@@ -739,25 +739,25 @@ def _builtin_update(input_val, args_val, frame):
             statement.data,
             lambda last_reg: _instr_mod.MergeWithPiped(cop=None, result_reg=last_reg),
         )
-        return comp.Value(new_block)
+        callable = comp.Callable(new_block.qualified)
+        callable.add_block(new_block)
+        return comp.Value(callable)
 
     # Struct value (e.g. @update {b=2}) — synthesise a trivial block that
     # returns the constant struct and then merges it over piped input.
     if isinstance(statement.data, dict):
         const_val = statement
-        new_block = comp.Block("update.const", False)
+        new_block = comp.Block("update.const")
         new_block.input_name = "$"
         new_block.closure_env = dict(frame.env)
         new_block.captured_dollar_vars = dict(frame._dollar_vars)
-        new_block.param_names = []
-        new_block.block_names = []
-        new_block.dispatch_own_name = None
-        new_block.dispatch_set_name = None
         new_block.body_instructions = [
             _instr_mod.Const(cop=None, value=const_val),
             _instr_mod.MergeWithPiped(cop=None, result_reg=0),
         ]
-        return comp.Value(new_block)
+        callable = comp.Callable("update.const")
+        callable.add_block(new_block)
+        return comp.Value(callable)
 
     raise comp.CodeError("update requires a block or struct statement")
 
@@ -800,7 +800,9 @@ def _builtin_flat(input_val, args_val, frame):
         statement.data,
         lambda last_reg: _instr_mod.FlattenFields(cop=None, result_reg=last_reg),
     )
-    return comp.Value(new_block)
+    callable = comp.Callable(new_block.qualified)
+    callable.add_block(new_block)
+    return comp.Value(callable)
 
 
 def _builtin_reduce(input_val, args_val, frame):
@@ -914,7 +916,7 @@ def _builtin_fmt(input_val, args_val, frame):
         sub_entry = ns.get("substitute")
         if sub_entry is not None:
             if isinstance(sub_entry, comp.DefinitionSet):
-                sub_val = comp.Value(sub_entry)
+                sub_val = comp._instructions._load_name("substitute", frame)
             elif hasattr(sub_entry, "value") and sub_entry.value is not None:
                 sub_val = sub_entry.value
             else:
@@ -987,8 +989,11 @@ def _builtin_namespace_lookup(input_val, args_val, frame):
     if entry is None:
         return comp.Value.from_python(None)
     if isinstance(entry, comp.DefinitionSet):
-        # Multiple overloads — return the DefinitionSet (callable via normal dispatch)
-        return comp.Value(entry)
+        # Multiple overloads — convert to Callable and return
+        try:
+            return comp._instructions._load_name(name, frame)
+        except NameError:
+            return comp.Value.from_python(None)
     # Single Definition
     if hasattr(entry, "value") and entry.value is not None:
         return entry.value

@@ -704,23 +704,59 @@ class ExecutionFrame:
                 raise CompFail(_make_fail_value(morph_result.failure_reason, tag=comp.tag_fail_value, cop_val=source_cop))
             return morph_result.value
 
-        # Handle DefinitionSet (dispatch to best-matching block, or shape as fallback)
+        # Handle DefinitionSet (legacy path — convert to Callable)
         if isinstance(callable_obj, comp.DefinitionSet):
-            result = self._dispatch_overload(callable_obj, args, piped)
-            if result is None:
-                names = ", ".join(d.qualified for d in callable_obj.definitions)
+            callable = comp.Callable("?")
+            for defn in callable_obj.definitions:
+                if defn.value is not None:
+                    data = defn.value.data
+                    if isinstance(data, comp.Callable):
+                        for b in data.blocks:
+                            callable.add_block(b)
+                        if data.shape is not None and callable.shape is None:
+                            callable.shape = data.shape
+                    elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                        callable.add_block(data)
+                    elif isinstance(data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                        callable.shape = data
+            callable_obj = callable
+
+        # Handle Callable (dispatch to best-matching block, shape, or single block)
+        if isinstance(callable_obj, comp.Callable):
+            if len(callable_obj.blocks) > 1 or (callable_obj.blocks and callable_obj.shape is not None):
+                # Multiple blocks or blocks+shape: dispatch overload
+                result = self._dispatch_overload(callable_obj, args, piped)
+                if result is None:
+                    names = [getattr(b, "qualified", "?") for b in callable_obj.blocks]
+                    raise CompFail(_make_fail_value(
+                        f"No matching overload found: {', '.join(names)}",
+                        tag=comp.tag_fail_invoke,
+                        cop_val=source_cop,
+                    ))
+                if isinstance(result, comp.Value):
+                    return result
+                block = result
+            elif callable_obj.blocks:
+                block = callable_obj.blocks[0]
+            elif callable_obj.shape is not None:
+                # Shape-only callable — morph input
+                input_val = piped if piped is not None else args
+                morph_result = comp.morph(input_val, callable_obj.shape, self)
+                if morph_result.failure_reason:
+                    if isinstance(callable_obj.shape, comp.ShapeUnion) and callable_obj.shape.default is not None:
+                        return callable_obj.shape.default
+                    if morph_result.failure_value is not None:
+                        raise CompFail(morph_result.failure_value)
+                    raise CompFail(_make_fail_value(morph_result.failure_reason, tag=comp.tag_fail_value, cop_val=source_cop))
+                return morph_result.value
+            else:
                 raise CompFail(_make_fail_value(
-                    f"No matching overload found: {names}",
+                    f"Empty callable: {callable_obj.qualified}",
                     tag=comp.tag_fail_invoke,
                     cop_val=source_cop,
                 ))
-            # If dispatch returned a Value directly (from shape morph), return it
-            if isinstance(result, comp.Value):
-                return result
-            # Otherwise it's a Block to invoke
-            block = result
         else:
-            # Handle Block (Comp function)
+            # Handle bare Block (Comp function)
             block = callable_obj
         
         # Share the closure environment directly — StoreLocal mutations
@@ -807,17 +843,8 @@ class ExecutionFrame:
                 fname = comp._morph._get_field_key(k)
                 if fname is not None and fname in param_set:
                     # TryInvoke: if the bound value is callable, call it with no args
-                    if isinstance(v.data, (comp.Block, comp.InternalCallable, comp.DefinitionSet)):
+                    if isinstance(v.data, (comp.Callable, comp.Block, comp.InternalCallable)):
                         v = self.invoke_block(v, _empty, piped=None)
-                    new_env[fname] = v
-
-        # Spread :block names into the environment as-is (no TryInvoke).
-        # These come from :block declarations; the callable is intentional.
-        if block.block_names and isinstance(args_val.data, dict):
-            block_set = set(block.block_names)
-            for k, v in args_val.data.items():
-                fname = comp._morph._get_field_key(k)
-                if fname is not None and fname in block_set:
                     new_env[fname] = v
 
         # Pipeline input context: $ / $$ / $$$ live on the frame, not in env,
@@ -853,7 +880,7 @@ class ExecutionFrame:
             fail = new_frame.failure
             if isinstance(fail.data, dict):
                 frame_key = comp.Value.from_python("frame")
-                block_name = block.dispatch_set_name or block.dispatch_own_name
+                block_name = block.dispatch_set_name or block.qualified
                 if frame_key not in fail.data and block_name:
                     operator = "pure" if block.pure else "func"
                     fail.data[frame_key] = comp.Value.from_python(
@@ -864,53 +891,44 @@ class ExecutionFrame:
         # Return the final result
         return result if result is not None else comp.Value.from_python(None)
 
-    def _dispatch_overload(self, definition_set, args, piped, skip_name=None):
-        """Find the best-matching block from a DefinitionSet.
+    def _dispatch_overload(self, callable, args, piped, skip_name=None):
+        """Find the best-matching block from a Callable.
 
-        Tries each definition's block input shape against the piped input 
-        and returns the block with the best morph score. If no block matches,
-        falls back to the shape definition (if any) and morphs to it.
+        Tries each block's input shape against the piped input and returns
+        the block with the best morph score. If no block matches, falls back
+        to the Callable's shape and morphs to it.
 
         Args:
-            definition_set: (DefinitionSet) Set of overloaded definitions
+            callable: (Callable) Callable with blocks and optional shape
             args: (Value) Arguments struct
             piped: (Value | None) Piped input value
-            skip_name: (str | None) Qualified name of the definition to skip (for !forward)
+            skip_name: (str | None) Qualified name of the block to skip (for !forward)
 
         Returns:
             (Block | Value | None) Best matching block, morphed Value from shape, or None
         """
         best_block = None
         best_score = None
-        shape_defn = None
-        
-        # Iterate through definitions in the set
-        for defn in definition_set.definitions:
+
+        # Iterate through blocks in the callable
+        for block in callable.blocks:
+            qualified = getattr(block, "qualified", None)
             # Skip the currently-executing overload (used by !forward)
-            if skip_name and defn.qualified == skip_name:
+            if skip_name and qualified == skip_name:
                 continue
-            # Track shape definition for fallback
-            if defn.shape is comp.shape_shape:
-                shape_defn = defn
-                continue
-                
-            # Skip if not a block/func definition or not folded yet
-            if defn.shape is not comp.shape_block and defn.shape is not comp.shape_func:
-                continue
-            if defn.value is None:
-                continue
-            
-            block = defn.value.data
-            
+
             # For single-parameter blocks, use args as input when not piped
-            if block.input_name and not block.arg_name and piped is None:
+            input_name = getattr(block, "input_name", None)
+            arg_name = getattr(block, "arg_name", None)
+            if input_name and not arg_name and piped is None:
                 input_val = args
             else:
                 input_val = piped if piped is not None else comp.Value.from_python({})
-            
+
             # Try to morph input to this block's input shape
-            if block.input_shape:
-                morph_result = comp.morph(input_val, block.input_shape, self)
+            input_shape = getattr(block, "input_shape", None)
+            if input_shape:
+                morph_result = comp.morph(input_val, input_shape, self)
                 if morph_result.failure_reason:
                     # This overload doesn't match
                     continue
@@ -918,19 +936,19 @@ class ExecutionFrame:
             else:
                 # No input shape constraint - matches anything with lowest priority
                 score = (0, 0, 0)
-            
+
             # Compare scores (higher is better)
             if best_score is None or score > best_score:
                 best_score = score
                 best_block = block
-        
+
         # If a block matched, return it
         if best_block is not None:
             return best_block
-        
+
         # Fall back to shape morph if no block matched
-        if shape_defn is not None and shape_defn.value is not None:
-            shape = shape_defn.value.data
+        if callable.shape is not None:
+            shape = callable.shape
             # For shape fallback, also use args as input when not piped
             input_val = piped if piped is not None else args
             morph_result = comp.morph(input_val, shape, self)
@@ -939,7 +957,7 @@ class ExecutionFrame:
             # If morph failed but shape is a union with a default, use it
             if isinstance(shape, comp.ShapeUnion) and shape.default is not None:
                 return shape.default
-        
+
         return None
     def _make_child_frame(self, env, module=None):
         """Create a child frame for nested execution.

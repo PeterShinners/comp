@@ -103,7 +103,7 @@ class Value:
                 decimal.Decimal: comp.shape_num,
                 str: comp.shape_text,
                 dict: comp.shape_struct,
-                comp.Block: comp.shape_block,
+                comp.Callable: comp.shape_func,
                 comp.HandleInstance: comp.shape_handle,
                 comp.Shape: comp.shape_shape,
                 comp.ShapeUnion: comp.shape_union,
@@ -164,7 +164,7 @@ class Value:
             return f"{self.data.qualified}"
         elif isinstance(self.data, comp.StatementHandle):
             return self.data.val.format()
-        elif isinstance(self.data, comp.Block):
+        elif isinstance(self.data, comp.Callable):
             return self.data.format()
         elif isinstance(self.data, comp.HandleInstance):
             return self.data.format()
@@ -350,8 +350,8 @@ class Value:
                 struct[Unnamed()] = cls.from_python(item)
             return cls(struct)
 
-        # Allow Tag, Shape, ShapeUnion, Block, DefinitionSet objects to be wrapped in Values
-        if isinstance(value, (comp.Tag, comp.Shape, comp.ShapeUnion, comp.Block, comp.DefinitionSet)):
+        # Allow Tag, Shape, ShapeUnion, Callable objects to be wrapped in Values
+        if isinstance(value, (comp.Tag, comp.Shape, comp.ShapeUnion, comp.Callable)):
             return cls(value)
 
         # Allow HandleInstance objects to be wrapped directly

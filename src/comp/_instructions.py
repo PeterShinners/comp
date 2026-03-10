@@ -139,27 +139,49 @@ class LoadLocal(Instruction):
 
 
 class LoadOverload(Instruction):
-    """Load multiple overloaded definitions as a DefinitionSet."""
+    """Load multiple overloaded definitions as a Callable."""
 
     def __init__(self, cop, names):
         super().__init__(cop)
         self.names = names  # list of qualified names
 
     def execute(self, frame):
-        definition_set = comp.DefinitionSet()
+        callable = comp.Callable(self.names[0] if self.names else "?")
         for name in self.names:
-            # Look up definition from module namespace
             defn = frame.lookup(name)
             if defn is not None:
                 if isinstance(defn, comp.DefinitionSet):
-                    definition_set.definitions.update(defn.definitions)
+                    for d in defn.definitions:
+                        _ensure_definition_value(d, frame)
+                        if d.value is not None:
+                            data = d.value.data
+                            if isinstance(data, comp.Callable):
+                                for b in data.blocks:
+                                    callable.add_block(b)
+                                if data.shape is not None and callable.shape is None:
+                                    callable.shape = data.shape
+                            elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                                callable.add_block(data)
+                            elif isinstance(data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                                callable.shape = data
                 elif isinstance(defn, comp.Definition):
-                    definition_set.definitions.add(defn)
+                    _ensure_definition_value(defn, frame)
+                    if defn.value is not None:
+                        data = defn.value.data
+                        if isinstance(data, comp.Callable):
+                            for b in data.blocks:
+                                callable.add_block(b)
+                            if data.shape is not None and callable.shape is None:
+                                callable.shape = data.shape
+                        elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                            callable.add_block(data)
+                        elif isinstance(data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                            callable.shape = data
 
-        if not definition_set.definitions:
+        if not callable.blocks and callable.shape is None:
             raise NameError(f"No overloads found for '{self.names}'")
 
-        result = comp.Value.from_python(definition_set)
+        result = comp.Value(callable)
         return frame.set_result(result)
 
     def format(self, idx):
@@ -277,7 +299,7 @@ class DeepSetLocal(Instruction):
 class TryInvoke(Instruction):
     """Invoke the value in a register with empty args if it is callable.
 
-    If the value is a Block, InternalCallable, or DefinitionSet, it is called
+    If the value is a Callable, Block, or InternalCallable, it is called
     with no piped input and empty args. Otherwise the value passes through.
 
     The codegen emits this explicitly after value-position references and at
@@ -290,7 +312,7 @@ class TryInvoke(Instruction):
 
     def execute(self, frame):
         val = frame.get_value(self.value)
-        if isinstance(val.data, (comp.Block, comp.InternalCallable, comp.DefinitionSet)):
+        if isinstance(val.data, (comp.Callable, comp.Block, comp.InternalCallable)):
             empty_args = comp.Value.from_python({})
             try:
                 val = frame.invoke_block(val, empty_args, piped=None, source_cop=self.cop)
@@ -353,8 +375,8 @@ class Forward(Instruction):
     """Re-dispatch the current call to the next less-specific overload.
 
     Reads __self__ from the frame env to find the currently-executing Block,
-    looks up its DefinitionSet by dispatch_set_name, then re-runs dispatch
-    skipping this block's own definition (dispatch_own_name).
+    looks up its Callable by dispatch_set_name, then re-runs dispatch
+    skipping this block (by qualified name).
 
     piped_reg: int register index for the piped input, or None to use $ from env.
     """
@@ -377,28 +399,30 @@ class Forward(Instruction):
         current_block = self_val.data
 
         dispatch_set_name = getattr(current_block, "dispatch_set_name", None)
-        dispatch_own_name = getattr(current_block, "dispatch_own_name", None)
+        skip_name = current_block.qualified
         if not dispatch_set_name:
             raise comp.CodeError("!forward: current function has no dispatch context", self.cop)
 
-        # Look up the DefinitionSet via module namespace directly.
-        # _load_name checks frame.env first, which may only have the resolved
-        # shape Value (not the full DefinitionSet), so bypass env here.
-        defn_set = None
+        # Look up the Callable via module namespace.
+        callable_val = None
         if frame.module:
             ns = frame.module.namespace()
             item = ns.get(dispatch_set_name)
             if isinstance(item, comp.DefinitionSet):
-                defn_set = item
-        if defn_set is None:
+                # Convert DefinitionSet to Callable for dispatch
+                try:
+                    callable_val = _load_name(dispatch_set_name, frame)
+                except NameError:
+                    pass
+        if callable_val is None or not isinstance(getattr(callable_val, "data", None), comp.Callable):
             raise comp.CodeError(
                 f"!forward: '{dispatch_set_name}' has no other overloads",
                 self.cop,
             )
 
-        # Re-dispatch skipping our own definition
+        # Re-dispatch skipping our own block
         _empty = comp.Value.from_python({})
-        result = frame._dispatch_overload(defn_set, _empty, piped_val, skip_name=dispatch_own_name)
+        result = frame._dispatch_overload(callable_val.data, _empty, piped_val, skip_name=skip_name)
         if result is None:
             raise comp.CodeError(
                 f"!forward: no other overload of '{dispatch_set_name}' matched",
@@ -406,8 +430,10 @@ class Forward(Instruction):
             )
         if isinstance(result, comp.Value):
             return frame.set_result(result)
-        # Got a Block — invoke it with the same piped input
-        block_val = comp.Value(result)
+        # Got a Block — invoke it
+        callable = comp.Callable(result.qualified)
+        callable.add_block(result)
+        block_val = comp.Value(callable)
         try:
             return frame.set_result(frame.invoke_block(block_val, _empty, piped=piped_val, source_cop=self.cop))
         except comp.CompFail as e:
@@ -620,7 +646,7 @@ class BuildInvokeData(Instruction):
         # Wrap callable statements in StatementHandle to prevent TryInvoke from
         # auto-calling them if a wrapper function accesses $.statement.
         # Non-callable values (text, numbers, structs) are stored as-is.
-        if isinstance(statement_val.data, (comp.Block, comp.InternalCallable, comp.DefinitionSet)):
+        if isinstance(statement_val.data, (comp.Callable, comp.Block, comp.InternalCallable)):
             statement_stored = comp.Value(comp.StatementHandle(statement_val))
         else:
             statement_stored = statement_val
@@ -700,13 +726,12 @@ class BuildBlock(Instruction):
 
     def execute(self, frame):
         # Create a Block object and store the execution data
-        block = comp.Block("anonymous", private=False)
+        block = comp.Block(self.dispatch_own_name or "anonymous")
         block.module = frame.module  # Capture the defining module
         block.body_instructions = self.body_instructions
         block.closure_env = frame.env
         block.captured_dollar_vars = dict(frame._dollar_vars)
         block.signature_cop = self.signature_cop
-        block.dispatch_own_name = self.dispatch_own_name
         block.dispatch_set_name = self.dispatch_set_name
         block.pure = self.pure
 
@@ -835,17 +860,16 @@ class BuildBlock(Instruction):
                         block.arg_shape = param_shape
                 legacy_index += 1
 
-        # Build arg Shape from accumulated :param and :block fields.
-        # Both contribute to the arg shape (for mask validation); only their
-        # binding semantics in invoke_block differ (:param TryInvokes, :block keeps as-is).
-        if param_fields or block_fields:
+        # Build arg Shape from accumulated :param fields.
+        if param_fields:
             arg_shape = comp.Shape("args", private=False)
-            arg_shape.fields = param_fields + block_fields
+            arg_shape.fields = param_fields
             block.arg_shape = arg_shape
             block.param_names = [f.name for f in param_fields if f.name]
-            block.block_names = [f.name for f in block_fields if f.name]
 
-        result = comp.Value(block)
+        callable = comp.Callable(block.qualified)
+        callable.add_block(block)
+        result = comp.Value(callable)
         return frame.set_result(result)
 
     def _resolve_shape_ref(self, fkid, frame):
@@ -892,6 +916,9 @@ class BuildBlock(Instruction):
             env_val = frame.env[ref_name]
             if hasattr(env_val, "data") and isinstance(env_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
                 return env_val.data
+            if hasattr(env_val, "data") and isinstance(env_val.data, comp.Callable):
+                if env_val.data.shape is not None:
+                    return env_val.data.shape
 
         # Fall back to namespace definition
         defn = frame.lookup(ref_name) if hasattr(frame, "lookup") else None
@@ -903,6 +930,8 @@ class BuildBlock(Instruction):
                 resolved = defn.value.data
                 if isinstance(resolved, (comp.Shape, comp.Tag, comp.ShapeUnion)):
                     return resolved
+                if isinstance(resolved, comp.Callable) and resolved.shape is not None:
+                    return resolved.shape
         return None
 
     def _build_shape_from_cop(self, shape_cop, frame):
@@ -1053,6 +1082,10 @@ class BuildShape(Instruction):
                         shape_val = _load_name(shape_ref, frame)
                     except NameError:
                         shape_val = None
+                    # Unwrap Callable (shape may be in callable.shape)
+                    if shape_val and isinstance(shape_val.data, comp.Callable):
+                        if shape_val.data.shape is not None:
+                            shape_val = comp.Value.from_python(shape_val.data.shape)
                     # Unwrap DefinitionSet (lazily resolved shape definitions)
                     if shape_val and isinstance(shape_val.data, comp.DefinitionSet):
                         for defn in shape_val.data.definitions:
@@ -1101,8 +1134,8 @@ class BuildShape(Instruction):
                     except NameError:
                         pass
                 elif isinstance(lname, list):
-                    # Overloaded name (list of qualified names) — build DefinitionSet
-                    definition_set = comp.DefinitionSet()
+                    # Overloaded name (list of qualified names) — build Callable
+                    callable = comp.Callable(lname[0] if lname else "?")
                     for oname in lname:
                         try:
                             defn = frame.lookup(oname)
@@ -1110,11 +1143,26 @@ class BuildShape(Instruction):
                             defn = None
                         if defn is not None:
                             if isinstance(defn, comp.DefinitionSet):
-                                definition_set.definitions.update(defn.definitions)
+                                for d in defn.definitions:
+                                    _ensure_definition_value(d, frame)
+                                    if d.value is not None:
+                                        data = d.value.data
+                                        if isinstance(data, comp.Callable):
+                                            for b in data.blocks:
+                                                callable.add_block(b)
+                                        elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                                            callable.add_block(data)
                             elif isinstance(defn, comp.Definition):
-                                definition_set.definitions.add(defn)
-                    if definition_set.definitions:
-                        func_val = comp.Value.from_python(definition_set)
+                                _ensure_definition_value(defn, frame)
+                                if defn.value is not None:
+                                    data = defn.value.data
+                                    if isinstance(data, comp.Callable):
+                                        for b in data.blocks:
+                                            callable.add_block(b)
+                                    elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                                        callable.add_block(data)
+                    if callable.blocks:
+                        func_val = comp.Value(callable)
                 elif isinstance(lname, int):
                     func_val = frame.get_value(lname)
                 param_val = frame.get_value(lparam_idx) if lparam_idx is not None else None
@@ -1171,6 +1219,10 @@ class BuildShapeUnion(Instruction):
                     shape_val = _load_name(ref, frame)
                 except NameError:
                     shape_val = None
+                # Unwrap Callable to get shape
+                if shape_val and isinstance(shape_val.data, comp.Callable):
+                    if shape_val.data.shape is not None:
+                        shape_val = comp.Value.from_python(shape_val.data.shape)
                 # Unwrap DefinitionSet to get the actual shape value
                 if shape_val and isinstance(shape_val.data, comp.DefinitionSet):
                     for defn in shape_val.data.definitions:
@@ -1226,6 +1278,9 @@ class BuildShapeCollection(Instruction):
                     shape_val = _load_name(self.shape_ref, frame)
                 except NameError:
                     shape_val = None
+                if shape_val and isinstance(shape_val.data, comp.Callable):
+                    if shape_val.data.shape is not None:
+                        shape_val = comp.Value.from_python(shape_val.data.shape)
                 if shape_val and isinstance(shape_val.data, comp.DefinitionSet):
                     for defn in shape_val.data.definitions:
                         dv = _ensure_definition_value(defn, frame)
@@ -1266,8 +1321,8 @@ class BuildShapeCollection(Instruction):
                 except NameError:
                     pass
             elif isinstance(lname, list):
-                # Overloaded name — build DefinitionSet
-                definition_set = comp.DefinitionSet()
+                # Overloaded name — build Callable
+                callable = comp.Callable(lname[0] if lname else "?")
                 for oname in lname:
                     try:
                         defn = frame.lookup(oname)
@@ -1275,11 +1330,26 @@ class BuildShapeCollection(Instruction):
                         defn = None
                     if defn is not None:
                         if isinstance(defn, comp.DefinitionSet):
-                            definition_set.definitions.update(defn.definitions)
+                            for d in defn.definitions:
+                                _ensure_definition_value(d, frame)
+                                if d.value is not None:
+                                    data = d.value.data
+                                    if isinstance(data, comp.Callable):
+                                        for b in data.blocks:
+                                            callable.add_block(b)
+                                    elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                                        callable.add_block(data)
                         elif isinstance(defn, comp.Definition):
-                            definition_set.definitions.add(defn)
-                if definition_set.definitions:
-                    func_val = comp.Value.from_python(definition_set)
+                            _ensure_definition_value(defn, frame)
+                            if defn.value is not None:
+                                data = defn.value.data
+                                if isinstance(data, comp.Callable):
+                                    for b in data.blocks:
+                                        callable.add_block(b)
+                                elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                                    callable.add_block(data)
+                if callable.blocks:
+                    func_val = comp.Value(callable)
             elif isinstance(lname, int):
                 func_val = frame.get_value(lname)
             param_val = frame.get_value(lparam_idx) if lparam_idx is not None else None
@@ -1698,9 +1768,11 @@ def _ensure_definition_value(defn, frame):
     if defn.original_cop:
         cop_tag = comp.cop_tag(defn.original_cop)
         if cop_tag == "value.block":
-            defn.value = comp.create_blockdef(defn.qualified, False, defn.original_cop)
-            if defn.value and isinstance(defn.value.data, comp.Block):
-                defn.value.data.module = frame.interp.module_cache.get(defn.module_id)
+            block = comp.create_blockdef(defn.qualified, defn.original_cop)
+            block.module = frame.interp.module_cache.get(defn.module_id)
+            callable = comp.Callable(defn.qualified)
+            callable.add_block(block)
+            defn.value = comp.Value(callable)
             return defn.value
         elif cop_tag == "shape.define":
             if frame.module:
@@ -1733,14 +1805,40 @@ def _load_name(name, frame):
         if name in ns:
             item = ns[name]
             if isinstance(item, comp.DefinitionSet):
-                if len(item.definitions) == 1:
-                    defn = next(iter(item.definitions))
-                    value = _ensure_definition_value(defn, frame)
-                    if value:
-                        return value
+                # Build a Callable from the DefinitionSet's definitions
+                callable = comp.Callable(name)
                 for defn in item.definitions:
                     _ensure_definition_value(defn, frame)
-                return comp.Value.from_python(item)
+                    if defn.value is None:
+                        continue
+                    data = defn.value.data
+                    if isinstance(data, comp.Callable):
+                        # Merge blocks from nested Callable
+                        for b in data.blocks:
+                            callable.add_block(b)
+                        if data.shape is not None and callable.shape is None:
+                            callable.shape = data.shape
+                        if data.pipeline is not None and callable.pipeline is None:
+                            callable.pipeline = data.pipeline
+                    elif isinstance(data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                        callable.shape = data
+                    elif isinstance(data, comp.Block):
+                        callable.add_block(data)
+                    elif isinstance(data, comp.InternalCallable):
+                        callable.add_block(data)
+                    else:
+                        # Non-callable value (e.g. struct) — return directly
+                        if len(item.definitions) == 1:
+                            return defn.value
+                # If only a shape/tag with no blocks, return the shape directly
+                if not callable.blocks and callable.shape is not None and callable.pipeline is None:
+                    return comp.Value.from_python(callable.shape)
+                if callable.blocks or callable.pipeline:
+                    return comp.Value(callable)
+                # Fallback: single definition value
+                for defn in item.definitions:
+                    if defn.value is not None:
+                        return defn.value
             elif hasattr(item, "value"):
                 value = _ensure_definition_value(item, frame)
                 if value:

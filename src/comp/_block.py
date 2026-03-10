@@ -1,79 +1,66 @@
-"""Function definitions and operations"""
+"""Function definitions, callables, and pipelines."""
 
 import comp
 
 
-__all__ = ["Block", "StatementHandle", "create_blockdef"]
+__all__ = ["Block", "Callable", "Pipeline", "StatementHandle", "create_blockdef"]
 
 
 class Block:
-    """A function definition.
+    """A single function body — the unit of computation in Comp.
 
-    Functions are the primary unit of computation in comp. They transform
-    an input value to an output value, optionally taking an argument.
-
-    Args:
-        qualified: (str) Fully qualified function name
-        private: (bool) Function is private to its module
+    A Block is always contained inside a Callable when stored as a Value.
+    It is never wrapped in Value directly.
 
     Attributes:
-        qualified: (str) Fully qualified function name
-        module: (Module | None) The module that defined this function
-        private: (bool) Function is private to its module
-        pure: (bool) Function has no side effects
-        input_name: (str | None) Name for the input value
-        input_shape: (Shape) Shape constraint for input
-        arg_name: (str | None) Name for the argument
-        arg_shape: (Shape) Shape constraint for argument
+        qualified: (str) Fully qualified name (e.g. "add", "tree-insert")
+        module: (Module | None) The module that defined this block
+        pure: (bool) Block has no side effects
+        input_shape: (Shape | None) Shape constraint for input
+        input_name: (str | None) Parameter name for piped input binding
+        arg_name: (str | None) Parameter name for arguments binding
+        arg_shape: (Shape | None) Shape for argument validation/masking
+        dispatch_set_name: (str | None) Base name for Forward overload lookup
         body: (object) AST node for function body
-        frame: (ExecutionFrame | None) Closure frame from defining scope
         body_instructions: (list) Compiled bytecode for the body
         closure_env: (dict) Captured environment from definition site
+        captured_dollar_vars: (dict) Captured dollar variables ($, $$, $$$)
         signature_cop: (Value) Original signature COP node
-        param_names: (list) Names from signature.param nodes for individual env binding
+        param_names: (list) Names from signature.param nodes for env binding
     """
 
     __slots__ = (
         "qualified",
-        "private",
         "module",
         "pure",
-        "entry",
-        "input_name",
         "input_shape",
+        "input_name",
         "arg_name",
         "arg_shape",
+        "dispatch_set_name",
         "body",
-        "frame",
         "body_instructions",
         "closure_env",
         "captured_dollar_vars",
         "signature_cop",
         "param_names",
-        "block_names",
-        "dispatch_own_name",
-        "dispatch_set_name",
     )
 
-    def __init__(self, qualified, private):
+    def __init__(self, qualified):
         self.qualified = qualified
-        self.private = private
         self.module = None
         self.pure = False
-        self.input_name = None
         self.input_shape = None
+        self.input_name = None
         self.arg_name = None
         self.arg_shape = None
+        self.dispatch_set_name = None
         self.body = None
-        self.frame = None
         self.body_instructions = None
         self.closure_env = {}
         self.captured_dollar_vars = {}
         self.signature_cop = None
         self.param_names = []
-        self.block_names = []
-        self.dispatch_own_name = None
-        self.dispatch_set_name = None
 
     def __repr__(self):
         return f"Block<{self.qualified}>"
@@ -82,37 +69,20 @@ class Block:
         return hash((self.qualified, self.module))
 
     def format(self):
-        """Format function as literal string representation.
-
-        Shows the qualified name if available, with a compact signature.
-        Named blocks display as "func-name(...)" and anonymous blocks
-        as "(...)".
+        """Format as literal string representation.
 
         Returns:
-            (str) Formatted function like "decide(x~num)" or "(...)"
+            (str) Formatted function like "decide(~num)" or "(...)"
         """
         sig = []
-        if self.input_name:
-            input = self.input_name
-            if self.input_shape:
-                # Only resolved shapes (Shape/Tag objects) are formatted
-                sig.append(f"{input}~{self.input_shape.qualified}")
-            else:
-                sig.append(input)
-        if self.arg_name:
-            arg = self.arg_name
-            if self.arg_shape:
-                sig.append(f"{arg}~{self.arg_shape.qualified}")
-            else:
-                sig.append(arg)
+        if self.input_shape:
+            sig.append(f"~{self.input_shape.qualified}")
         if self.pure:
             sig.append("pure")
 
-        # Format body
         body_parts = []
         if self.body:
             body_str = comp.cop_unparse(self.body)
-            # Remove outer parentheses from struct.define
             if body_str.startswith("(") and body_str.endswith(")"):
                 body_str = body_str[1:-1]
             if len(body_str) > 20:
@@ -122,22 +92,110 @@ class Block:
         sig_str = " ".join(sig)
         body_str = " ".join(body_parts)
 
-        # Use qualified name for named blocks, bare parens for anonymous
         name = self.qualified or ""
         if name and name != "anonymous":
-            # Strip auto-suffix (e.g. ".i001") for cleaner display
-            base = name.rsplit(".", 1)[0] if "." in name and name.rsplit(".", 1)[1].startswith("i") else name
             inner = f"{sig_str} {body_str}".strip() if sig_str or body_str else ""
-            return f"{base}({inner})" if inner else f"{base}()"
+            return f"{name}({inner})" if inner else f"{name}()"
         inner = f"{sig_str} {body_str}".strip() if sig_str or body_str else ""
         return f"({inner})" if inner else "()"
+
+
+class Callable:
+    """A collection of invokable entries sharing a name.
+
+    This is the primary Value data type for namespace references. It
+    collects one or more Blocks and/or InternalCallables (dispatched by
+    morph score), an optional Shape (including tags), and an optional
+    Pipeline.
+
+    Attributes:
+        qualified: (str) Base qualified name for this callable
+        blocks: (list) Block and/or InternalCallable instances
+        shape: (Shape | Tag | None) Single shape or tag reference
+        pipeline: (Pipeline | None) Single pipeline reference
+    """
+
+    __slots__ = ("qualified", "blocks", "shape", "pipeline")
+
+    def __init__(self, qualified):
+        self.qualified = qualified
+        self.blocks = []
+        self.shape = None
+        self.pipeline = None
+
+    def scalar_block(self):
+        """Return the single block if exactly one and no pipeline, else None."""
+        if len(self.blocks) == 1 and self.pipeline is None:
+            return self.blocks[0]
+        return None
+
+    def add_block(self, block):
+        """Append a Block or InternalCallable to this callable."""
+        self.blocks.append(block)
+
+    def __repr__(self):
+        parts = []
+        if self.blocks:
+            parts.append(f"{len(self.blocks)} blocks")
+        if self.shape:
+            parts.append(f"shape={self.shape}")
+        if self.pipeline:
+            parts.append("pipeline")
+        detail = ", ".join(parts) if parts else "empty"
+        return f"Callable<{self.qualified}: {detail}>"
+
+    def format(self):
+        """Format for display."""
+        if self.blocks:
+            names = [getattr(b, "qualified", getattr(b, "name", "?")) for b in self.blocks]
+            return f"callable({', '.join(names)})"
+        if self.shape:
+            return f"callable(~{getattr(self.shape, 'qualified', str(self.shape))})"
+        if self.pipeline:
+            return "callable([...])"
+        return f"callable({self.qualified})"
+
+
+class Pipeline:
+    """A reified pipeline that can be stored and invoked.
+
+    Created from deferred pipeline syntax :[a | b | c].
+    Kept as a distinct type (not compiled into Block) so pipelines
+    can be introspected and potentially rewritten in the future.
+
+    Attributes:
+        body_cop: (Value) The pipeline COP node
+        body_instructions: (list | None) Compiled bytecode
+        closure_env: (dict) Captured environment from definition site
+        captured_dollar_vars: (dict) Captured dollar variables
+    """
+
+    __slots__ = ("body_cop", "body_instructions", "closure_env", "captured_dollar_vars")
+
+    def __init__(self, body_cop):
+        self.body_cop = body_cop
+        self.body_instructions = None
+        self.closure_env = {}
+        self.captured_dollar_vars = {}
+
+    def __repr__(self):
+        return "Pipeline<[...]>"
+
+    def format(self):
+        """Format for display."""
+        if self.body_cop:
+            body_str = comp.cop_unparse(self.body_cop)
+            if len(body_str) > 30:
+                body_str = body_str[:27] + "..."
+            return f"[{body_str}]"
+        return "[...]"
 
 
 class StatementHandle:
     """Wraps a callable Value to prevent auto-invocation by TryInvoke.
 
-    BuildInvokeData stores callable statements (Block, InternalCallable,
-    DefinitionSet) inside a StatementHandle so that a wrapper function
+    BuildInvokeData stores callable statements (Callable, Block,
+    InternalCallable) inside a StatementHandle so that a wrapper function
     accessing $.statement receives the callable as a value rather than
     accidentally auto-invoking it via TryInvoke.
 
@@ -154,18 +212,17 @@ class StatementHandle:
         return f"StatementHandle({self.val!r})"
 
 
-def create_blockdef(qualified_name, private, cop_node):
-    """Create a Block from a value.block COP node and wrap in a Value.
+def create_blockdef(qualified_name, cop_node):
+    """Create a Block from a value.block COP node.
 
     This is a pure initialization function that doesn't depend on Module or Interp.
 
     Args:
-        qualified_name: (str) Fully qualified function name (e.g., "add.i001")
-        private: (bool) Whether function is private
+        qualified_name: (str) Fully qualified function name (e.g. "add")
         cop_node: (Struct) The value.block COP node
 
     Returns:
-        Value: Initialized function definition wrapped in a Value with cop attribute set
+        (Block) Initialized block with signature and body set
 
     Raises:
         CodeError: If cop_node is not a value.block node
@@ -180,16 +237,13 @@ def create_blockdef(qualified_name, private, cop_node):
             cop_node
         )
 
-    # Create Block
-    block = Block(qualified_name, private)
+    block = Block(qualified_name)
 
-    # Parse signature and body from block
-    # value.block has kids: shape.define (signature), struct.define (body)
+    # value.block kids: signature (block.signature), body
     kids = comp.cop_kids(cop_node)
     signature_cop = kids[0] if len(kids) > 0 else None
     body_cop = kids[1] if len(kids) > 1 else None
 
-    # Parse signature to extract parameter names (shapes resolved later by interpreter)
     if signature_cop:
         block.signature_cop = signature_cop
         sig_fields = comp.cop_kids(signature_cop)
@@ -197,15 +251,6 @@ def create_blockdef(qualified_name, private, cop_node):
             field_name = field.to_python("name")
             if field_name == "pure":
                 block.pure = True
-            elif block.input_name is None:
-                block.input_name = field_name
-            else:
-                block.arg_name = field_name
 
-    # Store body COP
     block.body = body_cop
-
-    # Wrap in Value and set cop attribute
-    value = comp.Value.from_python(block)
-    value.cop = cop_node
-    return value
+    return block
