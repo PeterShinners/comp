@@ -48,10 +48,10 @@ Highlights:
 	$
 	| dispatch
 	| post "/" :(link-create)
-	| get "/" :(response-template "newurl.html")
+	| get "/" :[response-template "newurl.html"]
 	| get "/{id}" :(link-redirect)
 	| get "/{id}.json" :(link-details)
-	| missing :(response-template "404.html" status=404)
+	| missing :[response-template "404.html" status=404]
 	//x or perhaps something with an `!on` here?
 ]
 

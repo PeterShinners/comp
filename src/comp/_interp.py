@@ -331,12 +331,10 @@ class Interp:
                 for name, defn in mod_defs.items():
                     if defn.pure and defn.resolved_cop is not None and defn.value is None:
                         try:
-                            _set_name = (defn.qualified.rsplit(".", 1)[0]
-                                         if defn.auto_suffix else defn.qualified)
                             defn.instructions = comp.generate_code_for_definition(
                                 defn.resolved_cop,
                                 dispatch_own_name=defn.qualified,
-                                dispatch_set_name=_set_name,
+                                dispatch_set_name=defn.qualified,
                                 pure=True,
                             )
                             result = self.execute(defn.instructions, mod_env, module=mod)
@@ -365,12 +363,10 @@ class Interp:
                 if defn.resolved_cop is None:
                     continue
                 try:
-                    _set_name = (defn.qualified.rsplit(".", 1)[0]
-                                 if defn.auto_suffix else defn.qualified)
                     defn.instructions = comp.generate_code_for_definition(
                         defn.resolved_cop,
                         dispatch_own_name=defn.qualified,
-                        dispatch_set_name=_set_name,
+                        dispatch_set_name=defn.qualified,
                         pure=defn.pure,
                     )
                 except comp.CodeError as ce:
@@ -391,13 +387,25 @@ class Interp:
             for name, defn in mod_defs.items():
                 if defn.instructions and defn.value is None:
                     if defn.shape.qualified == "shape":
-                        result = self.execute(defn.instructions, mod_env, module=mod)
+                        try:
+                            result = self.execute(defn.instructions, mod_env, module=mod)
+                        except comp.CodeError as ce:
+                            if not hasattr(ce, "module") or ce.module is None:
+                                ce.module = mod
+                                ce.definition_name = name
+                            raise
                         defn.value = result
                         mod_env[name] = result
             # Everything else
             for name, defn in mod_defs.items():
                 if defn.instructions and defn.value is None:
-                    result = self.execute(defn.instructions, mod_env, module=mod)
+                    try:
+                        result = self.execute(defn.instructions, mod_env, module=mod)
+                    except comp.CodeError as ce:
+                        if not hasattr(ce, "module") or ce.module is None:
+                            ce.module = mod
+                            ce.definition_name = name
+                        raise
                     defn.value = result
                     mod_env[name] = result
 
@@ -616,6 +624,30 @@ class ExecutionFrame:
         self.registers.append(value)
         return value
 
+    def eval(self, cop):
+        """Compile and evaluate a COP expression in this frame's context.
+
+        Args:
+            cop: (Value) COP node representing an expression
+
+        Returns:
+            (Value) The evaluated result
+        """
+        # Resolve identifiers against the module namespace so codegen
+        # produces LoadVar instead of LoadLocal for namespace names.
+        ns = self.module.namespace() if self.module else {}
+        resolved = comp._resolve.cop_resolve_names(cop, ns)
+        ctx = comp._codegen.CodeGenContext()
+        ctx.build_expression(resolved)
+        sub_frame = ExecutionFrame(
+            env=dict(self.env),
+            interp=self.interp,
+            module=self.module,
+            parent_frame=self,
+            context=dict(self.context),
+        )
+        return sub_frame.run(ctx.instructions)
+
     def lookup(self, name):
         """Look up a name in environment, module namespace, and system definitions.
 
@@ -715,7 +747,7 @@ class ExecutionFrame:
                             callable.add_block(b)
                         if data.shape is not None and callable.shape is None:
                             callable.shape = data.shape
-                    elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                    elif isinstance(data, comp.InternalCallable):
                         callable.add_block(data)
                     elif isinstance(data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
                         callable.shape = data
@@ -756,14 +788,36 @@ class ExecutionFrame:
                     cop_val=source_cop,
                 ))
         else:
-            # Handle bare Block (Comp function)
-            block = callable_obj
-        
+            raise CompFail(_make_fail_value(
+                f"Not callable: {type(callable_obj).__name__}",
+                tag=comp.tag_fail_invoke,
+                cop_val=source_cop,
+            ))
+
+        # If dispatch selected an InternalCallable (e.g. from a DefinitionSet
+        # that mixed Python builtins into a Callable), handle it now.
+        if isinstance(block, comp.InternalCallable):
+            input_val = piped if piped is not None else args
+            if block.input_shape is not None:
+                morph_result = comp.morph(input_val, block.input_shape, self)
+                if morph_result.failure_reason:
+                    if morph_result.failure_value is not None:
+                        raise CompFail(morph_result.failure_value)
+                    raise CompFail(_make_fail_value(
+                        morph_result.failure_reason,
+                        tag=comp.tag_fail_value,
+                        cop_val=source_cop,
+                    ))
+                input_val = morph_result.value
+            return block.func(input_val, args, self)
+
         # Share the closure environment directly — StoreLocal mutations
         # persist across invocations (e.g. a counter's !let count count+1).
         new_env = block.closure_env
-        # Bind __self__ so !forward can locate the current overload
-        new_env["__self__"] = comp.Value(block)
+        # Bind __self__ so !forward can locate the current Callable
+        _self_callable = comp.Callable(block.qualified)
+        _self_callable.add_block(block)
+        new_env["__self__"] = comp.Value(_self_callable)
         
         # For single-parameter blocks (input only, no arg), treat args as piped input
         # This allows `up(5)` to work the same as `5|up()` for `:n(n+1)`
@@ -797,15 +851,16 @@ class ExecutionFrame:
         if block.input_shape and isinstance(block.input_shape, comp.Shape):
             morph_result = comp.morph(input_val, block.input_shape, self)
             if morph_result.failure_reason:
-                # Include block name and shape info for debugging
-                block_name = getattr(block, "name", None) or getattr(block, "dispatch_own_name", "?")
-                raise comp.CodeError(
+                block_name = block.qualified or "?"
+                cop_node = getattr(block_val, "cop", None) or source_cop
+                err = comp.CodeError(
                     f"Input morph failed: {morph_result.failure_reason}"
                     f"\n  block: {block_name}, input_shape: {block.input_shape.qualified}"
                     f", input: {input_val.format()}"
                     f" ({input_val.shape.qualified if input_val.shape else '?'})",
-                    block_val.cop if hasattr(block_val, "cop") else source_cop)
-            input_val = morph_result.value
+                    cop_node)
+                err.module = block.module
+                raise err
 
         # Inject context values as implicit defaults for named arg-shape fields
         # not explicitly provided by the caller.  The mask step that follows will
@@ -843,7 +898,7 @@ class ExecutionFrame:
                 fname = comp._morph._get_field_key(k)
                 if fname is not None and fname in param_set:
                     # TryInvoke: if the bound value is callable, call it with no args
-                    if isinstance(v.data, (comp.Callable, comp.Block, comp.InternalCallable)):
+                    if isinstance(v.data, (comp.Callable, comp.InternalCallable)):
                         v = self.invoke_block(v, _empty, piped=None)
                     new_env[fname] = v
 

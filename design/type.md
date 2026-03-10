@@ -66,11 +66,11 @@ multiline = """
 String operations come from the standard library and work through pipelines:
 
 ```comp
-"hello world" | uppercase         // "HELLO WORLD"
-"  padded  " | trim               // "padded"
-"a b c" | split | join["-"]       // "a-b-c"
-email | match :"^[^@]+@[^@]+$"    // regex matching
-"Camp" | replace :"amp" :"omp"    // "Comp"
+["hello world" | uppercase]       // "HELLO WORLD"
+["  padded  " | trim]             // "padded"
+["a b c" | split | join "-"]      // "a-b-c"
+[email | match "^[^@]+@[^@]+$"]   // regex matching
+["Camp" | replace "amp" "omp"]    // "Comp"
 ```
 
 ### Template Formatting
@@ -159,22 +159,36 @@ true :or (expensive-check)     // never calls expensive-check
 
 ## Tags
 
-Tags are named constants that define identity rather than carry data. They
-represent states, categories, and markers. Tags are defined at module level
-in hierarchies using `!tag` and serve as both values and types. See
-[Structures](struct.md) for full tag documentation.
+Tags are named constants that serve as both values and types. They represent
+distinct states, categories, or markers within a program. Tags are defined in
+hierarchies at module level, allowing related concepts to be grouped while
+remaining individually usable.
 
 ```comp
 !tag visibility {all active complete}
-!tag bool {true false}
-
-current = visibility.active
+!tag http-status {
+    success = {ok created accepted}
+    error = {not-found forbidden server-error}
+}
+!tag http-status.offline
 ```
 
-Several tags are predefined by the language: `true` and `false` for booleans,
-`nil` for absence of value, and `done`, `skip`, `pass` for flow control. These
-are ordinary tags with no special runtime behavior, they participate in
-dispatch and type matching like any other tag.
+A tag's dual nature as value and type enables powerful patterns. As values,
+tags can be stored in fields, passed to functions, and compared. As types, tags
+constrain shapes to accept only values from a specific hierarchy. When used as a
+type, a parent tag means "any child of this tag", the parent itself is not a
+valid value. `~bool` accepts `true` or `false`, never `bool` itself.
+
+Tags are the foundation of Comp's dispatch system. Function overloading,
+`!on` branching, and the `<>` comparison operator all work through tag matching.
+The boolean values `true` and `false` are simply predefined tags under the
+`bool` hierarchy. The stream control values `done`, `skip`, and `pass` are
+similarly just tags.
+
+Tag hierarchies can be extended by external modules independently from the
+initial definition. A library might define `!tag status {ok error}` while a
+consuming module adds `!tag status {timeout validation}` for more specific
+error handling.
 
 ## Nil
 
@@ -235,31 +249,31 @@ type annotations.
 
 ## Units
 
-Units extend number and text values with persistent type metadata using `[]`.
-A number isn't just `12`, it's `12[inch]` or `30[second]`. A string isn't just
-text, it's `"select * from users"[sql]`. Units persist through operations and
-enable the type system to prevent nonsensical combinations while allowing safe
-conversions within the same family.
+Units extend values with persistent type metadata. The `#` operator will attach
+or change the unit for a value. It can also be used in shape definitions to
+allow or prevent certain numbers from converting.
+
+The builtin `units` library provides an extensible set of common measurements
+and units for numbers and text.
+
+Text values often use a unit to specify how template formatting should be
+applied to the template string. This can also be used as a hint to code
+editors and visualization on how to highlight and validate the text contents.
 
 Units are defined as tags in the `unit.num` or `unit.text` hierarchies. Each
 unit family is a flat category with children representing specific units.
 
 ```comp
 // Numeric units
-height = 12[inch]
-timeout = 30[second]
-elapsed[second] + 1[minute]     // converts, produces seconds
+height = 12#inch
+timeout = 30#second
+elapsed#second + 1#minute     // converts, produces seconds
 
 // Text units, mark domain/format for tooling and escaping
-!let query "select * from users where name = %(name)"[sql]
-!let fragment "<div class='%(cls)'>%(content)</div>"[html]
-!let pattern "^[a-z_][a-z0-9_-]*$"[regex]
+!let query "select * from users where name = %(name)"#sql
+!let fragment "<div class='%(cls)'>%(content)</div>"#html
+!let pattern "^[a-z_][a-z0-9_-]*$"#regex
 ```
-
-Text units serve two purposes. They provide a standardized indicator for IDEs to
-apply nested language highlighting inside the string. They also allow the
-formatting engine to perform context-aware escaping, a value interpolated into
-a `[sql]` string gets SQL-escaped, an `[html]` string gets HTML-escaped.
 
 ### Unit Conversion Rules
 
@@ -277,9 +291,9 @@ raw-num | num[celsius]            // bare to unit, always works
 ```
 
 The escape hatch for unusual situations is always to strip the unit and reapply:
-`value | num | num[celsius]`. Two explicit steps, visible in the code.
+`value | num | num#celsius`. Two explicit steps, visible in the code.
 
-Converter functions are defined as pure functions that take a value and a target
+Conversion functions are defined as pure functions that take a value and a target
 unit tag. The dispatch system chains converters within a family automatically.
 
 ### Unit Matching and Dispatch
@@ -288,14 +302,14 @@ Units participate in shape matching with distinct score levels. When dispatch
 selects an overload, unit compatibility contributes to the match quality.
 
 Most functions should declare the unit family rather than a specific unit,
-`~num[time]` rather than `~num[seconds]`, so they accept any time unit without
+`~num#time` rather than `~num#seconds`, so they accept any time unit without
 conversion.
 
 The matching levels from strongest to weakest are: an exact unit match
-(`5[seconds]` → `~num[seconds]`), a child tag match where the value's unit is a
-child of the shape's unit tag (`5[seconds]` → `~num[time]`), a moderate match
-where a bare value matches a unit shape (`5` → `~num[time]`), and a weak match
-where a sibling unit could be converted (`5[minutes]` → `~num[seconds]`). Values
+(`5#seconds` | `~num#seconds`), a child tag match where the value's unit is a
+child of the shape's unit tag (`5#seconds` | `~num#time`), a moderate match
+where a bare value matches a unit shape (`5` | `~num#time`), and a weak match
+where a sibling unit could be converted (`5#minutes` | `~num#seconds`). Values
 from a different unit family produce no match at all.
 
 ## Limits
@@ -338,7 +352,7 @@ Limits can be combined with units. The unit specifies what kind of value it is,
 the limits specify what range is acceptable.
 
 ```comp
-!shape index ~num[num.index]<ge=0 integer>
+!shape index ~num<ge=0 integer>
 !shape timeout ~num[second]<ge=0>
 !shape temperature ~num[celsius]<gt=-273.15>
 ```

@@ -360,6 +360,13 @@ def _format_code_error(e, label="Build error"):
             span = max(1, end_col - col) if end_col and end_col > col else 1
             caret = " " * (col - 1) + "^" * span
             parts.append(f"   | {caret}")
+    elif source_file or defn_name:
+        loc_parts = []
+        if source_file:
+            loc_parts.append(source_file)
+        if defn_name:
+            loc_parts.append(f"in {defn_name}")
+        parts.append(f"  --> {', '.join(loc_parts)}")
 
     return "\n".join(parts)
 
@@ -816,7 +823,7 @@ def main():
                     print(f"\n-- startup {startup_name} --")
                     frame = TracingFrame(env, interp=interp, module=mod, depth=0)
                     startup_block = frame.run(startup_instructions)
-                    if startup_block is not None and isinstance(startup_block.data, comp.Block):
+                    if startup_block is not None and isinstance(startup_block.data, comp.Callable):
                         try:
                             result = frame.invoke_block(startup_block, context, piped=None)
                         except comp._interp.CompFail as e:
@@ -826,7 +833,7 @@ def main():
                             print(result.format())
                 else:
                     startup_block = interp.execute(startup_instructions, env, module=mod)
-                    if startup_block is not None and isinstance(startup_block.data, comp.Block):
+                    if startup_block is not None and isinstance(startup_block.data, comp.Callable):
                         startup_frame = comp.ExecutionFrame(env, interp=interp, module=mod)
                         try:
                             result = startup_frame.invoke_block(startup_block, context, piped=None)

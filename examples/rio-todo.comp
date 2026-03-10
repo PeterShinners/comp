@@ -50,7 +50,7 @@ Highlights:
                 text = $.input
                 placeholder = "What needs doing?"
                 flex = 1
-                on-change = :(merge input=$.value)
+                on-change = :[merge input=$.value]
                 on-submit = add-todo
             }
             rio.button :{
@@ -61,7 +61,7 @@ Highlights:
         }
 
         // todo are rio children like this auto-flattened?
-        [$.todos | where :(todo-visible filter=$$.filter) | map todo-item]
+        [$.todos | where :[todo-visible filter=$$.filter] | map todo-item]
 
         rio.row :{
             [{all active complete}
@@ -69,7 +69,7 @@ Highlights:
                 rio.button :{
                     text = [$ | to-text]
                     variant = [$ == $$.filter | pick "primary" "outline"]
-                    on-click = :(merge filter=$)
+                    on-click = :[merge filter=$]
                 }
             )]
         }
@@ -82,7 +82,7 @@ Highlights:
     {rio.row align=center :{
         rio.checkbox :{
             checked = $.complete
-            on-change = :(toggle-todo $.id)
+            on-change = :[toggle-todo $.id]
         }
         rio.text :{
             text = $.title
@@ -91,7 +91,7 @@ Highlights:
         }
         rio.icon-button :{
             icon = "delete"
-            on-click = :(delete-todo $.id)
+            on-click = :[delete-todo $.id]
         }
     }}
 )

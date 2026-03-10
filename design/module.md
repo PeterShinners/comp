@@ -72,9 +72,9 @@ web module defines a tag hierarchy `!tag status {ok error timeout}`, all of
 these are equivalent references:
 
 ```comp
-web.status.ok       // fully qualified
-status.ok           // drop the import prefix
-ok                  // just the leaf name
+web.status.ok   // fully qualified
+status.ok       // drop the import prefix
+ok              // just the leaf name
 ```
 
 The compiler resolves the shortest unambiguous path. If two imports both define
@@ -83,66 +83,6 @@ qualification. This applies equally to functions, shapes, tags, and any other
 named object in the namespace. Local definitions always take priority over
 imported names.
 
-### Aliases
-
-The `!alias` operator creates namespace entries that point directly at existing
-definitions. Aliases do not create new definitions — they are pure namespace
-indirections resolved at build time. The referenced definition is the one that
-gets compiled, optimized, and executed; the alias is just another name for it.
-
-Aliases resolve against the module's namespace, which includes both local
-definitions and imported symbols. An alias reference can use any name that
-would be valid in code: a local definition, an import-prefixed reference, or
-even another alias from local or external modules.
-
-```comp
-!alias crc zlib.crc32              // shortcut for deeply nested import
-!alias parse json.parse            // choose json.parse as the default 'parse'
-!alias sqrt fast-math.sqrt         // re-export under a different name
-!alias crc& zlib.crc32             // private alias, not visible to importers
-```
-
-Multiple aliases to the same name create overloaded dispatch, combining
-definitions from different sources under one entry point:
-
-```comp
-!import ss comp "struct"
-!import tt comp "text"
-!alias len ss.length               // struct length
-!alias len tt.length               // text length — both available as 'len'
-```
-
-Aliases can chain through other aliases in the same module. The resolver
-follows the chain until it reaches a concrete definition. Circular alias
-chains are detected and reported as build errors.
-
-```comp
-!alias short medium
-!alias medium long-name            // 'short' resolves to long-name's definition
-```
-
-### Exports
-
-The `!export` operator re-exports an entire imported module's namespace under
-a new prefix. Unlike `!alias` which references individual definitions,
-`!export` takes an import name and surfaces all of its non-private definitions.
-
-```comp
-!import tt comp "text"
-!export string tt                  // all of tt's definitions under string.*
-```
-
-This makes `string.capitalize`, `string.length`, `string.split`, and every
-other definition from the text module available in the current module's
-namespace under the `string` prefix. The original definitions are referenced
-directly — no copies are created.
-
-`!export` resolves only against imports, never against the namespace. This
-keeps the semantics clean: `!alias` looks up names, `!export` re-exports
-modules.
-
-Like aliases, exports are namespace-only and do not duplicate definitions.
-Private definitions from the imported module are excluded.
 
 ## Module-Level Declarations
 
@@ -206,6 +146,64 @@ importing the module.
 
 The `&` on a tag child hides just that branch. On a parent, it hides the entire
 hierarchy underneath.
+
+### Aliases
+
+The `!alias` operator creates namespace entries that point directly at existing
+definitions. Aliases do not create new definitions — they are pure namespace
+indirections resolved at build time. The referenced definition is the one that
+gets compiled, optimized, and executed; the alias is just another name for it.
+
+Aliases resolve against the module's namespace, which includes both local
+definitions and imported symbols. An alias reference can use any name that
+would be valid in code: a local definition, an import-prefixed reference, or
+even another alias from local or external modules.
+
+```comp
+!alias crc zlib.crc32              // shortcut for deeply nested import
+!alias parse json.parse            // choose json.parse as the default 'parse'
+!alias sqrt fast-math.sqrt         // re-export under a different name
+!alias crc& zlib.crc32             // private alias, not visible to importers
+```
+
+Multiple aliases to the same name create overloaded dispatch, combining
+definitions from different sources under one entry point. Each alias must
+still define a unique fully qualified name.
+
+```comp
+!import ss comp "struct"
+!import tt comp "text"
+!alias a.len ss.length       // struct length
+!alias b.len tt.length       // text length — both available as 'len'
+```
+
+Aliases can chain through other aliases. The resolver follows the chain until it
+reaches a concrete definition. Circular alias chains are detected and reported
+as build errors.
+
+```comp
+!alias short medium
+!alias medium long-name      // 'short' resolves to long-name's definition
+```
+
+### Exports
+
+The `!export` operator re-exports an entire imported module's namespace under
+a new prefix. Unlike `!alias` which references individual definitions,
+`!export` takes an import name and surfaces all of its non-private definitions.
+
+```comp
+!import tt comp "text"
+!export string tt             // all of tt's definitions under string.*
+```
+
+This makes `string.capitalize`, `string.length`, `string.split`, and every
+other definition from the text module available in the current module's
+namespace under the `string` prefix. The original definitions are referenced
+directly — no copies are created.
+
+Like aliases, exports are namespace-only and do not duplicate definitions.
+Private definitions from the exported namespace are excluded.
 
 ## Package Metadata
 

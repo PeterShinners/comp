@@ -1,11 +1,12 @@
 # Syntax and Style Guide
 
-Comp is a whitespace-flexible, expression-oriented language. Source code is a
-series of module-level declarations and expressions using three paired
-delimiters: `()` for blocks and expressions, `{}` for struct containers. These
-three bracket types are the backbone of the grammar and each has distinct
-semantics described throughout this guide. The language also provides uses `~{}`
-for shape definitions and `[]` inside of those for type guards and conditions.
+Comp is a whitespace and newline independent, expression-oriented language.
+Source code is a series of module-level declarations and expressions using three
+paired delimiters: `()` for statements, `{}` for structure literals, and `[]`
+for pipeline definitions. These bracket types are the backbone of the grammar
+and each has distinct semantics described throughout this guide. The language
+also provides uses `~{}` for shape definitions and all of the brackets can be
+used to create deferred operations `:[]` `:()` and `:{}`.
 
 Whitespace is required only between fields of a structure and between tokens
 that would otherwise be ambiguous. Tabs are preferred for indentation. A
@@ -15,12 +16,13 @@ formatter enforce consistency.
 
 ## Tokens and Naming
 
-Identifiers use **kebab-case**, lowercase words separated by hyphens. Digits
-are allowed after the first character. Leading and trailing underscores are
-permitted but leading or trailing hyphens are not. Characters are case-sensitive
-and the full UAX #31 Unicode specification is supported, but lower case is
-preferred. These unicode rules match what Rust and Python allow for identifiers
-(with the addition of hyphens). Identifiers cannot begin or end with hyphens.
+Identifiers use **kebab-case**, lowercase words separated by hyphens. Digits are
+allowed after the first character and upper case letters are allowed throughout.
+Leading and trailing underscores are permitted but leading or trailing hyphens
+are not. Characters are case-sensitive and the full UAX #31 Unicode
+specification is supported, but lower case is preferred. These unicode rules
+match what Rust and Python allow for identifiers (with the addition of hyphens).
+Identifiers cannot begin or end with hyphens.
 
 ```comp
 valid-name      html5       _private     用户名
@@ -46,7 +48,7 @@ Like `"Full Name"`.
 These types of field names can be combined in a single identifier.
 
 ```comp
-records.#0."Owners".'$.owner-name'.active?
+records.#0."Owners".'my.owner-name'.active?
 ```
 
 Although this does not work to reference the first level of a field name, only
@@ -80,20 +82,22 @@ Comp uses a set of bracket types to define different constructs in the
 language. These all have their own customizations on the grammar and
 statements they allow.
 
-**Parentheses `()`** are used to group expressions. There are places in
-the grammar where expressions can be deferred, which turns `()` statements
-into blocks, or even fully defined functions. It is allowed to put multiple
-statements into the parenthesis, but the statement will always evaluate to
-the value of the final statement. Inside a block, `$`
-references the input value. The outer statement defining a function provides
-a local scope defined by `!let` variables and are shared across all internal
-defined blocks, like closures.
+**Parentheses `()`** are used to group statements. This can be used for
+simple expressions to control operator precedence. It can also be used
+to group several statements into a single operation that results in the
+value of its final statement. Local variables can be defined with the `!my`
+and `!ctx` operators.
 
 **Braces `{}`** define structure literals. They hold both named and positional
-fields separated by whitespace. Each non-`!let` line inside braces contributes a
+fields separated by whitespace. Each non-`!my` line inside braces contributes a
 field to the resulting struct. Named fields use `=` for assignment; bare values
-become positional fields. Structure literals can also be deferred statements
-and used as the bodies for function and block statements.
+become positional fields. Local variables can be defined with the `!my`
+and `!ctx` operators.
+
+**Square Brackets `[]`** define a set of operations in a pipeline. These
+can be multiple operations separated by `|` pipe operators. Each operation
+in the pipeline is considered a callable object and the optional parameters
+that bind to it. There can be no locals defined in a pipeline.
 
 **Shapes `~{}`** shapes are similar to structure literals. They define a set
 of fields, which must have at least one of an optional name and an optional
@@ -101,38 +105,42 @@ shape. Each field can also be assigned an optional default value, which must
 be a simple expression. The `~` shape can be used to reference shapes or
 build unioned types, but with the curly braces defines a literal shape.
 
-**Square brackets `[]`** defint type limits. These can be applied to types
-inside of any shape definition. This defines a set of "guards" or "conditions"
+**Angle brackets `<>`** define type limits. These can be applied to types
+inside of any shape definition. This defines a set of "limits" or "conditions"
 that allow advanced type matching.
 
 ```comp
 {1 2 3}  // Ordered struct with three unnamed fields
 (1 2 3)  // Literal 3
 
-($.name | uppercase)  // Block
+[$.name | uppercase]  // Pipeline
 {name="Alice" age=30 active=true}  // Struct literal with named fields
 
-sort :reverse  // Parameter on an invokable
-~num[integer]  // Guard on a type
+[sort reverse]  // Parameter on an invokable
+~num<integer>  // Guard on a type
 ```
 
-## Pipeline Operator
+## Pipelines
 
-The pipe `|` chains function calls, passing the result of the left side as
+The pipe `|` chains function calls inside of square brackets `[]`. These pass
+the result of the left side as
 input to the right side. Pipelines are Comp's primary composition mechanism,
 replacing method chaining and nested function calls from other languages.
 
+A pipeline can be made of a single operation or many. The first operation in
+a pipeline can be a plain valid to use as the initial input. This value seed
+for the pipeline cannot have any parameters.
+
+Parameters for each operation can either be named or unnamed, similar to the
+syntax inside of a `{}` struct literal.
+
 ```comp
-{5 3 8 1 7 9}
-| reduce :initial=nil :(tree-insert)
+[{5 3 8 1 7 9}
+| reduce initial=nil tree-insert
 | tree-values
 | output
+]
 ```
-
-The syntax treats it like any binary operator which can be packed into a single
-expression or split however desired across multiple lines. Parameters are
-attached to invokable objects as a tail of prefixed `:` expresions, which
-provide either named or positional parameters.
 
 ## Failures and Fallbacks
 
@@ -141,10 +149,13 @@ chain. Failures skip all intermediate pipeline steps and struct field
 evaluations until caught. Failures carry a value, typically a struct with a
 message and optional tag for categorization.
 
+As a shortcut, the `!fail` operator can be given a qualified name from the
+fail hierarchy. In this case it gets a single string value, which get
+combined into a single structure
+
 ```comp
-!fail {#fail.value "expected number, got text"}
-!fail {#fail.field "index out of bounds"}
-!fail {#fail.module.missing "no module named 'rio'"}
+!fail {fail.value "expected number, got text"}
+!fail.module.missing "no module named 'future'"
 ```
 
 ### Builtin Fail Tags
@@ -167,13 +178,16 @@ fail
 └── invoke - call-level failure: no overload matched, recursion limit, bad parameter count
 ```
 
-Use the most specific tag available. Catch a parent tag (`#fail.module`) to
-handle all subtypes, or a leaf tag (`#fail.module.missing`) to handle a single
-case.
+### Fallbacks
 
 Two operators catch failures. The pipeline fallback `|?` catches failures
 flowing through a pipeline and provides an alternative path. The value fallback
 `??` catches a failure on any single expression.
+
+Use the most specific tag available. Catch a parent tag (`#fail.module`) to
+handle all subtypes, or a leaf tag (`#fail.module.missing`) to handle a single
+case.
+
 
 ```comp
 // Pipeline fallback, catch failure from preceding pipeline
@@ -193,7 +207,7 @@ handling explicit and traceable.
 
 ## Input References
 
-The `$` sigil accesses the pipeline input, the data flowing into the current
+The `$` symbol accesses the pipeline input, the data flowing into the current
 block or function. Field access drops the dot for the common case, using `$`
 directly followed by the field name.
 
@@ -207,6 +221,17 @@ $.items.price   // nested field access still uses dots
 $$             // outer scope's input (one level up)
 $$.filter       // outer scope's field
 ```
+
+## Namespaces
+
+Each module defines a rich hierarchical namespace of its functions, shapes,
+and tags. Comp allows nested names to be referenced by their leaf names when
+there are no conflits.
+
+Inside of a function there is an additional namespace that is managed by the
+`!my` `!ctx` and `!param` operators. These local will shadow the module's
+namespace. But explicit references starting with `mod.` and `my.` will pick only
+values from one scope or the other.
 
 ## Operators
 
@@ -227,7 +252,36 @@ numbers only, no string concatenation or boolean arithmetic.
 The three-way comparison `<>` returns a tag rather than a boolean. The `less`,
 `equal`, or `greater` result enables dispatch over all three cases in a single
 `!on` expression. See the [Functions](function.md) documentation for details
-on `!on`.
+about `!on`.
+
+## Comparison and Equality
+
+Equality (`==`, `!=`) tests structural equivalence. Values of different types
+are never equal. Named field order does not matter for equality, but positional
+order does.
+
+```comp
+{x=1 y=2} == {y=2 x=1}   // true, named order irrelevant
+{1 2 3} == {1 2 3}       // true
+5 == 5.0                 // true, same numeric value
+5 == "5"                 // false, different types
+```
+
+Ordering (`<`, `>`, `<=`, `>=`) provides total ordering across all types. Any
+two values can be compared with deterministic results. Types are ordered by
+priority: nil, empty struct, false, true, number, text, tag, struct. Within a
+type, values use their natural ordering, numeric for numbers, lexicographic for
+text, field-by-field for structs.
+
+The three-way comparison `<>` returns a tag (`~less`, `~equal`, or `~greater`)
+rather than a boolean, enabling clean dispatch over all three cases.
+
+```comp
+!on (value <> $.value)
+~less ($.left | tree-insert[value])
+~greater ($.right | tree-insert[value])
+~equal $
+```
 
 ## Text Literals and Interpolation
 
@@ -236,21 +290,17 @@ escape sequences like `\n` and `\"` are supported. The language has no text
 operators for things like concatenation or repetition. Text manipulation happens
 through library functions, including powerful template formatting.
 
-The formatting functions in the library use `%(expression)` with an optional
-`[format]` suffix. A bare `%` without a following `(` is just a literal percent
-sign, no escaping needed in most cases. Use `%%(` for the rare case of a
-literal `%(`.
+The library provides the `fmt` function that can be used in two ways to
+format string substitutions into a string. The `@fmt` wrapper applies the
+current scope to the string subsititions. The regular `fmt` pipeline
+applies a piped input value to a string template.
+
+See the [Type](type.md) documenation for more formatting details and examples.
 
 ```comp
-"hello %(name)"                      // interpolate from scope
-"price: %($ * 1.08)[.2]"             // expression with format
-"%(count)[04] items at 100% markup"  // format spec, literal %
-data | fmt :"row %($.id): %($.title)"  // fmt function for data templates
+@fmt "hello %(name)"                 // interpolate from scope
+[data | fmt "row %($.id): %($.title)"]  // fmt function for data templates
 ```
-
-The `@fmt` wrapper applies interpolation directly from the current scope. The
-`fmt` pipeline function applies interpolation using the piped data's fields.
-Both use identical `%(...)` syntax inside the template string.
 
 ## Module-Level Declarations
 
@@ -271,19 +321,21 @@ build the module's namespace and are fully resolved before any code executes.
 See [Modules](module.md) for import handling and namespace resolution, and
 [Functions](function.md) for function definition details.
 
-## Block Level Operators
+## Statement Operators
 
 Inside function bodies and blocks, `!` operators handle local bindings,
-dispatch, and control flow.
+dispatch, and control flow. These are generally available in the
+`()` statement and `{}` structure blocks, but `[]` pipeline blocks are
+unable to use most operators.
 
-`!let` creates a local binding. It does not use `=`, which is reserved for
+`!my` creates a local binding. It does not use `=`, which is reserved for
 field assignment. The binding captures the value of the following expression.
 That variable can be accessed using the defined name inside the function
 block and all its nested block definitions.
 
 ```comp
-!let base ($.price * $.quantity)
-!let cutoff (datetime.now - 1[week])
+!my base $.price * $.quantity
+!my cutoff [datetime.now] - 1[week]
 ```
 
 `!on` performs type-based dispatch. It evaluates an expression and branches
@@ -297,31 +349,22 @@ complete dispatch documentation.
 ~equal $
 ```
 
-`!defer` prevents automatic invocation of a callable expression, capturing it
-as a reference instead. See [Functions](function.md) for invocation rules.
-
 `!fail` raises a failure value that fast-forwards through the call chain until
 caught by a `|?` or `??` operator. See the Failures and Fallbacks section above.
 
-## Function Level Operators
+## Deferred Statements
 
-Blocks used in function definition statements can define additional
-operators to control the signature and metadata about the function.
-Common examples are `!params`, `!block`, and `!default`. Further details
-are in the [Functions](function.md) design document.
+Any type of statement braces can be prefixed with a `:` to defer execution
+of the statement. These are often called blocks. These work for `:{}` structure
+definitions, `:()` statement definitions`, and `:[]` pipeline definitions.
 
-## Wrappers
-
-The `@` prefix attaches a wrapper to any statement. Wrappers control how the
-statement executes — they can modify results, retry on failure, collect multiple
-values, or apply template interpolation. Wrappers work on function definitions,
-inline expressions, and string literals alike.
+To invoke a deferred statement it is put inside the pipeline brackets.
+Deferred pipelines can be used to create partials, binding some parameters
+to the final statement. When executing the statement additional parameters
+can be defined.
 
 ```comp
-!pure tree-insert ~tree @update (...)  // merge result onto input
-| map @update {name = ($.name | upper)} // inline wrapper on expression
-@fmt"hello %(name)"                    // string template wrapper
+!my data :{2+2 1+1 5+5}    // not evaluated immediately
+!my tool :[[data] | sort]  // also not evaluated
+!my result [tool reverse]  // results in {10 4 2}
 ```
-
-See [Functions](function.md) for wrapper semantics, the wrapper protocol, and
-how to define custom wrappers.

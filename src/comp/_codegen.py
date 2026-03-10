@@ -92,8 +92,25 @@ class CodeGenContext:
         match tag:
             case "value.constant":
                 const_val = cop.field("value")
-                # If the constant is a Block, emit BuildBlock at runtime
-                if isinstance(const_val.data, comp.Block):
+                # If the constant is a Callable wrapping a Block, emit BuildBlock at runtime
+                if isinstance(const_val.data, comp.Callable):
+                    block = const_val.data.scalar_block()
+                    if block is not None:
+                        if block.body_instructions:
+                            body_instructions = block.body_instructions
+                        elif block.body is not None:
+                            body_ctx = self.__class__()
+                            body_ctx.build_expression(block.body)
+                            body_instructions = body_ctx.instructions
+                        else:
+                            body_instructions = []
+                        signature_cop = getattr(block, "signature_cop", None)
+                        return self.emit(comp._instructions.BuildBlock(
+                            cop=cop,
+                            signature_cop=signature_cop,
+                            body_instructions=body_instructions
+                        ))
+                elif isinstance(const_val.data, comp.Block):
                     block = const_val.data
                     if block.body_instructions:
                         body_instructions = block.body_instructions
@@ -145,18 +162,17 @@ class CodeGenContext:
                     raise comp.CodeError(f"Invalid reference: {e}", cop)
 
             case "value.identifier":
-                # Unresolved identifier — cop_resolve_names was not run or the
-                # name could not be resolved.  Treat the first token as a plain
-                # local name so that code still runs when called without a
-                # namespace (e.g. blocks compiled before the full namespace is
-                # available).
+                # Unresolved identifier — the name resolution pass
+                # (cop_resolve_names) must run before codegen.  All
+                # value.identifier nodes should have been converted to
+                # value.local, value.namespace, or value.undefined.
                 kids = _cop_kids(cop)
-                if not kids:
-                    raise comp.CodeError("Identifier has no token", cop)
-                name = kids[0].to_python("value")
-                result = self.emit(comp._instructions.LoadLocal(cop=cop, name=name))
-                result = _apply_field_access(self, cop, result, kids[1:])
-                return self.emit(comp._instructions.TryInvoke(cop=cop, value=result))
+                name = kids[0].to_python("value") if kids else "?"
+                raise comp.CodeError(
+                    f"Unresolved identifier '{name}' reached codegen — "
+                    f"name resolution was not run on this COP tree",
+                    cop,
+                )
 
             case "value.undefined":
                 # Grenade node — name resolution ran but this identifier could

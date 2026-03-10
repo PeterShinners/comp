@@ -172,18 +172,8 @@ fail_expr: OP_FAIL expression
 ?arithmetic: term
            | arithmetic (PLUS | MINUS | KEBAB_MINUS) term -> binary_op
 
-?term: binding_chain
-     | term (STAR | SLASH) binding_chain -> binary_op
-
-?binding_chain: unary
-              | unary binding_arg+ -> binding
-
-binding_arg: TOKENFIELD EQUALS unary -> named_binding
-           | non_shape_atom -> bare_binding
-
-non_shape_atom: wrapper* (number | text | identifier | dotted_path_atom | statement | structure | pipeline | capture_expr)
-              | wrapper+
-              | forward_expr
+?term: unary
+     | term (STAR | SLASH) unary -> binary_op
 
 ?unary: postfix
       | (PLUS | MINUS | LNOT) unary -> unary_op
@@ -227,12 +217,19 @@ structure: BRACE_OPEN structure_body BRACE_CLOSE
 pipeline: BRACKET_OPEN pipeline_body BRACKET_CLOSE
 
 pipeline_body: pipe_start (PIPE pipe_stage)* (PIPEFALLBACK pipe_stage)?
-pipe_start: signature statement_item+
-           | statement_item+
+pipe_start: signature pipe_start_item+
+           | pipe_start_item+
+?pipe_start_item: my_assign | ctx_assign | pipe_start_expr
+?pipe_start_expr: unary pipe_arg+ -> pipe_stage
+                | expression
 pipe_stage: unary
           | unary pipe_arg+
 pipe_arg: TOKENFIELD EQUALS unary -> named_binding
-        | non_shape_atom -> bare_binding
+        | pipe_non_shape_atom -> bare_binding
+
+pipe_non_shape_atom: wrapper* (number | text | identifier | dotted_path_atom | statement | structure | pipeline | capture_expr)
+                   | wrapper+
+                   | forward_expr
 
 statement_body: signature statement_item*
               | statement_item*

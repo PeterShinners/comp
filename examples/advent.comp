@@ -48,13 +48,13 @@ Highlights:
 
 !func parse-entries ~texts (
 	!my cwd "/"
-	[$ | map :[
+	[$ | map :(
 		!on [$ | slice 0 4]
 		~text<eq="$ ls"> skip
 		~text<eq="dir "> skip
 		~text<eq="$ cd"> (!my cwd [$ | slice 5 | path-resolve cwd] skip)
 		~any {path=cwd size=[$ | split-whitespace limit=1 | $.#0 | parse-num]}
-	]]
+	)]
 )
 
 /// All ancestor paths including self

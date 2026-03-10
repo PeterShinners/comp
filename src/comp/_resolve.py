@@ -305,10 +305,15 @@ def _resolve_sequential(cop, namespace, locals):
     new_kids = []
     changed = False
 
-    # If the first child is a block.signature, extract parameter names
-    # and add $ references so they are visible to the body.
+    # If the first child is a block.signature, resolve it with the OUTER
+    # locals (before param names are added) so that default expressions
+    # see the enclosing scope, not the parameters being declared.
     if kids and comp.cop_tag(kids[0]) == "block.signature":
         sig_cop = kids[0]
+        new_sig = _resolve_walk(sig_cop, namespace, current_locals)
+        new_kids.append(new_sig)
+        if new_sig is not sig_cop:
+            changed = True
         for field_cop in comp.cop_kids(sig_cop):
             field_tag = comp.cop_tag(field_cop)
             if field_tag in ("signature.param",):
@@ -321,6 +326,9 @@ def _resolve_sequential(cop, namespace, locals):
         current_locals.update({"input", "args", "$", "$$", "$$$"})
 
     for kid in kids:
+        # Skip the signature — already resolved above
+        if new_kids and kid is kids[0] and comp.cop_tag(kid) == "block.signature":
+            continue
         new_kid = _resolve_walk(kid, namespace, current_locals)
         new_kids.append(new_kid)
         if new_kid is not kid:

@@ -160,7 +160,7 @@ class LoadOverload(Instruction):
                                     callable.add_block(b)
                                 if data.shape is not None and callable.shape is None:
                                     callable.shape = data.shape
-                            elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                            elif isinstance(data, comp.InternalCallable):
                                 callable.add_block(data)
                             elif isinstance(data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
                                 callable.shape = data
@@ -173,7 +173,7 @@ class LoadOverload(Instruction):
                                 callable.add_block(b)
                             if data.shape is not None and callable.shape is None:
                                 callable.shape = data.shape
-                        elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                        elif isinstance(data, comp.InternalCallable):
                             callable.add_block(data)
                         elif isinstance(data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
                             callable.shape = data
@@ -312,7 +312,7 @@ class TryInvoke(Instruction):
 
     def execute(self, frame):
         val = frame.get_value(self.value)
-        if isinstance(val.data, (comp.Callable, comp.Block, comp.InternalCallable)):
+        if isinstance(val.data, (comp.Callable, comp.InternalCallable)):
             empty_args = comp.Value.from_python({})
             try:
                 val = frame.invoke_block(val, empty_args, piped=None, source_cop=self.cop)
@@ -394,9 +394,9 @@ class Forward(Instruction):
 
         # Locate the current Block via __self__
         self_val = frame.env.get("__self__")
-        if self_val is None or not isinstance(self_val.data, comp.Block):
+        if self_val is None or not isinstance(self_val.data, comp.Callable):
             raise comp.CodeError("!forward used outside of a !func body", self.cop)
-        current_block = self_val.data
+        current_block = self_val.data.scalar_block()
 
         dispatch_set_name = getattr(current_block, "dispatch_set_name", None)
         skip_name = current_block.qualified
@@ -646,7 +646,7 @@ class BuildInvokeData(Instruction):
         # Wrap callable statements in StatementHandle to prevent TryInvoke from
         # auto-calling them if a wrapper function accesses $.statement.
         # Non-callable values (text, numbers, structs) are stored as-is.
-        if isinstance(statement_val.data, (comp.Callable, comp.Block, comp.InternalCallable)):
+        if isinstance(statement_val.data, (comp.Callable, comp.InternalCallable)):
             statement_stored = comp.Value(comp.StatementHandle(statement_val))
         else:
             statement_stored = statement_val
@@ -656,7 +656,7 @@ class BuildInvokeData(Instruction):
         input_val = frame._dollar_vars.get("$", _nil)
 
         # locals: env bindings that are actual user-defined locals
-        # (no namespace-qualified names like onfunc.i001)
+        # (no namespace-qualified names like mod.func)
         local_data = {}
         for k, v in frame.env.items():
             if "." not in k:
@@ -783,39 +783,10 @@ class BuildBlock(Instruction):
                 for fkid in inner_kids:
                     fkid_tag = comp.cop_tag(fkid)
                     if fkid_tag == "shape.default":
-                        # Extract the default value expression
+                        # Evaluate the default expression in the current frame
                         default_kids = list(comp.cop_kids(fkid))
                         if default_kids:
-                            dk = default_kids[0]
-                            dk_tag = comp.cop_tag(dk)
-                            if dk_tag == "value.constant":
-                                try:
-                                    param_default = dk.field("value")
-                                except (KeyError, AttributeError):
-                                    pass
-                            elif dk_tag in ("value.namespace", "value.identifier"):
-                                # Resolve tag/name references used as param defaults
-                                # (e.g. :param what~trim-mode=trim-mode.whitespace)
-                                ref_name = None
-                                if dk_tag == "value.namespace":
-                                    try:
-                                        ref_name = dk.to_python("qualified")
-                                        if isinstance(ref_name, list):
-                                            ref_name = None
-                                    except (KeyError, AttributeError):
-                                        pass
-                                elif dk_tag == "value.identifier":
-                                    id_kids = comp.cop_kids(dk)
-                                    if id_kids:
-                                        try:
-                                            ref_name = id_kids[0].to_python("value")
-                                        except (KeyError, AttributeError):
-                                            pass
-                                if ref_name:
-                                    try:
-                                        param_default = _load_name(ref_name, frame)
-                                    except (NameError, KeyError):
-                                        pass
+                            param_default = frame.eval(default_kids[0])
                     elif fkid_tag == "shape.define":
                         param_type_shape = self._build_shape_from_cop(fkid, frame)
                     else:
@@ -1150,7 +1121,7 @@ class BuildShape(Instruction):
                                         if isinstance(data, comp.Callable):
                                             for b in data.blocks:
                                                 callable.add_block(b)
-                                        elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                                        elif isinstance(data, comp.InternalCallable):
                                             callable.add_block(data)
                             elif isinstance(defn, comp.Definition):
                                 _ensure_definition_value(defn, frame)
@@ -1159,7 +1130,7 @@ class BuildShape(Instruction):
                                     if isinstance(data, comp.Callable):
                                         for b in data.blocks:
                                             callable.add_block(b)
-                                    elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                                    elif isinstance(data, comp.InternalCallable):
                                         callable.add_block(data)
                     if callable.blocks:
                         func_val = comp.Value(callable)
@@ -1337,7 +1308,7 @@ class BuildShapeCollection(Instruction):
                                     if isinstance(data, comp.Callable):
                                         for b in data.blocks:
                                             callable.add_block(b)
-                                    elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                                    elif isinstance(data, comp.InternalCallable):
                                         callable.add_block(data)
                         elif isinstance(defn, comp.Definition):
                             _ensure_definition_value(defn, frame)
@@ -1346,7 +1317,7 @@ class BuildShapeCollection(Instruction):
                                 if isinstance(data, comp.Callable):
                                     for b in data.blocks:
                                         callable.add_block(b)
-                                elif isinstance(data, (comp.Block, comp.InternalCallable)):
+                                elif isinstance(data, comp.InternalCallable):
                                     callable.add_block(data)
                 if callable.blocks:
                     func_val = comp.Value(callable)
@@ -1822,8 +1793,6 @@ def _load_name(name, frame):
                             callable.pipeline = data.pipeline
                     elif isinstance(data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
                         callable.shape = data
-                    elif isinstance(data, comp.Block):
-                        callable.add_block(data)
                     elif isinstance(data, comp.InternalCallable):
                         callable.add_block(data)
                     else:

@@ -156,8 +156,10 @@ def _is_pure_definition(defn):
     data = defn.value.data
     if isinstance(data, comp.InternalCallable):
         return data.pure
-    if isinstance(data, comp.Block):
-        return data.pure
+    if isinstance(data, comp.Callable):
+        block = data.scalar_block()
+        if block is not None:
+            return block.pure
     return False
 
 
@@ -173,7 +175,11 @@ def _get_callable(defn):
     if defn.value is None:
         return None
     data = defn.value.data
-    if isinstance(data, (comp.Block, comp.InternalCallable)):
+    if isinstance(data, comp.Callable):
+        block = data.scalar_block()
+        if block is not None:
+            return block
+    if isinstance(data, comp.InternalCallable):
         return data
     return None
 
@@ -444,9 +450,6 @@ def _get_pipeline_stage_parts(stage_cop):
 def _args_are_pure(args_value):
     """Check that any callable values in args are pure.
 
-    When a pure function receives block arguments (from :block parameters),
-    all such block args must themselves be pure for the fold to be safe.
-
     Args:
         args_value: (Value) The argument struct
 
@@ -454,17 +457,18 @@ def _args_are_pure(args_value):
         (bool) True if all callable args are pure (or there are no callable args)
     """
     if not isinstance(args_value.data, dict):
-        # Scalar arg — check if it's a callable
-        if isinstance(args_value.data, comp.Block):
-            return args_value.data.pure
+        if isinstance(args_value.data, comp.Callable):
+            block = args_value.data.scalar_block()
+            return block.pure if block is not None else True
         if isinstance(args_value.data, comp.InternalCallable):
             return args_value.data.pure
         return True
 
     # Struct — check all fields
     for key, val in args_value.data.items():
-        if isinstance(val.data, comp.Block):
-            if not val.data.pure:
+        if isinstance(val.data, comp.Callable):
+            block = val.data.scalar_block()
+            if block is not None and not block.pure:
                 return False
         elif isinstance(val.data, comp.InternalCallable):
             if not val.data.pure:

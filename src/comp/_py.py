@@ -28,7 +28,7 @@ import comp
 
 
 # Modules whose entire public namespace is considered pure.
-_PURE_ALLOWED_PREFIXES = frozenset([
+_PURE_PREFIXES = frozenset([
     "str.",        # e.g. str.upper, str.split, str.replace …
     "math.",       # e.g. math.sqrt, math.floor, math.log …
     "decimal.",    # e.g. decimal.Decimal
@@ -36,12 +36,12 @@ _PURE_ALLOWED_PREFIXES = frozenset([
     "operator.",   # e.g. operator.mul, operator.add, operator.eq …
     "re.",         # e.g. re.fullmatch, re.match, re.search …
 ])
-_PURE_ALLOWED_BUILTINS = frozenset([
+_PURE_BUILTINS = frozenset([
     "abs", "round", "divmod",
     "min", "max", "sum", "len",
     "int", "float", "str", "bool", "complex",
     "bin", "oct", "hex", "ord", "chr",
-    "sorted",
+    "sorted", "format",
 ])
 
 
@@ -335,25 +335,6 @@ def _create_py_module(module):
 
         return _smart_return(result, py_tag, module)
 
-    # ------------------------------------------------------------------
-    # pure-call allowlist
-    # ------------------------------------------------------------------
-    # Modules whose entire public namespace is considered pure.
-    _PURE_ALLOWED_PREFIXES = frozenset([
-        "str.",        # e.g. str.upper, str.split, str.replace …
-        "math.",       # e.g. math.sqrt, math.floor, math.log …
-        "decimal.",    # e.g. decimal.Decimal
-        "fractions.",  # e.g. fractions.Fraction
-        "operator.",   # e.g. operator.mul, operator.add, operator.eq …
-        "re.",         # e.g. re.fullmatch, re.match, re.search …
-    ])
-    _PURE_ALLOWED_BUILTINS = frozenset([
-        "abs", "round", "divmod",
-        "min", "max", "sum", "len",
-        "int", "float", "str", "bool", "complex",
-        "bin", "oct", "hex", "ord", "chr",
-        "sorted", "format",
-    ])
 
     def _pure_call(input_val, args_val, frame):
         """Call a known-pure Python function by qualified name.
@@ -374,8 +355,8 @@ def _create_py_module(module):
             raise comp.CodeError("pure-call requires a text function name as first argument")
         name = name_val.data
 
-        allowed = name in _PURE_ALLOWED_BUILTINS or any(
-            name.startswith(prefix) for prefix in _PURE_ALLOWED_PREFIXES
+        allowed = name in _PURE_BUILTINS or any(
+            name.startswith(prefix) for prefix in _PURE_PREFIXES
         )
         if not allowed:
             raise comp.CodeError(

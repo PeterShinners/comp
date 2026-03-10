@@ -290,17 +290,13 @@ class Module:
         if stmt.get("operator") == "pure":
             definition.pure = True
 
-        # Handle overloading with auto-suffix
-        if not hasattr(self, '_overload_counters'):
-            self._overload_counters = {}
+        if name in self._definitions:
+            raise comp.CodeError(
+                f"Duplicate definition '{name}' in module '{self.token}'",
+                cop_value,
+            )
 
-        counter = self._overload_counters.get(name, 0) + 1
-        self._overload_counters[name] = counter
-        qualified_name = f"{name}.i{counter:03d}"
-        definition.qualified = qualified_name
-        definition.auto_suffix = True
-
-        self._definitions[qualified_name] = definition
+        self._definitions[name] = definition
 
     def _process_tag_statement(self, stmt):
         """Process a !tag statement, adding tag hierarchy to self._definitions."""
@@ -639,15 +635,6 @@ class Module:
                     self._exported_aliases.setdefault(qualified_name, set()).add(tdef)
                 # Inject into namespace so aliases in pass B can find these
                 _inject_ns(self._namespace, qualified_name, {tdef})
-                if tdef.auto_suffix:
-                    parts = tdef.qualified.split(".")
-                    base = ".".join(parts[:-1])
-                    if base:
-                        base_name = f"{def_name}.{base}"
-                        self._resolved_deferred.append((kind, base_name, {tdef}, is_private))
-                        if not is_private:
-                            self._exported_aliases.setdefault(base_name, set()).add(tdef)
-                        _inject_ns(self._namespace, base_name, {tdef})
 
         # Pass B: aliases — can now reference exported names
         for kind, def_name, def_ref, is_private in self._deferred_defs:
@@ -717,14 +704,13 @@ class Definition:
     4. Codegen: Populate instructions with bytecode
 
     Args:
-        qualified: Fully qualified name (e.g., "cart", "add.i001")
-        module_id: Module token string (not reference)
-        original_cop: The original COP node
-        shape: Shape constant (comp.shape_block, comp.shape_shape, etc.)
-        private: Whether this definition is private to the module
-        auto_suffix: Whether this definition has an auto-generated suffix
+        qualified: (str) Fully qualified name (e.g., "cart", "add")
+        module_id: (str) Module token string (not reference)
+        original_cop: (Value) The original COP node
+        shape: (Shape) Shape constant (comp.shape_block, comp.shape_shape, etc.)
+        private: (bool) Whether this definition is private to the module
     Attributes:
-        qualified: (str) Fully qualified name (e.g., "cart", "add.i001")
+        qualified: (str) Fully qualified name
         module_id: (str) Module token that owns this definition (avoids circular refs)
         original_cop: (Value) The original COP node from parsing
         resolved_cop: (Value | None) The resolved+folded+optimized COP node
@@ -732,18 +718,16 @@ class Definition:
         value: (Value | None) The constant-folded value (Shape/Block/etc) if applicable
         instructions: (list | None) Bytecode instructions for this definition
         private: (bool) Whether this definition is private to the module
-        auto_suffix: (bool) Whether the qualified name has an auto-generated suffix
 
     """
-    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "auto_suffix", "pure")
+    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "pure")
 
-    def __init__(self, qualified, module_id, original_cop, shape, private=False, auto_suffix=False):
+    def __init__(self, qualified, module_id, original_cop, shape, private=False):
         self.qualified = qualified
         self.module_id = module_id
         self.original_cop = original_cop
         self.shape = shape
-        self.private = private  # Whether this definition is private to the module
-        self.auto_suffix = auto_suffix  # Whether qualified name has auto-generated suffix
+        self.private = private
         self.pure = False  # Whether this is a !pure definition (evaluate at compile time)
         self.resolved_cop = None  # Filled during identifier resolution
         self.value = None  # Filled during constant folding
@@ -885,24 +869,17 @@ class Ambiguous:
 def _identifier_permutations(definition, prefix):
     """Generate lookup name permutations from a Definition.
 
-    For auto-suffixed identifiers like "tree-contains.i001":
-    - Generates "tree-contains.i001" (full qualified name)
-    - Generates "tree-contains" (base name without suffix)
-    - Skips the bare suffix "i001"
-
-    This allows both "tree-contains" and "tree-contains.i001" to resolve.
-
-    For imports with a prefix (e.g. prefix="t", qualified="split.i001"):
-    - Generates "t.split.i001", "t.split", "split.i001", "split"
+    For a definition with qualified name "split" and prefix "t":
+    - Generates "t.split", "split"
     - The alias "t" alone is never generated (no definition has qualified="")
     - So import aliases never shadow builtins or local names
 
     Args:
-        definition: Definition object with qualified name and auto_suffix flag
-        prefix: Optional namespace prefix to add
+        definition: (Definition) Definition object with qualified name
+        prefix: (str | None) Optional namespace prefix to add
 
     Returns:
-        list: List of permutation strings to add to namespace
+        (list) List of permutation strings to add to namespace
     """
     permutations = []
     qualified = definition.qualified
@@ -910,24 +887,10 @@ def _identifier_permutations(definition, prefix):
     if prefix:
         parts.insert(0, prefix)
 
-    last = len(parts) - 1
-
     # Generate all suffix permutations
     for i in range(len(parts)):
         name = '.'.join(parts[i:])
-        # Skip if this is just the bare auto-generated suffix
-        if definition.auto_suffix and i == last:
-            continue
         permutations.append(name)
-
-    # If we have an auto-generated suffix, also add the base name without it
-    # e.g., "tree-contains.i001" also generates "tree-contains"
-    if definition.auto_suffix and len(parts) > 1:
-        base_parts = parts[:-1]
-        for i in range(len(base_parts)):
-            base_name = '.'.join(base_parts[i:])
-            if base_name not in permutations:
-                permutations.append(base_name)
 
     return permutations
 

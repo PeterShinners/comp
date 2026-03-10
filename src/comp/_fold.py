@@ -277,6 +277,8 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
             unit_val = _get_constant(new_kids[1])
             if val is not None and unit_val is not None:
                 if isinstance(unit_val.data, comp.Tag):
+                    if unit_val.data is comp.tag_nil:
+                        return _make_constant(cop, val.with_unit(None))
                     return _make_constant(cop, val.with_unit(unit_val.data))
 
         if tag == "value.strip_unit":
@@ -558,7 +560,7 @@ def _fold_namespace(cop, namespace):
                 if defn.value is not None:
                     # Only fold non-callable constant values
                     val_data = defn.value.data
-                    if isinstance(val_data, (comp.Callable, comp.Block, comp.InternalCallable)):
+                    if isinstance(val_data, (comp.Callable, comp.InternalCallable)):
                         return cop
                     return _make_constant(cop, defn.value)
     except (KeyError, AttributeError):

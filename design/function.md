@@ -1,27 +1,30 @@
-# Functions and Blocks
+# Functions and Pipelines
+
+Functions are module level definitions that use a `()` statement,
+`{}` structure, or `[]` pipeline to define the body.
 
 All statements inside parenthesis or structures inside braces can be
-evaluated as deferred statements called blocks. These can take an input
+deferred with a leading colon `:()` and `:{}`. These can take an input
 object through pipelines and define their own parameters. Functions take
 a block and define additional metadata and place it into a module namespace.
 
 Comp functions are centered on a simple philosophy of operating on input data
 received through the pipeline with parameters to customize how they behave. Data
-flows through `|`, parameters are defined with `:` prefixed expressions. This
-separation keeps function signatures clean and call sites readable.
+flows through `|` definitions inside of `[]` square brackets. Each term in the
+pipeline has an input value from the results of the preceding function. They
+also get a collection of optional parameters, which are like structure fields
+inside the pipeline statement.
 
-Blocks can define special block objects which allow them to do advanced
-language level features like conditionals and looping. Comp defines several
-novel features like function wrappers, linking families of functions with
-side channels, and pure functions that are simplified and can be evaluated
-at build time, or in parallel, and other contexts.
+Inside of function bodies, deferred statements can be created. These are
+often used to define operations that are managed as a parameter passed to
+a function. This allows flow control and iteration to be managed by
+regular functions. These deferred statements are often called blocks.
 
 ## Defining Functions
 
-Functions are declared at module level with `!func` or `!pure`. The input shape
-follows the name on the declaration line. The body is a `()` block containing
-optional metadata operators and the implementation. Functions can be defined
-with a deferred `{}` structure literal, but typically this is not as common.
+Functions are declared at module level with `!func` or `!pure` operators. Each
+function must define the shape of the input data it accepts; using `~nil` if
+the input is unused.
 
 ```comp
 !func double ~num (
@@ -29,78 +32,48 @@ with a deferred `{}` structure literal, but typically this is not as common.
 )
 
 !pure lookup-field ~struct (
-    :param field~text 
-    :param fallback~any
+    !param field~text 
+    !param fallback~any
 
     $'field' ?? fallback
 )
 ```
 
 The `!pure` declaration means this function has no side effects, it cannot
-access external resources or call non-pure functions.
-Pure functions can be evaluated at build time when their inputs are known, and
-the compiler can safely cache, parallelize, or eliminate their calls. Use `!func`
-for functions that perform side effects.
+access external resources or call non-pure functions. Pure functions can be
+evaluated at build time when their inputs are known, and the compiler can safely
+cache, parallelize, or eliminate their calls. Use `!func` for functions that
+perform side effects.
 
 ### Signature Operators
 
-Inside the function body, metadata operators declare what the function accepts:
+Inside the function body, signature operators declare metadata about the
+function and any parameters it might receive.
 
-`:param` declares a function parameter. Each parameter can have a name, a type
-constraint, and a default value. Parameters without defaults are required.
-Unlike defaults in shape definitions, these parameter definitions can use full
-expressions and pipelines that are only invoked if the parameter is not
-provided.
-
-`:params` declares a shape as a collection of parameters, individually applied
-to the functions.
-
-`:block` declares that the function accepts a deferred block as a parameter. The
-block declaration can define the input shape for the block and an optional
-default.
+`!param` declares a function parameter. Each parameter can have a name, a type
+constraint, and a default value. Unlike defaults in shape definitions, these
+parameter definitions can use full expressions and pipelines that are only
+invoked if the parameter is not provided.
 
 ```comp
-!pure reduce ~struct (
-    :param initial
-    :block fold
+!pure example ~struct (
+    !param initial
+    !param resoure ~data = [default-data | prepare]
     // implementation
 )
-
-// Called as: data | reduce :initial=0 :($ + $.accumulator)
 ```
 
-## Invocation Rules
+## Callables
 
-Expressions that produce a callable value are **invoked by default**. This
-means bare references to zero-parameter functions automatically execute, and
-expressions in most positions evaluate eagerly.
+There are several types of data that are callable. The most common are functions
+referenced from the module namespace. These can be a single definition or an
+overloaded set of functions that will dispatch when invoked. Shapes are also
+invokable to convert data types, which also means tags can be invoked.
+Deferred blocks and pipelines are also callable values.
 
-```comp
-!let timestamp datetime.now  // invokes, gets timestamp
-!let sample random * 10      // invokes in expression
-```
-
-There are two exceptions to eager invocation. Inside a **pipeline expression**
-being constructed, evaluation is deferred until the pipeline is consumed, the
-pipeline describes a chain of operations, not an immediate result. And inside a
-**block parameter position** (where the receiving function declared `:block`),
-the expression becomes a callable that the function invokes with its own data.
-
-```comp
-| map :(uppercase)                    // block parameter, deferred
-| reduce :initial=nil (tree-insert)  // block parameter, deferred
-| where :($.active)                    // block parameter, deferred
-```
-
-The `!defer` operator explicitly prevents invocation, capturing a callable as a
-reference regardless of context. This can be used for partial application of
-parameters or to capture a pipeline as a higher level object.
-
-```comp
-!let make-timestamp !defer datetime.now
-!let replace-single !defer replace :limit=1
-!let first-word-lower !defer (split :limit=1 | first | lowercase)
-```
+To invoke a callable it must be placed in square brackets to define and
+execute a pipeline. If a function requires no inputs or parameters the pipeline
+can be as simple as the callable value, `[runme]`.
 
 ## Pipeline Composition
 
@@ -109,11 +82,12 @@ left to right through a chain of functions, each receiving the output result of
 the previous step as input.
 
 ```comp
-github.issue-list :repo=repo :fields=fields
+[github.issue-list repo=repo fields=fields
 | where :($.created-at >= cutoff)
-| map :($.thumbs-up = $.reaction-groups | count :($.content == "thumbs-up"))
-| sort :reverse :($.thumbs-up)
-| first :5
+| map :($.thumbs-up = [$.reaction-groups | count :($.content == "thumbs-up")])
+| sort reverse :($.thumbs-up)
+| first 5
+]
 ```
 
 Each function in a pipeline receives the previous result as `$`. Parameters
@@ -131,8 +105,8 @@ listed first wins.
 
 ```comp
 !on (value <> $.value)
-~less ($.left | tree-contains :value)
-~greater ($.right | tree-contains :value)
+~less [$.left | tree-contains :value]
+~greater [$.right | tree-contains :value]
 ~equal true
 
 !on ($.id == id)
@@ -151,22 +125,22 @@ shapes. At call time, the dispatch system picks the most specific match based on
 the input data's shape. Each overload can define its own parameters and body.
 
 ```comp
-!pure tree-insert ~nil (
-    :param value~num
+!pure empty.tree-insert ~nil (
+    !param value~num
     tree :value=value
 )
-!pure tree-insert ~tree @update (
-    :param value~num
+!pure some.tree-insert ~tree @update (
+    !param value~num
     !on (value <> $.value)
-    ~less {left = ($.left | tree-insert :value)}
-    ~greater {right = ($.right | tree-insert :value)}
+    ~less {left = [$.left | tree-insert value]}
+    ~greater {right = [$.right | tree-insert value]}
 )
 
 !pure tree-values ~nil {}
 !pure tree-values ~tree @flat (
-    ($.left | tree-values)
+    [$.left | tree-values]
     {$.value}
-    ($.right | tree-values)
+    [$.right | tree-values]
 )
 ```
 
@@ -206,38 +180,42 @@ and can be defined by any library.
 ```comp
 // A wrapper is just a function that receives the wrapping context
 !func retry (
-    :param times~num = 3
-    :block wrapped
+    !param times~num = 3
+    !param wrapped~pipe
     // invoke wrapped, retry on failure up to `times` attempts
 )
 
-// Used as: !func flaky-fetch ~url @retry :times=5 (...)
+// Used as @retry [flaky-fetch times=5 (...)]
 ```
 
-## Local Bindings
+## Local Scope
 
-Inside a block, `!let` creates a local binding. It does not use `=` which is
-reserved for field assignment. The binding name is followed by the expression
-whose value it captures.
+Inside a block, `!my` creates a local binding. It takes an identifier
+name to be assigned to an an expression to generate the value.
 
 ```comp
-!let base ($.price * $.quantity)
-!let parent ($ | maya.get-parent)
-!let transform (parent | maya.create-node :config.layer-type)
+!my base ($.price * $.quantity)
+!my parent [$ | maya.get-parent]
+!my transform [parent | maya.create-node config.layer-type]
 ```
 
 Locals are scoped to the function they are defined in. They are shared
-across all blocks defined in the same function. Assigning new values
-with `!let` are immediately set across the entire function.
+across any blocks defined in the same function. Assigning new values
+with `!my` are immediately set across the entire function.
 
-In `()` blocks, the last expression is the result. In `{}` blocks, every
-non-`!let` line is a field contribution. `!let` lines are bindings in both
-cases, never contributing to the output.
+The `!param` blocks also define local values that will be supplied when
+the function or block is invoked.
 
-## Scope
+The `!ctx` operator also works like `!my` but also allows the value to be
+passed through nested calls.
+
+Values in the local scope will override namespace lookups. Locals can be
+explicitly referenced through the `my.` scope. Namespace references can
+always be referenced through the `mod.` scope, which allows referencing
+shadowed functions tags or shapes.
 
 Functions have access to several scope layers. The pipeline input `$` provides
-the data being operated on. Local bindings from `!let` are visible within the
+the data being operated on. Local bindings from `!my` are visible within the
 function and all its nested blocks, like closures. These names are combined with
 the named parameters and blocks a function defines.
 
@@ -245,3 +223,7 @@ Module-level declarations (shapes, tags, functions) are available by name
 throughout the module. Imported namespaces are accessed through their import
 name (`rio.button`, `py.call`). See [Modules](module.md) for namespace
 resolution rules and context threading.
+
+Functions also have access to the input value, represented with `$`.
+Inside of nested blocks `$$` can be used to reference the input value for
+the outer scope, and even `$$$` to continue referencing incremental scopes.

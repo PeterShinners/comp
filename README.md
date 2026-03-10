@@ -32,7 +32,7 @@ represent idiomatic and clean code. Comp aims for this excellence.
 
 !startup main (
     !ctx repo "nushell/nushell"
-    !my cutoff [datetime.now] - 1`week
+    !my cutoff [datetime.now] - 1#week
 
     [gh.issue-list fields={"created-at" "reaction-groups" "title" "url"}
     | where :($.created-at >= cutoff)
@@ -87,7 +87,7 @@ still has a long way to go. Along the way I've been introduced to a massive amou
 of great ideas. I'll call out a few special acknowledgements.
 
 - **Python** is where I get the most out of my development
-- **Nushell** such a spectacular job with their syntax and approachability
+- **Nushell** spectacular job with their syntax and approachability
 - **Rhombus** showing me all these functional ideas in a style I appreciate
 - **Cue** kicked off so many ideas of merging data and definition
 

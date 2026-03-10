@@ -418,8 +418,8 @@ def lark_to_cop(tree):
             return _parsed(tree, "value.pipeline", stages)
 
         case "pipe_start":
-            # pipe_start: signature? statement_item+
-            # Process like a statement body — last item is the pipeline input value
+            # pipe_start: signature? pipe_start_item+
+            # pipe_start_item is ?-prefixed so kids are pipe_stage/my_assign/ctx_assign directly
             start_idx = 0
             sig_cop = None
             if kids and isinstance(kids[0], lark.Tree) and kids[0].data == "signature":
@@ -455,14 +455,6 @@ def lark_to_cop(tree):
             bindings_struct = _parsed(tree, "struct.define", binding_cops)
             return _parsed(tree, "value.binding", [callable_cop, bindings_struct])
 
-        case "binding":
-            # binding: unary binding_arg+
-            # First child is the callable, rest are binding args
-            callable_cop = lark_to_cop(kids[0])
-            binding_cops = [lark_to_cop(kid) for kid in kids[1:]]
-            bindings_struct = _parsed(tree, "struct.define", binding_cops)
-            return _parsed(tree, "value.binding", [callable_cop, bindings_struct])
-
         case "named_binding":
             # named_binding: TOKENFIELD EQUALS unary
             name_str = kids[0].value  # TOKENFIELD token
@@ -475,8 +467,8 @@ def lark_to_cop(tree):
             value_cop = lark_to_cop(kids[0])
             return _parsed(tree, "struct.posfield", [value_cop])
 
-        case "non_shape_atom":
-            # non_shape_atom has same structure as atom (wrapper* value | wrapper+ | forward_expr)
+        case "pipe_non_shape_atom":
+            # pipe_non_shape_atom: same structure as atom
             # Reuse atom handling logic: collect wrappers + base value
             wrappers = []
             base_tree = None

@@ -681,7 +681,7 @@ def _builtin_apply(input_val, args_val, frame):
     if isinstance(statement.data, comp.StatementHandle):
         statement = statement.data.val
 
-    if isinstance(statement.data, (comp.Callable, comp.Block, comp.InternalCallable)):
+    if isinstance(statement.data, (comp.Callable, comp.InternalCallable)):
         return frame.invoke_block(statement, params, piped=input_v)
     return statement
 
@@ -734,9 +734,15 @@ def _builtin_update(input_val, args_val, frame):
     if isinstance(statement.data, comp.StatementHandle):
         statement = statement.data.val
 
-    if isinstance(statement.data, comp.Block):
+    block = None
+    if isinstance(statement.data, comp.Callable):
+        block = statement.data.scalar_block()
+    elif isinstance(statement.data, comp.Block):
+        block = statement.data
+
+    if block is not None:
         new_block = _clone_block_with_extra(
-            statement.data,
+            block,
             lambda last_reg: _instr_mod.MergeWithPiped(cop=None, result_reg=last_reg),
         )
         callable = comp.Callable(new_block.qualified)
@@ -793,11 +799,17 @@ def _builtin_flat(input_val, args_val, frame):
     if isinstance(statement.data, comp.StatementHandle):
         statement = statement.data.val
 
-    if not isinstance(statement.data, comp.Block):
+    block = None
+    if isinstance(statement.data, comp.Callable):
+        block = statement.data.scalar_block()
+    elif isinstance(statement.data, comp.Block):
+        block = statement.data
+
+    if block is None:
         raise comp.CodeError("flat requires a block statement")
 
     new_block = _clone_block_with_extra(
-        statement.data,
+        block,
         lambda last_reg: _instr_mod.FlattenFields(cop=None, result_reg=last_reg),
     )
     callable = comp.Callable(new_block.qualified)
