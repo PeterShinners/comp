@@ -86,10 +86,10 @@ What a fantastic journey this has been. There's so much potential for Comp, but 
 still has a long way to go. Along the way I've been introduced to a massive amount
 of great ideas. I'll call out a few special acknowledgements.
 
-- **Python** is where I get the most out of my development.
+- **Python** is where I get the most out of my development
 - **Nushell** such a spectacular job with their syntax and approachability
 - **Rhombus** showing me all these functional ideas in a style I appreciate
-- **Cue** really kicked off so many ideas of merging data and definition
+- **Cue** kicked off so many ideas of merging data and definition
 
 ## Getting Started
 

@@ -96,8 +96,8 @@ def create_cop_module(module):
         "value.transact",  # (kids)
         "value.handle",  # (op, kids) grab/drop/pull/etc
         "value.constant",  # (value) precompiled constant value
-        "value.cast_unit",  # (value, unit) apply unit tag to a value: 12[inch]
-        "value.strip_unit",  # (value) strip unit annotation from a value: expr[]
+        "value.cast_unit",  # (value, unit) apply unit tag to a value: 12#inch
+        "value.strip_unit",  # (value) strip unit annotation from a value
         "stmt.assign",  # (kids) 2 kids (lvalue, rvalue)
         "value.private_tag",  # (kids) 1 kid - identifier for a private tag child (& suffix)
         "value.undefined",  # (name, pos) grenade node for unresolved identifiers — errors at codegen
@@ -565,6 +565,13 @@ def lark_to_cop(tree):
             field = lark_to_cop(kids[2])
             return _parsed(tree, "value.field", [left, field])
 
+        case "cast_unit":
+            # postfix HASH identifier -> cast_unit
+            # kids are (value, HASH, identifier)
+            left = lark_to_cop(kids[0])
+            unit_ident = lark_to_cop(kids[2])
+            return _parsed(tree, "value.cast_unit", [left, unit_ident])
+
         case "postfield":
             fields = [lark_to_cop(k) for k in kids[::2]]
             # If single field, just return it directly
@@ -861,7 +868,7 @@ def lark_to_cop(tree):
             for kid in kids[1:]:
                 if isinstance(kid, lark.Tree):
                     if kid.data == "unit_suffix":
-                        # unit_suffix: BRACKET_OPEN identifier BRACKET_CLOSE
+                        # unit_suffix: HASH identifier
                         unit_ident = lark_to_cop(kid.children[1])
                         unit_cop = _parsed(kid, "shape.unit", [unit_ident])
                         extras.append(unit_cop)

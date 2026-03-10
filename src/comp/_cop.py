@@ -548,6 +548,16 @@ def cop_unparse(cop):
                 return f"{cop_unparse(kids[0])}.{cop_unparse(kids[1])}"
             return "<?field?>"
         
+        case "value.cast_unit":
+            if len(kids) >= 2:
+                return f"{cop_unparse(kids[0])}#{cop_unparse(kids[1])}"
+            return "<?cast_unit?>"
+        
+        case "value.strip_unit":
+            if kids:
+                return f"{cop_unparse(kids[0])}#"
+            return "<?strip_unit?>"
+        
         # Invoke
         case "value.invoke":
             parts = []
@@ -685,7 +695,7 @@ def cop_unparse(cop):
         
         case "shape.unit":
             if kids:
-                return f"[{cop_unparse(kids[0])}]"
+                return f"#{cop_unparse(kids[0])}"
             return "<?unit?>"
         
         case "value.limit":

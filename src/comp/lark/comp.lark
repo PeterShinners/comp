@@ -100,10 +100,9 @@ OP_PARAM_DECL.7: "!param"
 // ===== SHAPES =====
 shape: TILDE shape_union shape_default?
 ?shape_union: shape_atom (PIPE shape_atom)*
-shape_atom: (identifier | paren_shape | brace_shape) limit_suffix? array_suffix?
+shape_atom: (identifier | paren_shape | brace_shape) unit_suffix? limit_suffix? array_suffix?
 
-// Note: bracket-based unit syntax (12[inch]) has been replaced by backtick syntax.
-// Brackets are now used exclusively for pipelines.
+unit_suffix: HASH identifier
 
 limit_field: (identifier EQUALS | DOTTED_PATH EQUALS)? simple_expr
 limit_suffix: ANGLE_OPEN limit_field+ ANGLE_CLOSE
@@ -192,6 +191,7 @@ non_shape_atom: wrapper* (number | text | identifier | dotted_path_atom | statem
 postfield: nextfield (DOT nextfield)*
 ?postfix: atom
         | atom DOT postfield -> fieldaccess
+        | postfix HASH identifier -> cast_unit
 
 ?atom: wrapper* (number | text | identifier | dotted_path_atom | shape | statement | structure | pipeline | capture_expr)
      | wrapper+   // Standalone wrapper(s) as a value
