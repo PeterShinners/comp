@@ -309,6 +309,63 @@ def _eval_default(default_val, frame):
     return frame.eval(default_val)
 
 
+def _resolve_raw_tag(raw_tag, shape_tag):
+    """Resolve a RawTag to a regular Tag via the shape tag's module namespace.
+
+    The lookup key is the raw tag's qualified name, which the namespace can
+    match via any suffix permutation (so "true" finds "bool.true", etc.).
+    Only succeeds when the lookup produces a Tag definition that is a child
+    of (or exact match for) shape_tag.
+
+    Args:
+        raw_tag: (RawTag) The raw tag to resolve
+        shape_tag: (Tag) The shape tag whose module namespace to search
+
+    Returns:
+        (Value | None, str | None) (resolved_value, failure_reason)
+    """
+    module = shape_tag.module
+    if module is None:
+        return None, f"Tag {shape_tag.qualified!r} has no owning module for raw-tag resolution"
+
+    try:
+        ns = module.namespace()
+    except Exception as e:
+        return None, f"Failed to build namespace for {shape_tag.qualified!r}: {e}"
+
+    entry = ns.get(raw_tag.qualified)
+    if entry is None:
+        return None, f"No definition {raw_tag.qualified!r} found in module namespace"
+
+    # Unwrap DefinitionSet to a single unambiguous Definition
+    defn = None
+    if isinstance(entry, comp.DefinitionSet):
+        defn = entry.scalar()
+    elif hasattr(entry, "value"):  # plain Definition
+        defn = entry
+
+    if defn is None:
+        return None, f"Ambiguous or empty definition for {raw_tag.qualified!r}"
+
+    if defn.value is None:
+        return None, f"Definition {raw_tag.qualified!r} has no value"
+
+    if not isinstance(defn.value.data, comp.Tag):
+        return None, f"Definition {raw_tag.qualified!r} is not a tag"
+
+    resolved_tag = defn.value.data
+
+    # Verify the resolved tag is within the shape's hierarchy (child or exact)
+    depth = _tag_matches_shape(resolved_tag, shape_tag)
+    if depth is None and resolved_tag.qualified != shape_tag.qualified:
+        return None, (
+            f"Resolved tag {resolved_tag.qualified!r} is not within "
+            f"shape {shape_tag.qualified!r}"
+        )
+
+    return defn.value, None
+
+
 def _check_type(value, shape_constraint, frame):
     """Check if a value matches a shape constraint.
 
@@ -462,6 +519,14 @@ def morph(value, shape, frame):
     # Handle non-struct values by promoting to single-element struct
     if not isinstance(value.data, dict):
         if not shape_fields:
+            # RawTag → Tag: resolve via the shape tag's module namespace
+            if isinstance(value.data, comp.RawTag) and isinstance(shape, comp.Tag):
+                resolved, reason = _resolve_raw_tag(value.data, shape)
+                if resolved is None:
+                    return MorphResult.failed(reason)
+                depth = _tag_matches_shape(resolved.data, shape)
+                tag_depth = depth if depth is not None else 0
+                return MorphResult(resolved, 0, tag_depth, 4, 1)
             # Primitive shape (num, text, etc.) or Tag - validate type
             if not _check_type(value, shape, frame):
                 return MorphResult.failed(f"Value does not match shape {_shape_name(shape)}")
@@ -614,6 +679,23 @@ def morph(value, shape, frame):
                     return MorphResult.failed(_extract_fail_message(limit_fail_val), failure_value=limit_fail_val)
                 break
             else:
+                # Try recursive coercion (e.g. RawTag → Tag via sub-shape)
+                sub_result = morph(inp["value"], constraint, frame)
+                if not sub_result.failure_reason:
+                    coerced = sub_result.value
+                    us = _unit_match_score(coerced.unit, shape_field.unit)
+                    if us == -1:
+                        return MorphResult.failed(
+                            f"Positional field has incompatible unit for shape field '{shape_field.name or i}'"
+                        )
+                    shape_matches[i] = dict(inp, value=coerced)
+                    inp["matched"] = True
+                    positional_matches += 1
+                    unit_score_total += us
+                    limit_fail_val = _invoke_limits(shape_field, coerced, frame)
+                    if limit_fail_val is not None:
+                        return MorphResult.failed(_extract_fail_message(limit_fail_val), failure_value=limit_fail_val)
+                    break
                 return MorphResult.failed(
                     f"Positional field has wrong type for shape field '{shape_field.name or i}'"
                 )
@@ -697,6 +779,12 @@ def mask(value, shape, frame):
     # Handle non-struct values by promoting to single-element struct
     if not isinstance(value.data, dict):
         if not shape_fields:
+            # RawTag → Tag: resolve via the shape tag's module namespace
+            if isinstance(value.data, comp.RawTag) and isinstance(shape, comp.Tag):
+                resolved, reason = _resolve_raw_tag(value.data, shape)
+                if resolved is None:
+                    return None, reason
+                return resolved, None
             # Primitive shape or Tag - validate type
             if not _check_type(value, shape, frame):
                 return None, f"Value does not match shape {_shape_name(shape)}"
@@ -786,8 +874,12 @@ def mask(value, shape, frame):
             # Validate type
             constraint = _resolve_shape_field(shape_field, frame)
             if not _check_type(inp["value"], constraint, frame):
-                field_name = shape_field.name or f"positional {i}"
-                return None, f"Positional field has wrong type for shape field '{field_name}'"
+                # Try recursive coercion (e.g. RawTag → Tag via sub-shape)
+                sub_result = morph(inp["value"], constraint, frame)
+                if sub_result.failure_reason:
+                    field_name = shape_field.name or f"positional {i}"
+                    return None, f"Positional field has wrong type for shape field '{field_name}'"
+                inp = dict(inp, value=sub_result.value)
 
             shape_matches[i] = inp
             inp["matched"] = True

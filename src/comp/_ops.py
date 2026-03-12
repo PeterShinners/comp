@@ -269,6 +269,14 @@ def _compare(left, right):
             return 1
         return 0
 
+    if isinstance(lval, comp.RawTag):
+        # Raw tags compare by qualified name
+        if lval.qualified < rval.qualified:
+            return -1
+        if lval.qualified > rval.qualified:
+            return 1
+        return 0
+
     if lshape is comp.shape_tag:
         # Tags compare by qualified name
         if lval.qualified < rval.qualified:
@@ -287,7 +295,7 @@ def _compare(left, right):
 def _type_priority(value):
     """Return type priority for total ordering.
 
-    Order: empty struct < false < true < other tags < numbers < text < non-empty structs
+    Order: empty struct < raw tags < false < true < other tags < numbers < text < non-empty structs
 
     Args:
         value: (Value) Value to get priority for
@@ -300,20 +308,22 @@ def _type_priority(value):
     if shape is comp.shape_struct:
         if len(value.data) == 0:
             return 0  # Empty struct first
-        return 6  # Non-empty structs last
+        return 7  # Non-empty structs last
 
+    if isinstance(value.data, comp.RawTag):
+        return 1  # Raw tags before booleans and regular tags
     if shape is comp.tag_false:
-        return 1
-    if shape is comp.tag_true:
         return 2
-    if shape is comp.shape_tag:
+    if shape is comp.tag_true:
         return 3
-    if shape is comp.shape_num:
+    if shape is comp.shape_tag:
         return 4
-    if shape is comp.shape_text:
+    if shape is comp.shape_num:
         return 5
+    if shape is comp.shape_text:
+        return 6
 
-    return 7  # Unknown
+    return 8  # Unknown
 
 
 def _compare_struct(left, right):

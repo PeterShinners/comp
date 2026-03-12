@@ -4,7 +4,7 @@ import comp
 
 
 __all__ = [
-    "Tag",
+    "Tag", "RawTag",
     "tag_nil", "tag_bool", "tag_true", "tag_false", "tag_fail",
     "tag_fail_value", "tag_fail_field", "tag_fail_math", "tag_fail_grab",
     "tag_fail_module", "tag_fail_module_missing", "tag_fail_module_syntax",
@@ -47,6 +47,42 @@ class Tag:
 
     def __hash__(self):
         return hash((self.qualified, self.module))
+
+
+class RawTag:
+    """An unresolved tag reference identified only by a qualified name.
+
+    Unlike Tag, a RawTag has no module association and has not been resolved
+    to a defined tag definition. Raw tags can be created at runtime from
+    serialized data or via the make-raw-tag builtin, and can later be
+    promoted to regular tags through morphing.
+
+    Raw tags compare with other raw tags by qualified name, but are never
+    equal to regular tags and sort before all booleans and regular tags in
+    the total ordering.
+
+    Args:
+        qualified: (str) Fully qualified tag name, e.g. "server.status.ok"
+
+    Attributes:
+        qualified: (str) Fully qualified tag name
+    """
+
+    __slots__ = ("qualified",)
+
+    def __init__(self, qualified):
+        self.qualified = qualified
+
+    def __repr__(self):
+        return f"RawTag<{self.qualified}>"
+
+    def __hash__(self):
+        return hash(self.qualified)
+
+    def __eq__(self, other):
+        if isinstance(other, RawTag):
+            return self.qualified == other.qualified
+        return False
 
 
 tag_nil = Tag("nil", False)

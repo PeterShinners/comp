@@ -1,0 +1,88 @@
+// COB (Comp Object ASCII) Grammar
+// Parses values produced by cob.pack.
+// Comments are stripped wholesale — not preserved or interpreted.
+// No pipelines, statements, or expressions allowed.
+
+// ===== ENTRY POINT =====
+start: cob_value
+
+
+// ===== VALUE =====
+// A value is a base literal with an optional unit annotation: value[unit.tag]
+// Anonymous bracket literals are discarded from tree nodes automatically.
+cob_value: cob_base
+         | cob_base "[" cob_tag "]"
+
+// Base types: signed number/fraction, text, tag (identifier), or struct.
+// Fractions (num/den) share the INTEGER start token with plain numbers;
+// disambiguation is LALR(1)-safe because "/" never follows a plain number.
+?cob_base: cob_num
+         | cob_fraction
+         | text
+         | cob_tag
+         | cob_struct
+
+// Signed integer or decimal.  MINUS is a named terminal so the transformer
+// can detect it in items.
+cob_num: MINUS? number
+
+// Fraction literal: optional sign, numerator "/" denominator.
+// "/" is anonymous — discarded from tree items.
+cob_fraction: MINUS? INTEGER "/" INTEGER
+
+
+// ===== TAG =====
+// Both single-segment and multi-segment dotted identifiers become RawTag.
+cob_tag: DOTTED_PATH
+       | TOKENFIELD
+
+
+// ===== STRUCT =====
+// Anonymous braces are discarded.  Fields may be named or positional.
+cob_struct: "{" cob_field* "}"
+
+cob_field: cob_field_key "=" cob_value  -> cob_named_field
+         | cob_value                    -> cob_pos_field
+
+// Key is either a bare identifier or a quoted string.
+cob_field_key: TOKENFIELD
+             | STRING
+
+
+// ===== IDENTIFIERS =====
+// DOTTED_PATH priority 7 > TOKENFIELD priority 4 — dotted forms win.
+DOTTED_PATH.7: /[a-zA-Z_]\w*(-\w+)*(\.[a-zA-Z_]\w*(-\w+)*)+/
+TOKENFIELD.4:  /[a-zA-Z_]\w*(-\w+)*(?!\.\d)/
+
+
+// ===== LITERALS =====
+STRING.3:      /[ubf]?r?"(?!"").*?(?<!\\)(\\\\)*?"/i
+LONG_STRING.4: /[ubf]?r?""".*?(?<!\\)(\\\\)*?"""/is
+
+text: STRING | LONG_STRING
+
+INTBASE.3: /0[xXbBoO](_?[\da-zA-Z])+/
+
+INTEGER.3: INTBASE | /(([1-9](_?\d)*)|0(_?0)*)(?![a-zA-Z_"])/
+// Scientific notation inlined — Lark does NOT expand terminal names inside /regex/ literals.
+DECIMAL.3: /\d(_?\d)*\.(\d(_?\d)*)?([eE][+-]?\d(_?\d)*)?(?![a-zA-Z_"])/
+         | /\.\d(_?\d)*([eE][+-]?\d(_?\d)*)?(?![a-zA-Z_])/
+         | /\d(_?\d)*[eE][+-]?\d(_?\d)*(?![a-zA-Z_"])/
+
+number: INTEGER | DECIMAL
+
+
+// ===== OPERATORS =====
+// Only MINUS is named (needed in transformer to detect negation).
+// "/" and all delimiters are anonymous → discarded from tree nodes.
+MINUS.6: "-"
+
+
+// ===== WHITESPACE & COMMENTS =====
+COMMENT.7:       /\/\/[^\r\n]*/
+BLOCK_COMMENT.7: /\/\*.*?\*\//s
+WS: /\s+/
+
+%ignore WS
+%ignore COMMENT
+%ignore BLOCK_COMMENT

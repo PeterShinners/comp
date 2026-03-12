@@ -25,10 +25,12 @@ from ._ops import *
 from ._import import *
 from ._scan import *
 from ._morph import *
-from ._py import *
 from ._describe import *
 from ._instructions import *
 from ._callout import *
+
+from ._cob import *
+from ._py import *
 from . import _unit_conv
 
 # Deferred initialization: shape_failure fields reference Value objects and

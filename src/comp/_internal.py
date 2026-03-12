@@ -269,6 +269,7 @@ class SystemModule(comp.Module):
         self._add_callable("flat", _builtin_flat)
         self._add_callable("reduce", _builtin_reduce)
         self._add_callable("forever", _builtin_forever, pure=True)
+        self._add_callable("make-raw-tag", _builtin_make_raw_tag, pure=True)
 
         self.finalize()
 
@@ -288,6 +289,7 @@ class SystemModule(comp.Module):
 
     def _add_tag(self, name, tag):
         """Add a builtin tag definition."""
+        tag.module = self
         self._add_definition(name, comp.Value.from_python(tag), comp.shape_struct)
 
     def _add_shape(self, name, shape):
@@ -859,6 +861,42 @@ def _builtin_reduce(input_val, args_val, frame):
         acc = frame.invoke_block(fold_val, item_args, piped=acc)
 
     return acc
+
+
+def _builtin_make_raw_tag(input_val, args_val, frame):
+    """Create a RawTag from a text identifier, an existing RawTag, or a Tag.
+
+    Accepts:
+      - ~text: validates the string is a qualified identifier, returns a new RawTag
+      - ~raw-tag (RawTag value): passes through unchanged
+      - ~tag (Tag value): creates a RawTag from the tag's qualified name
+
+    Usage:
+      "server.status.ok" | make-raw-tag
+      some-raw-tag       | make-raw-tag
+      some-tag           | make-raw-tag
+
+    Args:
+        input_val: (Value) Text, RawTag, or Tag value
+        args_val: Unused
+        frame: The interpreter frame
+
+    Returns:
+        (Value) A Value wrapping a RawTag
+    """
+    import re
+    data = input_val.data
+    if isinstance(data, comp.RawTag):
+        return input_val
+    if isinstance(data, comp.Tag):
+        return comp.Value(comp.RawTag(data.qualified))
+    if isinstance(data, str):
+        if not re.match(r'^[^\W\d][\w-]*(\.[^\W\d][\w-]*)*\??$', data):
+            raise comp.CodeError(f"make-raw-tag: {data!r} is not a valid qualified identifier")
+        return comp.Value(comp.RawTag(data))
+    raise comp.CodeError(
+        f"make-raw-tag: expected text, raw-tag, or tag, got {input_val.format()}"
+    )
 
 
 def _builtin_fmt(input_val, args_val, frame):

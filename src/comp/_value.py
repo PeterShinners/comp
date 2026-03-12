@@ -108,7 +108,7 @@ class Value:
                 comp.Shape: comp.shape_shape,
                 comp.ShapeUnion: comp.shape_union,
             }
-            Value._shapetypes = (comp.Tag, comp.Shape, comp.ShapeUnion)
+            Value._shapetypes = (comp.Tag, comp.RawTag, comp.Shape, comp.ShapeUnion)
 
     @property
     def shape(self):
@@ -162,6 +162,8 @@ class Value:
             return "false"
         elif isinstance(self.data, comp.Tag):
             return f"{self.data.qualified}"
+        elif isinstance(self.data, comp.RawTag):
+            return f"({self.data.qualified})"
         elif isinstance(self.data, comp.StatementHandle):
             return self.data.val.format()
         elif isinstance(self.data, comp.Callable):
@@ -350,8 +352,8 @@ class Value:
                 struct[Unnamed()] = cls.from_python(item)
             return cls(struct)
 
-        # Allow Tag, Shape, ShapeUnion, Callable objects to be wrapped in Values
-        if isinstance(value, (comp.Tag, comp.Shape, comp.ShapeUnion, comp.Callable)):
+        # Allow Tag, RawTag, Shape, ShapeUnion, Callable objects to be wrapped in Values
+        if isinstance(value, (comp.Tag, comp.RawTag, comp.Shape, comp.ShapeUnion, comp.Callable)):
             return cls(value)
 
         # Allow HandleInstance objects to be wrapped directly
@@ -515,7 +517,7 @@ def validate(value):
             # take it as a lightweight check.
             raise comp.EvalError(f"Struct data has been mutated")
 
-    if not isinstance(data, (comp.Tag, str, decimal.Decimal, fractions.Fraction, comp.HandleInstance)):
+    if not isinstance(data, (comp.Tag, comp.RawTag, str, decimal.Decimal, fractions.Fraction, comp.HandleInstance)):
         raise TypeError(f"Unknown internal type for value: {type(data).__name__}")
 
 
