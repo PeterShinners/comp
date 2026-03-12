@@ -12,17 +12,17 @@ def scan(source):
     """Scan source and extract module metadata as a Value.
 
     Returns a Value struct containing:
-    - definitions: list of (operator, name, pos, body) for all module definitions
+    - statements: list of (operator, name, pos, body) for all module statements
     - docs: list of (content, pos) for comments (found anywhere in the tree)
 
     Uses the scan.lark grammar which is error-resilient.
     """
     tree = comp._parse.lark_parse(source, "scan")
 
-    definition_list = []
+    statement_list = []
     doc_list = []
 
-    # Walk tree recursively to find all definitions and comments
+    # Walk tree recursively to find all statements and comments
     def walk(node):
         # Skip tokens (like HASHBANG)
         if isinstance(node, lark.Token):
@@ -31,11 +31,11 @@ def scan(source):
         if not isinstance(node, lark.Tree):
             return
 
-        if node.data == "mod_definition":
+        if node.data == "mod_statement":
             # !operator name ...
-            defn = _scan_mod_definition(node, source)
-            if defn:
-                definition_list.append(defn)
+            stmt = _scan_mod_statement(node, source)
+            if stmt:
+                statement_list.append(stmt)
         elif node.data == "doc_comment":
             # /// doc comment
             doc = _scan_doc_comment(node)
@@ -60,14 +60,14 @@ def scan(source):
 
     # Create Value struct with the results
     result = {
-        "definitions": comp.Value.from_python(definition_list),
+        "statements": comp.Value.from_python(statement_list),
         "docs": comp.Value.from_python(doc_list),
     }
     return comp.Value.from_python(result)
 
 
-def _scan_mod_definition(node, source):
-    """Extract module definition info from mod_definition node.
+def _scan_mod_statement(node, source):
+    """Extract module definition info from mod_statement node.
 
     Returns dict or None: (operator~str name~str pos~(num num num num) body~str)
     """

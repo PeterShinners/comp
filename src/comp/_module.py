@@ -41,6 +41,7 @@ class Module:
         self._definitions = None
         self._namespace = None
         self._finalized = False
+        self.callouts = []  # Module-level callouts (scan errors, import failures, non-definition statements)
 
         # Module-level values (from !mod statements)
         self._mod_values = None
@@ -99,8 +100,7 @@ class Module:
             list: List of statement dicts
         """
         scan_result = self.scan()
-        definitions = scan_result.to_python("definitions") or []
-        return definitions
+        return scan_result.to_python("statements") or []
 
     def comment(self, context=None):
         """Get comment for a given context.
@@ -720,7 +720,7 @@ class Definition:
         private: (bool) Whether this definition is private to the module
 
     """
-    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "pure")
+    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "pure", "callouts")
 
     def __init__(self, qualified, module_id, original_cop, shape, private=False):
         self.qualified = qualified
@@ -732,6 +732,7 @@ class Definition:
         self.resolved_cop = None  # Filled during identifier resolution
         self.value = None  # Filled during constant folding
         self.instructions = None  # Filled during code generation
+        self.callouts = []  # Callouts discovered during any build phase for this definition
 
     def __repr__(self):
         shape_name = self.shape.qualified

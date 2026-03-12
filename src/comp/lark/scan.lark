@@ -5,7 +5,7 @@
 ?start: HASHBANG? top_item*
 
 // Top level can be module definitions or comments before first definition
-?top_item: mod_definition
+?top_item: mod_statement
          | doc_comment
          | line_comment
          | block_comment
@@ -41,14 +41,14 @@ PACKAGE_OP.7: "!package"
 CONTEXT_OP.7: "!context"
 
 // Module definition - operator followed by zero or more non-operator tokens
-mod_definition: mod_op other_token*
+mod_statement: mod_op other_token*
 
 ?mod_op: IMPORT_OP | FUNC_OP | PURE_OP | SHAPE_OP | TAG_OP | ALIAS_OP | EXPORT_OP | STARTUP_OP | MOD_OP | PACKAGE_OP | CONTEXT_OP
 
 
 // Other tokens - everything that's not a module operator
 // This includes comments, text, numbers, identifiers, brackets, etc.
-// Comments can appear anywhere (including inside mod_definition bodies)
+// Comments can appear anywhere (including inside mod_statement bodies)
 // Priority 1 to be lowest (matched after everything else)
 ?other_token: doc_comment
             | line_comment

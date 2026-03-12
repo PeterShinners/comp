@@ -28,6 +28,7 @@ from ._morph import *
 from ._py import *
 from ._describe import *
 from ._instructions import *
+from ._callout import *
 from . import _unit_conv
 
 # Deferred initialization: shape_failure fields reference Value objects and

@@ -1,0 +1,80 @@
+/// Callout: validation result definitions for the comp analysis pipeline.
+///
+/// A callout is any finding emitted during analysis — from a hard parse error
+/// to a style hint. Severity levels, source spans, and the callout shape are
+/// defined here so that validators written in comp can produce and inspect
+/// callouts using the standard morph/pattern machinery.
+///
+/// Severity levels (low ordinal = high severity):
+///   callout.error   — code cannot run correctly
+///   callout.warning — legal but probably wrong
+///   callout.info    — notable but intentional
+///   callout.hint    — style / idiomatic, low signal
+///
+/// Pipeline phases (in order):
+///   callout.phase.parse    — lark grammar / token errors
+///   callout.phase.cop      — raw cop node construction
+///   callout.phase.resolve  — name resolution
+///   callout.phase.codegen  — instruction generation
+
+
+// ===== Severity =====
+
+/// Severity level tags for callouts
+!tag callout { error warning info hint }
+
+
+// ===== Pipeline phases =====
+
+/// Pipeline phase tags — which build stage produced a callout.
+/// cop covers raw construction, name resolution, and constant folding.
+!tag callout.phase { parse cop codegen }
+
+
+// ===== Source location shapes =====
+
+/// A source position: file path, 1-based line and column, character length.
+/// length=0 indicates a point location with no extent.
+!shape span {
+    file~text
+    line~index
+    col~index
+    length~index
+}
+
+/// An attached enrichment on a callout — no severity or code of its own.
+/// Notes are leaves: they cannot contain further notes.
+/// Used for suggestions and secondary context: "did you mean X?", "declared here".
+!shape note {
+    message~text
+    location~(location | nil)
+}
+
+/// A span with an optional label contextualising it.
+/// Used for the primary location and each related location in a callout,
+/// e.g. label="first defined here" or label="redefined here".
+!shape location {
+    span~span
+    label~text
+}
+
+
+// ===== Callout shape =====
+
+/// A single validation finding from any pipeline phase.
+///
+/// related holds secondary labeled locations — useful for "conflicting
+/// definition" callouts that need to point at two source sites.
+///
+/// notes holds attached child callouts (typically info or hint severity)
+/// that enrich the primary finding without being standalone findings.
+/// Examples: "did you mean X?", "declared here".
+!shape callout {
+    severity~callout
+    code~text
+    message~text
+    phase~(callout.phase | nil)
+    primary~(location | nil)
+    related~location*
+    notes~note*
+}
