@@ -22,7 +22,6 @@ __all__ = [
     "cop_resolve",
 ]
 
-import decimal
 import comp
 
 
@@ -126,7 +125,7 @@ def _resolve_to_references(cop, namespace, param_names=None):
 
     Args:
         cop: The COP node to walk
-        namespace: Module namespace dict {name: DefinitionSet}
+        namespace: Module namespace dict {name: Callable}
         param_names: Set of parameter names to skip (handled by codegen)
 
     Returns:
@@ -168,7 +167,7 @@ def _resolve_to_references(cop, namespace, param_names=None):
         # Try to resolve from namespace
         definition_set = namespace.get(name)
         if definition_set is not None:
-            # Extract Definition from DefinitionSet
+            # Extract Definition from Callable
             definition = None
             import_namespace = None
 
@@ -265,7 +264,7 @@ def cop_resolve(cop, namespace):
 
     Args:
         cop: COP node to resolve
-        namespace: Namespace dict {name: DefinitionSet}
+        namespace: Namespace dict {name: Callable}
 
     Returns:
         Resolved COP node
@@ -547,6 +546,12 @@ def cop_unparse(cop):
             if len(kids) >= 2:
                 return f"{cop_unparse(kids[0])}.{cop_unparse(kids[1])}"
             return "<?field?>"
+
+        case "value.stash":
+            # expr&field
+            if len(kids) >= 2:
+                return f"{cop_unparse(kids[0])}&{cop_unparse(kids[1])}"
+            return "<?stash?>"
         
         case "value.cast_unit":
             if len(kids) >= 2:
@@ -602,6 +607,17 @@ def cop_unparse(cop):
                 value = cop_unparse(kids[1])
                 return f"!my {name} {value}"
             return "<?my?>"
+
+        case "op.stash":
+            # !stash target&key.path = value
+            # kids: [target_ident, key_ident, *path_idents, value_expr]
+            if len(kids) >= 3:
+                target = cop_unparse(kids[0])
+                key = cop_unparse(kids[1])
+                path = "".join(f".{cop_unparse(kids[i])}" for i in range(2, len(kids) - 1))
+                value = cop_unparse(kids[-1])
+                return f"!stash {target}&{key}{path} = {value}"
+            return "<?stash?>"
         
         case "op.on":
             # !on expression branch1 branch2 ...

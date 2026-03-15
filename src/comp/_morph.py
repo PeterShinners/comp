@@ -209,9 +209,9 @@ def _resolve_shape_field(field, frame):
             if shape_val.data.shape is not None:
                 field.shape = shape_val.data.shape
                 return field.shape
-        # Unwrap DefinitionSet (legacy path)
-        if shape_val and isinstance(shape_val.data, comp.DefinitionSet):  # type: ignore[union-attr]
-            for defn in shape_val.data.definitions:  # type: ignore[union-attr]
+        # Unwrap Callable (shape may be stored in callable.shape after _load_name)
+        if shape_val and isinstance(shape_val.data, comp.Callable):  # type: ignore[union-attr]
+            for defn in shape_val.data.entries:  # type: ignore[union-attr]
                 dv = comp._instructions._ensure_definition_value(defn, frame)
                 if dv and isinstance(dv.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):  # type: ignore[union-attr]
                     field.shape = dv.data  # type: ignore[union-attr]
@@ -337,9 +337,9 @@ def _resolve_raw_tag(raw_tag, shape_tag):
     if entry is None:
         return None, f"No definition {raw_tag.qualified!r} found in module namespace"
 
-    # Unwrap DefinitionSet to a single unambiguous Definition
+    # Unwrap Callable to get a single unambiguous Definition
     defn = None
-    if isinstance(entry, comp.DefinitionSet):
+    if isinstance(entry, comp.Callable):
         defn = entry.scalar()
     elif hasattr(entry, "value"):  # plain Definition
         defn = entry

@@ -258,8 +258,6 @@ class SystemModule(comp.Module):
         self._add_callable("wrap", _builtin_wrap)
         self._add_callable("fmt", _builtin_fmt, pure=True)
         self._add_callable("apply", _builtin_apply)
-        self._add_callable("fmt",             _builtin_fmt,              pure=True)
-        self._add_callable("apply",           _builtin_apply)
         self._add_callable("get-unit-tag",    _builtin_get_unit_tag,     pure=True)
         self._add_callable("namespace-lookup",_builtin_namespace_lookup, pure=True)
         self._add_callable("strip-unit",      _builtin_strip_unit,       pure=True)
@@ -346,7 +344,6 @@ def _builtin_fit(input_val, args_val, frame):
     The target shape must have both ge= and le= limits defined.
     The value is first truncated to remove any fractional part, then wrapped.
     """
-    import decimal
 
     shape_val = args_val.positional(0)
     if shape_val is None:
@@ -373,11 +370,12 @@ def _builtin_fit(input_val, args_val, frame):
         )
 
     # Truncate fractional part, then wrap into [ge, le]
-    v = int(input_val.data.to_integral_value(rounding=decimal.ROUND_FLOOR))
-    modulus = int(le_val - ge_val) + 1
-    ge_int = int(ge_val)
+    v = comp.num_floor_int(input_val.data)
+    ge_int = comp.num_floor_int(ge_val)
+    le_int = comp.num_floor_int(le_val)
+    modulus = le_int - ge_int + 1
     result = (v - ge_int) % modulus + ge_int
-    return comp.Value(decimal.Decimal(result))
+    return comp.Value((result, 1, 0))
 
 
 def _builtin_wrap(input_val, args_val, frame):
@@ -663,7 +661,7 @@ def _builtin_apply(input_val, args_val, frame):
     invoke-data as its piped input ($) and may call `apply` to actually
     execute the wrapped statement.
 
-    If $.statement is callable (Block, InternalCallable, DefinitionSet) it is
+    If $.statement is callable (Block, InternalCallable, Callable) it is
     invoked with $.input as the piped value and an empty args struct.
     Non-callable statements are returned as-is.
     """
@@ -738,7 +736,7 @@ def _builtin_update(input_val, args_val, frame):
 
     block = None
     if isinstance(statement.data, comp.Callable):
-        block = statement.data.scalar_block()
+        block = statement.data.scalar()
     elif isinstance(statement.data, comp.Block):
         block = statement.data
 
@@ -748,7 +746,7 @@ def _builtin_update(input_val, args_val, frame):
             lambda last_reg: _instr_mod.MergeWithPiped(cop=None, result_reg=last_reg),
         )
         callable = comp.Callable(new_block.qualified)
-        callable.add_block(new_block)
+        callable.add(new_block)
         return comp.Value(callable)
 
     # Struct value (e.g. @update {b=2}) — synthesise a trivial block that
@@ -764,7 +762,7 @@ def _builtin_update(input_val, args_val, frame):
             _instr_mod.MergeWithPiped(cop=None, result_reg=0),
         ]
         callable = comp.Callable("update.const")
-        callable.add_block(new_block)
+        callable.add(new_block)
         return comp.Value(callable)
 
     raise comp.CodeError("update requires a block or struct statement")
@@ -803,7 +801,7 @@ def _builtin_flat(input_val, args_val, frame):
 
     block = None
     if isinstance(statement.data, comp.Callable):
-        block = statement.data.scalar_block()
+        block = statement.data.scalar()
     elif isinstance(statement.data, comp.Block):
         block = statement.data
 
@@ -815,7 +813,7 @@ def _builtin_flat(input_val, args_val, frame):
         lambda last_reg: _instr_mod.FlattenFields(cop=None, result_reg=last_reg),
     )
     callable = comp.Callable(new_block.qualified)
-    callable.add_block(new_block)
+    callable.add(new_block)
     return comp.Value(callable)
 
 
@@ -965,7 +963,7 @@ def _builtin_fmt(input_val, args_val, frame):
         ns = unit_tag.module.namespace()
         sub_entry = ns.get("substitute")
         if sub_entry is not None:
-            if isinstance(sub_entry, comp.DefinitionSet):
+            if isinstance(sub_entry, comp.Callable):
                 sub_val = comp._instructions._load_name("substitute", frame)
             elif hasattr(sub_entry, "value") and sub_entry.value is not None:
                 sub_val = sub_entry.value
@@ -1038,8 +1036,8 @@ def _builtin_namespace_lookup(input_val, args_val, frame):
     entry = ns.get(name)
     if entry is None:
         return comp.Value.from_python(None)
-    if isinstance(entry, comp.DefinitionSet):
-        # Multiple overloads — convert to Callable and return
+    if isinstance(entry, comp.Callable):
+        # Build the Callable and return
         try:
             return comp._instructions._load_name(name, frame)
         except NameError:
@@ -1098,7 +1096,6 @@ def _builtin_substitute(input_val, args_val, frame):
       true    | substitute               // → "true"
       {x=1}   | substitute               // → "{x=1}"
     """
-    import decimal
     # Extract optional spec argument (named :spec= or first positional)
     spec = ""
     if isinstance(args_val.data, dict):
@@ -1113,11 +1110,10 @@ def _builtin_substitute(input_val, args_val, frame):
     if raw.shape is comp.shape_num:
         # Use Python's format() for numeric format specs
         py_num = raw.data
-        if isinstance(py_num, decimal.Decimal) and py_num == int(py_num) and not spec:
-            # Whole numbers without a spec: drop the trailing .0
-            return comp.Value.from_python(str(int(py_num)))
+        if comp.num_is_integer(py_num) and not spec:
+            return comp.Value.from_python(str(py_num.n))
         try:
-            return comp.Value.from_python(format(float(py_num), spec))
+            return comp.Value.from_python(format(comp.num_to_float(py_num), spec))
         except (ValueError, TypeError) as e:
             raise comp.CodeError(f"substitute: bad format spec {spec!r} for number: {e}")
 
@@ -1129,20 +1125,6 @@ def _builtin_substitute(input_val, args_val, frame):
 
     # Fallback: Comp literal representation
     return comp.Value.from_python(raw.format())
-
-
-def _builtin_abs(input_val, args_val, frame):
-    """Return the absolute value of the first argument."""
-    val = args_val.positional(0)
-    if val is None:
-        raise ValueError("abs requires one argument")
-    scalar = val.as_scalar()
-    if scalar.shape != comp.shape_num:
-        raise TypeError(f"abs requires a number, got {scalar.format()}")
-    import decimal
-    n = scalar.data
-    result = n.copy_abs() if isinstance(n, decimal.Decimal) else abs(n)
-    return comp.Value(result)
 
 
 # Registry of internal modules

@@ -22,7 +22,6 @@ Anything outside a token is literal text.
 import re
 import comp
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 # ---------------------------------------------------------------------------
@@ -39,8 +38,8 @@ class FmtRef:
         name:  field name text                            (kind='field')
     """
     kind: str
-    index: Optional[int] = None
-    name: Optional[str] = None
+    index: int | None = None
+    name: str | None = None
 
 
 @dataclass
@@ -53,7 +52,7 @@ class FmtToken:
               ignored for now
     """
     ref: FmtRef
-    spec: Optional[str] = None
+    spec: str | None = None
 
 
 @dataclass
@@ -69,7 +68,7 @@ class LocalsToken:
         spec: format specifier — reserved for future use
     """
     name: str
-    spec: Optional[str] = None
+    spec: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +80,7 @@ class LocalsToken:
 _TOKEN_RE = re.compile(r'%\(([^)]*)\)|\$\(([^)]+)\)')
 
 
-def _parse_ref(inner: str) -> FmtRef:
+def _parse_ref(inner):
     """Parse the text inside %(...) into a FmtRef."""
     inner = inner.strip()
     if not inner:
@@ -127,7 +126,7 @@ def parse_format_text(s: str) -> list:
 # Reference resolution
 # ---------------------------------------------------------------------------
 
-def resolve_fmt_ref(input_val, ref: FmtRef):
+def resolve_fmt_ref(input_val, ref):
     """Resolve a FmtRef to a Value drawn from input_val.
 
     Positional refs (#N, 1-based) count only unnamed struct fields.
@@ -172,7 +171,7 @@ def resolve_fmt_ref(input_val, ref: FmtRef):
 # Value formatting
 # ---------------------------------------------------------------------------
 
-def format_fmt_value(val, spec: Optional[str] = None) -> str:
+def format_fmt_value(val, spec=None):
     """Convert a Value to a plain text for insertion into a format result.
 
     Text values are returned as-is (no surrounding quotes).

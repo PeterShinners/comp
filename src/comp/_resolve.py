@@ -34,7 +34,7 @@ def cop_resolve_names(cop, namespace):
 
     Args:
         cop: (Value) COP tree to resolve
-        namespace: (dict) Namespace dict {name: DefinitionSet}
+        namespace: (dict) Namespace dict {name: Callable}
 
     Returns:
         (Value) Resolved COP tree (same object when nothing changed)
@@ -180,10 +180,10 @@ def _resolve_identifier(cop, namespace, locals):
                 qualified_names = [d.qualified for d in invokables]
                 module_id = invokables[0].module_id
                 ref = _make_namespace(cop, qualified_names, module_id)
-            elif hasattr(definition_set, "definitions") and definition_set.definitions:
+            elif hasattr(definition_set, "entries") and definition_set.entries:
                 # Non-invokable, non-scalar set (e.g. tag with alias).
                 # Pick the shortest qualified name as the canonical reference.
-                defs_list = sorted(definition_set.definitions,
+                defs_list = sorted(definition_set.entries,
                                    key=lambda d: len(d.qualified))
                 ref = _make_namespace(cop, defs_list[0].qualified,
                                       defs_list[0].module_id)

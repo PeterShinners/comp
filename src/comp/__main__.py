@@ -218,11 +218,11 @@ def prettyimports(module, visited=None, prefix=""):
 def prettynamespace(namespace):
     """Show the finalized namespace for a module."""
     for name, defset in sorted(namespace.items()):
-        if all(d.module_id == "system#0000" for d in defset.definitions):
+        if all(d.module_id == "system#0000" for d in defset.entries):
             continue
-        defs = [f"{d.module_id}:{d.qualified}" for d in defset.definitions]
-        if len(defset.definitions) > 1:
-            defs.insert(0, f"(x{len(defset.definitions)})")
+        defs = [f"{d.module_id}:{d.qualified}" for d in defset.entries]
+        if len(defset.entries) > 1:
+            defs.insert(0, f"(x{len(defset.entries)})")
         defs = " ".join(defs)
         print(f"{name:18} {defs}")
 

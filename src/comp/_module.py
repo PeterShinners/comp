@@ -5,7 +5,7 @@ import os
 import comp
 
 
-__all__ = ["Module", "Definition", "DefinitionSet", "Ambiguous"]
+__all__ = ["Module", "Definition", "Ambiguous"]
 
 
 class Module:
@@ -496,8 +496,7 @@ class Module:
         The namespace dictionary contains qualified names as keys and
         each value is either
 
-        - Definition for single direct references
-        - DefinitionSet for overloaded references
+        - Callable for invokable references (single or overloaded)
         - Ambiguous for conflicting references from imports
 
         Most definitions will have multiple references from the namespace
@@ -571,8 +570,8 @@ class Module:
             """
             entry = self._namespace.get(ref)
             if entry is not None:
-                if isinstance(entry, DefinitionSet):
-                    return list(entry.definitions)
+                if isinstance(entry, comp.Callable):
+                    return list(entry.entries)
                 elif isinstance(entry, Definition):
                     return [entry]
                 elif isinstance(entry, Ambiguous):
@@ -742,12 +741,12 @@ class Definition:
 def _inject_ns(namespace, name, defs):
     """Add definitions to a namespace under the given name."""
     existing = namespace.get(name)
-    if existing is not None and isinstance(existing, DefinitionSet):
-        existing.definitions.update(defs)
+    if existing is not None and isinstance(existing, comp.Callable):
+        existing.entries.extend(defs)
     else:
-        new_set = DefinitionSet()
-        new_set.definitions.update(defs)
-        namespace[name] = new_set
+        new_callable = comp.Callable(name)
+        new_callable.entries.extend(defs)
+        namespace[name] = new_callable
 
 
 def create_namespace(definitions, prefix):
@@ -760,7 +759,7 @@ def create_namespace(definitions, prefix):
         definitions: (dict) Mapping of qualified names to Definition objects
         prefix: (str | None) Optional namespace to prefix to definitions
     Returns:
-        dict: Mapping of names to Definition, DefinitionSet, or Ambiguous
+        dict: Mapping of names to Callable or Ambiguous
     """
     namespace = {}
     for qualified, definition in definitions.items():
@@ -769,8 +768,8 @@ def create_namespace(definitions, prefix):
                 continue
             defs = namespace.get(name)
             if defs is None:
-                defs = namespace[name] = DefinitionSet()
-            defs.definitions.add(definition)
+                defs = namespace[name] = comp.Callable(name)
+            defs.entries.append(definition)
     return namespace
 
 
@@ -782,7 +781,7 @@ def merge_namespace(base, overrides, clobber):
         overrides: (dict) Namespace with overriding definitions
         clobber: (bool) New definitions replace previous ones
     Returns:
-        dict: Mapping of names to Definition, DefinitionSet, or Ambiguous
+        dict: Mapping of names to Callable or Ambiguous
 
     """
     result = dict(base)
@@ -792,59 +791,16 @@ def merge_namespace(base, overrides, clobber):
     else:
         for name, value in overrides.items():
             existing = result.get(name)
-            # Always create a new DefinitionSet to avoid mutating shared objects.
-            # Shared sets arise because dict(sys.namespace()) is a shallow copy —
-            # mutating the DefinitionSet objects would corrupt sys's namespace.
-            new_set = DefinitionSet()
+            # Always create a new Callable to avoid mutating shared objects.
+            # Shared objects arise because dict(sys.namespace()) is a shallow copy —
+            # mutating them would corrupt sys's namespace.
+            new_callable = comp.Callable(name)
             if existing is not None:
-                new_set.definitions.update(existing.definitions)
-            new_set.definitions.update(value.definitions)
-            result[name] = new_set
+                new_callable.entries.extend(existing.entries)
+            new_callable.entries.extend(value.entries)
+            result[name] = new_callable
 
     return result
-
-
-class DefinitionSet:
-    """Collection of definitions for a given qualified name.
-    Attrs:
-        definitions: (set) of at least one definition
-    """
-    def __init__(self):
-        self.definitions = set()
-
-    def __repr__(self):
-        return f"<DefinitionSet x{len(self.definitions)}>"
-
-    def format(self):
-        """Format for display."""
-        names = [d.qualified for d in self.definitions]
-        return f"DefinitionSet({', '.join(names)})"
-
-    def scalar(self):
-        """Get single definition if unambiguous or None."""
-        if len(self.definitions) != 1:
-            return None
-        return next(iter(self.definitions))
-
-    def shape(self):
-        """Get single shape definition or None"""
-        shapes = [d for d in self.definitions if d.shape is comp.shape_shape]
-        if len(shapes) != 1:
-            return None
-        return shapes[0]
-
-    def invokables(self):
-        """Get all invokeable (blocks, funcs, and/or a single shape) or empty list"""
-        shapes = [d for d in self.definitions if d.shape is comp.shape_shape]
-        blocks = [
-            d for d in self.definitions
-            if d.shape is comp.shape_block or d.shape is comp.shape_func
-        ]
-        if len(shapes) > 1:
-            return None
-        if len(blocks) + len(shapes) != len(self.definitions):
-            return None
-        return shapes + blocks
 
 
 class Ambiguous:

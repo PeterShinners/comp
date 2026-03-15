@@ -668,11 +668,11 @@ class ExecutionFrame:
             ns = self.module.namespace()
             if name in ns:
                 item = ns[name]
-                # Namespace contains DefinitionSet objects - extract single definition
-                if isinstance(item, comp.DefinitionSet):
-                    if len(item.definitions) == 1:
-                        return next(iter(item.definitions))
-                    # For multiple definitions, return the set itself
+                # Namespace contains Callable objects - extract single definition for backward compat
+                if isinstance(item, comp.Callable) and item.has_pending():
+                    if len(item.entries) == 1:
+                        return item.entries[0]
+                    # For multiple definitions, return the Callable itself
                     return item
                 return item
 
@@ -688,7 +688,7 @@ class ExecutionFrame:
         """Call a function with the given arguments.
 
         Args:
-            block_val: Value containing a Block, DefinitionSet, Shape, or InternalCallable
+            block_val: Value containing a Block, Callable, Shape, or InternalCallable
             args: Value containing the argument struct
             piped: Value for piped input (or None if not piped)
             source_cop: (Value | None) COP node of the call site for error reporting
@@ -736,30 +736,13 @@ class ExecutionFrame:
                 raise CompFail(_make_fail_value(morph_result.failure_reason, tag=comp.tag_fail_value, cop_val=source_cop))
             return morph_result.value
 
-        # Handle DefinitionSet (legacy path — convert to Callable)
-        if isinstance(callable_obj, comp.DefinitionSet):
-            callable = comp.Callable("?")
-            for defn in callable_obj.definitions:
-                if defn.value is not None:
-                    data = defn.value.data
-                    if isinstance(data, comp.Callable):
-                        for b in data.blocks:
-                            callable.add_block(b)
-                        if data.shape is not None and callable.shape is None:
-                            callable.shape = data.shape
-                    elif isinstance(data, comp.InternalCallable):
-                        callable.add_block(data)
-                    elif isinstance(data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
-                        callable.shape = data
-            callable_obj = callable
-
         # Handle Callable (dispatch to best-matching block, shape, or single block)
         if isinstance(callable_obj, comp.Callable):
-            if len(callable_obj.blocks) > 1 or (callable_obj.blocks and callable_obj.shape is not None):
-                # Multiple blocks or blocks+shape: dispatch overload
+            if len(callable_obj.entries) > 1 or (callable_obj.entries and callable_obj.shape is not None):
+                # Multiple entries or entries+shape: dispatch overload
                 result = self._dispatch_overload(callable_obj, args, piped)
                 if result is None:
-                    names = [getattr(b, "qualified", "?") for b in callable_obj.blocks]
+                    names = [getattr(b, "qualified", "?") for b in callable_obj.entries]
                     raise CompFail(_make_fail_value(
                         f"No matching overload found: {', '.join(names)}",
                         tag=comp.tag_fail_invoke,
@@ -768,8 +751,8 @@ class ExecutionFrame:
                 if isinstance(result, comp.Value):
                     return result
                 block = result
-            elif callable_obj.blocks:
-                block = callable_obj.blocks[0]
+            elif callable_obj.entries:
+                block = callable_obj.entries[0]
             elif callable_obj.shape is not None:
                 # Shape-only callable — morph input
                 input_val = piped if piped is not None else args
@@ -794,7 +777,7 @@ class ExecutionFrame:
                 cop_val=source_cop,
             ))
 
-        # If dispatch selected an InternalCallable (e.g. from a DefinitionSet
+        # If dispatch selected an InternalCallable (e.g. from a Callable
         # that mixed Python builtins into a Callable), handle it now.
         if isinstance(block, comp.InternalCallable):
             input_val = piped if piped is not None else args
@@ -816,7 +799,7 @@ class ExecutionFrame:
         new_env = block.closure_env
         # Bind __self__ so !forward can locate the current Callable
         _self_callable = comp.Callable(block.qualified)
-        _self_callable.add_block(block)
+        _self_callable.add(block)
         new_env["__self__"] = comp.Value(_self_callable)
         
         # For single-parameter blocks (input only, no arg), treat args as piped input
@@ -966,7 +949,7 @@ class ExecutionFrame:
         best_score = None
 
         # Iterate through blocks in the callable
-        for block in callable.blocks:
+        for block in callable.entries:
             qualified = getattr(block, "qualified", None)
             # Skip the currently-executing overload (used by !forward)
             if skip_name and qualified == skip_name:

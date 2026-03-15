@@ -104,39 +104,69 @@ class Callable:
     """A collection of invokable entries sharing a name.
 
     This is the primary Value data type for namespace references. It
-    collects one or more Blocks and/or InternalCallables (dispatched by
-    morph score), an optional Shape (including tags), and an optional
-    Pipeline.
+    collects one or more Blocks, InternalCallables, and/or Definitions
+    (dispatched by morph score), an optional Shape (including tags), and
+    an optional Pipeline.
+
+    Namespace Callables hold Definition entries (lazy, not yet built).
+    Runtime Callables hold Block/InternalCallable entries (ready to run).
+    These two states are mutually exclusive in practice.
 
     Attributes:
         qualified: (str) Base qualified name for this callable
-        blocks: (list) Block and/or InternalCallable instances
+        entries: (list) Block, InternalCallable, or Definition instances
         shape: (Shape | Tag | None) Single shape or tag reference
         pipeline: (Pipeline | None) Single pipeline reference
     """
 
-    __slots__ = ("qualified", "blocks", "shape", "pipeline")
+    __slots__ = ("qualified", "entries", "shape", "pipeline")
 
     def __init__(self, qualified):
         self.qualified = qualified
-        self.blocks = []
+        self.entries = []
         self.shape = None
         self.pipeline = None
 
-    def scalar_block(self):
-        """Return the single block if exactly one and no pipeline, else None."""
-        if len(self.blocks) == 1 and self.pipeline is None:
-            return self.blocks[0]
+    def add(self, entry):
+        """Append a Block, InternalCallable, or Definition to this callable."""
+        self.entries.append(entry)
+
+    def scalar(self):
+        """Return the single entry if exactly one and no pipeline, else None."""
+        if len(self.entries) == 1 and self.pipeline is None:
+            return self.entries[0]
         return None
 
-    def add_block(self, block):
-        """Append a Block or InternalCallable to this callable."""
-        self.blocks.append(block)
+    def has_pending(self):
+        """Return True if all entries are unresolved Definitions.
+
+        Used to detect namespace Callables that need to be built before
+        they can be invoked.
+        """
+        return bool(self.entries) and all(isinstance(e, comp.Definition) for e in self.entries)
+
+    def invokables(self):
+        """Return list of invokable Definitions (blocks, funcs, shapes), or None if ambiguous.
+
+        Returns a list of Definition objects that are invokable (shape, block, or func
+        definitions).  Returns None when the set contains conflicting non-invokable types
+        or more than one shape definition.
+        """
+        shapes = [d for d in self.entries if d.shape is comp.shape_shape]
+        blocks = [
+            d for d in self.entries
+            if d.shape is comp.shape_block or d.shape is comp.shape_func
+        ]
+        if len(shapes) > 1:
+            return None
+        if len(blocks) + len(shapes) != len(self.entries):
+            return None
+        return shapes + blocks
 
     def __repr__(self):
         parts = []
-        if self.blocks:
-            parts.append(f"{len(self.blocks)} blocks")
+        if self.entries:
+            parts.append(f"{len(self.entries)} entries")
         if self.shape:
             parts.append(f"shape={self.shape}")
         if self.pipeline:
@@ -146,8 +176,8 @@ class Callable:
 
     def format(self):
         """Format for display."""
-        if self.blocks:
-            names = [getattr(b, "qualified", getattr(b, "name", "?")) for b in self.blocks]
+        if self.entries:
+            names = [getattr(b, "qualified", getattr(b, "name", "?")) for b in self.entries]
             return f"callable({', '.join(names)})"
         if self.shape:
             return f"callable(~{getattr(self.shape, 'qualified', str(self.shape))})"

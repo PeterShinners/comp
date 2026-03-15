@@ -44,14 +44,14 @@ class Value:
         data: The underlying data (primitives, tags, structs, etc.)
         shape: (ShapeRef) Definition of represented data, or unit for basic types
         cop: Optional parsed cop that created this value (for errors and diags)
-        private: Module-private data storage dict
+        stash: Module-private data storage dict
         handles: Three-state handle tracker.
             None      -- definitely contains no handles (fast path)
             True      -- contains handles, frozenset not yet materialised
             frozenset -- materialised set of HandleInstance objects, never empty
     """
 
-    __slots__ = ("data", "cop", "private", "handles", "_guard", "unit")
+    __slots__ = ("data", "cop", "stash", "handles", "_guard", "unit")
     _shapemap = None
     _shapetypes = None
 
@@ -73,7 +73,7 @@ class Value:
         # Module-private data storage
         # Maps module_id -> Value (structure containing private data) Used by
         # the & syntax for module-scoped private data
-        self.private = None
+        self.stash = None
         # Three-state handle tracker (see class docstring for states).
         self.handles = None
 
@@ -99,8 +99,7 @@ class Value:
         # Late initialization of important maps for fetching types
         if Value._shapemap is None:
             Value._shapemap = {
-                fractions.Fraction: comp.shape_num,
-                decimal.Decimal: comp.shape_num,
+                tuple: comp.shape_num,
                 str: comp.shape_text,
                 dict: comp.shape_struct,
                 comp.Callable: comp.shape_func,
@@ -130,7 +129,7 @@ class Value:
         new_val = Value.__new__(Value)
         new_val.data = self.data
         new_val.cop = self.cop
-        new_val.private = self.private
+        new_val.stash = self.stash
         new_val.handles = self.handles
         if isinstance(self.data, dict):
             new_val._guard = self._guard
@@ -147,7 +146,7 @@ class Value:
 
         shape = self.shape
         if shape is comp.shape_num:
-            base = str(self.data)
+            base = comp._num.num_format(self.data)
         elif shape is comp.shape_text:
             value = self.data.replace('"', '\\"')
             escaped = value.replace("\n", "\\n")
@@ -274,13 +273,13 @@ class Value:
 
         if isinstance(self.data, str):
             return self.data
-        if isinstance(self.data, (fractions.Fraction, decimal.Decimal)):
-            num, denom = self.data.as_integer_ratio()
+        if isinstance(self.data, tuple):
+            n, d, _ = self.data
+            if d == 1:
+                return n
             if rich_numbers:
                 return self.data
-            if denom == 1:
-                return num
-            return float(self.data)
+            return n / d
 
         if isinstance(self.data, dict):
             # Check if all keys are Unnamed - convert to list
@@ -331,12 +330,16 @@ class Value:
         if value is False:
             return comp.tag_false
 
-        if isinstance(value, (int, float)):
-            return cls(decimal.Decimal(value))
+        if isinstance(value, int):
+            return cls((value, 1, 0))
+        if isinstance(value, float):
+            return cls(comp._num.num_from_decimal_str(str(value)))
         if isinstance(value, decimal.Decimal):
-            return cls(value)
+            return cls(comp._num.num_from_decimal_str(str(value)))
         if isinstance(value, fractions.Fraction):
-            return cls(value)
+            import math as _math
+            g = _math.gcd(abs(value.numerator), value.denominator)
+            return cls((value.numerator // g, value.denominator // g, 0))
 
         if isinstance(value, dict):
             struct = {}
@@ -442,7 +445,7 @@ class Value:
 #     for key, value in extra_fields.items():
 #         result.data[Value(key)] = Value(value)
 
-#     result.private = {}
+#     result.stash = {}
 #     result.ast = ast
 #     # Compute handles from field values
 #     result.handles = frozenset()  # fail values don't contain handles

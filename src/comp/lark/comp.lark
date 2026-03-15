@@ -93,6 +93,9 @@ OP_DROP.7: "!drop"
 OP_PULL.7: "!pull"
 OP_PUSH.7: "!push"
 
+// Stash operator
+OP_STASH.7: "!stash"
+
 // Declaration keywords
 OP_PARAM_DECL.7: "!param"
 
@@ -180,8 +183,9 @@ fail_expr: OP_FAIL expression
 
 postfield: nextfield (DOT nextfield)*
 ?postfix: atom
-        | atom DOT postfield -> fieldaccess
+        | postfix DOT postfield -> fieldaccess
         | postfix HASH identifier -> cast_unit
+        | postfix AMPERSAND TOKENFIELD -> stashaccess
 
 ?atom: wrapper* (number | text | identifier | dotted_path_atom | shape | statement | structure | pipeline | capture_expr)
      | wrapper+   // Standalone wrapper(s) as a value
@@ -219,7 +223,7 @@ pipeline: BRACKET_OPEN pipeline_body BRACKET_CLOSE
 pipeline_body: pipe_start (PIPE pipe_stage)* (PIPEFALLBACK pipe_stage)?
 pipe_start: signature pipe_start_item+
            | pipe_start_item+
-?pipe_start_item: my_assign | ctx_assign | pipe_start_expr
+?pipe_start_item: my_assign | ctx_assign | stash_assign | pipe_start_expr
 ?pipe_start_expr: unary pipe_arg+ -> pipe_stage
                 | expression
 pipe_stage: unary
@@ -237,8 +241,8 @@ statement_body: signature statement_item*
 structure_body: signature structure_item*
               | structure_item*
 
-statement_item: my_assign | ctx_assign | expression
-structure_item: my_assign | ctx_assign | field_or_expr
+statement_item: my_assign | ctx_assign | stash_assign | expression
+structure_item: my_assign | ctx_assign | stash_assign | field_or_expr
 
 field_or_expr: DOTTED_PATH EQUALS unary -> deep_named_field
              | TOKENFIELD EQUALS unary -> named_field
@@ -250,6 +254,8 @@ param_decl: OP_PARAM_DECL identifier shape (EQUALS field_default_value)?
 
 my_assign: OP_MY identifier expression
 ctx_assign: OP_CTX identifier expression
+stash_assign: OP_STASH identifier AMPERSAND TOKENFIELD stash_deep* EQUALS expression
+stash_deep: DOT TOKENFIELD
 
 
 // ===== IDENTIFIERS =====

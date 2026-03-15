@@ -29,7 +29,7 @@ def evaluate_pure_definitions(definitions, namespace, interp):
 
     Args:
         definitions: Dict {qualified_name: Definition} to process
-        namespace: (dict) Module namespace mapping names to DefinitionSet
+        namespace: (dict) Module namespace mapping names to Callable
         interp: Interpreter instance for execution
 
     Returns:
@@ -56,7 +56,7 @@ def fold_pure_cop(cop, namespace, interp):
 
     Args:
         cop: (Value) COP tree to fold
-        namespace: (dict) Namespace mapping names to DefinitionSet
+        namespace: (dict) Namespace mapping names to Callable
         interp: Interpreter instance
 
     Returns:
@@ -78,7 +78,7 @@ def _resolve_pure_callable(qualified, namespace, input_value):
 
     Args:
         qualified: (str | list) Qualified name(s) of candidate callables
-        namespace: (dict) Module namespace mapping names to DefinitionSet
+        namespace: (dict) Module namespace mapping names to Callable
         input_value: (Value) Current piped input for dispatch scoring
 
     Returns:
@@ -125,8 +125,8 @@ def _find_definition(qualified, namespace):
     entry = namespace.get(qualified)
     if entry is None:
         return None
-    if isinstance(entry, comp.DefinitionSet):
-        for defn in entry.definitions:
+    if isinstance(entry, comp.Callable):
+        for defn in entry.entries:
             if defn.qualified == qualified:
                 return defn
         return None
@@ -157,7 +157,7 @@ def _is_pure_definition(defn):
     if isinstance(data, comp.InternalCallable):
         return data.pure
     if isinstance(data, comp.Callable):
-        block = data.scalar_block()
+        block = data.scalar()
         if block is not None:
             return block.pure
     return False
@@ -176,7 +176,7 @@ def _get_callable(defn):
         return None
     data = defn.value.data
     if isinstance(data, comp.Callable):
-        block = data.scalar_block()
+        block = data.scalar()
         if block is not None:
             return block
     if isinstance(data, comp.InternalCallable):
@@ -458,7 +458,7 @@ def _args_are_pure(args_value):
     """
     if not isinstance(args_value.data, dict):
         if isinstance(args_value.data, comp.Callable):
-            block = args_value.data.scalar_block()
+            block = args_value.data.scalar()
             return block.pure if block is not None else True
         if isinstance(args_value.data, comp.InternalCallable):
             return args_value.data.pure
@@ -467,7 +467,7 @@ def _args_are_pure(args_value):
     # Struct — check all fields
     for key, val in args_value.data.items():
         if isinstance(val.data, comp.Callable):
-            block = val.data.scalar_block()
+            block = val.data.scalar()
             if block is not None and not block.pure:
                 return False
         elif isinstance(val.data, comp.InternalCallable):
@@ -500,13 +500,13 @@ def _execute_pure_block(block, input_value, args_value, interp):
     """
     if isinstance(block, comp.InternalCallable):
         callable = comp.Callable(block.name)
-        callable.add_block(block)
+        callable.add(block)
         block_val = comp.Value(callable)
         frame = comp.ExecutionFrame(env={}, interp=interp)
         return frame.invoke_block(block_val, args_value, piped=input_value)
 
     callable = comp.Callable(block.qualified)
-    callable.add_block(block)
+    callable.add(block)
     block_val = comp.Value(callable)
     frame = comp.ExecutionFrame(env={}, interp=interp)
 

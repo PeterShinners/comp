@@ -13,7 +13,6 @@ __all__ = [
     "coptimize",
 ]
 
-import decimal
 import comp
 
 
@@ -79,8 +78,8 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
 
     if tag == "value.number":
         literal = cop.to_python("value")
-        value = decimal.Decimal(literal)
-        return _make_constant(cop, comp.Value.from_python(value))
+        value = comp.num_from_decimal_str(literal)
+        return _make_constant(cop, comp.Value(value))
 
     # --- Identifiers: should have been resolved by cop_resolve_names ---
     # If we encounter one here it means resolution was skipped.
@@ -129,6 +128,25 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
             new_value = _coptimize_walk(kids[1], fold, namespace, locals, references, locals_defined)
             if new_value is not kids[1]:
                 return comp.cop_rebuild(cop, [kids[0], new_value])
+        return cop
+
+    # --- Stash assignment: kids[0]=target-name, kids[1]=key, kids[2..n-2]=path, kids[-1]=value ---
+    # Only fold the value expression (last kid); the name/key/path kids are literals.
+    if tag == "op.stash":
+        kids = comp.cop_kids(cop)
+        if kids:
+            new_value = _coptimize_walk(kids[-1], fold, namespace, locals, references, locals_defined)
+            if new_value is not kids[-1]:
+                return comp.cop_rebuild(cop, list(kids[:-1]) + [new_value])
+        return cop
+
+    # --- Stash read: kids[0]=target-expr (foldable), kids[1]=field-name (literal) ---
+    if tag == "value.stash":
+        kids = comp.cop_kids(cop)
+        if kids:
+            new_target = _coptimize_walk(kids[0], fold, namespace, locals, references, locals_defined)
+            if new_target is not kids[0]:
+                return comp.cop_rebuild(cop, [new_target] + list(kids[1:]))
         return cop
 
     # --- Recursively optimize children ---
@@ -550,9 +568,9 @@ def _fold_namespace(cop, namespace):
         if definition_set is not None:
             defn = definition_set.scalar()
             if defn is None:
-                # DefinitionSet has multiple entries (e.g. less + ord.less alias).
+                # Callable may have multiple entries (e.g. less + ord.less alias).
                 # Try to find the definition whose qualified name matches the ref.
-                for d in definition_set.definitions:
+                for d in definition_set.entries:
                     if d.qualified == qualified:
                         defn = d
                         break

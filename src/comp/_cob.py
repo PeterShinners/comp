@@ -35,8 +35,6 @@ Null:
 __all__ = []
 
 import ast
-import decimal
-import fractions
 import re
 
 import lark
@@ -82,10 +80,8 @@ class _Packer:
             result = data.qualified
         elif isinstance(data, comp.RawTag):
             result = data.qualified
-        elif isinstance(data, decimal.Decimal):
-            result = str(data)
-        elif isinstance(data, fractions.Fraction):
-            result = str(data)
+        elif isinstance(data, tuple):
+            result = comp.num_format(data)
         elif isinstance(data, str):
             result = self._pack_string(data)
         elif isinstance(data, dict):
@@ -177,8 +173,8 @@ class _Unpacker(lark.Transformer):
         if len(items) == 1:
             return items[0]
         val = items[1]
-        if isinstance(val.data, decimal.Decimal):
-            return comp.Value(-val.data)
+        if isinstance(val.data, tuple):
+            return comp.Value(comp.num_neg(val.data))
         raise comp.CodeError("cob.unpack: cannot negate a non-numeric value")
 
     def cob_fraction(self, items):
@@ -188,10 +184,9 @@ class _Unpacker(lark.Transformer):
         negative = any(isinstance(t, lark.Token) and t.type == "MINUS" for t in items)
         num = int(str(token_ints[0]).replace("_", ""), 0)
         den = int(str(token_ints[1]).replace("_", ""), 0)
-        val = fractions.Fraction(num, den)
         if negative:
-            val = -val
-        return comp.Value(val)
+            num = -num
+        return comp.Value(comp._make(num, den, 0))
 
     def cob_tag(self, items):
         # items: [Token(DOTTED_PATH | TOKENFIELD)]
@@ -230,11 +225,11 @@ class _Unpacker(lark.Transformer):
         token = items[0]
         s = str(token).replace("_", "")
         if token.type == "DECIMAL":
-            return comp.Value(decimal.Decimal(s))
+            return comp.Value(comp.num_from_decimal_str(s))
         # INTEGER — may be a base literal (0x, 0b, 0o)
         if s.lower().startswith(("0x", "0b", "0o")):
-            return comp.Value(decimal.Decimal(int(s, 0)))
-        return comp.Value(decimal.Decimal(s))
+            return comp.Value((int(s, 0), 1, 0))
+        return comp.Value((int(s), 1, 0))
 
 
 @comp._internal.register_internal_module("cob")
@@ -259,8 +254,8 @@ def _create_cob_module(module):
         if isinstance(args_val.data, dict):
             for k, v in args_val.data.items():
                 key = k.data if isinstance(k, comp.Value) else None
-                if key == "width" and isinstance(v.data, decimal.Decimal):
-                    width = int(v.data)
+                if key == "width" and isinstance(v.data, tuple):
+                    width = int(v.data[0] / v.data[1])
                 elif key == "indent" and isinstance(v.data, str):
                     indent = v.data
 

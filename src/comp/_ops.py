@@ -14,9 +14,8 @@ __all__ = [
     "logic_unary",
 ]
 
-import decimal
-import fractions
 import comp
+import math
 
 
 def math_binary(op, left, right):
@@ -25,7 +24,7 @@ def math_binary(op, left, right):
     This only works with numeric types.
 
     Args:
-        op: (str) Operator like "+" "-" "/" "*" "**"
+        op: (str) Operator like "+" "-" "/" "*"
         left: (Value) Left value
         right: (Value) Right value
 
@@ -45,33 +44,40 @@ def math_binary(op, left, right):
     if right.shape != comp.shape_num:
         raise TypeError(f"Right operand is not a number: {right.format()}")
 
-    # Try to leave this flexible between Fraction or Decimal as I'm unsure
-    # which road is best.
-    lval = left.data
-    rval = right.data
-
-    # In the future this must look at the unit attached to the number types
-    # Doing possible conversions between them. For now a number is a number.
+    ln, ld, ldp = left.data
+    rn, rd, rdp = right.data
 
     # If both operands have units, convert right to left's unit
     if left.unit is not None and right.unit is not None and left.unit is not right.unit:
         if left.unit.qualified != right.unit.qualified:
             import comp._unit_conv as _uc
-            rval = _uc.convert(rval, right.unit, left.unit)
+            rn, rd = _uc.convert_rational(rn, rd, right.unit, left.unit)
 
     if op == "+":
-        result = lval + rval
+        n = ln * rd + rn * ld
+        d = ld * rd
+        dp = ldp if ldp > rdp else rdp
     elif op == "-":
-        result = lval - rval
+        n = ln * rd - rn * ld
+        d = ld * rd
+        dp = ldp if ldp > rdp else rdp
     elif op == "*":
-        result = lval * rval
+        n = ln * rn
+        d = ld * rd
+        dp = ldp if ldp > rdp else rdp
     elif op == "/":
-        result = lval / rval  # ZeroDivisionError may appear
+        if rn == 0:
+            raise ZeroDivisionError("division by zero")
+        n = ln * rd
+        d = ld * rn
+        if d < 0:
+            n, d = -n, -d
+        dp = ldp if ldp > rdp else rdp
     else:
         raise ValueError(f"Unknown math binary operator: {op}")
 
-    # Result carries the left operand's unit
-    return comp.Value(result).with_unit(left.unit)
+    g = math.gcd(n if n >= 0 else -n, d)
+    return comp.Value((n // g, d // g, dp)).with_unit(left.unit)
 
 
 def math_unary(op, right):
@@ -95,18 +101,11 @@ def math_unary(op, right):
     if right.shape != comp.shape_num:
         raise TypeError(f"Right operand is not a number: {right.format()}")
 
-    # Try to leave this flexible between Fraction or Decimal as I'm unsure
-    # which road is best.
-    rval = right.data
     if op == "+":
         return right  # Unary + is a no-op (unit preserved since same object returned)
     if op == "-":
-        if isinstance(rval, decimal.Decimal):
-            # Decimal unary- munges based on precision, this is lossless
-            nval = rval.copy_negate()
-        else:
-            nval = -rval
-        return comp.Value(nval).with_unit(right.unit)  # preserve unit
+        n, d, dp = right.data
+        return comp.Value((-n, d, dp)).with_unit(right.unit)
     else:
         raise ValueError(f"Unknown math unary operator: {op}")
 
@@ -252,8 +251,10 @@ def _compare(left, right):
         if left.unit is not None and right.unit is not None:
             if left.unit is not right.unit and left.unit.qualified != right.unit.qualified:
                 import comp._unit_conv as _uc
+                rn, rd = rval[0], rval[1]
                 try:
-                    rval = _uc.convert(rval, right.unit, left.unit)
+                    rn, rd = _uc.convert_rational(rn, rd, right.unit, left.unit)
+                    rval = (rn, rd, rval[2])
                 except comp.EvalError:
                     pass  # Different families: fall through to raw comparison
         if lval < rval:

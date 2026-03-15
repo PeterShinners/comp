@@ -24,7 +24,7 @@ def generate_code_for_definition(cop, dispatch_own_name=None, dispatch_set_name=
     Args:
         cop: (Value) cop nodes
         dispatch_own_name: (str | None) Qualified name of this definition (for !forward)
-        dispatch_set_name: (str | None) Base name for DefinitionSet lookup (for !forward)
+        dispatch_set_name: (str | None) Base name for Callable lookup (for !forward)
         pure: (bool) Whether this definition is pure (propagated to built blocks)
         
     Returns:
@@ -94,7 +94,7 @@ class CodeGenContext:
                 const_val = cop.field("value")
                 # If the constant is a Callable wrapping a Block, emit BuildBlock at runtime
                 if isinstance(const_val.data, comp.Callable):
-                    block = const_val.data.scalar_block()
+                    block = const_val.data.scalar()
                     if block is not None:
                         if block.body_instructions:
                             body_instructions = block.body_instructions
@@ -189,9 +189,8 @@ class CodeGenContext:
             
             case "value.number":
                 # Inline constant
-                import decimal
                 literal = cop.to_python("value")
-                return comp.Value.from_python(decimal.Decimal(literal))
+                return comp.Value(comp.num_from_decimal_str(literal))
 
             case "value.text":
                 # Inline constant
@@ -247,6 +246,16 @@ class CodeGenContext:
 
             case "value.field":
                 return self._build_field_access(cop)
+
+            case "value.stash":
+                # value.stash: [target_expr, field_ident]
+                # expr&field — get named field from current module's stash on expr
+                kids = _cop_kids(cop)
+                target_reg = self._build_value_ensure_register(kids[0])
+                field_name = kids[1].to_python("value")
+                return self.emit(comp._instructions.GetStash(
+                    cop=cop, target_reg=target_reg, field=field_name
+                ))
                 
             case "function.define":
                 return self._build_function(cop)
@@ -299,6 +308,22 @@ class CodeGenContext:
                 if name is None:
                     raise comp.CodeError("op.my requires a name", cop)
                 return self.emit(comp._instructions.StoreLocal(cop=cop, name=name, source=value_idx))
+
+            case "op.stash":
+                # !stash varname&key.path = value
+                # kids: [target_ident, key_ident, *path_idents, value_expr]
+                kids = _cop_kids(cop)
+                if len(kids) < 3:
+                    raise comp.CodeError("op.stash requires a target, key, and value", cop)
+                target_name = _extract_name(kids[0])
+                if target_name is None:
+                    raise comp.CodeError("op.stash requires a simple variable name as target", cop)
+                key = kids[1].to_python("value")
+                path = [kids[i].to_python("value") for i in range(2, len(kids) - 1)]
+                value_reg = self._build_value_ensure_register(kids[-1])
+                return self.emit(comp._instructions.SetStash(
+                    cop=cop, target_name=target_name, key=key, path=path, value_reg=value_reg
+                ))
 
             case "op.ctx":
                 # !ctx name expr — like !let but also adds to the running frame context
@@ -1212,7 +1237,7 @@ def _shape_ref_or_reg(ctx, cop):
     returns the name string so BuildShape/BuildShapeUnion can resolve it at execute
     time without emitting LoadVar/TryInvoke instructions.
     For overloaded names (qualified is a list), returns the list of names so
-    BuildShape can build a DefinitionSet at execute time.
+    BuildShape can build a Callable at execute time.
     For anything else, falls back to compiling to a register.
     """
     tag = comp.cop_tag(cop)

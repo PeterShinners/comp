@@ -8,6 +8,7 @@ __version__ = "0.5.0"
 
 
 from ._error import *
+from ._num import *
 from ._value import *
 from ._module import *
 from ._internal import *

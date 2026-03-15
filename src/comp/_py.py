@@ -141,8 +141,8 @@ def _comp_to_python(value):
         return qn
 
     # Numbers
-    if isinstance(data, (decimal.Decimal, int, float)):
-        return data
+    if isinstance(data, tuple):
+        return data[0] if data[1] == 1 else data[0] / data[1]
 
     # Strings
     if isinstance(data, str):
@@ -197,7 +197,7 @@ def _python_to_comp(obj):
     if isinstance(obj, float):
         return comp.Value.from_python(obj)
     if isinstance(obj, decimal.Decimal):
-        return comp.Value(obj)
+        return comp.Value.from_python(obj)
     if isinstance(obj, str):
         return comp.Value(obj)
     if isinstance(obj, dict):
@@ -325,7 +325,8 @@ def _create_py_module(module):
             raise comp.CodeError(f"Could not locate Python callable: {name!r}")
 
         pos, kwargs = _extract_call_args(input_val)
-        pos = [int(a) if isinstance(a, decimal.Decimal) and a == int(a) else a for a in pos]
+        pos = [a[0] if isinstance(a, tuple) and a[1] == 1
+               else (a[0] / a[1] if isinstance(a, tuple) else a) for a in pos]
         try:
             result = func_obj(*pos, **kwargs)
         except Exception as e:
@@ -389,7 +390,8 @@ def _create_py_module(module):
                     pos.append(py_val)
 
         pos = [
-            int(a) if isinstance(a, decimal.Decimal) and a == int(a) else a
+            a[0] if isinstance(a, tuple) and a[1] == 1
+            else (a[0] / a[1] if isinstance(a, tuple) else a)
             for a in pos
         ]
 
@@ -444,7 +446,8 @@ def _create_py_module(module):
                 elif isinstance(k, comp.Value) and isinstance(k.data, str):
                     kwargs[k.data] = py_val
 
-        pos = [int(a) if isinstance(a, decimal.Decimal) and a == int(a) else a for a in pos]
+        pos = [a[0] if isinstance(a, tuple) and a[1] == 1
+               else (a[0] / a[1] if isinstance(a, tuple) else a) for a in pos]
 
         try:
             result = func(*pos, **kwargs)
@@ -491,12 +494,11 @@ def _create_py_module(module):
         if isinstance(obj, bool):
             return comp.Value(comp.tag_true if obj else comp.tag_false)
         if isinstance(obj, decimal.Decimal):
-            return comp.Value(obj)
+            return comp.Value.from_python(obj)
         if isinstance(obj, int):
-            return comp.Value(decimal.Decimal(obj))
+            return comp.Value((obj, 1, 0))
         if isinstance(obj, float):
-            # Use repr() for the shortest lossless decimal string of the float
-            return comp.Value(decimal.Decimal(repr(obj)))
+            return comp.Value(comp.num_from_decimal_str(repr(obj)))
         if isinstance(obj, str):
             return comp.Value(obj)
         if obj is None:
