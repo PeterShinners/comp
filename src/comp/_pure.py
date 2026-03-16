@@ -7,7 +7,6 @@ This module handles evaluating pure functions during compilation:
   are also constants
 
 The COP nodes handled:
-- value.reference to a pure function: implicit callables (TryInvoke semantics)
 - value.binding{pure_ref, const_args}: explicit call with constant arguments
 - value.pipeline: evaluate leading pure stages with constant inputs
 """
@@ -229,12 +228,6 @@ def _eval_pure_in_cop(cop, namespace, interp, _as_stage=False):
         kids = new_kids
 
     if not _as_stage:
-        # Reference to a pure function — implicit callables (TryInvoke semantics)
-        if tag in ("value.reference", "value.namespace"):
-            result = _try_eval_reference(cop, namespace, interp)
-            if result is not None:
-                return result
-
         # value.binding{pure_ref, const_args} — explicit call with arguments
         if tag == "value.binding":
             result = _try_eval_binding(cop, kids, namespace, interp)
@@ -242,33 +235,6 @@ def _eval_pure_in_cop(cop, namespace, interp, _as_stage=False):
                 return result
 
     return cop
-
-
-def _try_eval_reference(cop, namespace, interp):
-    """Try to evaluate a reference to a pure function as a callable.
-
-    Handles both value.reference and value.namespace nodes, and both
-    single (str) and overloaded (list) qualified names.  Invoked with
-    empty input and empty args (TryInvoke semantics).
-
-    Returns:
-        value.constant COP if evaluable, None otherwise
-    """
-    qualified = cop.to_python("qualified")
-    if not isinstance(qualified, (str, list)):
-        return None
-
-    nil_val = comp.Value.from_python(comp.tag_nil)
-    empty = comp.Value.from_python({})
-    block = _resolve_pure_callable(qualified, namespace, nil_val)
-    if block is None:
-        return None
-
-    try:
-        result = _execute_pure_block(block, nil_val, empty, interp)
-        return _make_constant(cop, result)
-    except Exception:
-        return None
 
 
 def _try_eval_binding(cop, kids, namespace, interp):

@@ -876,13 +876,9 @@ class ExecutionFrame:
         # After mask(), args_val is a named struct like {timeout: 4}.
         if block.param_names and isinstance(args_val.data, dict):
             param_set = set(block.param_names)
-            _empty = comp.Value.from_python({})
             for k, v in args_val.data.items():
                 fname = comp._morph._get_field_key(k)
                 if fname is not None and fname in param_set:
-                    # TryInvoke: if the bound value is callable, call it with no args
-                    if isinstance(v.data, (comp.Callable, comp.InternalCallable)):
-                        v = self.invoke_block(v, _empty, piped=None)
                     new_env[fname] = v
 
         # Pipeline input context: $ / $$ / $$$ live on the frame, not in env,

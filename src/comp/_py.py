@@ -210,6 +210,15 @@ def _python_to_comp(obj):
         for v in obj:
             d[comp.Unnamed()] = _python_to_comp(v)
         return comp.Value(d)
+    # Try iterables (e.g. sqlite3 cursors) before falling back to string
+    if hasattr(obj, "__iter__"):
+        try:
+            d = {}
+            for v in obj:
+                d[comp.Unnamed()] = _python_to_comp(v)
+            return comp.Value(d)
+        except Exception:
+            pass
     # Fallback: convert to string representation
     return comp.Value(str(obj))
 
@@ -324,7 +333,12 @@ def _create_py_module(module):
         if func_obj is None:
             raise comp.CodeError(f"Could not locate Python callable: {name!r}")
 
-        pos, kwargs = _extract_call_args(input_val)
+        if input_val is not None and not (
+            isinstance(input_val.data, comp.Tag) and input_val.data.qualified == "nil"
+        ):
+            pos, kwargs = _extract_call_args(input_val)
+        else:
+            pos, kwargs = [], {}
         pos = [a[0] if isinstance(a, tuple) and a[1] == 1
                else (a[0] / a[1] if isinstance(a, tuple) else a) for a in pos]
         try:

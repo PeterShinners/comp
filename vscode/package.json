@@ -2,7 +2,7 @@
   "name": "comp-language-support",
   "displayName": "Comp Language Support",
   "description": "Syntax highlighting and language support for the Comp programming language",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "engines": {
     "vscode": "^1.74.0"
   },
@@ -24,6 +24,19 @@
         "mimetypes": [
           "text/x-comp"
         ]
+      },
+      {
+        "id": "cob",
+        "aliases": [
+          "COB",
+          "cob"
+        ],
+        "extensions": [
+          ".cob"
+        ],
+        "mimetypes": [
+          "text/x-cob"
+        ]
       }
     ],
     "grammars": [
@@ -35,6 +48,18 @@
       {
         "scopeName": "text.html.markdown.comp.injection",
         "path": "./syntaxes/comp-injection.tmLanguage.json",
+        "injectTo": [
+          "text.html.markdown"
+        ]
+      },
+      {
+        "language": "cob",
+        "scopeName": "source.cob",
+        "path": "./syntaxes/cob.tmLanguage.json"
+      },
+      {
+        "scopeName": "text.html.markdown.cob.injection",
+        "path": "./syntaxes/cob-injection.tmLanguage.json",
         "injectTo": [
           "text.html.markdown"
         ]

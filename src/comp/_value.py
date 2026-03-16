@@ -163,12 +163,11 @@ class Value:
             return f"{self.data.qualified}"
         elif isinstance(self.data, comp.RawTag):
             return f"({self.data.qualified})"
-        elif isinstance(self.data, comp.StatementHandle):
-            return self.data.val.format()
         elif isinstance(self.data, comp.Callable):
             return self.data.format()
         elif isinstance(self.data, comp.HandleInstance):
-            return self.data.format()
+            qualifier = self.data.tag.qualified if self.data.tag else "unknown"
+            return f"handle#{qualifier}"
         elif isinstance(self.data, comp.Shape):
             return self.data.format()
         elif isinstance(self.data, comp.ShapeUnion):

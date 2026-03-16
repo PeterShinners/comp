@@ -690,6 +690,8 @@ def main():
                 print(f"Definition: {name} ({definition.shape.qualified})")
                 print(f"{'='*60}")
                 cop = definition.resolved_cop if (not args.raw and definition.resolved_cop) else definition.original_cop
+                if cop is None:
+                    continue
                 prettycop(cop, show_pos=args.pos)
 
             startup_name = args.startup
@@ -707,6 +709,8 @@ def main():
         elif args.unparse:
             for name, definition in sorted_defs:
                 cop = definition.resolved_cop if (not args.raw and definition.resolved_cop) else definition.original_cop
+                if cop is None:
+                    continue
                 source_text = comp.cop_unparse(cop)
                 print(f"{name} = {source_text}")
         return

@@ -1,0 +1,134 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "COB",
+  "scopeName": "source.cob",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#unit-annotation" },
+    { "include": "#structs" },
+    { "include": "#fractions" },
+    { "include": "#numbers" },
+    { "include": "#tags" }
+  ],
+  "repository": {
+
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.cob",
+          "begin": "/\\*",
+          "end": "\\*/",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.cob" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.comment.cob" } }
+        },
+        {
+          "name": "comment.line.double-slash.cob",
+          "match": "//.*$"
+        }
+      ]
+    },
+
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.multiline.cob",
+          "begin": "\"\"\"",
+          "end": "\"\"\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.cob" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.cob" } },
+          "patterns": [
+            { "name": "constant.character.escape.cob", "match": "\\\\[\\\\\"nrt0]" }
+          ]
+        },
+        {
+          "name": "string.quoted.double.cob",
+          "begin": "\"",
+          "end": "\"",
+          "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.cob" } },
+          "endCaptures": { "0": { "name": "punctuation.definition.string.end.cob" } },
+          "patterns": [
+            { "name": "constant.character.escape.cob", "match": "\\\\[\\\\\"nrt0]" }
+          ]
+        }
+      ]
+    },
+
+    "unit-annotation": {
+      "patterns": [
+        {
+          "comment": "value[unit.tag] — unit annotation bracket",
+          "match": "(\\[)([a-zA-Z_][\\w.-]*(?:-[\\w]+)*)(\\])",
+          "captures": {
+            "1": { "name": "punctuation.definition.unit.begin.cob" },
+            "2": { "name": "constant.other.unit.cob" },
+            "3": { "name": "punctuation.definition.unit.end.cob" }
+          }
+        }
+      ]
+    },
+
+    "structs": {
+      "patterns": [
+        {
+          "comment": "Named field: key = value inside {}",
+          "match": "([a-zA-Z_][\\w-]*)\\s*(=)(?!=)",
+          "captures": {
+            "1": { "name": "variable.other.member.cob" },
+            "2": { "name": "keyword.operator.assignment.cob" }
+          }
+        }
+      ]
+    },
+
+    "fractions": {
+      "patterns": [
+        {
+          "comment": "Rational/fraction literal: [-]n/d",
+          "name": "constant.numeric.rational.cob",
+          "match": "-?\\b[0-9][0-9_]*/[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+
+    "numbers": {
+      "patterns": [
+        {
+          "comment": "Hex literal",
+          "name": "constant.numeric.hex.cob",
+          "match": "-?\\b0[xX][0-9a-fA-F_]+\\b"
+        },
+        {
+          "comment": "Binary literal",
+          "name": "constant.numeric.binary.cob",
+          "match": "-?\\b0[bB][01_]+\\b"
+        },
+        {
+          "comment": "Octal literal",
+          "name": "constant.numeric.octal.cob",
+          "match": "-?\\b0[oO][0-7_]+\\b"
+        },
+        {
+          "comment": "Decimal or integer",
+          "name": "constant.numeric.cob",
+          "match": "-?\\b[0-9][0-9_]*(\\.[0-9_]*)?([eE][+-]?[0-9_]+)?\\b"
+        }
+      ]
+    },
+
+    "tags": {
+      "patterns": [
+        {
+          "comment": "Dotted tag path: module.name (higher priority — matched first)",
+          "name": "storage.type.tag.cob",
+          "match": "[a-zA-Z_][\\w]*(-[\\w]+)*(\\.[a-zA-Z_][\\w]*(-[\\w]+)*)+"
+        },
+        {
+          "comment": "Single-segment tag or identifier",
+          "name": "storage.type.tag.cob",
+          "match": "[a-zA-Z_][\\w]*(-[\\w]+)*"
+        }
+      ]
+    }
+  }
+}

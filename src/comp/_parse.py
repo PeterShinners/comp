@@ -1295,10 +1295,11 @@ def lark_to_cop(tree):
             return _parsed(tree, "op.forward", [])
 
         case "handle_grab":
-            # handle_grab: OP_GRAB expression
-            # kids[0] = OP_GRAB token, kids[1] = expression (tag/identifier)
+            # handle_grab: OP_GRAB expression expression
+            # kids[0] = OP_GRAB token, kids[1] = tag expression, kids[2] = initial private data
             target = lark_to_cop(kids[1])
-            return _parsed(tree, "value.handle", [target], op="grab")
+            data = lark_to_cop(kids[2])
+            return _parsed(tree, "value.handle", [target, data], op="grab")
 
         case "handle_drop":
             # handle_drop: OP_DROP expression

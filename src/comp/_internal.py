@@ -677,10 +677,6 @@ def _builtin_apply(input_val, args_val, frame):
     if statement is None:
         return comp.Value.from_python(comp.tag_nil)
 
-    # Unwrap StatementHandle (used to prevent TryInvoke inside wrapper functions)
-    if isinstance(statement.data, comp.StatementHandle):
-        statement = statement.data.val
-
     if isinstance(statement.data, (comp.Callable, comp.InternalCallable)):
         return frame.invoke_block(statement, params, piped=input_v)
     return statement
@@ -729,10 +725,6 @@ def _builtin_update(input_val, args_val, frame):
 
     if statement is None:
         raise comp.CodeError("update: no statement in invoke-data")
-
-    # Unwrap StatementHandle to get the raw Block
-    if isinstance(statement.data, comp.StatementHandle):
-        statement = statement.data.val
 
     block = None
     if isinstance(statement.data, comp.Callable):
@@ -794,10 +786,6 @@ def _builtin_flat(input_val, args_val, frame):
 
     if statement is None:
         raise comp.CodeError("flat: no statement in invoke-data")
-
-    # Unwrap StatementHandle to get the raw Block
-    if isinstance(statement.data, comp.StatementHandle):
-        statement = statement.data.val
 
     block = None
     if isinstance(statement.data, comp.Callable):

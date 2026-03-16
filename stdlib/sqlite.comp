@@ -1,12 +1,120 @@
 /// Simple SQLite interface for Comp
 /// Basic database operations using Python's sqlite3 module.
 
-!import py comp "core:python"
+!import py comp "py"
 
 
-!shape handle-db ~{private~struct}
-
+!tag connection
+!tag source {in-memory}
 !tag isolation {deferred exclusive immediate none}
+
+
+!shape execute-result ~{
+    rows~struct
+    columns~struct
+    row-id~num
+    rows-affected~num
+}
+
+!shape column-description ~{
+    name~text
+}
+
+
+// sqlite allows a lot of additional flags to be passed at open time. python doesn't
+// naturally support all that, but most can be passed through as uri type of open
+// some cool ones would be like "readonly" vs "readwrite"
+// this really needs some sort of uri parse and assembly to convert a
+// regular struct into these values
+// also feels like we need a more defined way to pass a predefined set of 
+// parameters to a function (spread?)
+
+
+
+
+/// This will become a file/path/resource at some point, not text
+!func path.open ~text (
+    !param timeout~num = 5
+    !param isolation~isolation = deferred
+    !my pydb [{database=$} | py.call "sqlite3.connect"] // ?? [$ | handle-sqlite-exception]
+    !grab connection pydb
+)
+
+!func mem.open ~source (
+    !param timeout~num = 5
+    !param isolation~isolation = deferred
+    !my pydb [{database=":memory:"} | py.call "sqlite3.connect"] // ?? [$ | handle-sqlite-exception]
+    !grab connection pydb
+)
+
+// also need the uri based open? although we may just want a function to convert uri into a
+// connection structure? or should open take either?
+
+
+// Called automatically as handle is dropped
+!func drop-handle& ~handle#connection [
+    !my pydb !pull $
+    [pydb | py.call "sqlite3.close"]
+]
+
+
+/// Execute SQL statement and return results
+!func execute ~handle#connection (
+    !param statement ~text#sql
+    !param params ~any = nil
+
+    !my pydb !pull $
+    !my query [params | fmt statement]
+    !my exec [pydb | py.method {"execute" query}] // ?? [$ | handle-sqlite-exception]
+    !my vars [exec | py.vars]
+
+    [{
+        rows = [exec | py.load]
+        columns = [vars.description | map :[$ | column-description]]
+        row-id = vars.lastrowid
+        rows-affected = vars.rowcount
+    } 
+    | execute-result
+    ]
+)
+
+!func select ~handle#connection (
+    !param statement ~text#sql
+    !param params ~any = nil
+    // want this to do an !extend so it doesn't need to repeat execute definition
+    [$ | execute statement params]
+    .rows
+)
+
+
+!func transaction ~handle#connection (
+    !param op~pipe
+    !my pydb !pull $
+    [pydb | py.method {"execute" "begin"}]
+    !my result [op |? (
+        [pydb | py.method {"execute" "rollback"}] ?? nil
+        $ // [$ | handle-sqlite-exception]
+    )]
+    [pydb | py.method {"execute" "commit"}]
+    result
+)
+
+/**
+
+
+
+OLD IMPLEMENTATION, SLOWLY MIGRATING NORTH
+
+
+!func open ~text (
+    !param params ~connect-args
+    !my pydb [py.call-func name="sqlite3.connect" :{database=$ url=true}]
+    !my db [grab-handle handle-db]
+    db @update :{private.py = pydb}
+)
+
+
+
 
 !tag fail {
     interface       /// Connection/cursor management errors
@@ -23,14 +131,6 @@
     timeout~num = 5
     isolation-level~isolation = isolation.deferred
 }
-
-!shape execute-result ~{
-    rows~struct
-    columns~struct
-    row-id~num
-    row-count~num
-}
-
 
 /// Map Python sqlite3 exception types to Comp fail tags
 !mod exception-tags {
@@ -52,47 +152,5 @@
 ]
 
 
-/// Open database connection from file path
-!func database-file ~text (
-    !param params ~connect-args
-    !my pydb [py.call-func name="sqlite3.connect" {database=$}]
-    !my db [grab-handle handle-db]
-    db @update {private.py = pydb}
-)
 
-/// Open database connection from URL
-!func database-url ~text (
-    !param params ~connect-args
-    !my pydb [py.call-func name="sqlite3.connect" :{database=$ url=true}]
-    !my db [grab-handle handle-db]
-    db @update :{private.py = pydb}
-)
-
-/// Open in-memory database
-!func database-memory (
-    !param params ~connect-args
-    !my pydb [py.call-func name="sqlite3.connect" :{database=":memory:"}]
-    !my db [grab-handle handle-db]
-    db @update :{private.py = pydb}
-)
-
-/// Execute SQL statement and return results
-!func execute ~{db~handle-db} (
-    !param sql ~text
-
-    !my cursor [py.call method="cursor" {self=$.db.private.py}]
-    !my exec [py.call method="execute" :{self=cursor sql}]
-    !my cursor-vars [py.call method="vars" :{self=cursor}]
-
-    execute-result {
-        rows = [py.call method="fetchall" :{self=cursor} | py.pull]
-        columns = cursor-vars.description
-        row-id = cursor-vars.lastrowid
-        row-count = cursor-vars.rowcount
-    }
-)
-
-/// Called automatically as handle is dropped
-!func drop-handle ~{db~handle-db} [
-    py.call method="close" :{self=$.db.private.py}
-]
+**/

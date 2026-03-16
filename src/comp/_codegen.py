@@ -41,15 +41,6 @@ def generate_code_for_definition(cop, dispatch_own_name=None, dispatch_set_name=
     # The result is left in a register, no final store needed
     result_reg = ctx.build_expression(cop)
 
-    # function.define: the Block IS the value — don't auto-invoke.
-    # shape.define: the Shape IS the value — no invokes allowed in shapes.
-    # shape.union: the ShapeUnion IS the value — same as shape.define.
-    # For everything else (expressions), emit TryInvoke to evaluate
-    # callables and pass non-callable values through unchanged.
-    _no_invoke_tags = {"function.define", "shape.define", "shape.union"}
-    if comp.cop_tag(cop) not in _no_invoke_tags:
-        ctx.emit(comp._instructions.TryInvoke(cop=cop, value=result_reg))
-
     return ctx.instructions
 
 
@@ -136,8 +127,7 @@ class CodeGenContext:
                         instr = comp._instructions.LoadOverload(cop=cop, names=qualified_name)
                     else:
                         instr = comp._instructions.LoadVar(cop=cop, name=qualified_name)
-                    reg = self.emit(instr)
-                    return self.emit(comp._instructions.TryInvoke(cop=cop, value=reg))
+                    return self.emit(instr)
                 except (AttributeError, KeyError) as e:
                     raise comp.CodeError(f"Invalid namespace reference: {e}", cop)
 
@@ -146,7 +136,7 @@ class CodeGenContext:
                 name = cop.to_python("name")
                 result = self.emit(comp._instructions.LoadLocal(cop=cop, name=name))
                 result = _apply_field_access(self, cop, result, _cop_kids(cop))
-                return self.emit(comp._instructions.TryInvoke(cop=cop, value=result))
+                return result
 
             case "value.reference":
                 # Legacy resolved namespace reference (from cop_resolve or older paths)
@@ -156,8 +146,7 @@ class CodeGenContext:
                         instr = comp._instructions.LoadOverload(cop=cop, names=qualified_name)
                     else:
                         instr = comp._instructions.LoadVar(cop=cop, name=qualified_name)
-                    reg = self.emit(instr)
-                    return self.emit(comp._instructions.TryInvoke(cop=cop, value=reg))
+                    return self.emit(instr)
                 except (AttributeError, KeyError) as e:
                     raise comp.CodeError(f"Invalid reference: {e}", cop)
 
@@ -277,8 +266,6 @@ class CodeGenContext:
 
             case "op.defer":
                 # !defer expr — wrap expr in a zero-argument anonymous Block.
-                # The Block is NOT auto-invoked here; TryInvoke fires later when
-                # the local holding the Block is accessed in a value position.
                 kids = _cop_kids(cop)
                 inner_cop = kids[0]
                 body_ctx = self.__class__()
@@ -590,7 +577,8 @@ class CodeGenContext:
 
         if op == "grab":
             tag_reg = self._build_value_ensure_register(kids[0])
-            return self.emit(comp._instructions.GrabHandle(cop=cop, tag_reg=tag_reg))
+            data_reg = self._build_value_ensure_register(kids[1])
+            return self.emit(comp._instructions.GrabHandle(cop=cop, tag_reg=tag_reg, data_reg=data_reg))
 
         elif op == "drop":
             handle_reg = self._build_value_ensure_register(kids[0])
@@ -675,9 +663,15 @@ class CodeGenContext:
     def _build_block(self, cop):
         """Build block/function instructions."""
         kids = _cop_kids(cop)
-        signature_cop = kids[0]  # shape definition
-        body_cop = kids[1]       # struct definition with body
-        
+        # Two kids: [block.signature, body] — from :~shape (body) syntax
+        # One kid:  [body]                  — from :[pipeline] or :statement syntax
+        if len(kids) >= 2 and comp.cop_tag(kids[0]) == "block.signature":
+            signature_cop = kids[0]
+            body_cop = kids[1]
+        else:
+            signature_cop = comp.create_cop("block.signature", [])
+            body_cop = kids[0] if kids else comp.create_cop("statement.define", [])
+
         # Build body instructions in a separate context
         body_ctx = CodeGenContext(is_pure=self.is_pure)
         body_ctx._build_value_ensure_register(body_cop)
@@ -791,9 +785,7 @@ class CodeGenContext:
                 piped=invoke_data_reg,
                 args=empty_args,
             ))
-            # If the wrapper returned the statement handle (pass-through case),
-            # unwrap it so the definition stores the original Block, not the handle.
-            return self.emit(comp._instructions.UnwrapStatementHandle(cop=cop, value=pipe_result))
+            return pipe_result
 
         return block_reg
 
@@ -843,6 +835,11 @@ class CodeGenContext:
         if has_trailing_let and expr_result is not None:
             return self.emit(comp._instructions.SelectResult(cop=cop, source=expr_result))
 
+        # Statement contained only !my bindings with no value expression — return nil.
+        if has_trailing_let:
+            nil_val = comp.Value.from_python(comp.tag_nil)
+            return self.emit(comp._instructions.Const(cop=cop, value=nil_val))
+
         return result
 
     def _build_struct(self, cop):
@@ -890,7 +887,7 @@ class CodeGenContext:
         """Build shape construction instructions.
 
         Shape type constraints are passed as name strings (resolved at execute time),
-        not as register indices — so no LoadVar/TryInvoke is emitted for them.
+        not as register indices — so no LoadVar is emitted for them.
         Defaults are simple constant expressions compiled to register indices.
 
         When a shape.define wraps a single value (value.constant, value.namespace,
@@ -1020,12 +1017,12 @@ class CodeGenContext:
             return self.emit(instr)
 
     def _build_args_struct(self, cop):
-        """Build a struct for function arguments without TryInvoke on field values.
+        """Build a struct for function arguments, preserving callables as-is.
 
         Identical to the struct.define path in _build_struct except that each
         field value is compiled with _build_callable_ensure_register instead of
-        _build_value_ensure_register. This preserves callables (Blocks) as-is so
-        they can be received by :block parameters without being auto-invoked.
+        _build_value_ensure_register. This preserves callables (Blocks) so they
+        can be received by :block parameters.
 
         Used by _build_binding, _build_invoke, and _build_pipeline in place of
         _build_value_ensure_register when building the args struct.
@@ -1074,9 +1071,9 @@ class CodeGenContext:
         """Build a callable reference without auto-invoking it.
 
         Use this for the callable position in Invoke/PipeInvoke instructions.
-        Emits the appropriate load instruction (no TryInvoke) for references,
-        locals, and simple identifiers; falls back to _build_value_ensure_register
-        for complex expressions.
+        Emits the appropriate load instruction for references, locals, and
+        simple identifiers; falls back to _build_value_ensure_register for
+        complex expressions.
         """
         tag = cop.positional(0).data.qualified
 
@@ -1235,7 +1232,7 @@ def _shape_ref_or_reg(ctx, cop):
 
     For value.namespace and value.identifier nodes that refer to a shape by name,
     returns the name string so BuildShape/BuildShapeUnion can resolve it at execute
-    time without emitting LoadVar/TryInvoke instructions.
+    time without emitting LoadVar instructions.
     For overloaded names (qualified is a list), returns the list of names so
     BuildShape can build a Callable at execute time.
     For anything else, falls back to compiling to a register.

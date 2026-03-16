@@ -5,15 +5,16 @@
   "patterns": [
     { "include": "#comments" },
     { "include": "#module-declarations" },
-    { "include": "#signature-operators" },
     { "include": "#block-operators" },
     { "include": "#wrappers" },
-    { "include": "#parameter-prefix" },
     { "include": "#strings" },
     { "include": "#numbers" },
     { "include": "#constants" },
     { "include": "#input-references" },
-    { "include": "#tags" },
+    { "include": "#shape-annotations" },
+    { "include": "#capture-expr" },
+    { "include": "#stash-access" },
+    { "include": "#unit-cast" },
     { "include": "#operators" },
     { "include": "#type-names" },
     { "include": "#function-calls" }
@@ -23,7 +24,6 @@
     "comments": {
       "patterns": [
         {
-          "comment": "Block documentation comment /** */",
           "name": "comment.block.documentation.comp",
           "begin": "/\\*\\*(?!/)",
           "end": "\\*/",
@@ -32,7 +32,6 @@
           "patterns": [{ "include": "#comments" }]
         },
         {
-          "comment": "Block comment /* */ with nesting",
           "name": "comment.block.comp",
           "begin": "/\\*",
           "end": "\\*/",
@@ -54,16 +53,17 @@
     "module-declarations": {
       "patterns": [
         {
-          "comment": "!import name",
-          "match": "(!import)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+          "comment": "!import alias comp \"source\" — module import",
+          "match": "(!import)\\s+([a-zA-Z_][\\w-]*)(?:\\s+(comp))?",
           "captures": {
             "1": { "name": "keyword.control.import.comp" },
-            "2": { "name": "entity.name.namespace.comp" }
+            "2": { "name": "entity.name.namespace.comp" },
+            "3": { "name": "keyword.control.import.comp" }
           }
         },
         {
-          "comment": "!func/!pure name ~type — function with optional input shape",
-          "match": "(!(func|pure))\\s+([a-zA-Z_][a-zA-Z0-9_?-]*&?)\\s*(~[a-zA-Z_][a-zA-Z0-9_|-]*)?",
+          "comment": "!func/!pure name ~type — function declaration",
+          "match": "(!(func|pure))\\s+([a-zA-Z_][\\w-]*&?)(?:\\s+(~[a-zA-Z_][\\w.|-]*))?",
           "captures": {
             "1": { "name": "keyword.declaration.function.comp" },
             "3": { "name": "entity.name.function.comp" },
@@ -71,92 +71,59 @@
           }
         },
         {
-          "comment": "!startup name",
-          "match": "(!startup)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+          "comment": "!startup name — entry point",
+          "match": "(!startup)\\s+([a-zA-Z_][\\w-]*)",
           "captures": {
             "1": { "name": "keyword.declaration.function.comp" },
             "2": { "name": "entity.name.function.comp" }
           }
         },
         {
-          "comment": "!shape name",
-          "match": "(!shape)\\s+([a-zA-Z_][a-zA-Z0-9_-]*&?)",
+          "comment": "!shape name — shape/type declaration",
+          "match": "(!shape)\\s+([a-zA-Z_][\\w-]*&?)",
           "captures": {
             "1": { "name": "keyword.declaration.type.comp" },
             "2": { "name": "entity.name.type.comp" }
           }
         },
         {
-          "comment": "!tag name",
-          "match": "(!tag)\\s+([a-zA-Z_][a-zA-Z0-9_.-]*&?)",
+          "comment": "!tag name — tag declaration",
+          "match": "(!tag)\\s+([a-zA-Z_][\\w.-]*&?)",
           "captures": {
             "1": { "name": "keyword.declaration.type.comp" },
             "2": { "name": "entity.name.type.comp" }
           }
         },
         {
-          "comment": "!alias name — namespace alias",
-          "match": "(!alias|!export)\\s+([a-zA-Z_][a-zA-Z0-9_-]*&?)\\s+([a-zA-Z_][a-zA-Z0-9_.-]*)",
-          "captures": {
-            "1": { "name": "keyword.declaration.module.comp" },
-            "2": { "name": "entity.name.tag.comp" },
-            "3": { "name": "entity.name.namespace.comp" }
-          }
-        },
-        {
-          "comment": "!mod name",
-          "match": "(!mod)\\s+([a-zA-Z_][a-zA-Z0-9_.-]*)",
+          "comment": "!context name — module context declaration",
+          "match": "(!context)\\s+([a-zA-Z_][\\w-]*)",
           "captures": {
             "1": { "name": "keyword.declaration.module.comp" },
             "2": { "name": "entity.name.namespace.comp" }
           }
         },
         {
-          "comment": "!package name version",
-          "match": "(!package)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)\\s+(\"[^\"]*\")",
+          "comment": "!alias/!export name — namespace re-export",
+          "match": "(!alias|!export)\\s+([a-zA-Z_][\\w-]*&?)",
           "captures": {
             "1": { "name": "keyword.declaration.module.comp" },
-            "2": { "name": "entity.name.tag.comp" },
-            "3": { "name": "string.quoted.double.comp" }
+            "2": { "name": "entity.name.namespace.comp" }
           }
         },
         {
-          "comment": "!context name",
-          "match": "(!context)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)",
+          "comment": "!mod name — module configuration value",
+          "match": "(!mod)\\s+([a-zA-Z_][\\w.-]*)",
           "captures": {
-            "1": { "name": "keyword.declaration.function.comp" },
-            "2": { "name": "entity.name.function.comp" }
-          }
-        }
-      ]
-    },
-
-    "signature-operators": {
-      "patterns": [
-        {
-          "comment": ":param — individual parameter declaration",
-          "match": "(:param)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)(~[a-zA-Z_][a-zA-Z0-9_|-]*)?",
-          "captures": {
-            "1": { "name": "keyword.other.param.comp" },
-            "2": { "name": "variable.parameter.comp" },
-            "3": { "name": "storage.type.comp" }
+            "1": { "name": "keyword.declaration.module.comp" },
+            "2": { "name": "entity.name.namespace.comp" }
           }
         },
         {
-          "comment": ":params — shape-matched parameter group",
-          "match": "(:params)\\s*(~[a-zA-Z_][a-zA-Z0-9_|-]*)?",
+          "comment": "!package name — package metadata key",
+          "match": "(!package)\\s+([a-zA-Z_][\\w-]*)",
           "captures": {
-            "1": { "name": "keyword.other.params.comp" },
-            "2": { "name": "storage.type.comp" }
-          }
-        },
-        {
-          "comment": ":block — deferred block parameter declaration",
-          "match": "(:block)\\s+([a-zA-Z_][a-zA-Z0-9_-]*)(~[a-zA-Z_][a-zA-Z0-9_|-]*)?",
-          "captures": {
-            "1": { "name": "keyword.other.block.comp" },
-            "2": { "name": "variable.parameter.comp" },
-            "3": { "name": "storage.type.comp" }
+            "1": { "name": "keyword.declaration.module.comp" },
+            "2": { "name": "variable.other.member.comp" }
           }
         }
       ]
@@ -165,37 +132,74 @@
     "block-operators": {
       "patterns": [
         {
-          "comment": "!on — dispatch operator",
+          "comment": "!param name — parameter declaration inside function body",
+          "match": "(!param)\\s+([a-zA-Z_][\\w-]*)",
+          "captures": {
+            "1": { "name": "keyword.other.param.comp" },
+            "2": { "name": "variable.parameter.comp" }
+          }
+        },
+        {
+          "comment": "!my name — local variable binding",
+          "match": "(!my)\\s+([a-zA-Z_][\\w-]*)",
+          "captures": {
+            "1": { "name": "keyword.control.binding.comp" },
+            "2": { "name": "variable.other.local.comp" }
+          }
+        },
+        {
+          "comment": "!ctx name — context variable binding",
+          "match": "(!ctx)\\s+([a-zA-Z_][\\w-]*)",
+          "captures": {
+            "1": { "name": "keyword.control.binding.comp" },
+            "2": { "name": "variable.other.local.comp" }
+          }
+        },
+        {
+          "comment": "!stash var&key.path = value — stash write",
+          "match": "(!stash)\\s+([a-zA-Z_][\\w-]*)",
+          "captures": {
+            "1": { "name": "keyword.other.stash.comp" },
+            "2": { "name": "variable.other.local.comp" }
+          }
+        },
+        {
+          "comment": "!on — pattern dispatch operator",
           "name": "keyword.control.dispatch.comp",
           "match": "!on\\b"
         },
         {
-          "comment": "!let — local binding",
-          "name": "keyword.control.let.comp",
-          "match": "!let\\b"
-        },
-        {
-          "comment": "!defer — prevent automatic invocation",
-          "name": "keyword.control.defer.comp",
-          "match": "!defer\\b"
-        },
-        {
-          "comment": "!fail — raise failure value",
-          "name": "keyword.control.fail.comp",
-          "match": "!fail\\b"
-        },
-        {
-          "comment": "!ctx — context binding",
-          "name": "keyword.other.ctx.comp",
-          "match": "!ctx\\b"
-        },
-        {
-          "comment": "!transact — transaction block",
+          "comment": "!transact — transaction scope",
           "name": "keyword.control.transact.comp",
           "match": "!transact\\b"
         },
         {
-          "comment": "Catch-all for any !operator not listed above",
+          "comment": "!defer — deferred evaluation",
+          "name": "keyword.control.defer.comp",
+          "match": "!defer\\b"
+        },
+        {
+          "comment": "!forward — redispatch to next overload",
+          "name": "keyword.control.forward.comp",
+          "match": "!forward\\b"
+        },
+        {
+          "comment": "!fail — raise a failure value",
+          "name": "keyword.control.fail.comp",
+          "match": "!fail\\b"
+        },
+        {
+          "comment": "!grab/!drop/!pull/!push — handle operators",
+          "name": "keyword.other.handle.comp",
+          "match": "!(grab|drop|pull|push)\\b"
+        },
+        {
+          "comment": "!and/!or/!not — logical operators",
+          "name": "keyword.operator.logical.comp",
+          "match": "!(and|or|not)\\b"
+        },
+        {
+          "comment": "catch-all for any remaining !operator",
           "name": "keyword.other.bang.comp",
           "match": "![a-zA-Z][a-zA-Z0-9-]*\\b"
         }
@@ -205,33 +209,11 @@
     "wrappers": {
       "patterns": [
         {
-          "comment": "@wrapper on blocks/expressions",
-          "name": "meta.wrapper.comp",
-          "match": "(@)([a-zA-Z_][a-zA-Z0-9_-]*)",
+          "comment": "@wrapper — behavior annotation on functions/expressions",
+          "match": "(@)([a-zA-Z_][\\w-]*)",
           "captures": {
-            "1": { "name": "punctuation.definition.wrapper.comp" },
-            "2": { "name": "entity.name.function.wrapper.comp" }
-          }
-        }
-      ]
-    },
-
-    "parameter-prefix": {
-      "patterns": [
-        {
-          "comment": ":name=value — named parameter at call site",
-          "match": "(:)([a-zA-Z_][a-zA-Z0-9_-]*)(=)",
-          "captures": {
-            "1": { "name": "punctuation.definition.parameter.comp" },
-            "2": { "name": "variable.parameter.comp" },
-            "3": { "name": "keyword.operator.assignment.comp" }
-          }
-        },
-        {
-          "comment": ": — positional parameter prefix at call site",
-          "match": "(:)(?=[\\(\\{\"$0-9a-zA-Z_~!])",
-          "captures": {
-            "1": { "name": "punctuation.definition.parameter.comp" }
+            "1": { "name": "punctuation.definition.decorator.comp" },
+            "2": { "name": "entity.name.function.decorator.comp" }
           }
         }
       ]
@@ -248,10 +230,7 @@
           "endCaptures": { "0": { "name": "punctuation.definition.string.end.comp" } },
           "patterns": [
             { "include": "#string-interpolation" },
-            {
-              "name": "constant.character.escape.comp",
-              "match": "\\\\[\\\\\"nrt0]"
-            }
+            { "name": "constant.character.escape.comp", "match": "\\\\[\\\\\"nrt0]" }
           ]
         },
         {
@@ -262,10 +241,7 @@
           "endCaptures": { "0": { "name": "punctuation.definition.string.end.comp" } },
           "patterns": [
             { "include": "#string-interpolation" },
-            {
-              "name": "constant.character.escape.comp",
-              "match": "\\\\[\\\\\"nrt0]"
-            }
+            { "name": "constant.character.escape.comp", "match": "\\\\[\\\\\"nrt0]" }
           ]
         }
       ]
@@ -274,23 +250,26 @@
     "string-interpolation": {
       "patterns": [
         {
-          "comment": "Escaped percent — literal %(",
+          "comment": "Escaped %% — literal percent",
           "name": "constant.character.escape.comp",
-          "match": "%%\\("
+          "match": "%%"
         },
         {
-          "comment": "String interpolation %(expr) with optional [format]",
+          "comment": "Interpolation %(expr)[format]",
           "name": "meta.interpolation.comp",
           "begin": "%\\(",
           "end": "\\)(\\[[^\\]]*\\])?",
           "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.comp" } },
           "endCaptures": {
             "0": { "name": "punctuation.section.interpolation.end.comp" },
-            "1": { "name": "string.interpolation.format.comp" }
+            "1": { "name": "constant.other.format-spec.comp" }
           },
           "contentName": "source.comp.embedded",
           "patterns": [
+            { "include": "#comments" },
             { "include": "#input-references" },
+            { "include": "#stash-access" },
+            { "include": "#unit-cast" },
             { "include": "#operators" },
             { "include": "#numbers" },
             { "include": "#constants" },
@@ -303,24 +282,29 @@
     "numbers": {
       "patterns": [
         {
-          "comment": "Hex literal",
+          "comment": "Fractional number n/d (rational literal)",
+          "name": "constant.numeric.rational.comp",
+          "match": "\\b[0-9][0-9_]*/[0-9][0-9_]*\\b"
+        },
+        {
+          "comment": "Hex literal 0x...",
           "name": "constant.numeric.hex.comp",
-          "match": "\\b0x[0-9a-fA-F_]+\\b"
+          "match": "\\b0[xX][0-9a-fA-F_]+\\b"
         },
         {
-          "comment": "Binary literal",
+          "comment": "Binary literal 0b...",
           "name": "constant.numeric.binary.comp",
-          "match": "\\b0b[01_]+\\b"
+          "match": "\\b0[bB][01_]+\\b"
         },
         {
-          "comment": "Octal literal",
+          "comment": "Octal literal 0o...",
           "name": "constant.numeric.octal.comp",
-          "match": "\\b0o[0-7_]+\\b"
+          "match": "\\b0[oO][0-7_]+\\b"
         },
         {
-          "comment": "Float or integer with optional unit [unit]",
+          "comment": "Decimal or integer literal",
           "name": "constant.numeric.comp",
-          "match": "\\b\\d[\\d_]*(\\.[\\d_]+)?([eE][+-]?\\d+)?(\\[[a-zA-Z_][a-zA-Z0-9_-]*\\])?\\b"
+          "match": "\\b[0-9][0-9_]*(\\.[0-9_]*)?([eE][+-]?[0-9_]+)?\\b"
         }
       ]
     },
@@ -328,14 +312,14 @@
     "constants": {
       "patterns": [
         {
-          "comment": "Boolean and nil constants",
-          "name": "constant.language.comp",
-          "match": "\\b(true|false|nil)\\b"
+          "comment": "nil — absence of a value",
+          "name": "constant.language.nil.comp",
+          "match": "\\bnil\\b"
         },
         {
-          "comment": "Stream control tags",
-          "name": "constant.language.stream.comp",
-          "match": "\\b(done|skip|pass)\\b"
+          "comment": "true/false — boolean literals",
+          "name": "constant.language.boolean.comp",
+          "match": "\\b(true|false)\\b"
         }
       ]
     },
@@ -343,34 +327,70 @@
     "input-references": {
       "patterns": [
         {
-          "comment": "$$ — outer scope input with optional field access",
-          "name": "variable.language.outer-input.comp",
-          "match": "\\$\\$[a-zA-Z_][a-zA-Z0-9_-]*(\\.[a-zA-Z_][a-zA-Z0-9_-]*)*"
-        },
-        {
-          "comment": "$$ — bare outer scope input",
-          "name": "variable.language.outer-input.comp",
-          "match": "\\$\\$(?![a-zA-Z_])"
-        },
-        {
-          "comment": "$field — input field access (no dot needed)",
+          "comment": "$$$ — outermost scope pipeline input",
           "name": "variable.language.input.comp",
-          "match": "\\$[a-zA-Z_][a-zA-Z0-9_-]*(\\.[a-zA-Z_][a-zA-Z0-9_-]*)*"
+          "match": "\\$\\$\\$"
         },
         {
-          "comment": "$ — bare pipeline input",
+          "comment": "$$ — outer scope pipeline input",
           "name": "variable.language.input.comp",
-          "match": "\\$(?![a-zA-Z_$])"
+          "match": "\\$\\$"
+        },
+        {
+          "comment": "$ — current pipeline input",
+          "name": "variable.language.input.comp",
+          "match": "\\$"
         }
       ]
     },
 
-    "tags": {
+    "shape-annotations": {
       "patterns": [
         {
-          "comment": "~tag — type tag / shape reference",
-          "name": "storage.type.comp",
-          "match": "~[a-zA-Z_][a-zA-Z0-9_|-]*"
+          "comment": "~type — input shape / type annotation",
+          "match": "(~)([a-zA-Z_][\\w.-]*(?:\\|[a-zA-Z_][\\w.-]*)?)?",
+          "captures": {
+            "1": { "name": "keyword.operator.shape.comp" },
+            "2": { "name": "storage.type.comp" }
+          }
+        }
+      ]
+    },
+
+    "capture-expr": {
+      "patterns": [
+        {
+          "comment": ": before (, {, [ — capture/defer a block, struct, or pipeline",
+          "match": "(:)(?=[\\(\\{\\[])",
+          "captures": {
+            "1": { "name": "keyword.operator.capture.comp" }
+          }
+        }
+      ]
+    },
+
+    "stash-access": {
+      "patterns": [
+        {
+          "comment": "&key or &key.path — module-private stash read",
+          "match": "(&)([a-zA-Z_][\\w-]*(?:\\.[a-zA-Z_][\\w-]*)*)",
+          "captures": {
+            "1": { "name": "punctuation.definition.stash.comp" },
+            "2": { "name": "variable.other.stash.comp" }
+          }
+        }
+      ]
+    },
+
+    "unit-cast": {
+      "patterns": [
+        {
+          "comment": "#unit — unit cast or unit constraint in shapes",
+          "match": "(#)([a-zA-Z_][\\w-]*)",
+          "captures": {
+            "1": { "name": "punctuation.definition.unit.comp" },
+            "2": { "name": "entity.name.tag.unit.comp" }
+          }
         }
       ]
     },
@@ -379,53 +399,53 @@
       "patterns": [
         {
           "comment": "Pipeline fallback operator |?",
-          "name": "keyword.operator.fallback.comp",
+          "name": "keyword.operator.pipeline-fallback.comp",
           "match": "\\|\\?"
         },
         {
-          "comment": "Pipeline operator",
+          "comment": "Pipeline operator |",
           "name": "keyword.operator.pipeline.comp",
           "match": "\\|(?!\\?)"
         },
         {
           "comment": "Value fallback operator ??",
-          "name": "keyword.operator.fallback.value.comp",
+          "name": "keyword.operator.fallback.comp",
           "match": "\\?\\?"
         },
         {
-          "comment": "Three-way comparison <> operator",
-          "name": "keyword.operator.comparison.threeway.comp",
+          "comment": "Three-way comparison <>",
+          "name": "keyword.operator.comparison.comp",
           "match": "<>"
         },
         {
-          "comment": "Comparison operators",
+          "comment": "Equality operators == !=",
           "name": "keyword.operator.comparison.comp",
-          "match": "==|!=|<=|>=|(?<!<)<(?!>)|(?<!<)>(?!>)"
+          "match": "==|!="
         },
         {
-          "comment": "Logical operators",
-          "name": "keyword.operator.logical.comp",
-          "match": "!and|!or|!not"
+          "comment": "Ordering operators <= >= < >",
+          "name": "keyword.operator.comparison.comp",
+          "match": "<=|>=|<(?!>)|>(?![=<])"
         },
         {
-          "comment": "Assignment",
-          "name": "keyword.operator.assignment.comp",
-          "match": "="
-        },
-        {
-          "comment": "Arithmetic",
+          "comment": "Kebab-minus +- (symmetric tolerance / range)",
           "name": "keyword.operator.arithmetic.comp",
-          "match": "\\+|-|\\*|/|%(?!\\()"
+          "match": "\\+-"
         },
         {
-          "comment": "Range operator",
-          "name": "keyword.operator.range.comp",
-          "match": "\\.\\."
+          "comment": "Arithmetic operators + - * /",
+          "name": "keyword.operator.arithmetic.comp",
+          "match": "[+\\-*/]"
         },
         {
-          "comment": "Field access dot",
+          "comment": "Assignment =",
+          "name": "keyword.operator.assignment.comp",
+          "match": "(?<![=!<>])=(?!=)"
+        },
+        {
+          "comment": "Field access dot — not followed by a digit",
           "name": "punctuation.accessor.comp",
-          "match": "\\.(?!\\d|\\.)"
+          "match": "\\.(?![0-9])"
         }
       ]
     },
@@ -433,9 +453,9 @@
     "type-names": {
       "patterns": [
         {
-          "comment": "Built-in type names",
-          "name": "support.type.comp",
-          "match": "\\b(text|num|int|bool|struct|datetime|any)\\b"
+          "comment": "Commonly-used built-in type names",
+          "name": "support.type.builtin.comp",
+          "match": "\\b(text|num|bool|any|nil)\\b"
         }
       ]
     },
@@ -443,14 +463,14 @@
     "function-calls": {
       "patterns": [
         {
-          "comment": "Dotted function call — module.function",
+          "comment": "Qualified call module.function",
           "name": "entity.name.function.comp",
-          "match": "[a-zA-Z_][a-zA-Z0-9_-]*\\.[a-zA-Z_][a-zA-Z0-9_.-]*(?=\\s*[:\\(\\{])"
+          "match": "[a-zA-Z_][\\w-]*\\.[a-zA-Z_][\\w.-]*(?=\\s*(\\(|\\{|\\[))"
         },
         {
-          "comment": "Function call — identifier followed by : ( or {",
+          "comment": "Unqualified function call — identifier before ( { [",
           "name": "entity.name.function.comp",
-          "match": "[a-zA-Z_][a-zA-Z0-9_?-]*(?=\\s*[:\\(\\{])"
+          "match": "[a-zA-Z_][\\w-]*(?=\\s*(\\(|\\{|\\[))"
         }
       ]
     }

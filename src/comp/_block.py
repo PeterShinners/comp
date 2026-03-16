@@ -3,7 +3,7 @@
 import comp
 
 
-__all__ = ["Block", "Callable", "Pipeline", "StatementHandle", "create_blockdef"]
+__all__ = ["Block", "Callable", "Pipeline", "create_blockdef"]
 
 
 class Block:
@@ -219,27 +219,6 @@ class Pipeline:
                 body_str = body_str[:27] + "..."
             return f"[{body_str}]"
         return "[...]"
-
-
-class StatementHandle:
-    """Wraps a callable Value to prevent auto-invocation by TryInvoke.
-
-    BuildInvokeData stores callable statements (Callable, Block,
-    InternalCallable) inside a StatementHandle so that a wrapper function
-    accessing $.statement receives the callable as a value rather than
-    accidentally auto-invoking it via TryInvoke.
-
-    The `apply` builtin and the UnwrapStatementHandle instruction both know
-    how to reach through this wrapper to the inner callable.
-    """
-
-    __slots__ = ("val",)
-
-    def __init__(self, val):
-        self.val = val
-
-    def __repr__(self):
-        return f"StatementHandle({self.val!r})"
 
 
 def create_blockdef(qualified_name, cop_node):

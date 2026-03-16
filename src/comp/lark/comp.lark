@@ -136,7 +136,7 @@ on_dispatch: OP_ON expression on_branch+
 on_branch: shape expression
 defer_expr: OP_DEFER expression
 forward_expr: OP_FORWARD
-handle_grab: OP_GRAB expression
+handle_grab: OP_GRAB expression expression
 handle_drop: OP_DROP expression
 handle_pull: OP_PULL expression
 handle_push: OP_PUSH unary expression

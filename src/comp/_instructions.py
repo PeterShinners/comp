@@ -95,12 +95,7 @@ class Const(Instruction):
 
 
 class LoadVar(Instruction):
-    """Load a variable from the environment or namespace.
-
-    This is a pure load — no auto-invocation. The codegen emits an explicit
-    TryInvoke instruction after LoadVar when the value is in a value position.
-    For callable positions (Invoke/PipeInvoke), no TryInvoke is emitted.
-    """
+    """Load a variable from the environment or namespace."""
 
     def __init__(self, cop, name):
         super().__init__(cop)
@@ -294,35 +289,6 @@ class DeepSetLocal(Instruction):
 # ---------------------------------------------------------------------------
 # Invocation
 # ---------------------------------------------------------------------------
-
-class TryInvoke(Instruction):
-    """Invoke the value in a register with empty args if it is callable.
-
-    If the value is a Callable, Block, or InternalCallable, it is called
-    with no piped input and empty args. Otherwise the value passes through.
-
-    The codegen emits this explicitly after value-position references and at
-    the end of each definition's instruction sequence.
-    """
-
-    def __init__(self, cop, value):
-        super().__init__(cop)
-        self.value = value  # int register index
-
-    def execute(self, frame):
-        val = frame.get_value(self.value)
-        if isinstance(val.data, (comp.Callable, comp.InternalCallable)):
-            empty_args = comp.Value.from_python({})
-            try:
-                val = frame.invoke_block(val, empty_args, piped=None, source_cop=self.cop)
-            except comp.CompFail as e:
-                frame.failure = e.value
-                return frame.set_result(e.value)
-        return frame.set_result(val)
-
-    def format(self, idx):
-        return f"%{idx}  TryInvoke %{self.value}"
-
 
 class Invoke(Instruction):
     """Invoke a function/block with arguments (no piped input)."""
@@ -648,17 +614,23 @@ class GetStash(Instruction):
         if target_val.stash is not None:
             stash = target_val.stash.get(module_key)
         if stash is None or not isinstance(stash.data, dict):
-            raise comp.CodeError(
+            fail_val = comp._interp._make_fail_value(
                 f"No stash for this module on this value (field '{self.field}')",
-                self.cop,
+                tag=comp.tag_fail_field,
+                cop_val=self.cop,
             )
+            frame.failure = fail_val
+            return frame.set_result(fail_val)
         field_key = comp.Value.from_python(self.field)
         result = stash.data.get(field_key)
         if result is None:
-            raise comp.CodeError(
+            fail_val = comp._interp._make_fail_value(
                 f"Field '{self.field}' not found in stash",
-                self.cop,
+                tag=comp.tag_fail_field,
+                cop_val=self.cop,
             )
+            frame.failure = fail_val
+            return frame.set_result(fail_val)
         return frame.set_result(result)
 
     def format(self, idx):
@@ -750,13 +722,7 @@ class BuildInvokeData(Instruction):
     def execute(self, frame):
         statement_val = frame.get_value(self.statement_reg)
 
-        # Wrap callable statements in StatementHandle to prevent TryInvoke from
-        # auto-calling them if a wrapper function accesses $.statement.
-        # Non-callable values (text, numbers, structs) are stored as-is.
-        if isinstance(statement_val.data, (comp.Callable, comp.InternalCallable)):
-            statement_stored = comp.Value(comp.StatementHandle(statement_val))
-        else:
-            statement_stored = statement_val
+        statement_stored = statement_val
 
         # Current piped input ($)
         _nil = comp.Value.from_python(comp.tag_nil)
@@ -787,33 +753,6 @@ class BuildInvokeData(Instruction):
 
     def format(self, idx):
         return f"%{idx}  BuildInvokeData stmt=%{self.statement_reg}"
-
-
-class UnwrapStatementHandle(Instruction):
-    """Unwrap a StatementHandle, returning the inner callable value.
-
-    If the input register holds a StatementHandle, sets the result to the
-    inner value (the original callable).  Otherwise passes the value through
-    unchanged.
-
-    Emitted by _build_function immediately after the PipeInvoke that calls a
-    definition-time wrapper, so that a pass-through wrapper (one that returns
-    $.statement) causes the definition to store the original Block rather than
-    the opaque handle.
-    """
-
-    def __init__(self, cop, value):
-        super().__init__(cop)
-        self.value = value  # int register index
-
-    def execute(self, frame):
-        val = frame.get_value(self.value)
-        if isinstance(val.data, comp.StatementHandle):
-            return frame.set_result(val.data.val)
-        return frame.set_result(val)
-
-    def format(self, idx):
-        return f"%{idx}  UnwrapStatementHandle %{self.value}"
 
 
 # ---------------------------------------------------------------------------
@@ -1511,11 +1450,17 @@ class StripUnit(Instruction):
 # ---------------------------------------------------------------------------
 
 class GrabHandle(Instruction):
-    """Create a handle instance from a tag value (!grab)."""
+    """Create a handle instance from a tag value (!grab).
 
-    def __init__(self, cop, tag_reg):
+    Optionally also sets the handle's private data in one step when data_reg
+    is provided, equivalent to !grab tag followed by !push handle data but
+    returning the handle rather than nil.
+    """
+
+    def __init__(self, cop, tag_reg, data_reg=None):
         super().__init__(cop)
         self.tag_reg = tag_reg  # Register containing the Tag value
+        self.data_reg = data_reg  # Optional register containing initial private data
 
     def execute(self, frame):
         tag_val = frame.get_value(self.tag_reg)
@@ -1526,9 +1471,15 @@ class GrabHandle(Instruction):
             frame.live_handles = {handle}
         else:
             frame.live_handles.add(handle)
+        # Attach initial private data if provided
+        if self.data_reg is not None:
+            data_val = frame.get_value(self.data_reg)
+            handle.private_data = data_val
         return frame.set_result(result)
 
     def format(self, idx):
+        if self.data_reg is not None:
+            return f"%{idx}  GrabHandle %{self.tag_reg} data=%{self.data_reg}"
         return f"%{idx}  GrabHandle %{self.tag_reg}"
 
 
