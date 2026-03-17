@@ -401,7 +401,15 @@ class Module:
         """Process a !export statement, queuing for namespace-time resolution.
 
         Exports are resolved during namespace() against the imports.
-        Syntax: !export NAME IMPORT_NAME  (NAME may carry & for private)
+
+        Two forms:
+          !export NAME IMPORT_ALIAS  — re-export all public defs from IMPORT_ALIAS,
+                                       each exported as NAME.def_qualified_name.
+          !export NAME IMPORT_ALIAS.SUB.PATH  — re-export only defs whose qualified
+                                                name starts with SUB.PATH from
+                                                IMPORT_ALIAS; each exported name is
+                                                NAME + suffix after SUB.PATH.
+        NAME may carry & suffix for private.
         """
         raw_name = stmt.get("name")
         is_private = raw_name.endswith("&")
@@ -600,14 +608,54 @@ class Module:
             resolved_cache[name] = result
             return result
 
-        def resolve_export_ref(ref):
-            """Resolve an export reference against the imports only."""
-            if ref not in self._imports:
+        def resolve_export_pairs(def_name, def_ref):
+            """Resolve an export statement to (exported_name, Definition) pairs.
+
+            When def_ref is a simple import alias, re-exports every public def
+            from that module as def_name.def_qualified.
+
+            When def_ref is dotted (import_alias.sub.path), re-exports only defs
+            whose qualified name starts with sub_path; each exported name is
+            def_name + the suffix after sub_path, so the sub_path is replaced by
+            def_name.
+
+            Examples:
+              !export util  mymod     -> util.split, util.join ...
+              !export measure.time unit.measure.time
+                -> unit defs 'measure.time.second' -> 'measure.time.second',
+                               'measure.time.day'    -> 'measure.time.day', ...
+            """
+            if "." in def_ref:
+                # Sub-path form: def_ref is "import_alias.sub.path"
+                dot = def_ref.index(".")
+                import_key = def_ref[:dot]
+                sub_path = def_ref[dot + 1:]
+            else:
+                import_key = def_ref
+                sub_path = None
+
+            if import_key not in self._imports:
                 return []
-            import_module, import_err = self._imports[ref]
+            import_module, import_err = self._imports[import_key]
             if import_module is None or import_err:
                 return []
-            return list(import_module.definitions().values())
+
+            result = []
+            for qualified, tdef in import_module.definitions().items():
+                if tdef.private:
+                    continue
+                if sub_path is not None:
+                    if qualified == sub_path:
+                        exported_name = def_name
+                    elif qualified.startswith(sub_path + "."):
+                        suffix = qualified[len(sub_path):]  # starts with "."
+                        exported_name = def_name + suffix
+                    else:
+                        continue
+                else:
+                    exported_name = f"{def_name}.{qualified}"
+                result.append((exported_name, tdef))
+            return result
 
         # Resolve each deferred def and store results.
         # _resolved_deferred: list of (kind, name, defs, is_private)
@@ -622,18 +670,13 @@ class Module:
         for kind, def_name, def_ref, is_private in self._deferred_defs:
             if kind != "export":
                 continue
-            target_defs = resolve_export_ref(def_ref)
-            if not target_defs:
-                continue
-            for tdef in target_defs:
-                if tdef.private:
-                    continue
-                qualified_name = f"{def_name}.{tdef.qualified}"
-                self._resolved_deferred.append((kind, qualified_name, {tdef}, is_private))
+            target_pairs = resolve_export_pairs(def_name, def_ref)
+            for exported_name, tdef in target_pairs:
+                self._resolved_deferred.append((kind, exported_name, {tdef}, is_private))
                 if not is_private:
-                    self._exported_aliases.setdefault(qualified_name, set()).add(tdef)
+                    self._exported_aliases.setdefault(exported_name, set()).add(tdef)
                 # Inject into namespace so aliases in pass B can find these
-                _inject_ns(self._namespace, qualified_name, {tdef})
+                _inject_ns(self._namespace, exported_name, {tdef})
 
         # Pass B: aliases — can now reference exported names
         for kind, def_name, def_ref, is_private in self._deferred_defs:

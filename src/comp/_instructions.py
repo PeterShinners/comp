@@ -328,6 +328,13 @@ class PipeInvoke(Instruction):
         try:
             result = frame.invoke_block(callable_val, args_val, piped=piped_val, source_cop=self.cop)
         except comp.CompFail as e:
+            # Try-invoke semantics: a "not callable" failure means the value is
+            # not a block, so treat it as a pass-through (return the value itself).
+            try:
+                if e.value.field("fail").data is comp.tag_fail_invoke:
+                    return frame.set_result(callable_val)
+            except (TypeError, KeyError):
+                pass
             frame.failure = e.value
             return frame.set_result(e.value)
         return frame.set_result(result)

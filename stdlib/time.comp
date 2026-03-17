@@ -1,23 +1,18 @@
-/// Date, time, duration, and timezone operations.
+/// Date, time, and timezone operations.
 /// All datetimes are zone-aware. Dates are calendar-only.
-/// Arithmetic uses calendar deltas (advance/retreat) or absolute duration (add-duration/sub-duration).
+/// Time shifts use unit-tagged numbers: [dt | shift 3~day], [dt | shift -2~month].
 
 !import py comp "py"
-
-
-// ===== Tags =====
-
-/// Overflow policy for calendar arithmetic edge cases (e.g. Jan 31 + 1 month)
-!tag overflow { clamp error }
-
-/// Unit tags for epoch numerics
-!tag epoch { sec ms }
+!import num comp "num"
+!import unit comp "unit"
 
 /// Unit tag for datetime format layout strings
-!tag format { datetime-fmt }
+!tag layout { datetime-fmt }
 
+// Re-export the time unit family so consumers of this divmodule can tag numeric
+// shift values (e.g. 3~day, -1~month) without also importing unit directly.
+!export measure.time unit.measure.time
 
-// ===== Shapes =====
 
 /// A specific timezone: IANA name plus UTC offset in seconds
 !shape zone ~{
@@ -43,247 +38,171 @@
     zone~zone
 }
 
-/// Relative calendar units for arithmetic — not a stored timestamp
-!shape delta ~{
-    years~num = 0
-    months~num = 0
-    days~num = 0
-}
 
-/// Absolute elapsed time as a count of seconds (fractional permitted)
-!shape duration ~num
-
-
-// ===== Context =====
-
-// Callers set the ambient timezone via:  !ctx timezone [zone "America/New_York"]
+// Callers set the ambient timezone via:  !ctx timezone [tz "America/New_York"]
 // Functions that need a timezone declare  !param timezone~zone = utc
 // so the context value is injected automatically, falling back to UTC when absent.
 
 
-// ===== Zone construction =====
-
 /// Look up a zone by IANA name string (e.g. "America/New_York", "UTC").
-/// Returns a zone struct.  Aliased as tz for brevity:
+/// Returns a zone struct. Aliased as tz for brevity:
 ///   !ctx timezone [tz "America/New_York"]
-!func tz ~text (
+!pure tz ~text (
     !my info [{$} | py.pure-call "zoneinfo.ZoneInfo"]
     !my offset [info | py.method {"utcoffset" nil} | py.method {"total_seconds"}]
     [{name=$ offset-sec=offset} | zone]
 )
 
-/// The UTC zone
+/// The UTC zone constant
 !pure utc ~nil [
     [{name="UTC" offset-sec=0} | zone]
 ]
 
 
-// ===== Construction =====
-
 /// Current moment as a date-time, zone from context (falls back to UTC).
 /// Attaches a monotonic clock reading as sidecar &mono for accurate elapsed
 /// timing without wall-clock skew.
+/// To get a shifted "now", chain: [now | shift 3~day]
 !func now ~nil (
     !param timezone~zone = utc
     !my dt [nil | py.call "datetime.datetime.now"]
-    !my result [dt | _py-to-date-time timezone]
+    !my result [dt | py-to-date-time timezone]
     !my mono [nil | py.call "time.monotonic"]
-    !stash result&mono = mono
+    !stash result&mono mono
     result
 )
 
 /// Today as a date (no time component, no zone)
 !func today ~nil (
     !my d [nil | py.call "datetime.date.today"]
-    [d | _py-to-date]
-)
-
-/// Construct a date-time from all fields. Zone defaults to context timezone or UTC.
-!func datetime ~nil (
-    !param year~num
-    !param month~num
-    !param day~num
-    !param hour~num = 0
-    !param minute~num = 0
-    !param second~num = 0
-    !param timezone~zone = utc
-    [{year=year month=month day=day hour=hour minute=minute second=second zone=timezone} | date-time]
-)
-
-
-// ===== Timezone operations =====
-
-/// Relabel the zone without moving the wall-clock moment (reinterpret, not convert).
-/// Preserves &mono sidecar since the underlying instant is unchanged.
-!func rezone ~date-time (
-    !param zone~zone
-    !my result [{year=$.year month=$.month day=$.day hour=$.hour minute=$.minute second=$.second zone=zone} | date-time]
-    !stash result&mono = $&mono
-    result ?? result
+    [d | py-to-date]
 )
 
 /// Express the same absolute moment in a different zone (conversion).
 /// Preserves &mono sidecar since the underlying instant is unchanged.
 !func convert ~date-time (
     !param zone~zone
-    !my py-dt [$ | _date-time-to-py]
-    !my py-tz [zone.name | py.call "zoneinfo.ZoneInfo"]
+    !my py-dt [$ | date-time-to-py]
+    !my py-tz [zone.name | py.pure-call "zoneinfo.ZoneInfo"]
     !my converted [py-dt | py.method {"astimezone" py-tz}]
-    !my result [converted | _py-to-date-time zone]
-    !stash result&mono = $&mono
-    result ?? result
+    !my result [converted | py-to-date-time zone]
+    !stash result&mono $&mono
+    result
 )
 
 
-// ===== Calendar arithmetic =====
-
-/// Apply a delta forward; overflow defaults to clamp
-!func advance ~date-time (
-    !param delta~delta
-    !param overflow~overflow = overflow.clamp
-    [$ | _apply-delta delta=delta dir=1 overflow=overflow]
+/// Shift a date-time by a unit-tagged number. Negative values shift backward.
+/// Month and year shifts renormalize: day clamps to the last valid day of
+/// the target month (e.g. Jan 31 + 1~month = Feb 28/29).
+!pure shift ~date-time (
+    !param by~num
+    (!on by
+        ~num#year   [$ | shift-months {months=[by * 12]}]
+        ~num#month  [$ | shift-months {months=by}]
+        ~num#week   [$ | shift-td {seconds=[by * 604800]}]
+        ~num#day    [$ | shift-td {seconds=[by * 86400]}]
+        ~num#hour   [$ | shift-td {seconds=[by * 3600]}]
+        ~num#minute [$ | shift-td {seconds=[by * 60]}]
+        ~num#second [$ | shift-td {seconds=by}]
+    )
 )
 
-/// Apply a delta backward; overflow defaults to clamp
-!func retreat ~date-time (
-    !param delta~delta
-    !param overflow~overflow = overflow.clamp
-    [$ | _apply-delta delta=delta dir=[-1] overflow=overflow]
-)
-
-/// Difference between two date-times as a Duration (absolute seconds)
-!func diff ~date-time (
+/// Difference between two date-times as seconds (positive if self is later).
+!pure diff ~date-time (
     !param other~date-time
-    !my a [$ | _date-time-to-py]
-    !my b [other | _date-time-to-py]
+    !my a [$ | date-time-to-py]
+    !my b [other | date-time-to-py]
     !my td [a | py.method {"__sub__" b}]
-    !my secs [td | py.method {"total_seconds"}]
-    [secs | py.load | duration]
+    [td | py.method {"total_seconds"} | py.load]
 )
 
-/// Human-readable calendar decomposition between two date-times.
-/// max-unit controls the largest unit returned: year month day hour minute second
-!func diff-delta ~date-time (
-    !param other~date-time
-    !param max-unit~text
-    [$ | _decompose-delta other max-unit]
-)
-
-
-// ===== Duration arithmetic =====
-
-/// Shift a date-time forward by a duration (absolute seconds)
-!func add-duration ~date-time (
-    !param dur~duration
-    !my py-dt [$ | _date-time-to-py]
-    !my py-td [{dur} | py.pure-call "datetime.timedelta"]
-    !my result [py-dt | py.method {"__add__" py-td}]
-    [result | _py-to-date-time $.zone]
-)
-
-/// Shift a date-time backward by a duration (absolute seconds)
-!func sub-duration ~date-time (
-    !param dur~duration
-    [$ | add-duration {dur = [0 - dur]}]
-)
-
-
-// ===== Comparison =====
 
 /// True if self is earlier than other
-!func before ~date-time (
+!pure before ~date-time (
     !param other~date-time
-    !my a [$ | to-epoch]
-    !my b [other | to-epoch]
-    [a < b]
+    [[$ | diff {other=other}] < 0]
 )
 
 /// True if self is later than other
-!func after ~date-time (
+!pure after ~date-time (
     !param other~date-time
-    !my a [$ | to-epoch]
-    !my b [other | to-epoch]
-    [a > b]
+    [[$ | diff {other=other}] > 0]
 )
 
 /// True if self is strictly between start and end
-!func between ~date-time (
+!pure between ~date-time (
     !param start~date-time
     !param end~date-time
     [$ | after {other=start}]
     // TODO: and [$ | before {other=end}]  — needs boolean and
 )
 
+/// Weekday as a number 0–6, where 0=Monday and 6=Sunday (Python convention).
+!pure weekday ~date-time (
+    [$ | date-time-to-py | py.method {"weekday"} | py.load]
+)
 
-// ===== Formatting and parsing =====
-
-/// Format a date-time or date to a string using a strftime layout string.
-!func strftime ~date-time (
-    !param layout~text#datetime-fmt
-    !my py-dt [$ | _date-time-to-py]
-    [py-dt | py.method {"strftime" layout} | py.load]
+/// Format a date-time to a string.
+/// Without a layout, produces an ISO 8601 string (e.g. "2026-03-17T14:30:00+00:00").
+/// With a layout, uses strftime formatting (e.g. layout: "%Y/%m/%d").
+!pure format ~date-time (
+    !param layout~any = nil
+    !my py-dt [$ | date-time-to-py]
+    (!on layout
+        ~nil  ( [py-dt | py.method {"isoformat"}] )
+        ~text#datetime-fmt ( [py-dt | py.method {"strftime" layout}] )
+    )
 )
 
 /// Parse a string to a date-time. Zone defaults to context timezone or UTC.
-!func parse ~text (
+/// (Requires datetime.datetime.strptime in py.comp's pure-call allowlist.)
+!pure parse ~text (
     !param layout~text#datetime-fmt
     !param timezone~zone = utc
     !my py-dt [{$ layout} | py.pure-call "datetime.datetime.strptime"]
-    [py-dt | _py-to-date-time timezone]
+    [py-dt | py-to-date-time timezone]
 )
 
 
-// ===== Epoch =====
-
-/// Convert a number tagged #epoch-sec or #epoch-ms to a date-time.
+/// Convert epoch seconds (plain num) to a date-time.
 /// Zone defaults to context timezone or UTC.
-!func from-epoch ~num (
+!pure from-epoch ~num (
     !param timezone~zone = utc
-    !my secs (!on $
-        ~num#epoch-ms [$ / 1000]
-        ~num          $
-    )
-    !my py-dt [{secs} | py.pure-call "datetime.datetime.utcfromtimestamp"]
-    [py-dt | _py-to-date-time timezone]
+    !my py-dt [{$} | py.pure-call "datetime.datetime.utcfromtimestamp"]
+    [py-dt | py-to-date-time timezone]
 )
 
-/// Convert a date-time to epoch seconds tagged #epoch-sec.
-!func to-epoch ~date-time (
-    !my py-dt [$ | _date-time-to-py]
-    !my epoch [py-dt | py.method {"timestamp"}]
-    [epoch | py.load]
+/// Convert a date-time to epoch seconds (plain num).
+!pure to-epoch ~date-time (
+    [$ | date-time-to-py | py.method {"timestamp"} | py.load]
 )
 
-
-// ===== Elapsed time =====
 
 /// Elapsed time in seconds between two date-times.
 /// Uses &mono sidecar when both values have it (e.g. both came from now),
 /// giving monotonic accuracy immune to wall-clock adjustments.
-/// Falls back to wall-clock diff for deserialized, parsed, or manually
-/// constructed DateTimes that carry no &mono sidecar.
-!func elapsed ~date-time (
+/// Falls back to wall-clock diff for deserialized, parsed, or constructed values.
+!pure elapsed ~date-time (
     !param other~date-time
     !my self-mono $&mono
     !my other-mono other&mono
     [self-mono - other-mono] ?? [$ | diff {other=other}]
 )
 
-/// Propagate &mono sidecar through third-party operations that preserve
-/// the instant (e.g. storage round-trips where the caller knows the moment
-/// is unchanged). Pipe the original DateTime, pass the new DateTime as result.
+/// Propagate &mono sidecar through operations that preserve the instant
+/// (e.g. storage round-trips where the caller knows the moment is unchanged).
+/// Pipe the original date-time, pass the new date-time as result.
 !func share-mono ~date-time (
     !param result~date-time
-    !stash result&mono = $&mono
-    result ?? result
+    !stash result&mono $&mono
+    result
 )
 
 
-// ===== Internal helpers (private) =====
-
 /// Convert a Python datetime object to a date-time struct
-!func _py-to-date-time ~any (
-    !param z~zone
+!pure py-to-date-time& ~any (
+    // !param z~zone
+    !my z [utc]
     !my v [$ | py.vars]
     [{
         year = v.year
@@ -297,59 +216,49 @@
 )
 
 /// Convert a Python date object to a date struct
-!func _py-to-date ~any (
+!pure py-to-date& ~any (
     !my v [$ | py.vars]
     [{year = v.year month = v.month day = v.day} | date]
 )
 
 /// Convert a date-time struct to a Python datetime object
-!func _date-time-to-py ~date-time (
-    !my py-tz [$.zone.name | py.call "zoneinfo.ZoneInfo"]
-    [{$.year $.month $.day $.hour $.minute $.second py-tz}
+!pure date-time-to-py& ~date-time (
+    !my py-tz [$.zone.name | py.pure-call "zoneinfo.ZoneInfo"]
+    [{$.year $.month $.day $.hour $.minute $.second tzinfo=py-tz}
      | py.pure-call "datetime.datetime"]
 )
 
-/// Apply a delta in a given direction (+1 forward, -1 backward) with overflow policy
-!func _apply-delta ~date-time (
-    !param delta~delta
-    !param dir~num
-    !param overflow~overflow
-    !my py-dt [$ | _date-time-to-py]
-    !my new-month ([$.month + [dir * delta.months]] + [dir * [delta.years * 12]])
-    !my new-year [$.year + [new-month / 12 | floor] + [dir * delta.years]]
-    !my clamped-month [[new-month - 1 | mod 12] + 1]
-    !my py-td [{[dir * delta.days]} | py.pure-call "datetime.timedelta"]
-    !my shifted [py-dt | py.method {"__add__" py-td}]
-    [shifted | _py-to-date-time $.zone]
+/// Shift by calendar months, renormalizing day to the last valid day of the
+/// target month (e.g. Jan 31 + 1 month = Feb 28/29).
+!pure shift-months& ~date-time (
+    !param months~num
+    !my raw-m [$.month + months - 1]
+    !my new-month [[raw-m | divmod 12] + 1]
+    !my new-year [$.year + [raw-m / 12 | floor]]
+    !my days-in-m [{new-year new-month} | py.pure-call "calendar.monthrange" | py.method {"__getitem__" 1}]
+    !my clamped-day (!on [$.day > days-in-m]
+        ~true  days-in-m
+        ~false $.day
+    )
+    !my py-dt [$ | date-time-to-py]
+    [py-dt | py.method {"replace" {year=new-year month=new-month day=clamped-day}} | py-to-date-time $.zone]
 )
 
-/// Decompose the difference into calendar units up to max-unit
-!func _decompose-delta ~date-time (
-    !param other~date-time
-    !param max-unit~text
-    !my dur [$ | diff {other=other}]
-    // Basic decomposition — days and seconds
-    !my total-days [dur / 86400 | floor]
-    !my rem-secs [dur - [total-days * 86400]]
-    !my hours [rem-secs / 3600 | floor]
-    !my minutes [[rem-secs - [hours * 3600]] / 60 | floor]
-    !my seconds [rem-secs - [hours * 3600] - [minutes * 60]]
-    [{days=total-days hours=hours minutes=minutes seconds=seconds} | delta]
+/// Shift by an absolute number of seconds (covers weeks, days, hours, minutes, seconds).
+!pure shift-td& ~date-time (
+    !param seconds~num
+    !my py-dt [$ | date-time-to-py]
+    !my py-td [{seconds=seconds} | py.pure-call "datetime.timedelta"]
+    [py-dt | py.method {"__add__" py-td} | py-to-date-time $.zone]
 )
 
 
-// ===== Deliberately unspecified =====
-
-// Recurring patterns — entirely separate, not part of this module.
+// Recurring patterns — entirely separate, not part of this divmodule.
 // "Every first Monday" is a rule that generates DateTime values, not a
-// datetime itself. Belongs in a datetime.recurrence module.
-
-// unit tag for diff-delta — would enumerate day week month year, but the
-// unit tag system's interaction with calendar units needs its own design pass.
+// datetime itself. Belongs in a datetime.recurrence divmodule.
 
 // Locale/formatting depth — format and parse are intentionally minimal.
-// Locale-aware formatting belongs in a separate datetime.locale submodule.
+// Locale-aware formatting belongs in a separate datetime.locale subdivmodule.
 
-// Date-only arithmetic — advance and retreat are DateTime-only for now.
-// Date-only arithmetic is a natural extension but adds surface area; Date
-// structurally satisfies ~DateTime for most read operations already.
+// Date-only arithmetic — shift is DateTime-only for now. Date structurally
+// satisfies ~DateTime for most read operations already.

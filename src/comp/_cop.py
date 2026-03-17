@@ -609,14 +609,14 @@ def cop_unparse(cop):
             return "<?my?>"
 
         case "op.stash":
-            # !stash target&key.path = value
+            # !stash target&key.path value
             # kids: [target_ident, key_ident, *path_idents, value_expr]
             if len(kids) >= 3:
                 target = cop_unparse(kids[0])
                 key = cop_unparse(kids[1])
                 path = "".join(f".{cop_unparse(kids[i])}" for i in range(2, len(kids) - 1))
                 value = cop_unparse(kids[-1])
-                return f"!stash {target}&{key}{path} = {value}"
+                return f"!stash {target}&{key}{path} {value}"
             return "<?stash?>"
         
         case "op.on":

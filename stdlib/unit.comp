@@ -17,7 +17,7 @@
 !tag measure.length { meter centimeter kilometer foot inch mile }
 
 /// Time units (base: second)
-!tag measure.time { second millisecond minute hour }
+!tag measure.time { second millisecond minute hour day week month year }
 
 /// Temperature units (base: celsius)
 !tag measure.temperature { celsius fahrenheit kelvin }
@@ -46,5 +46,5 @@
 ///       $ | py.pure-call :"str.upper"
 ///   )
 !func preserve-unit (
-    [$ | apply]([$.input | get-unit-tag])
+    $
 )

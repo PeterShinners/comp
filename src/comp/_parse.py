@@ -54,7 +54,7 @@ def create_cop_module(module):
         "statement.field",  # (kids) single statement/expression in a sequence
         "op.my",  # (kids) 2 kids - name and value for !my assignment
         "op.ctx",  # (kids) 2 kids - name and value for !ctx (like !my, also updates frame context)
-        "op.stash",  # (kids) target, key, *path, value — !stash var&key.path = val
+        "op.stash",  # (kids) target, key, *path, value — !stash var&key.path val
         "op.defer",  # (kids) 1 kid - expression wrapped in a deferred (zero-arg) Block
         "op.forward",  # (kids) 0 kids - re-dispatch to next less-specific overload
         "op.on",  # (kids) expression and branches for !on dispatch
@@ -414,9 +414,6 @@ def lark_to_cop(tree):
                 else:
                     stages.append(cop)
 
-            # If only one stage (no pipes), just return the inner value
-            if len(stages) == 1:
-                return stages[0]
             return _parsed(tree, "value.pipeline", stages)
 
         case "pipe_start":
@@ -770,14 +767,14 @@ def lark_to_cop(tree):
             return _parsed(tree, "op.ctx", [name, value])
 
         case "stash_assign":
-            # stash_assign: OP_STASH identifier AMPERSAND TOKENFIELD stash_deep* EQUALS expression
-            # kids: [OP_STASH, identifier, AMPERSAND, TOKENFIELD, *stash_deep, EQUALS, expression]
+            # stash_assign: OP_STASH identifier AMPERSAND TOKENFIELD stash_deep* expression
+            # kids: [OP_STASH, identifier, AMPERSAND, TOKENFIELD, *stash_deep, expression]
             target_cop = lark_to_cop(kids[1])
             key_str = kids[3].value  # TOKENFIELD after &
             key_cop = _parsed(kids[3], "ident.token", [], value=key_str)
-            # kids[4:-2] are stash_deep trees; kids[-2]=EQUALS, kids[-1]=expression
+            # kids[4:-1] are stash_deep trees; kids[-1]=expression
             deep_cops = []
-            for kid in kids[4:-2]:
+            for kid in kids[4:-1]:
                 if isinstance(kid, lark.Tree) and kid.data == "stash_deep":
                     field_name = kid.children[1].value  # DOT + TOKENFIELD
                     deep_cops.append(_parsed(kid, "ident.token", [], value=field_name))

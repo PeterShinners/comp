@@ -254,7 +254,7 @@ param_decl: OP_PARAM_DECL identifier shape (EQUALS field_default_value)?
 
 my_assign: OP_MY identifier expression
 ctx_assign: OP_CTX identifier expression
-stash_assign: OP_STASH identifier AMPERSAND TOKENFIELD stash_deep* EQUALS expression
+stash_assign: OP_STASH identifier AMPERSAND TOKENFIELD stash_deep* expression
 stash_deep: DOT TOKENFIELD
 
 

@@ -297,7 +297,7 @@ class CodeGenContext:
                 return self.emit(comp._instructions.StoreLocal(cop=cop, name=name, source=value_idx))
 
             case "op.stash":
-                # !stash varname&key.path = value
+                # !stash varname&key.path value
                 # kids: [target_ident, key_ident, *path_idents, value_expr]
                 kids = _cop_kids(cop)
                 if len(kids) < 3:
@@ -425,10 +425,19 @@ class CodeGenContext:
         Each stage receives the previous result as piped input.
         """
         kids = _cop_kids(cop)
-        
-        # First stage is the initial value
-        result = self._build_value_ensure_register(kids[0])
-        
+
+        # First stage: try-invoke with nil as implicit piped input.
+        # If kids[0] is not callable, PipeInvoke returns it as-is (try semantics).
+        nil_idx = self.emit(comp._instructions.Const(cop=cop, value=comp.Value.from_python(comp.tag_nil)))
+        callable_idx = self._build_callable_ensure_register(kids[0])
+        args_idx = self.emit(comp._instructions.BuildStruct(cop=kids[0], fields=[]))
+        result = self.emit(comp._instructions.PipeInvoke(
+            cop=kids[0],
+            callable=callable_idx,
+            piped=nil_idx,
+            args=args_idx,
+        ))
+
         # Each subsequent stage receives the previous result as piped input
         for stage_cop in kids[1:]:
             stage_tag = stage_cop.positional(0).data.qualified

@@ -35,6 +35,9 @@ _PURE_PREFIXES = frozenset([
     "fractions.",  # e.g. fractions.Fraction
     "operator.",   # e.g. operator.mul, operator.add, operator.eq …
     "re.",         # e.g. re.fullmatch, re.match, re.search …
+    "zoneinfo.",   # e.g. zoneinfo.ZoneInfo — pure tz lookup, no side effects
+    "datetime.",   # e.g. datetime.datetime, datetime.timedelta, datetime.date …
+    "calendar.",   # e.g. calendar.monthrange — pure calendar arithmetic
 ])
 _PURE_BUILTINS = frozenset([
     "abs", "round", "divmod",
@@ -170,6 +173,10 @@ def _comp_to_python(value):
         return result
 
     if isinstance(data, comp.HandleInstance):
+        # @py handles carry an opaque Python object — unwrap it so it can
+        # be passed back into Python calls (e.g. a ZoneInfo passed to datetime).
+        if not data.released and isinstance(data.private_data and data.private_data.data, _PythonObjectWrapper):
+            return data.private_data.data.obj
         raise ValueError("Cannot convert handle to Python object")
     if isinstance(data, (comp.Block, comp.InternalCallable)):
         raise ValueError("Cannot convert block to Python object")
@@ -386,10 +393,9 @@ def _create_py_module(module):
         if input_val is not None and not (
             isinstance(input_val.data, comp.Tag) and input_val.data.qualified == "nil"
         ):
-            pos, _ = _extract_call_args(input_val)
+            pos, kwargs = _extract_call_args(input_val)
         else:
-            pos = []
-        kwargs = {}
+            pos, kwargs = [], {}
 
         if isinstance(args_val.data, dict):
             for i, (k, v) in enumerate(args_val.data.items()):
@@ -416,7 +422,7 @@ def _create_py_module(module):
                 f"Python call {name}() failed: {type(e).__name__}: {e}"
             )
 
-        return _python_to_comp(result)
+        return _smart_return(result, py_tag, module)
 
     def _method(input_val, args_val, frame):
         """Call a method on a Python object stored in a @py handle.
