@@ -295,19 +295,118 @@ def parse_callouts(tree, source, file, module, min_severity=ERROR):
     pass
 
 
-def cop_callouts(definition, min_severity=ERROR):
+def cop_callouts(definition, min_severity=ERROR, interp=None):
     """Validate cop nodes on a Definition, appending to definition.callouts.
 
     Works on whichever cop stage the definition has reached: original_cop
     (raw), resolved_cop (names resolved and folded). Callers should prefer
     resolved_cop when available.
 
+    Loads the callout stdlib module and calls validate-cop from comp code.
+    The comp-side function walks the COP tree and returns callout structs.
+
     Args:
         definition:   (Definition) Definition whose cop nodes to validate
         min_severity: (str) Minimum severity to report
+        interp:       (Interp | None) Interpreter instance for calling comp code
     """
-    # Validators to be added here
-    pass
+    if interp is None:
+        return
+
+    cop = definition.resolved_cop or definition.original_cop
+    if cop is None:
+        return
+
+    import comp
+
+    # Map severity string to the callout tag
+    severity_tags = {
+        ERROR: "callout.error",
+        WARNING: "callout.warning",
+        INFO: "callout.info",
+        HINT: "callout.hint",
+    }
+    severity_tag_name = severity_tags.get(min_severity, "callout.warning")
+
+    try:
+        callout_mod = interp.module("callout")
+        interp.build(callout_mod)
+    except Exception:
+        return
+
+    # Resolve the severity tag from the callout module
+    callout_defs = callout_mod.definitions()
+    severity_def = callout_defs.get(severity_tag_name)
+    if severity_def is None or severity_def.value is None:
+        return
+    severity_val = severity_def.value
+
+    try:
+        args = comp.Value.from_python({"min-severity": severity_val})
+        result = interp.call_function(callout_mod, "validate-cop", piped=cop, args=args)
+    except Exception:
+        return
+
+    # Convert result struct of callout values into Python Callout objects
+    if not isinstance(result.data, dict):
+        return
+
+    for val in result.data.values():
+        if not isinstance(val.data, dict):
+            continue
+        callout = _value_to_callout(val)
+        if callout is not None:
+            if definition.callouts is None:
+                definition.callouts = []
+            definition.callouts.append(callout)
+
+
+def _value_to_callout(val):
+    """Convert a comp Value (callout struct) to a Python Callout object.
+
+    Args:
+        val: (Value) A comp struct matching the callout shape
+
+    Returns:
+        (Callout | None) The converted callout, or None on failure
+    """
+    import comp
+
+    try:
+        severity_key = comp.Value.from_python("severity")
+        code_key = comp.Value.from_python("code")
+        message_key = comp.Value.from_python("message")
+        phase_key = comp.Value.from_python("phase")
+
+        severity_val = val.data.get(severity_key)
+        code_val = val.data.get(code_key)
+        message_val = val.data.get(message_key)
+        phase_val = val.data.get(phase_key)
+
+        if severity_val is None or code_val is None or message_val is None:
+            return None
+
+        # Extract severity tag name
+        if isinstance(severity_val.data, comp.Tag):
+            severity = severity_val.data.qualified.split(".")[-1]
+        else:
+            severity = str(severity_val.data)
+
+        code = str(code_val.data) if code_val else ""
+        message = str(message_val.data) if message_val else ""
+
+        phase = None
+        if phase_val is not None and isinstance(phase_val.data, comp.Tag):
+            phase = phase_val.data.qualified.split(".")[-1]
+
+        return Callout(
+            severity=severity,
+            code=code,
+            message=message,
+            phase=phase,
+        )
+    except Exception:
+        return None
 
 
 def code_callouts(definition, min_severity=ERROR):

@@ -331,7 +331,13 @@ class PipeInvoke(Instruction):
             # Try-invoke semantics: a "not callable" failure means the value is
             # not a block, so treat it as a pass-through (return the value itself).
             try:
-                if e.value.field("fail").data is comp.tag_fail_invoke:
+                fail_tag = e.value.field("fail").data
+                if fail_tag is comp.tag_fail_invoke:
+                    return frame.set_result(callable_val)
+                # Tags/shapes are callable (they morph), but when used at the
+                # start of a pipeline (piped=nil) a morph failure means the
+                # value should pass through like any other non-function value.
+                if fail_tag is comp.tag_fail_value and piped_val.data is comp.tag_nil:
                     return frame.set_result(callable_val)
             except (TypeError, KeyError):
                 pass
@@ -1790,11 +1796,15 @@ def _ensure_definition_value(defn, frame):
             defn.value = comp.Value(callable)
             return defn.value
         elif cop_tag == "shape.define":
-            if frame.module:
-                ns = frame.module.namespace()
-                shape = comp.create_shape(defn.original_cop, ns)
-                defn.value = comp.Value.from_python(shape)
-                return defn.value
+            if defn.instructions:
+                try:
+                    child_frame = frame._make_child_frame(dict(frame.env))
+                    result = child_frame.run(defn.instructions)
+                    if result is not None:
+                        defn.value = result
+                        return defn.value
+                except Exception:
+                    pass
         elif cop_tag == "shape.union":
             # Build instructions for the union and execute them to get the value
             try:

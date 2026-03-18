@@ -211,6 +211,43 @@ class Interp:
         self._new_module(mod)
         return mod
 
+    def call_function(self, module, name, piped=None, args=None):
+        """Call a function defined in a comp module from Python.
+
+        Loads, builds, and caches the module if needed, then invokes
+        the named function. This is the main entry point for Python
+        code that wants to call into comp.
+
+        Args:
+            module: (Module | str) Module object or import path string
+            name: (str) Function name to call
+            piped: (Value | None) Piped input value
+            args: (Value | dict | None) Arguments; dicts are auto-converted
+
+        Returns:
+            (Value) Result of the function call
+        """
+        if isinstance(module, str):
+            module = self.module(module)
+        self.build(module)
+
+        defs = module.definitions()
+        defn = defs.get(name)
+        if defn is None:
+            raise comp.CodeError(f"Function {name!r} not found in module")
+
+        if defn.value is None:
+            raise comp.CodeError(f"Function {name!r} has no value (not yet built?)")
+
+        if args is None:
+            args = comp.Value.from_python({})
+        elif isinstance(args, dict):
+            args = comp.Value.from_python(args)
+
+        env = {n: d.value for n, d in defs.items() if d.value is not None}
+        frame = ExecutionFrame(env, interp=self, module=module)
+        return frame.invoke_block(defn.value, args, piped=piped)
+
 
     def execute(self, instructions, env=None, module=None):
         """Execute a sequence of instructions.

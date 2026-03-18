@@ -18,6 +18,9 @@
 ///   callout.phase.codegen  — instruction generation
 
 
+!import n comp "num"
+!import loop comp "loop"
+
 // ===== Severity =====
 
 /// Severity level tags for callouts
@@ -35,17 +38,17 @@
 
 /// A source position: file path, 1-based line and column, character length.
 /// length=0 indicates a point location with no extent.
-!shape span {
+!shape span ~{
     file~text
-    line~index
-    col~index
-    length~index
+    line~n.index
+    col~n.index
+    length~n.index
 }
 
 /// An attached enrichment on a callout — no severity or code of its own.
 /// Notes are leaves: they cannot contain further notes.
 /// Used for suggestions and secondary context: "did you mean X?", "declared here".
-!shape note {
+!shape note ~{
     message~text
     location~(location | nil)
 }
@@ -53,7 +56,7 @@
 /// A span with an optional label contextualising it.
 /// Used for the primary location and each related location in a callout,
 /// e.g. label="first defined here" or label="redefined here".
-!shape location {
+!shape location ~{
     span~span
     label~text
 }
@@ -69,7 +72,7 @@
 /// notes holds attached child callouts (typically info or hint severity)
 /// that enrich the primary finding without being standalone findings.
 /// Examples: "did you mean X?", "declared here".
-!shape callout {
+!shape callout ~{
     severity~callout
     code~text
     message~text
@@ -78,3 +81,108 @@
     related~location*
     notes~note*
 }
+
+
+// ===== Severity ordering =====
+
+/// Severity ordering: error=0, warning=1, info=2, hint=3 (lower = more severe).
+/// Used by validate-cop to skip validators that can't produce
+/// callouts at the requested minimum severity level.
+!pure severity-rank ~callout (
+    !on $
+    ~callout.error   0
+    ~callout.warning 1
+    ~callout.info    2
+    ~callout.hint    3
+)
+
+
+// ===== COP tree walking =====
+
+/// Walk a COP tree depth-first, calling a block on each node.
+///
+/// walk-cop is a builtin that handles the recursion and calls your block
+/// on each matching node. The block receives piped ($) a struct:
+///   $.node   — the current COP node
+///   $.depth  — tree depth (0 for root)
+///   $.accum  — accumulated value from parent's result
+///
+/// The block should return a struct with:
+///   $.callouts — struct of callouts to collect ({} for none)
+///   $.accum    — value to pass to child traversals
+///   $.recurse  — false to skip children (default true)
+///
+/// Returning ~skip also skips recursion into children.
+/// A non-struct return is treated as a single callout to collect.
+///
+/// Args (to walk-cop builtin):
+///   filter:  (text) COP tag to filter for ("" means all nodes)
+///   initial: (any) Initial accumulator value
+///   op:      (block) Called on each matching node
+///
+/// Returns: struct of all collected callouts
+///
+/// Examples:
+///   cop-root | walk-cop filter="value.constant" :(
+///       {callouts={} accum=nil}
+///   )
+
+
+// ===== Validators =====
+
+/// Check for constant-zero-division: a binary divide where the
+/// right operand is the literal 0.
+///
+/// This catches `x / 0` and `x // 0` at compile time rather than
+/// waiting for a runtime failure.
+!pure check-zero-division (
+    !param min-severity ~callout = callout.warning
+    // Only runs at warning level or above
+    !on [min-severity | severity-rank] < [callout.warning | severity-rank]
+    ~true {}
+    ~false (
+        [$ | walk-cop filter="value.math.binary" :(
+            !my node $.node
+            // Get the op field from the cop node's fields
+            !my op [node | cop-fields | ($.op)]
+            // Check for division operators
+            !on (op == "/" !or op == "//")
+            ~true (
+                // Check if right-hand kid is a zero constant
+                !my rhs [node | cop-kids | item-at 1 | field-value]
+                !my rhs-tag [rhs | cop-tag]
+                !on rhs-tag == "value.number"
+                ~true (
+                    !my val [rhs | cop-fields | ($.value)]
+                    !on val == "0"
+                    ~true {callouts={{
+                        severity=callout.warning
+                        code="zero-division"
+                        message="Division by constant zero will always fail at runtime"
+                        phase=callout.phase.cop
+                    }}}
+                    ~false {callouts={}}
+                )
+                ~false {callouts={}}
+            )
+            ~false {callouts={}}
+        )]
+    )
+)
+
+
+/// Central entry point: validate a COP tree and collect callouts.
+///
+/// Calls each registered validator and merges their results.
+/// Each validator receives the root COP node as piped input
+/// and min-severity as a named argument.
+///
+/// Args:
+///   min-severity: (callout) Minimum severity to report
+///
+/// Returns: struct of all collected callouts
+!pure validate-cop (
+    !param min-severity ~callout = callout.warning
+    // Each validator gets the root cop node as $ and min-severity
+    [$ | check-zero-division min-severity=min-severity]
+)

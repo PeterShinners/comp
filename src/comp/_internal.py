@@ -268,6 +268,10 @@ class SystemModule(comp.Module):
         self._add_callable("reduce", _builtin_reduce)
         self._add_callable("forever", _builtin_forever, pure=True)
         self._add_callable("make-raw-tag", _builtin_make_raw_tag, pure=True)
+        self._add_callable("cop-tag", _builtin_cop_tag, pure=True)
+        self._add_callable("cop-kids", _builtin_cop_kids, pure=True)
+        self._add_callable("cop-fields", _builtin_cop_fields, pure=True)
+        self._add_callable("walk-cop", _builtin_walk_cop, pure=True)
 
         self.finalize()
 
@@ -499,7 +503,7 @@ def _builtin_item_at(input_val, args_val, frame):
         raise comp.CodeError("item-at param must be an index")
 
     items = list(input_val.data.items())
-    item = items[int(indexval.data)]
+    item = items[comp.num_floor_int(indexval.data)]
 
     if isinstance(item[0], comp.Unnamed):
         item = [item[1]]
@@ -761,48 +765,69 @@ def _builtin_update(input_val, args_val, frame):
 
 
 def _builtin_flat(input_val, args_val, frame):
-    """@flat wrapper: clone body block with a FlattenFields tail instruction.
+    """Flatten a struct-of-structs into a single flat struct.
 
-    Called at DEFINITION TIME with invoke-data.  Returns a new Block whose body
-    is the original body plus a FlattenFields instruction.  At runtime that
-    instruction concatenates the inner struct fields of the body's result into a
-    single flat struct.
+    Two modes:
 
-    Use case — multi-expression block whose results should be concatenated:
+    Wrapper mode — invoked via @flat:
+      input_val is an invoke-data struct.  Returns a new Block whose body
+      is the original body plus a FlattenFields instruction.  At runtime
+      that instruction concatenates the inner struct fields of the body's
+      result into a single flat struct.
 
-        !pure tree-values ~tree @flat {
-            ($.left  | tree-values)
-            {$.value}
-            ($.right | tree-values)
-        }
+    Pipeline mode — invoked via value | flat:
+      input_val is a struct whose values may themselves be structs.
+      Returns a new struct with all inner fields concatenated in order.
+
+    Examples:
+      !pure tree-values ~tree @flat {
+          ($.left  | tree-values)
+          {$.value}
+          ($.right | tree-values)
+      }
+
+      {{1 2} {3 4}} | flat   → {1 2 3 4}
     """
     import comp._instructions as _instr_mod
-    ctx = input_val.data
-    if not isinstance(ctx, dict):
-        raise comp.CodeError("flat requires invoke-data as piped input")
 
-    _key = comp.Value.from_python
-    statement = ctx.get(_key("statement"))
+    # Wrapper mode: input is invoke-data (has a "statement" key)
+    if isinstance(input_val.data, dict):
+        _key = comp.Value.from_python
+        statement = input_val.data.get(_key("statement"))
 
-    if statement is None:
-        raise comp.CodeError("flat: no statement in invoke-data")
+        if statement is not None:
+            block = None
+            if isinstance(statement.data, comp.Callable):
+                block = statement.data.scalar()
+            elif isinstance(statement.data, comp.Block):
+                block = statement.data
 
-    block = None
-    if isinstance(statement.data, comp.Callable):
-        block = statement.data.scalar()
-    elif isinstance(statement.data, comp.Block):
-        block = statement.data
+            if block is None:
+                raise comp.CodeError("@flat requires a block statement")
 
-    if block is None:
-        raise comp.CodeError("flat requires a block statement")
+            new_block = _clone_block_with_extra(
+                block,
+                lambda last_reg: _instr_mod.FlattenFields(cop=None, result_reg=last_reg),
+            )
+            callable = comp.Callable(new_block.qualified)
+            callable.add(new_block)
+            return comp.Value(callable)
 
-    new_block = _clone_block_with_extra(
-        block,
-        lambda last_reg: _instr_mod.FlattenFields(cop=None, result_reg=last_reg),
-    )
-    callable = comp.Callable(new_block.qualified)
-    callable.add(new_block)
-    return comp.Value(callable)
+    # Pipeline mode: flatten struct-of-structs at runtime
+    if not isinstance(input_val.data, dict):
+        return input_val
+
+    combined = {}
+    for _k, sub_val in input_val.data.items():
+        if isinstance(sub_val.data, dict):
+            for sub_k, sub_v in sub_val.data.items():
+                if isinstance(sub_k, comp.Unnamed):
+                    combined[comp.Unnamed()] = sub_v
+                else:
+                    combined[sub_k] = sub_v
+        else:
+            combined[comp.Unnamed()] = sub_val
+    return comp.Value(combined)
 
 
 def _builtin_reduce(input_val, args_val, frame):
@@ -1126,6 +1151,146 @@ def register_internal_module(resource):
         _internal_registered[resource] = callback
         return callback
     return fn
+
+
+def _builtin_cop_tag(input_val, args_val, frame):
+    """Get the tag name of a COP node as text.
+
+    Usage: cop-node | cop-tag   => "value.constant"
+    """
+    tag_name = comp.cop_tag(input_val)
+    if tag_name is None:
+        return comp.Value.from_python("")
+    return comp.Value.from_python(tag_name)
+
+
+def _builtin_cop_kids(input_val, args_val, frame):
+    """Get the children of a COP node as a struct.
+
+    Usage: cop-node | cop-kids   => {child1 child2 ...}
+    """
+    kids = comp.cop_kids(input_val)
+    return comp.Value.from_python(kids)
+
+
+def _builtin_cop_fields(input_val, args_val, frame):
+    """Get named fields of a COP node (excluding the tag and kids).
+
+    Usage: cop-node | cop-fields   => {name="foo" qualified="mod.foo" ...}
+    """
+    fields = comp.cop_fields(input_val)
+    return comp.Value.from_python(fields)
+
+
+def _builtin_walk_cop(input_val, args_val, frame):
+    """Walk a COP tree depth-first, calling a block on each node.
+
+    The block receives piped ($) a struct:
+        $.node   - the current COP node
+        $.depth  - tree depth (0 for root)
+        $.accum  - accumulated value from parent
+
+    The block should return a struct:
+        $.callouts - struct of callout values to collect (or {} for none)
+        $.accum    - value to pass to child traversals
+    Returning ~flow-control.skip skips recursion into children.
+    Any non-struct return is treated as a single callout to collect.
+
+    Args (positional):
+        op:      (block) Called on each matching node
+    Named args:
+        filter:  (text) COP tag to filter for ("" means all nodes)
+        initial: (any)  Initial accumulator value
+
+    Usage:
+        cop-node | walk-cop filter="value.constant" initial=nil :(... block ...)
+    """
+    args_data = args_val.data if isinstance(args_val.data, dict) else {}
+
+    # Extract the block from the first positional arg
+    op_val = None
+    for k, v in args_data.items():
+        if isinstance(k, comp.Unnamed):
+            op_val = v
+            break
+
+    if op_val is None:
+        raise comp.CodeError("walk-cop requires a callable as positional argument")
+
+    # Extract named args
+    filter_text = ""
+    initial_accum = comp.Value.from_python(comp.tag_nil)
+    for k, v in args_data.items():
+        if not isinstance(k, comp.Unnamed):
+            key_str = k.data if hasattr(k, "data") else str(k)
+            if key_str == "filter":
+                filter_text = v.data if isinstance(v.data, str) else ""
+            elif key_str == "initial":
+                initial_accum = v
+
+    _empty_args = comp.Value.from_python({})
+    collected = []
+
+    def walk(node, depth, accum):
+        tag_name = comp.cop_tag(node)
+
+        # Check filter
+        matches = (not filter_text) or (tag_name == filter_text)
+
+        skip_children = False
+        if matches:
+            context = comp.Value.from_python({
+                "node": node,
+                "depth": comp.Value((depth, 1, 0)),
+                "accum": accum,
+            })
+            result = frame.invoke_block(op_val, _empty_args, piped=context)
+
+            # Handle flow-control skip (skip children)
+            if isinstance(result.data, comp.Tag):
+                if result.data is comp.tag_flow_skip:
+                    skip_children = True
+                    result = comp.Value.from_python({})
+
+            # Extract callouts and accum from result struct
+            if isinstance(result.data, dict):
+                callouts_key = comp.Value.from_python("callouts")
+                accum_key = comp.Value.from_python("accum")
+                recurse_key = comp.Value.from_python("recurse")
+
+                callouts_val = result.data.get(callouts_key)
+                new_accum = result.data.get(accum_key, accum)
+
+                recurse_val = result.data.get(recurse_key)
+                if recurse_val is not None and isinstance(recurse_val.data, comp.Tag):
+                    if recurse_val.data is comp.tag_false:
+                        skip_children = True
+
+                # Collect callouts
+                if callouts_val is not None and isinstance(callouts_val.data, dict):
+                    for cv in callouts_val.data.values():
+                        collected.append(cv)
+
+                accum = new_accum
+            else:
+                # Non-struct, non-skip return: treat as single callout
+                collected.append(result)
+
+        # Recurse children
+        if not skip_children:
+            kids = comp.cop_kids(node)
+            for kid in kids:
+                accum = walk(kid, depth + 1, accum)
+
+        return accum
+
+    walk(input_val, 0, initial_accum)
+
+    # Build result struct from collected callouts
+    result_data = {}
+    for item in collected:
+        result_data[comp.Unnamed()] = item
+    return comp.Value.from_python(result_data)
 
 
 def get_internal_module(resource):

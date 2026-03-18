@@ -401,7 +401,32 @@ class Value:
     def __eq__(self, other):
         if not isinstance(other, Value):
             return False
-        return self.data == other.data and self.unit is other.unit
+        if self.unit is not other.unit:
+            return False
+        return comp._ops._equal(self, other)
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __lt__(self, other):
+        if not isinstance(other, Value):
+            return NotImplemented
+        return comp._ops._compare(self, other) < 0
+
+    def __le__(self, other):
+        if not isinstance(other, Value):
+            return NotImplemented
+        return comp._ops._compare(self, other) <= 0
+
+    def __gt__(self, other):
+        if not isinstance(other, Value):
+            return NotImplemented
+        return comp._ops._compare(self, other) > 0
+
+    def __ge__(self, other):
+        if not isinstance(other, Value):
+            return NotImplemented
+        return comp._ops._compare(self, other) >= 0
 
     def __hash__(self):
         """Make Value hashable so it can be used as dict keys."""

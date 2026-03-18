@@ -220,25 +220,30 @@ def _resolve_block(cop, namespace, locals):
         (Value) Resolved block
     """
     kids = comp.cop_kids(cop)
-    if len(kids) < 2:
+    if not kids:
         return cop
-
-    signature_cop = kids[0]
-    body_cop = kids[1]
 
     block_locals = locals.copy()
 
-    sig_tag = comp.cop_tag(signature_cop)
-    if sig_tag == "block.signature":
-        for field_cop in comp.cop_kids(signature_cop):
-            field_tag = comp.cop_tag(field_cop)
-            if field_tag in ("signature.param",):
-                try:
-                    param_name = field_cop.to_python("name")
-                    if param_name:
-                        block_locals.add(param_name)
-                except (KeyError, AttributeError):
-                    pass
+    if len(kids) >= 2:
+        signature_cop = kids[0]
+        body_cop = kids[1]
+
+        sig_tag = comp.cop_tag(signature_cop)
+        if sig_tag == "block.signature":
+            for field_cop in comp.cop_kids(signature_cop):
+                field_tag = comp.cop_tag(field_cop)
+                if field_tag in ("signature.param",):
+                    try:
+                        param_name = field_cop.to_python("name")
+                        if param_name:
+                            block_locals.add(param_name)
+                    except (KeyError, AttributeError):
+                        pass
+    else:
+        # Block with body only (no explicit signature), e.g. :(body)
+        signature_cop = None
+        body_cop = kids[0]
 
     # Conventional parameter names always available
     block_locals.update({"input", "args", "$", "$$", "$$$"})
@@ -248,7 +253,10 @@ def _resolve_block(cop, namespace, locals):
     if new_body is body_cop:
         return cop
 
-    return comp.cop_rebuild(cop, [signature_cop, new_body])
+    if signature_cop is not None:
+        return comp.cop_rebuild(cop, [signature_cop, new_body])
+    else:
+        return comp.cop_rebuild(cop, [new_body])
 
 
 def _resolve_function(cop, namespace, locals):
