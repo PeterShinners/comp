@@ -78,7 +78,7 @@ class CodeGenContext:
         - A register name (str) for computed values  
         - A Value for inlineable constants
         """
-        tag = cop.positional(0).data.qualified
+        tag = comp.cop_tag(cop)
         
         match tag:
             case "value.constant":

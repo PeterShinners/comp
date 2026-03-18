@@ -39,7 +39,9 @@ def create_cop(tag_name, kids, **fields):
     # Get the Tag object from the cop internal module
     cop_module = comp.get_internal_module("cop")
 
-    tag_definition = cop_module.definitions().get(tag_name)
+    # Add cop-type prefix for internal tag lookup
+    prefixed_tag_name = "cop-type." + tag_name if not tag_name.startswith("cop-type.") else tag_name
+    tag_definition = cop_module.definitions().get(prefixed_tag_name)
     if tag_definition is None:
         raise ValueError(f"Unknown COP tag: {tag_name}")
 
@@ -64,7 +66,11 @@ def cop_tag(cop_node):
     """
     try:
         tag = cop_node.positional(0)
-        return tag.data.qualified
+        qualified = tag.data.qualified
+        # Strip cop-type prefix for backward compatibility
+        if qualified.startswith("cop-type."):
+            return qualified[9:]  # len("cop-type.") == 9
+        return qualified
     except (AttributeError, KeyError, TypeError):
         return None
 

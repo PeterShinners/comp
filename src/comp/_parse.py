@@ -104,8 +104,32 @@ def create_cop_module(module):
         "value.private_tag",  # (kids) 1 kid - identifier for a private tag child (& suffix)
         "value.undefined",  # (name, pos) grenade node for unresolved identifiers — errors at codegen
     )
+    cop_type_tag = module.add_tag("cop-type", private=False)
     for tag_name in cop_tags:
-        module.add_tag(tag_name, private=False)
+        module.add_tag("cop-type." + tag_name, private=False)
+
+    # Define the recursive cop-node shape
+    # Structure: { ~cop-type kids~cop-node* = {} }
+    cop_shape = comp.Shape("cop-node", private=False)
+    # Register immediately so recursive reference works
+    module.add_shape("cop-node", cop_shape)
+
+    # Field 1: Unnamed positional field for the tag
+    # All COP nodes have a Tag as their first positional element.
+    # Constrain to the cop-type hierarchy so RawTags can be promoted.
+    tag_field = comp.ShapeField(name=None, shape=cop_type_tag)
+    cop_shape.fields.append(tag_field)
+
+    # Field 2: Named "kids" field with array of cop nodes (recursive)
+    # Default empty struct for nodes with no kids
+    kids_element = comp.ShapeField(name=None, shape=cop_shape)
+    kids_collection = comp.ShapeCollection(kids_element, min_count=0, max_count=None)
+    kids_field = comp.ShapeField(
+        name="kids",
+        shape=kids_collection,
+        default=comp.Value.from_python({})
+    )
+    cop_shape.fields.append(kids_field)
 
 
 def lark_parse(text, grammar, rule=None, line_offset=1, col_offset=0):
@@ -313,7 +337,7 @@ def _parsed(treetoken, tag, kids, **fields):
             )
             fields["pos"] = pos
 
-    return comp.create_cop(tag, kids, **fields)
+    return comp.create_cop("cop-type." + tag, kids, **fields)
 
 
 def lark_to_cop(tree):

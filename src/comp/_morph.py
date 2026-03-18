@@ -645,6 +645,52 @@ def morph(value, shape, frame):
             limit_fail_val = _invoke_limits(shape_field, best_match["value"], frame)
             if limit_fail_val is not None:
                 return MorphResult.failed(_extract_fail_message(limit_fail_val), failure_value=limit_fail_val)
+            continue
+
+        # No direct Tag match. Try promoting RawTag values to Tag for this
+        # tag-constrained field. This keeps regular Tag values as higher priority.
+        promoted_match = None
+        promoted_depth = None
+        promoted_value = None
+        promoted_us = 4
+
+        for inp in input_fields:
+            if inp["matched"]:
+                continue
+            if not isinstance(inp["value"].data, comp.RawTag):
+                continue
+
+            resolved, _reason = _resolve_raw_tag(inp["value"].data, constraint)
+            if resolved is None:
+                continue
+
+            resolved_tag = resolved.data
+            if resolved_tag.qualified == constraint.qualified:
+                depth = 0
+            else:
+                depth = _tag_matches_shape(resolved_tag, constraint)
+                if depth is None:
+                    continue
+
+            us = _unit_match_score(resolved.unit, shape_field.unit)
+            if us == -1:
+                continue
+
+            if promoted_depth is None or depth < promoted_depth:
+                promoted_match = inp
+                promoted_depth = depth
+                promoted_value = resolved
+                promoted_us = us
+
+        if promoted_match and promoted_depth is not None and promoted_value is not None:
+            promoted_inp = dict(promoted_match, value=promoted_value)
+            shape_matches[i] = promoted_inp
+            promoted_match["matched"] = True
+            tag_depth_total += promoted_depth
+            unit_score_total += promoted_us
+            limit_fail_val = _invoke_limits(shape_field, promoted_value, frame)
+            if limit_fail_val is not None:
+                return MorphResult.failed(_extract_fail_message(limit_fail_val), failure_value=limit_fail_val)
 
     # Phase 3: Positional matching
     # Only match positional (unnamed) input fields - named fields that didn't match stay as extras
