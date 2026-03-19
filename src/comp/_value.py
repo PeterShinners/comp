@@ -1,8 +1,7 @@
 """Runtime values for the generator-based engine."""
 
-__all__ = ["Value", "Unnamed", "validate", "materialize_handles"]
+__all__ = ["Value", "Unnamed", "materialize_handles"]
 
-import copy
 import decimal
 import fractions
 import re
@@ -51,7 +50,7 @@ class Value:
             frozenset -- materialised set of HandleInstance objects, never empty
     """
 
-    __slots__ = ("data", "cop", "stash", "handles", "_guard", "unit")
+    __slots__ = ("data", "cop", "stash", "handles", "unit")
     _shapemap = None
     _shapetypes = None
 
@@ -89,7 +88,6 @@ class Value:
             # path, exactly like ~num[time.second] works for numeric units.
             self.unit = data.tag
         elif isinstance(data, dict):
-            self._guard = iter(data)  # Used for validation
             # Cheap bloom check: any field containing handles taints this struct.
             if any(v.handles for v in data.values()):
                 self.handles = True
@@ -131,8 +129,6 @@ class Value:
         new_val.cop = self.cop
         new_val.stash = self.stash
         new_val.handles = self.handles
-        if isinstance(self.data, dict):
-            new_val._guard = self._guard
         new_val.unit = unit
         return new_val
 
@@ -500,52 +496,6 @@ class Unnamed:
         """Unnamed keys are never equal - they're distinguished by identity."""
         return False
 
-
-def validate(value):
-    """Validate that a Value is in a proper state.
-
-    This isn't regularly done during runtime for efficiency. This can be used
-    for testing or analysis tools to detect problems with the runtime.
-
-    This shouldn't ever fail, if it does that means there is a bug in the
-    implementation, not any comp code.
-
-    Args:
-        value: (Value) object to check
-    Raises:
-        (Exception) if any type of problem is found
-    """
-    if not isinstance(value, Value):
-        raise TypeError(f"Expected Value, got {type(value).__name__}")
-
-    data = value.data
-
-    if isinstance(data, dict):
-        for key, val in data.items():
-            if not isinstance(key, (Value, Unnamed)):
-                raise TypeError(f"Invalid field name for struct {val!r}")
-            if not isinstance(val, Value):
-                raise TypeError(f"Invalid field value for struct {key!r}={val!r}")
-            # A field with handles requires the parent to also have handles.
-            if val.handles and not value.handles:
-                raise comp.EvalError(
-                    f"Struct field {key!r} has handles but parent value does not"
-                )
-            # would be nice to pass some context to these, so the error describe
-            # the path to where this error happened
-            validate(key)
-            validate(val)
-
-        try:
-            copy.copy(value._guard)
-        except RuntimeError:
-            # This catches if dictionary changed size after getting created,
-            # but doesn't catch if existing values are changed. For now I'll
-            # take it as a lightweight check.
-            raise comp.EvalError(f"Struct data has been mutated")
-
-    if not isinstance(data, (comp.Tag, comp.RawTag, str, decimal.Decimal, fractions.Fraction, comp.HandleInstance)):
-        raise TypeError(f"Unknown internal type for value: {type(data).__name__}")
 
 
 def materialize_handles(value):
