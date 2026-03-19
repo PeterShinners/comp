@@ -15,7 +15,7 @@ __all__ = [
     "shape_block",
     "shape_handle",
     "shape_tag",
-    "shape_func",
+    "shape_invokable",
     "shape_shape",
     "shape_union",
     "shape_failure",
@@ -230,12 +230,12 @@ shape_struct = Shape("struct", False)
 shape_any = Shape("any", False)
 shape_block = Shape("block", False)
 shape_handle = Shape("handle", False)
+shape_invokable = Shape("invokable", False)
 shape_shape = Shape("shape", False)
 shape_union = Shape("union", False)
 
 # Internal shapes - used by implementation, not exposed to comp language
 shape_tag = Shape("tag", True)
-shape_func = Shape("func", True)
 
 # Failure shape — defined here so it's available early; fields are set by
 # _init_shape_failure() which is called from __init__.py after all modules

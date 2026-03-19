@@ -98,6 +98,9 @@ OP_STASH.7: "!stash"
 
 // Declaration keywords
 OP_PARAM_DECL.7: "!param"
+OP_DEPEND_DECL.7: "!depend"
+OP_DELIVERS_DECL.7: "!delivers"
+OP_DELIVER_DECL.7: "!deliver"
 
 
 // ===== SHAPES =====
@@ -145,11 +148,14 @@ handle_push: OP_PUSH unary expression
            | transaction
            | on_dispatch
            | defer_expr
+           | deliver_expr
            | fail_expr
            | handle_grab
            | handle_drop
            | handle_pull
            | handle_push
+
+deliver_expr: OP_DELIVER_DECL identifier expression
 
 fail_expr: OP_FAIL expression
          | OP_FAIL DOT identifier expression -> fail_shorthand
@@ -229,7 +235,7 @@ pipe_start: signature pipe_start_item+
 pipe_stage: unary
           | unary pipe_arg+
 pipe_arg: TOKENFIELD EQUALS unary -> named_binding
-        | pipe_non_shape_atom -> bare_binding
+        | expression -> bare_binding
 
 pipe_non_shape_atom: wrapper* (number | text | identifier | dotted_path_atom | statement | structure | pipeline | capture_expr)
                    | wrapper+
@@ -249,8 +255,13 @@ field_or_expr: DOTTED_PATH EQUALS unary -> deep_named_field
              | QUOTE expression QUOTE EQUALS unary -> expr_named_field
              | unary
 
-signature: param_decl+
+signature: signature_decl+
+signature_decl: param_decl
+              | depend_decl
+              | delivers_decl
 param_decl: OP_PARAM_DECL identifier shape (EQUALS field_default_value)?
+depend_decl: OP_DEPEND_DECL identifier shape (EQUALS field_default_value)?
+delivers_decl: OP_DELIVERS_DECL identifier shape
 
 my_assign: OP_MY identifier expression
 ctx_assign: OP_CTX identifier expression

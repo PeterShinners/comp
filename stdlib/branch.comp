@@ -1,0 +1,153 @@
+/// Branching helpers built on pipeline dependencies.
+///
+/// These operators are meant to be used in pipelines so adjacent stages can
+/// coordinate through !delivers / !deliver / !depend declarations.
+
+
+/// Conditionally invoke a value
+///
+/// If the value cannot be invoked on the given input this 
+/// returns the value, otherwise it is the invoked result
+/// [value | try might-call]
+!pure try ~any (
+    !param maybe-callable ~any
+    ([$ | maybe-callable] ?? maybe-callable)
+)
+
+
+/// Conditional branch entry point.
+///
+/// Call styles:
+/// - if then: piped input is the condition value
+/// - if cond then: cond (bool value) decides whether then executes
+///
+/// If the effective condition is true, evaluates then with the current
+/// piped input. Otherwise passes the input through unchanged.
+!pure if (
+    !param cond ~any  /// bool value that determines branching
+    !param then ~(any|block) = nil  /// block or value invoked with piped input when condition is true
+    !delivers if ~bool  /// true when branch executes, otherwise false
+    !my has-then then != nil
+    !my branch-then (
+        !on has-then
+        ~true then
+        ~false cond
+    )
+    !my when (
+        !on has-then
+        ~true [$ | try cond]
+        ~false $
+    )
+    !deliver if when
+    !on when
+    ~true [$ | try branch-then]
+    ~false $
+)
+
+
+/// Conditional chain continuation.
+///
+/// Requires if from the previous stage (defaults to false when this
+/// function is used standalone).
+///
+/// If a previous branch was taken, this stage is a pass-through.
+/// Otherwise it behaves like if.
+!pure elif (
+    !param cond ~any  /// bool value that determines branching
+    !param then ~(any|block)  /// block or value invoked with piped input when condition is true
+    !depend if ~any = false  /// previous branch state
+    !delivers if ~bool  /// updated branch state
+    !on if
+    ~true (
+        !deliver if true
+        $
+    )
+    ~false (
+        !my when [$ | try cond]
+        !deliver if when
+        !on when
+        ~true [$ | try then]
+        ~false $
+    )
+)
+
+
+/// Final branch in an if/elif chain.
+///
+/// Requires if from the previous stage (defaults to false when used
+/// standalone). Executes then only if no prior branch ran.
+!pure else (
+    !param then ~(any|block)  /// block or value invoked with piped input when no prior branch executed
+    !depend if ~any = false  /// previous branch state
+    !on if
+    ~true $
+    ~false (
+        [$ | try then]
+    )
+)
+
+
+// Dependency info passed between match case branches
+!shape match-dependency ~{
+    target~any
+    matched~bool
+}
+
+
+/// Switch-style branch entry point.
+///
+/// Call styles:
+/// - match: uses piped input as the match target
+/// - match target: uses target value for matching (used as-is, not invoked)
+///
+/// Branches still receive the original piped input; comparison uses the
+/// target value.
+!pure match (
+    !param target ~any = nil  /// value for matching (defaults to piped input)
+    !delivers match ~match-dependency  /// match state for chaining
+    !my actual-target (
+        !on target == nil
+        ~true $
+        ~false target
+    )
+    !deliver match {target=actual-target matched=false}
+    $
+)
+
+
+/// Match case branch.
+///
+/// Executes then when target matches the case value, and no prior case
+/// has matched.
+!pure case (
+    !param when ~any  /// value to match against (can be block for computed matching)
+    !param then ~(any|callable)  /// block or value invoked with original piped input when case matches
+    !depend match ~match-dependency  /// match state from previous case
+    !delivers match ~match-dependency  /// updated match state
+    !my when-value [$ | try when]
+    !my was-matched match.matched
+    !my is-match match.target == when-value
+    !deliver match {target=match.target matched=(
+        !on was-matched
+        ~true true
+        ~false is-match
+    )}
+    !on was-matched
+    ~true $
+    ~false (
+        !on is-match
+        ~true [$ | try then]
+        ~false $
+    )
+)
+
+
+/// Final branch in a match/case chain.
+/// Executes then only when no prior case matched.
+!pure default (
+    !param then ~(any|callable)  /// block or value invoked with original piped input when no case matches
+    !depend match ~match-dependency  /// match state from previous case
+    !on match.matched
+    ~true $
+    ~false [$ | try then]
+)

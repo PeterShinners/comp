@@ -85,8 +85,8 @@ def _resolve_walk(cop, namespace, locals):
     if tag in ("mod.namefield", "struct.namefield"):
         return _resolve_namefield(cop, namespace, locals)
 
-    # --- Let/ctx bindings: name child is declaration, not reference ---
-    if tag in ("op.my", "op.ctx"):
+    # --- Local-binding statements: name child is declaration, not reference ---
+    if tag in ("op.my", "op.ctx", "op.deliver"):
         kids = comp.cop_kids(cop)
         if len(kids) >= 2:
             new_value = _resolve_walk(kids[1], namespace, locals)
@@ -175,17 +175,16 @@ def _resolve_identifier(cop, namespace, locals):
             invokables = definition_set.invokables() if scalar is None else None
 
             if scalar is not None:
-                ref = _make_namespace(cop, scalar.qualified, scalar.module_id)
+                ref = _make_namespace(cop, name, scalar.module_id)
             elif invokables is not None and len(invokables) > 0:
-                qualified_names = [d.qualified for d in invokables]
                 module_id = invokables[0].module_id
-                ref = _make_namespace(cop, qualified_names, module_id)
+                ref = _make_namespace(cop, name, module_id)
             elif hasattr(definition_set, "entries") and definition_set.entries:
                 # Non-invokable, non-scalar set (e.g. tag with alias).
                 # Pick the shortest qualified name as the canonical reference.
                 defs_list = sorted(definition_set.entries,
                                    key=lambda d: len(d.qualified))
-                ref = _make_namespace(cop, defs_list[0].qualified,
+                ref = _make_namespace(cop, name,
                                       defs_list[0].module_id)
             else:
                 continue
@@ -233,7 +232,7 @@ def _resolve_block(cop, namespace, locals):
         if sig_tag == "block.signature":
             for field_cop in comp.cop_kids(signature_cop):
                 field_tag = comp.cop_tag(field_cop)
-                if field_tag in ("signature.param",):
+                if field_tag in ("signature.param", "signature.depend"):
                     try:
                         param_name = field_cop.to_python("name")
                         if param_name:
@@ -292,6 +291,32 @@ def _resolve_function(cop, namespace, locals):
     return cop
 
 
+def _resolve_signature(signature_cop, namespace, locals):
+    """Resolve a block.signature with declaration-aware local scoping."""
+    current_locals = locals.copy()
+    new_fields = []
+    changed = False
+
+    for field_cop in comp.cop_kids(signature_cop):
+        field_tag = comp.cop_tag(field_cop)
+        new_field = _resolve_walk(field_cop, namespace, current_locals)
+        new_fields.append(new_field)
+        if new_field is not field_cop:
+            changed = True
+
+        if field_tag in ("signature.param", "signature.depend"):
+            try:
+                param_name = field_cop.to_python("name")
+                if param_name:
+                    current_locals.add(param_name)
+            except (KeyError, AttributeError):
+                pass
+
+    if changed:
+        return comp.cop_rebuild(signature_cop, new_fields)
+    return signature_cop
+
+
 def _resolve_sequential(cop, namespace, locals):
     """Resolve a sequential container, tracking bindings across children.
 
@@ -313,18 +338,17 @@ def _resolve_sequential(cop, namespace, locals):
     new_kids = []
     changed = False
 
-    # If the first child is a block.signature, resolve it with the OUTER
-    # locals (before param names are added) so that default expressions
-    # see the enclosing scope, not the parameters being declared.
+    # If the first child is a block.signature, resolve it with progressive
+    # declaration scoping so !deliver expressions can see earlier bindings.
     if kids and comp.cop_tag(kids[0]) == "block.signature":
         sig_cop = kids[0]
-        new_sig = _resolve_walk(sig_cop, namespace, current_locals)
+        new_sig = _resolve_signature(sig_cop, namespace, current_locals)
         new_kids.append(new_sig)
         if new_sig is not sig_cop:
             changed = True
         for field_cop in comp.cop_kids(sig_cop):
             field_tag = comp.cop_tag(field_cop)
-            if field_tag in ("signature.param",):
+            if field_tag in ("signature.param", "signature.depend"):
                 try:
                     param_name = field_cop.to_python("name")
                     if param_name:
@@ -415,7 +439,7 @@ def _resolve_binding(cop, namespace, locals):
 def _extract_let_name(cop):
     """Extract the bound variable name from a binding node.
 
-    Only op.my and op.ctx create local variable bindings.
+    op.my, op.ctx, and op.deliver create local variable bindings.
     struct.namefield contributes to the outgoing structure but does NOT
     create a local visible to subsequent siblings.
 
@@ -431,7 +455,7 @@ def _extract_let_name(cop):
         if kids:
             return _extract_let_name(kids[0])
         return None
-    if tag in ("op.my", "op.ctx"):
+    if tag in ("op.my", "op.ctx", "op.deliver"):
         kids = comp.cop_kids(cop)
         if kids:
             return _get_ident_name(kids[0])

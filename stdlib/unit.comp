@@ -42,7 +42,7 @@
 /// original unit to the result.
 ///
 /// Usage:
-///   !pure uppercase ~text @preserve-unit (
+///   !pure uppercase ~text (
 ///       $ | py.pure-call :"str.upper"
 ///   )
 !func preserve-unit (

@@ -401,6 +401,15 @@ def _check_type(value, shape_constraint, frame):
         return value_shape is comp.shape_struct
     if shape_constraint is comp.shape_block:
         return value_shape is comp.shape_block
+    if shape_constraint is comp.shape_invokable:
+        return isinstance(value.data, (
+            comp.Callable,
+            comp.InternalCallable,
+            comp.Shape,
+            comp.ShapeUnion,
+            comp.ShapeCollection,
+            comp.Tag,
+        ))
     if shape_constraint is comp.shape_handle:
         return isinstance(value.data, comp.HandleInstance)
 

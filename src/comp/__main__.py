@@ -572,7 +572,7 @@ def main():
                 cop = comp.cop_resolve_names(cop, sys_ns)
                 cop = comp.coptimize(cop, True, sys_ns)
 
-                instructions = comp.generate_code_for_definition(cop)
+                instructions = comp.generate_code_for_definition(cop, namespace=sys_ns)
                 print(f"Source: {comp.cop_unparse(cop)}")
                 print("-" * 40)
                 for i, instr in enumerate(instructions):
@@ -595,7 +595,7 @@ def main():
                 cop = comp.cop_resolve_names(cop, sys_ns)
                 cop = comp.coptimize(cop, True, sys_ns)
 
-                instructions = comp.generate_code_for_definition(cop)
+                instructions = comp.generate_code_for_definition(cop, namespace=sys_ns)
                 env = {}
 
                 if args.trace:
@@ -785,7 +785,7 @@ def main():
                 resolved_startup = comp.cop_resolve_names(startup_cop, namespace)
                 resolved_startup = comp.coptimize(resolved_startup, True, namespace,
                                                   pure=args.pure, defs=namespace, interp=interp)
-                startup_instructions = comp.generate_code_for_definition(resolved_startup)
+                startup_instructions = comp.generate_code_for_definition(resolved_startup, namespace=namespace)
                 print(f"\n!startup {startup_name}")
                 print(f"Source: {comp.cop_unparse(startup_cop)}")
                 print("-" * 40)
@@ -821,7 +821,7 @@ def main():
                 resolved_startup = comp.cop_resolve_names(startup_cop, namespace)
                 resolved_startup = comp.coptimize(resolved_startup, True, namespace,
                                                   pure=args.pure, defs=namespace, interp=interp)
-                startup_instructions = comp.generate_code_for_definition(resolved_startup)
+                startup_instructions = comp.generate_code_for_definition(resolved_startup, namespace=namespace)
 
                 if args.trace:
                     print(f"\n-- startup {startup_name} --")

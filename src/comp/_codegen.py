@@ -12,7 +12,7 @@ __all__ = [
 ]
 
 
-def generate_code_for_definition(cop, dispatch_own_name=None, dispatch_set_name=None, pure=False):
+def generate_code_for_definition(cop, dispatch_own_name=None, dispatch_set_name=None, pure=False, namespace=None):
     """Generate instruction sequence for a single definition.
     
     This is the main entry point for code generation. Takes a Definition
@@ -35,7 +35,12 @@ def generate_code_for_definition(cop, dispatch_own_name=None, dispatch_set_name=
         return []
 
     # Create a code generation context
-    ctx = CodeGenContext(dispatch_own_name=dispatch_own_name, dispatch_set_name=dispatch_set_name, is_pure=pure)
+    ctx = CodeGenContext(
+        dispatch_own_name=dispatch_own_name,
+        dispatch_set_name=dispatch_set_name,
+        is_pure=pure,
+        namespace=namespace,
+    )
 
     # Generate instructions for the definition's resolved COP
     # The result is left in a register, no final store needed
@@ -51,11 +56,12 @@ class CodeGenContext:
     Operand references are integers pointing to previous instruction indices.
     """
     
-    def __init__(self, dispatch_own_name=None, dispatch_set_name=None, is_pure=False):
+    def __init__(self, dispatch_own_name=None, dispatch_set_name=None, is_pure=False, namespace=None):
         self.instructions = []
         self.dispatch_own_name = dispatch_own_name
         self.dispatch_set_name = dispatch_set_name
         self.is_pure = is_pure
+        self.namespace = namespace
     
     def emit(self, instr):
         """Emit an instruction and return its index (the implicit result register)."""
@@ -90,7 +96,7 @@ class CodeGenContext:
                         if block.body_instructions:
                             body_instructions = block.body_instructions
                         elif block.body is not None:
-                            body_ctx = self.__class__()
+                            body_ctx = self.__class__(namespace=self.namespace)
                             body_ctx.build_expression(block.body)
                             body_instructions = body_ctx.instructions
                         else:
@@ -106,7 +112,7 @@ class CodeGenContext:
                     if block.body_instructions:
                         body_instructions = block.body_instructions
                     elif block.body is not None:
-                        body_ctx = self.__class__()
+                        body_ctx = self.__class__(namespace=self.namespace)
                         body_ctx.build_expression(block.body)
                         body_instructions = body_ctx.instructions
                     else:
@@ -268,7 +274,7 @@ class CodeGenContext:
                 # !defer expr — wrap expr in a zero-argument anonymous Block.
                 kids = _cop_kids(cop)
                 inner_cop = kids[0]
-                body_ctx = self.__class__()
+                body_ctx = self.__class__(namespace=self.namespace)
                 body_ctx._build_value_ensure_register(inner_cop)
                 sig_cop = comp.create_cop("block.signature", [])
                 return self.emit(comp._instructions.BuildBlock(
@@ -295,6 +301,19 @@ class CodeGenContext:
                 if name is None:
                     raise comp.CodeError("op.my requires a name", cop)
                 return self.emit(comp._instructions.StoreLocal(cop=cop, name=name, source=value_idx))
+
+            case "op.deliver":
+                # !deliver name expr — publish dependency and bind local name
+                kids = _cop_kids(cop)
+                name_cop = kids[0] if kids else None
+                value_cop = kids[1] if len(kids) > 1 else None
+                if name_cop is None or value_cop is None:
+                    raise comp.CodeError("op.deliver requires a name and a value expression", cop)
+                name = _extract_name(name_cop)
+                if name is None:
+                    raise comp.CodeError("op.deliver requires a name", cop)
+                value_idx = self._build_value_ensure_register(value_cop)
+                return self.emit(comp._instructions.DeliverDependency(cop=cop, name=name, source=value_idx))
 
             case "op.stash":
                 # !stash varname&key.path value
@@ -353,7 +372,7 @@ class CodeGenContext:
                     raise comp.CodeError("value.fallback requires left and right expressions", cop)
                 result = self._build_value_ensure_register(kids[0])
                 for handler_cop in kids[1:]:
-                    handler_ctx = self.__class__()
+                    handler_ctx = self.__class__(namespace=self.namespace)
                     handler_ctx._build_value_ensure_register(handler_cop)
                     result = self.emit(comp._instructions.Fallback(
                         cop=cop,
@@ -425,6 +444,7 @@ class CodeGenContext:
         Each stage receives the previous result as piped input.
         """
         kids = _cop_kids(cop)
+        self._validate_pipeline_dependencies(kids)
 
         # First stage: try-invoke with nil as implicit piped input.
         # If kids[0] is not callable, PipeInvoke returns it as-is (try semantics).
@@ -440,7 +460,7 @@ class CodeGenContext:
 
         # Each subsequent stage receives the previous result as piped input
         for stage_cop in kids[1:]:
-            stage_tag = stage_cop.positional(0).data.qualified
+            stage_tag = comp.cop_tag(stage_cop)
             
             if stage_tag == "value.pipeline_fallback":
                 # |? handler — catch failure from pipeline; invoke handler with failure as piped input.
@@ -457,10 +477,10 @@ class CodeGenContext:
                     callable_cop = inner_cop
                     args_cop = None
 
-                callable_ctx = self.__class__()
+                callable_ctx = self.__class__(namespace=self.namespace)
                 callable_ctx._build_callable_ensure_register(callable_cop)
 
-                args_ctx = self.__class__()
+                args_ctx = self.__class__(namespace=self.namespace)
                 if args_cop is not None:
                     args_ctx._build_args_struct(args_cop)
                 else:
@@ -511,6 +531,23 @@ class CodeGenContext:
                     result = self.emit(instr)
         
         return result
+
+    def _validate_pipeline_dependencies(self, stage_cops):
+        """Reject adjacent static pipeline stages with impossible dependencies."""
+        if not self.namespace or len(stage_cops) < 2:
+            return
+
+        previous_contract = _extract_stage_contract(stage_cops[0], self.namespace)
+        for stage_cop in stage_cops[1:]:
+            current_contract = _extract_stage_contract(stage_cop, self.namespace)
+            if previous_contract is not None and current_contract is not None:
+                missing = sorted(current_contract["required"] - previous_contract["provided"])
+                if missing:
+                    raise comp.CodeError(
+                        "Pipeline stage requires missing dependency: " + ", ".join(missing),
+                        stage_cop,
+                    )
+            previous_contract = current_contract
 
     def _build_binding(self, cop):
         """Build value.binding instructions.
@@ -566,12 +603,12 @@ class CodeGenContext:
             # The pattern is typically a shape.define. When it wraps a single
             # identifier (e.g. ~true, ~false), we load it as a name reference so
             # that DispatchOn receives the actual Tag/Shape object for morph.
-            pattern_ctx = self.__class__()
+            pattern_ctx = self.__class__(namespace=self.namespace)
             _compile_on_pattern(pattern_ctx, branch_kids[0])
             pattern_instructions = pattern_ctx.instructions
 
             # Compile the result expression in a fresh sub-context
-            result_ctx = self.__class__()
+            result_ctx = self.__class__(namespace=self.namespace)
             result_ctx._build_value_ensure_register(branch_kids[1])
             result_instructions = result_ctx.instructions
 
@@ -682,7 +719,7 @@ class CodeGenContext:
             body_cop = kids[0] if kids else comp.create_cop("statement.define", [])
 
         # Build body instructions in a separate context
-        body_ctx = CodeGenContext(is_pure=self.is_pure)
+        body_ctx = CodeGenContext(is_pure=self.is_pure, namespace=self.namespace)
         body_ctx._build_value_ensure_register(body_cop)
         
         instr = comp._instructions.BuildBlock(
@@ -767,7 +804,7 @@ class CodeGenContext:
             body_cop = comp.create_cop("statement.define", [])
 
         # Build body instructions in a separate context
-        body_ctx = CodeGenContext(is_pure=self.is_pure)
+        body_ctx = CodeGenContext(is_pure=self.is_pure, namespace=self.namespace)
         body_ctx._build_value_ensure_register(body_cop)
 
         block_reg = self.emit(comp._instructions.BuildBlock(
@@ -822,7 +859,7 @@ class CodeGenContext:
                 if inner:
                     inner_tag = comp.cop_tag(inner[0])
                     result = self._build_value_ensure_register(inner[0])
-                    if inner_tag == "op.my":
+                    if inner_tag in ("op.my", "op.deliver"):
                         has_trailing_let = True
                     else:
                         expr_result = result
@@ -830,7 +867,7 @@ class CodeGenContext:
             else:
                 tag = comp.cop_tag(kid)
                 result = self._build_value_ensure_register(kid)
-                if tag == "op.my":
+                if tag in ("op.my", "op.deliver"):
                     has_trailing_let = True
                 else:
                     expr_result = result
@@ -864,7 +901,7 @@ class CodeGenContext:
                 if inner:
                     fields.append((comp.Unnamed(), self._build_value_ensure_register(inner[0])))
 
-            elif tag == "op.my":
+            elif tag in ("op.my", "op.deliver"):
                 # !let binding — side effect only, does not contribute a field
                 self._build_value_ensure_register(kid)
 
@@ -1052,7 +1089,7 @@ class CodeGenContext:
                 if inner:
                     fields.append((comp.Unnamed(), self._build_callable_ensure_register(inner[0])))
 
-            elif kid_tag in ("op.my", "op.ctx"):
+            elif kid_tag in ("op.my", "op.ctx", "op.deliver"):
                 # Side-effect bindings — must still evaluate with full semantics
                 self._build_value_ensure_register(kid)
 
@@ -1084,7 +1121,7 @@ class CodeGenContext:
         simple identifiers; falls back to _build_value_ensure_register for
         complex expressions.
         """
-        tag = cop.positional(0).data.qualified
+        tag = comp.cop_tag(cop)
 
         if tag in ("value.namespace", "value.reference"):
             try:
@@ -1156,7 +1193,7 @@ class CodeGenContext:
             body_kids = kids
 
         # Build body instructions from the body statement children
-        body_ctx = self.__class__(is_pure=self.is_pure)
+        body_ctx = self.__class__(is_pure=self.is_pure, namespace=self.namespace)
         result = None
         expr_result = None
         has_trailing_let = False
@@ -1168,14 +1205,14 @@ class CodeGenContext:
                 if inner:
                     inner_tag = comp.cop_tag(inner[0])
                     result = body_ctx._build_value_ensure_register(inner[0])
-                    if inner_tag == "op.my":
+                    if inner_tag in ("op.my", "op.deliver"):
                         has_trailing_let = True
                     else:
                         expr_result = result
                         has_trailing_let = False
             else:
                 result = body_ctx._build_value_ensure_register(kid)
-                if comp.cop_tag(kid) == "op.my":
+                if comp.cop_tag(kid) in ("op.my", "op.deliver"):
                     has_trailing_let = True
                 else:
                     expr_result = result
@@ -1229,6 +1266,85 @@ def _compile_on_pattern(ctx, pattern_cop):
             )
     # Compile fully — value.constant, value.namespace, struct-pattern shapes, etc.
     return ctx._build_value_ensure_register(pattern_cop)
+
+
+def _extract_signature_contract(cop):
+    """Return dependency contract info for a statically-known callable COP."""
+    if cop is None:
+        return None
+
+    sig_kids = []
+    tag = comp.cop_tag(cop)
+
+    if tag == "function.define":
+        kids = list(comp.cop_kids(cop))
+        if kids and comp.cop_tag(kids[0]) == "function.signature":
+            sig_kids.extend(list(comp.cop_kids(kids[0])))
+            body_cop = kids[1] if len(kids) > 1 else None
+        else:
+            body_cop = kids[0] if kids else None
+        if body_cop is not None and comp.cop_tag(body_cop) == "statement.define":
+            body_kids = list(comp.cop_kids(body_cop))
+            if body_kids and comp.cop_tag(body_kids[0]) == "block.signature":
+                sig_kids.extend(list(comp.cop_kids(body_kids[0])))
+    elif tag == "statement.define":
+        kids = list(comp.cop_kids(cop))
+        if kids and comp.cop_tag(kids[0]) == "block.signature":
+            sig_kids.extend(list(comp.cop_kids(kids[0])))
+    else:
+        return None
+
+    provided = set()
+    required = set()
+    for field_cop in sig_kids:
+        field_tag = comp.cop_tag(field_cop)
+        try:
+            name = field_cop.to_python("name")
+        except (KeyError, AttributeError):
+            name = None
+        if not name:
+            continue
+        if field_tag == "signature.delivers":
+            provided.add(name)
+        elif field_tag == "signature.depend":
+            has_default = any(comp.cop_tag(kid) == "shape.default" for kid in comp.cop_kids(field_cop))
+            if not has_default:
+                required.add(name)
+
+    return {"provided": provided, "required": required}
+
+
+def _extract_stage_contract(stage_cop, namespace):
+    """Return dependency contract info for a statically-known pipeline stage."""
+    if stage_cop is None:
+        return None
+
+    tag = comp.cop_tag(stage_cop)
+    callable_cop = stage_cop
+    if tag in ("value.invoke", "value.binding"):
+        stage_kids = list(comp.cop_kids(stage_cop))
+        callable_cop = stage_kids[0] if stage_kids else None
+        if callable_cop is None:
+            return None
+
+    callable_tag = comp.cop_tag(callable_cop)
+    if callable_tag == "value.namespace":
+        try:
+            qualified = callable_cop.to_python("qualified")
+        except (KeyError, AttributeError):
+            return None
+        if not isinstance(qualified, str):
+            return None
+        entry = namespace.get(qualified)
+        if entry is None or not isinstance(entry, comp.Callable) or len(entry.entries) != 1:
+            return None
+        definition = entry.entries[0]
+        return _extract_signature_contract(definition.resolved_cop or definition.original_cop)
+
+    if callable_tag == "statement.define":
+        return _extract_signature_contract(callable_cop)
+
+    return None
 
 
 def _cop_kids(cop):

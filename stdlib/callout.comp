@@ -133,7 +133,7 @@
 /// Check for constant-zero-division: a binary divide where the
 /// right operand is the literal 0.
 ///
-/// This catches `x / 0` and `x // 0` at compile time rather than
+/// This catches `x / 0` at compile time rather than
 /// waiting for a runtime failure.
 !pure check-zero-division (
     !param min-severity ~callout = callout.warning

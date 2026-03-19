@@ -272,7 +272,7 @@ class Module:
         cop_value = comp.lark_to_cop(tree)
 
         # Determine shape - check if it's wrapped
-        shape = comp.shape_func
+        shape = comp.shape_block
         value_tag = comp.cop_tag(cop_value)
         if value_tag == "value.wrapper":
             # Check the wrapped inner value (first kid)

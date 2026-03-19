@@ -83,6 +83,14 @@ def _make_fail_value(message, tag=None, cause=None, cop_val=None):
     })
 
 
+def _build_delivery_struct(delivery_map):
+    """Convert a Python name->Value map into a Comp struct Value."""
+    fields = {}
+    for name, value in (delivery_map or {}).items():
+        fields[comp.Value.from_python(name)] = value
+    return comp.Value(fields)
+
+
 class Interp:
     """Interpreter and state for Comp.
 
@@ -373,6 +381,7 @@ class Interp:
                                 dispatch_own_name=defn.qualified,
                                 dispatch_set_name=defn.qualified,
                                 pure=True,
+                                namespace=mod.namespace(),
                             )
                             result = self.execute(defn.instructions, mod_env, module=mod)
                             defn.value = result
@@ -405,6 +414,7 @@ class Interp:
                         dispatch_own_name=defn.qualified,
                         dispatch_set_name=defn.qualified,
                         pure=defn.pure,
+                        namespace=mod.namespace(),
                     )
                 except comp.CodeError as ce:
                     if not hasattr(ce, "module"):
@@ -592,6 +602,9 @@ class ExecutionFrame:
         self.registers = []  # List indexed by instruction number
         self.env = env if env is not None else {}
         self._dollar_vars = {}  # "$", "$$", "$$$" — pipeline input context (per-invocation)
+        self._pipeline_delivery = {}
+        self._last_delivery = {}
+        self._delivered_coupling = {}
         self.interp = interp
         self.module = module
         self.parent_frame = parent_frame
@@ -721,7 +734,7 @@ class ExecutionFrame:
 
         return None
 
-    def invoke_block(self, block_val, args, piped=None, source_cop=None):
+    def invoke_block(self, block_val, args, piped=None, delivery=None, source_cop=None):
         """Call a function with the given arguments.
 
         Args:
@@ -733,6 +746,7 @@ class ExecutionFrame:
         Returns:
             Value result of the function call
         """
+        self._last_delivery = {}
         callable_obj = block_val.data
         
         # Handle InternalCallable (Python function)
@@ -918,6 +932,18 @@ class ExecutionFrame:
                 if fname is not None and fname in param_set:
                     new_env[fname] = v
 
+        if block.dependency_shape and isinstance(block.dependency_shape, comp.Shape):
+            delivery_val = _build_delivery_struct(delivery)
+            masked_delivery, error = comp.mask(delivery_val, block.dependency_shape, self)
+            if error:
+                raise comp.CodeError(f"Dependency mask failed: {error}", source_cop or block.signature_cop)
+            if isinstance(masked_delivery.data, dict):
+                dependency_set = set(block.dependency_names)
+                for k, v in masked_delivery.data.items():
+                    fname = comp._morph._get_field_key(k)
+                    if fname is not None and fname in dependency_set:
+                        new_env[fname] = v
+
         # Pipeline input context: $ / $$ / $$$ live on the frame, not in env,
         # so they don't pollute the shared closure dict.  Shift from the
         # captured dollar vars that were snapshotted when the block was created.
@@ -934,7 +960,7 @@ class ExecutionFrame:
             if block.module:
                 ns = block.module.namespace()
                 resolved_body = comp.coptimize(block.body, True, ns)
-                block.body_instructions = comp.generate_code_for_definition(resolved_body)
+                block.body_instructions = comp.generate_code_for_definition(resolved_body, namespace=ns)
             else:
                 # No module - try to compile without namespace
                 block.body_instructions = comp.generate_code_for_definition(block.body)
@@ -943,7 +969,41 @@ class ExecutionFrame:
         # Use the block's defining module for namespace lookups
         new_frame = self._make_child_frame(new_env, module=block.module)
         new_frame._dollar_vars = _dollar
+
         result = new_frame.run(block.body_instructions)
+
+        outgoing_coupling = dict(getattr(new_frame, "_delivered_coupling", {}) or {})
+        if outgoing_coupling and not block.deliver_specs:
+            name = next(iter(outgoing_coupling.keys()))
+            raise comp.CodeError(
+                f"Delivered dependency `{name}` is not declared in signature",
+                source_cop or block.signature_cop,
+            )
+        if block.deliver_specs:
+            declared_shapes = {}
+            for spec in block.deliver_specs:
+                name = spec.get("name")
+                if name:
+                    declared_shapes[name] = spec.get("shape")
+
+            for name, delivered_value in list(outgoing_coupling.items()):
+                if name not in declared_shapes:
+                    raise comp.CodeError(
+                        f"Delivered dependency `{name}` is not declared in signature",
+                        source_cop or block.signature_cop,
+                    )
+                deliver_shape = declared_shapes.get(name)
+                if deliver_shape is None:
+                    continue
+                morph_result = comp.morph(delivered_value, deliver_shape, self)
+                if morph_result.failure_reason:
+                    if morph_result.failure_value is not None:
+                        raise CompFail(morph_result.failure_value)
+                    raise comp.CodeError(
+                        f"Delivered dependency `{name}` does not match declared shape",
+                        source_cop or block.signature_cop,
+                    )
+                outgoing_coupling[name] = morph_result.value
 
         # If the called block finished with an unhandled failure, raise it so
         # callers can distinguish a failure from a normally-computed value.
@@ -958,6 +1018,8 @@ class ExecutionFrame:
                         f"!{operator} `{block_name}`"
                     )
             raise CompFail(fail)
+
+        self._last_delivery = outgoing_coupling
 
         # Return the final result
         return result if result is not None else comp.Value.from_python(None)
@@ -1042,7 +1104,9 @@ class ExecutionFrame:
         Returns:
             New ExecutionFrame (or subclass)
         """
-        return ExecutionFrame(env=env, interp=self.interp, module=module or self.module, parent_frame=self, context=dict(self.context))
+        child = ExecutionFrame(env=env, interp=self.interp, module=module or self.module, parent_frame=self, context=dict(self.context))
+        child._pipeline_delivery = dict(self._pipeline_delivery)
+        return child
 
 
 # Instruction Classes

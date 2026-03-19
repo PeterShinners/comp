@@ -27,6 +27,9 @@ class Block:
         captured_dollar_vars: (dict) Captured dollar variables ($, $$, $$$)
         signature_cop: (Value) Original signature COP node
         param_names: (list) Names from signature.param nodes for env binding
+        dependency_names: (list) Names from signature.depend nodes for env binding
+        dependency_shape: (Shape | None) Shape used to validate incoming dependency values
+        deliver_specs: (list) Outgoing dependency declarations for the next pipeline stage
     """
 
     __slots__ = (
@@ -44,6 +47,9 @@ class Block:
         "captured_dollar_vars",
         "signature_cop",
         "param_names",
+        "dependency_names",
+        "dependency_shape",
+        "deliver_specs",
     )
 
     def __init__(self, qualified):
@@ -61,6 +67,9 @@ class Block:
         self.captured_dollar_vars = {}
         self.signature_cop = None
         self.param_names = []
+        self.dependency_names = []
+        self.dependency_shape = None
+        self.deliver_specs = []
 
     def __repr__(self):
         return f"Block<{self.qualified}>"
@@ -155,7 +164,7 @@ class Callable:
         shapes = [d for d in self.entries if d.shape is comp.shape_shape]
         blocks = [
             d for d in self.entries
-            if d.shape is comp.shape_block or d.shape is comp.shape_func
+            if d.shape is comp.shape_block
         ]
         if len(shapes) > 1:
             return None

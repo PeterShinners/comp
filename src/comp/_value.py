@@ -100,7 +100,7 @@ class Value:
                 tuple: comp.shape_num,
                 str: comp.shape_text,
                 dict: comp.shape_struct,
-                comp.Callable: comp.shape_func,
+                comp.Callable: comp.shape_block,
                 comp.HandleInstance: comp.shape_handle,
                 comp.Shape: comp.shape_shape,
                 comp.ShapeUnion: comp.shape_union,

@@ -1,0 +1,13 @@
+plugins:
+  - jekyll-relative-links
+relative_links:
+  enabled: true
+  collections: true
+include:
+  - README.md
+  - LICENSE
+  - design/function.md
+  - design/module.md
+  - design/struct.md
+  - design/syntax.md
+  - design/type.md

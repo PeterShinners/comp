@@ -219,14 +219,14 @@ class SystemModule(comp.Module):
         self._add_tag("ord.less", comp.tag_less)
         self._add_tag("ord.equal", comp.tag_equal)
         self._add_tag("ord.greater", comp.tag_greater)
-        self._add_tag("else", comp.tag_else)
 
         # Builtin shapes
         self._add_shape("num", comp.shape_num)
         self._add_shape("text", comp.shape_text)
         self._add_shape("struct", comp.shape_struct)
         self._add_shape("any", comp.shape_any)
-        self._add_shape("func", comp.shape_block)
+        self._add_shape("block", comp.shape_block)
+        self._add_shape("invokable", comp.shape_invokable)
         self._add_shape("handle", comp.shape_handle)
         self._add_shape("shape", comp.shape_shape)
 

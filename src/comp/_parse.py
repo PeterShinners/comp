@@ -46,6 +46,8 @@ def create_cop_module(module):
         "shape.default",  # (kids) 1 kid - default value
         "signature.input",  # (kids) 1 kid - function input shape
         "signature.param",  # (kids) 1 or 2 kids - !param declaration with shape and optional default
+        "signature.depend",  # (kids) 1 or 2 kids - !depend declaration with shape and optional default
+        "signature.delivers",  # (kids) 1 kid - !delivers declaration with required shape
         "function.define",  # (sig, body) function definition with signature and body
         "function.signature",  # (kids) function signature (input shape)
         "function.body",  # (kids or sig+body) function body, may have block signature
@@ -59,6 +61,7 @@ def create_cop_module(module):
         "op.forward",  # (kids) 0 kids - re-dispatch to next less-specific overload
         "op.on",  # (kids) expression and branches for !on dispatch
         "op.on.branch",  # (kids) 2 kids - shape and expression for an !on branch
+        "op.deliver",  # (kids) 2 kids - runtime dependency publish: name, value
         "struct.define",  # (kids)
         "struct.posfield",  # (kids) 1 kid
         "struct.namefield",  # (op, kids) 2 kids (name value)
@@ -1216,10 +1219,13 @@ def lark_to_cop(tree):
         # binding_expr and binding_value removed — replaced by binding/named_binding/bare_binding
 
         case "signature":
-            # signature: param_decl+
+            # signature: signature_decl+
             # Convert to shape.define
             field_cops = [lark_to_cop(kid) for kid in kids]
             return _parsed(tree, "shape.define", field_cops)
+
+        case "signature_decl":
+            return lark_to_cop(kids[0])
 
         case "param_decl":
             # param_decl: OP_PARAM_DECL identifier shape (EQUALS field_default_value)?
@@ -1245,6 +1251,43 @@ def lark_to_cop(tree):
             if default_cop:
                 field_kids.append(default_cop)
             return _parsed(tree, "signature.param", field_kids, name=name_str)
+
+        case "depend_decl":
+            name_cop = lark_to_cop(kids[1])
+            shape_cop = lark_to_cop(kids[2])
+
+            default_cop = None
+            if len(kids) > 3:
+                default_cop = lark_to_cop(kids[4])
+
+            name_str = None
+            if comp.cop_tag(name_cop) == "value.identifier":
+                first_kid = list(comp.cop_kids(name_cop))[0]
+                if comp.cop_tag(first_kid) == "ident.token":
+                    name_str = first_kid.field("value").data
+
+            field_kids = list(shape_cop) if isinstance(shape_cop, list) else [shape_cop]
+            if default_cop:
+                field_kids.append(default_cop)
+            return _parsed(tree, "signature.depend", field_kids, name=name_str)
+
+        case "delivers_decl":
+            name_cop = lark_to_cop(kids[1])
+            shape_cop = lark_to_cop(kids[2])
+
+            name_str = None
+            if comp.cop_tag(name_cop) == "value.identifier":
+                first_kid = list(comp.cop_kids(name_cop))[0]
+                if comp.cop_tag(first_kid) == "ident.token":
+                    name_str = first_kid.field("value").data
+
+            field_kids = list(shape_cop) if isinstance(shape_cop, list) else [shape_cop]
+            return _parsed(tree, "signature.delivers", field_kids, name=name_str)
+
+        case "deliver_expr":
+            name_cop = lark_to_cop(kids[1])
+            value_cop = lark_to_cop(kids[2])
+            return _parsed(tree, "op.deliver", [name_cop, value_cop])
 
         case "dollarfield":
             # dollarfield: DOLLAR3 | DOLLAR2 | DOLLAR

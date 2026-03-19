@@ -336,6 +336,30 @@ def cop_unparse(cop):
                 return " ".join(parts)
             except (KeyError, AttributeError):
                 return "<?param?>"
+
+        case "signature.depend":
+            try:
+                name = cop.to_python("name", "")
+                parts = ["!depend"]
+                if name:
+                    parts.append(name)
+                for kid in kids:
+                    parts.append(cop_unparse(kid))
+                return " ".join(parts)
+            except (KeyError, AttributeError):
+                return "<?depend?>"
+
+        case "signature.delivers":
+            try:
+                name = cop.to_python("name", "")
+                parts = ["!delivers"]
+                if name:
+                    parts.append(name)
+                for kid in kids:
+                    parts.append(cop_unparse(kid))
+                return " ".join(parts)
+            except (KeyError, AttributeError):
+                return "<?delivers?>"
         
         # Statement structure
         case "statement.define":
@@ -613,6 +637,13 @@ def cop_unparse(cop):
                 value = cop_unparse(kids[1])
                 return f"!my {name} {value}"
             return "<?my?>"
+
+        case "op.deliver":
+            if len(kids) >= 2:
+                name = cop_unparse(kids[0])
+                value = cop_unparse(kids[1])
+                return f"!deliver {name} {value}"
+            return "<?deliver?>"
 
         case "op.stash":
             # !stash target&key.path value

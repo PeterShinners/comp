@@ -204,6 +204,30 @@ class StoreLocal(Instruction):
         return f"%{idx}  StoreLocal '{self.name}' = %{self.source}"
 
 
+class DeliverDependency(Instruction):
+    """Publish a dependency value and bind it as a local in the current frame.
+
+    Runtime !deliver uses this to set both:
+    - frame.env[name] so subsequent expressions can read the value locally
+    - frame._last_delivery[name] so the next pipeline stage can !depend on it
+    """
+
+    def __init__(self, cop, name, source):
+        super().__init__(cop)
+        self.name = name
+        self.source = source
+
+    def execute(self, frame):
+        value = frame.get_value(self.source)
+        frame.env[self.name] = value
+        frame._last_delivery[self.name] = value
+        frame._delivered_coupling[self.name] = value
+        return frame.set_result(value)
+
+    def format(self, idx):
+        return f"%{idx}  DeliverDependency '{self.name}' = %{self.source}"
+
+
 class SelectResult(Instruction):
     """Pass through an earlier register's value as the result.
 
@@ -301,9 +325,18 @@ class Invoke(Instruction):
     def execute(self, frame):
         callable_val = frame.get_value(self.callable)
         args_val = frame.get_value(self.args)
+        incoming_delivery = dict(getattr(frame, "_pipeline_delivery", {}) or {})
         try:
-            result = frame.invoke_block(callable_val, args_val, piped=None, source_cop=self.cop)
+            result = frame.invoke_block(
+                callable_val,
+                args_val,
+                piped=None,
+                delivery=incoming_delivery,
+                source_cop=self.cop,
+            )
+            frame._pipeline_delivery = dict(getattr(frame, "_last_delivery", {}) or {})
         except comp.CompFail as e:
+            frame._pipeline_delivery = {}
             frame.failure = e.value
             return frame.set_result(e.value)
         return frame.set_result(result)
@@ -325,8 +358,16 @@ class PipeInvoke(Instruction):
         callable_val = frame.get_value(self.callable)
         piped_val = frame.get_value(self.piped)
         args_val = frame.get_value(self.args)
+        incoming_delivery = dict(getattr(frame, "_pipeline_delivery", {}) or {})
         try:
-            result = frame.invoke_block(callable_val, args_val, piped=piped_val, source_cop=self.cop)
+            result = frame.invoke_block(
+                callable_val,
+                args_val,
+                piped=piped_val,
+                delivery=incoming_delivery,
+                source_cop=self.cop,
+            )
+            frame._pipeline_delivery = dict(getattr(frame, "_last_delivery", {}) or {})
         except comp.CompFail as e:
             # Try-invoke semantics: a "not callable" failure means the value is
             # not a block, so treat it as a pass-through (return the value itself).
@@ -341,6 +382,7 @@ class PipeInvoke(Instruction):
                     return frame.set_result(callable_val)
             except (TypeError, KeyError):
                 pass
+            frame._pipeline_delivery = {}
             frame.failure = e.value
             return frame.set_result(e.value)
         return frame.set_result(result)
@@ -808,7 +850,7 @@ class BuildBlock(Instruction):
         # i==0 (input) / i==1 (arg) index convention.
         sig_kids = list(comp.cop_kids(self.signature_cop))
         param_fields = []   # accumulated ShapeField objects for signature.param nodes
-        block_fields = []   # accumulated ShapeField objects for signature.block nodes
+        coupling_fields = []
         legacy_index = 0    # fallback counter for shape.field kids
 
         for field_cop in sig_kids:
@@ -858,6 +900,56 @@ class BuildBlock(Instruction):
                 sf = comp.ShapeField(name=param_name, shape=param_type_shape, default=param_default)
                 param_fields.append(sf)
 
+            elif field_tag == "signature.depend":
+                try:
+                    param_name = field_cop.to_python("name")
+                except (KeyError, AttributeError):
+                    param_name = None
+
+                inner_kids = list(comp.cop_kids(field_cop))
+                param_type_shape = None
+                param_default = None
+
+                for fkid in inner_kids:
+                    fkid_tag = comp.cop_tag(fkid)
+                    if fkid_tag == "shape.default":
+                        default_kids = list(comp.cop_kids(fkid))
+                        if default_kids:
+                            param_default = frame.eval(default_kids[0])
+                    elif fkid_tag == "shape.define":
+                        param_type_shape = self._build_shape_from_cop(fkid, frame)
+                    else:
+                        resolved = self._resolve_shape_ref(fkid, frame)
+                        if resolved is not None:
+                            param_type_shape = resolved
+
+                sf = comp.ShapeField(name=param_name, shape=param_type_shape, default=param_default)
+                coupling_fields.append(sf)
+
+            elif field_tag == "signature.delivers":
+                try:
+                    deliver_name = field_cop.to_python("name")
+                except (KeyError, AttributeError):
+                    deliver_name = None
+
+                inner_kids = list(comp.cop_kids(field_cop))
+                deliver_shape = None
+
+                for fkid in inner_kids:
+                    fkid_tag = comp.cop_tag(fkid)
+                    if fkid_tag == "shape.define":
+                        deliver_shape = self._build_shape_from_cop(fkid, frame)
+                        continue
+                    resolved = self._resolve_shape_ref(fkid, frame)
+                    if resolved is not None:
+                        deliver_shape = resolved
+                        break
+
+                block.deliver_specs.append({
+                    "name": deliver_name,
+                    "shape": deliver_shape,
+                })
+
             else:
                 # --- Legacy shape.field format (inline blocks) ---
                 try:
@@ -896,6 +988,12 @@ class BuildBlock(Instruction):
             arg_shape.fields = param_fields
             block.arg_shape = arg_shape
             block.param_names = [f.name for f in param_fields if f.name]
+
+        if coupling_fields:
+            dependency_shape = comp.Shape("dependency", private=False)
+            dependency_shape.fields = coupling_fields
+            block.dependency_shape = dependency_shape
+            block.dependency_names = [f.name for f in coupling_fields if f.name]
 
         callable = comp.Callable(block.qualified)
         callable.add(block)
@@ -1695,6 +1793,7 @@ class PipeFallback(Instruction):
             return frame.set_result(frame.get_value(self.piped_reg))
         # Failure — clear it and invoke the handler with failure as piped input
         frame.failure = None
+        frame._pipeline_delivery = {}
         callable_frame = frame._make_child_frame(dict(frame.env), module=frame.module)
         callable_val = callable_frame.run(self.callable_instructions)
         args_frame = frame._make_child_frame(dict(frame.env), module=frame.module)
@@ -1703,7 +1802,9 @@ class PipeFallback(Instruction):
             args_val = comp.Value.from_python({})
         try:
             result = frame.invoke_block(callable_val, args_val, piped=failure, source_cop=self.cop)
+            frame._pipeline_delivery = dict(getattr(frame, "_last_delivery", {}) or {})
         except comp.CompFail as e:
+            frame._pipeline_delivery = {}
             frame.failure = e.value
             return frame.set_result(e.value)
         return frame.set_result(result)
@@ -1746,12 +1847,9 @@ class DispatchOn(Instruction):
 
             pattern_data = pattern_val.data
 
-            # ~else tag is a catch-all — always matches
-            if pattern_data is comp.tag_else:
-                matched = True
             # morph() accepts Shape, ShapeUnion, and Tag — pass the raw data object.
             # For anything else (e.g. a bare constant), fall back to equality.
-            elif isinstance(pattern_data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+            if isinstance(pattern_data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
                 morph_result = comp.morph(condition_val, pattern_data, frame)
                 matched = not morph_result.failure_reason
                 # Leaf-tag identity: morph rejects depth-0 matches (tags are
@@ -1770,6 +1868,8 @@ class DispatchOn(Instruction):
                 # Propagate branch failure to the parent frame so fast-forward
                 # continues and invoke_block can detect and raise it.
                 result = result_frame.run(result_instructions)
+                frame._delivered_coupling.update(getattr(result_frame, "_delivered_coupling", {}) or {})
+                frame._last_delivery.update(getattr(result_frame, "_last_delivery", {}) or {})
                 if result_frame.failure is not None:
                     frame.failure = result_frame.failure
                 return frame.set_result(result)
@@ -1778,8 +1878,6 @@ class DispatchOn(Instruction):
 
     def format(self, idx):
         return f"%{idx}  DispatchOn %{self.condition} ({len(self.branches)} branches)"
-
-
 
 
 def _ensure_definition_value(defn, frame):

@@ -29,7 +29,7 @@ __all__ = [
 import comp
 
 # Type names treated as language primitives -- not followed for recursive display
-_PRIMITIVE_TYPES = frozenset({"num", "text", "bool", "nil", "any", "func", "shape"})
+_PRIMITIVE_TYPES = frozenset({"num", "text", "bool", "nil", "any", "block", "invokable", "shape"})
 
 
 def _cop_line_range(cop):

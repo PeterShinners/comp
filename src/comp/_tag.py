@@ -11,7 +11,7 @@ __all__ = [
     "tag_fail_reference", "tag_fail_reference_undefined", "tag_fail_reference_ambiguous",
     "tag_fail_invoke",
     "tag_flow", "tag_flow_skip", "tag_flow_stop",
-    "tag_less", "tag_equal", "tag_greater", "tag_else",
+    "tag_less", "tag_equal", "tag_greater",
     "create_tagdef",
     "HandleInstance",
     "grab_handle", "drop_handle", "pull_handle", "push_handle",
@@ -107,7 +107,6 @@ tag_flow_stop = Tag("flow-control.stop", False)
 tag_less = Tag("ord.less", False)
 tag_equal = Tag("ord.equal", False)
 tag_greater = Tag("ord.greater", False)
-tag_else = Tag("else", False)
 
 
 def create_tagdef(qualified_name, private, cop_node, parent_tag=None):
