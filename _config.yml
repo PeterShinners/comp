@@ -14,4 +14,14 @@ include:
   - design/struct.md
   - design/syntax.md
   - design/type.md
-  
+exclude:
+  - src/
+  - lib/
+  - examples/
+  - stdlib/
+  - vscode/
+  - pyproject.toml
+  - uv.lock
+  - package-lock.json
+  - "**/*.comp"
+
