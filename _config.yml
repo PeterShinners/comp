@@ -14,11 +14,4 @@ include:
   - design/struct.md
   - design/syntax.md
   - design/type.md
-  - docs/filesystem.md
-  - docs/lazy.md
-  - docs/module-management.md
-  - docs/path-store.md
-  - docs/pure-cache.md
-  - docs/store.md
-  - docs/trail.md
-  - docs/wrench.md
+  
