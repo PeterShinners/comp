@@ -1,3 +1,8 @@
+---
+permalink: /
+title: Comp Language
+---
+
 # Comp Language
 
 Comp is an experimental project to build a general purpose, high level

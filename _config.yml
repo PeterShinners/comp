@@ -1,3 +1,6 @@
+title: Comp Language
+theme: minima
+
 plugins:
   - jekyll-relative-links
 relative_links:
@@ -11,3 +14,4 @@ include:
   - design/struct.md
   - design/syntax.md
   - design/type.md
+  
