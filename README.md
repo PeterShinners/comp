@@ -1,4 +1,7 @@
-# Comp Language
+---
+permalink: /
+title: Comp Language
+---
 
 Comp is an experimental project to build a general purpose, high level
 programming language that works inside and alongside Python. It is definitely
