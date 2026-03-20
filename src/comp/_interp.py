@@ -134,6 +134,8 @@ class Interp:
         # Module cache: resource -> Module
         # Stores Module objects that have been created (may or may not be finalized)
         self.modules = {}
+        # Guard to avoid recursive callout validation while building callout stdlib.
+        self._disable_build_validations = 0
 
     def __del__(self):
         for fd in getattr(self, 'search_fds', []):
@@ -301,7 +303,9 @@ class Interp:
             if id(mod) not in failed:
                 mod.apply_aliases()
 
-    def build(self, module, fold=True, pure=False):
+    def build(self, module, fold=True, pure=False,
+              validation_severity="error",
+              fail_on_validation_error=True):
         """Build a module and all its dependencies through the full pipeline.
 
         This is the primary entry point for preparing a module for execution.
@@ -322,6 +326,8 @@ class Interp:
             module: (Module) The root module to build
             fold: (bool) Whether to fold constants (default True)
             pure: (bool) Whether to evaluate pure functions at compile time
+            validation_severity: (str) Minimum callout severity to run during build
+            fail_on_validation_error: (bool) Stop build on validator ERROR callouts
 
         Returns:
             (Module) The built module (same object, now fully prepared)
@@ -332,6 +338,15 @@ class Interp:
         # Pass 1: Definitions — parse all statements into cop nodes
         for mod in all_modules:
             mod.definitions()
+
+        # Pass 1b: Early COP validation on raw definitions
+        for mod in all_modules:
+            self._run_definition_callouts(
+                mod,
+                stage="early",
+                min_severity=validation_severity,
+                fail_on_error=fail_on_validation_error,
+            )
 
         # Pass 2: Namespace — build namespace for each module
         for mod in all_modules:
@@ -355,6 +370,15 @@ class Interp:
                         defn.original_cop, mod_ns
                     )
 
+        # Pass 5b: Validation on resolved COP
+        for mod in all_modules:
+            self._run_definition_callouts(
+                mod,
+                stage="resolved",
+                min_severity=validation_severity,
+                fail_on_error=fail_on_validation_error,
+            )
+
         # Pass 6: Fold/Optimize — constant folding
         if fold:
             for mod in all_modules:
@@ -364,6 +388,15 @@ class Interp:
                     defn.resolved_cop = comp.coptimize(
                         defn.resolved_cop, True, mod_ns
                     )
+
+            # Pass 6a: Validation on folded COP
+            for mod in all_modules:
+                self._run_definition_callouts(
+                    mod,
+                    stage="folded",
+                    min_severity=validation_severity,
+                    fail_on_error=fail_on_validation_error,
+                )
 
         # Pass 6b: Pure evaluation (optional)
         if pure:
@@ -420,11 +453,23 @@ class Interp:
                     if not hasattr(ce, "module"):
                         ce.module = mod
                         ce.definition_name = name
-                    raise
-                except Exception as e:
-                    raise comp.CodeError(
-                        f"Code generation error for {mod.token}:{name}: {e}"
+                    self._report_definition_exception_callout(
+                        defn,
+                        comp.PHASE_CODEGEN,
+                        str(ce),
+                        exception=ce,
                     )
+                    if fail_on_validation_error:
+                        raise
+                except Exception as e:
+                    msg = f"Code generation error for {mod.token}:{name}: {e}"
+                    self._report_definition_exception_callout(
+                        defn,
+                        comp.PHASE_CODEGEN,
+                        msg,
+                    )
+                    if fail_on_validation_error:
+                        raise comp.CodeError(msg)
 
         # Pass 6: Execute — run instructions to populate definition values
         for mod in all_modules:
@@ -440,7 +485,15 @@ class Interp:
                             if not hasattr(ce, "module") or ce.module is None:
                                 ce.module = mod
                                 ce.definition_name = name
-                            raise
+                            self._report_definition_exception_callout(
+                                defn,
+                                comp.PHASE_CODEGEN,
+                                str(ce),
+                                exception=ce,
+                            )
+                            if fail_on_validation_error:
+                                raise
+                            continue
                         defn.value = result
                         mod_env[name] = result
             # Everything else
@@ -452,11 +505,159 @@ class Interp:
                         if not hasattr(ce, "module") or ce.module is None:
                             ce.module = mod
                             ce.definition_name = name
-                        raise
+                        self._report_definition_exception_callout(
+                            defn,
+                            comp.PHASE_CODEGEN,
+                            str(ce),
+                            exception=ce,
+                        )
+                        if fail_on_validation_error:
+                            raise
+                        continue
                     defn.value = result
                     mod_env[name] = result
 
         return module
+
+    def _report_definition_exception_callout(self, definition, phase, message, exception=None):
+        """Append an ERROR callout to a definition.
+
+        Args:
+            definition: (Definition) Definition receiving the callout
+            phase: (str) callout phase string
+            message: (str) Human-readable error message
+            exception: (CodeError | None) Optional source exception for location extraction
+        """
+        primary = None
+        if exception is not None:
+            cop = getattr(exception, "cop_node", None)
+            if cop is not None:
+                try:
+                    pos = cop.field("pos")
+                    if pos is not None:
+                        row = pos.to_python(0)
+                        col = pos.to_python(1)
+                        mod = getattr(exception, "module", None)
+                        file_path = ""
+                        if mod is not None:
+                            src = getattr(mod, "source", None)
+                            if src is not None:
+                                file_path = getattr(src, "resource", "") or ""
+                        primary = comp.Location(comp.Span(file_path, row, col))
+                except (KeyError, AttributeError, IndexError, TypeError):
+                    pass
+        if definition.callouts is None:
+            definition.callouts = []
+        definition.callouts.append(comp.Callout(
+            severity=comp.ERROR,
+            code="build-error",
+            message=message,
+            phase=phase,
+            primary=primary,
+        ))
+
+    def _run_definition_callouts(self, mod, stage, min_severity, fail_on_error):
+        """Run comp-side COP validators for each definition in a module.
+
+        Args:
+            mod: (Module) Module containing definitions
+            stage: (str) One of "early", "resolved", "folded"
+            min_severity: (str) Minimum severity threshold
+            fail_on_error: (bool) Raise on first ERROR callout when True
+        """
+        if self._disable_build_validations:
+            return
+
+        for name, definition in mod.definitions().items():
+            comp.cop_callouts(definition, min_severity=min_severity, interp=self, stage=stage)
+            if not fail_on_error:
+                continue
+            for callout in (definition.callouts or []):
+                if callout.severity != comp.ERROR:
+                    continue
+                source = definition.resolved_cop or definition.original_cop
+                err = comp.CodeError(f"Validation error ({callout.code}): {callout.message}", source)
+                err.module = mod
+                err.definition_name = name
+                raise err
+
+        # Also validate !startup blocks — they are not in definitions() so
+        # must be resolved/folded inline here and collected onto mod.callouts.
+        for startup_name in mod.startup_names():
+            raw_cop = mod.startup(startup_name)
+            if raw_cop is None:
+                continue
+            synthetic = comp.Definition(
+                f"!startup {startup_name}", mod.token, raw_cop, comp.shape_block
+            )
+            if stage in ("resolved", "folded"):
+
+                if mod.token.startswith("minimal"):
+                    breakpoint_here=True
+
+                try:
+                    ns = mod.namespace()
+                    resolved = comp.cop_resolve_names(raw_cop, ns)
+                    if stage == "folded":
+                        resolved = comp.coptimize(resolved, True, ns)
+                    synthetic.resolved_cop = resolved
+                except Exception:
+                    pass
+            comp.cop_callouts(synthetic, min_severity=min_severity, interp=self, stage=stage)
+            if synthetic.callouts:
+                mod.callouts.extend(synthetic.callouts)
+            if fail_on_error:
+                for callout in synthetic.callouts:
+                    if callout.severity == comp.ERROR:
+                        err = comp.CodeError(f"Validation error ({callout.code}): {callout.message}", raw_cop)
+                        err.module = mod
+                        err.definition_name = startup_name
+                        raise err
+
+    def callouts(self, module, min_severity="warning", fold=True, pure=False):
+        """Run the build pipeline with validations enabled and collect callouts.
+
+        Unlike build(), this method does not stop at the first callout error.
+        Exceptions are converted into error callouts when possible.
+
+        Args:
+            module: (Module) Root module
+            min_severity: (str) Minimum severity threshold for validators
+            fold: (bool) Enable folding
+            pure: (bool) Enable pure evaluation
+
+        Returns:
+            (list) Flat list of callouts from module + definitions
+        """
+        try:
+            self.build(
+                module,
+                fold=fold,
+                pure=pure,
+                validation_severity=min_severity,
+                fail_on_validation_error=False,
+            )
+        except comp.ParseError as e:
+            module.callouts.append(comp.Callout(
+                severity=comp.ERROR,
+                code="parse-error",
+                message=e.message if hasattr(e, "message") else str(e),
+                phase=comp.PHASE_PARSE,
+            ))
+        except comp.CodeError as e:
+            module.callouts.append(comp.Callout(
+                severity=comp.ERROR,
+                code="code-error",
+                message=str(e),
+                phase=comp.PHASE_COP,
+            ))
+
+        all_callouts = []
+        for mod in self._collect_modules(module):
+            all_callouts.extend(mod.callouts)
+            for definition in mod.definitions().values():
+                all_callouts.extend(definition.callouts or [])
+        return all_callouts
 
     def _collect_modules(self, root_module):
         """Collect all modules reachable from root in dependency order.

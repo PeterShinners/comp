@@ -492,6 +492,7 @@ def main():
     modes.add_argument("--namespace", action="store_true", help="Show the module namespace with all definitions")
     modes.add_argument("--definitions", action="store_true", help="Show list of module definitions")
     modes.add_argument("--describe", metavar="NAME", help="Describe a named definition as a markdown report (supports overloads)")
+    modes.add_argument("--callouts", action="store_true", help="Run module validation pipeline and print callouts")
 
     parser.add_argument("--startup", metavar="NAME", default="main",
                         help="Entry point to run (default: main)")
@@ -501,7 +502,7 @@ def main():
         import debugpy
         if debugpy.is_client_connected():
             print("Debugger attached.")
-            argv = ['minimal.comp', '--definitions']
+            argv = ['minimal.comp', '--callouts', '--pure']
     except ImportError:
         pass
 
@@ -749,6 +750,29 @@ def main():
         ns = mod.namespace()
         prettynamespace(ns)
         return
+
+    if args.callouts:
+        callouts = interp.callouts(mod, min_severity=comp.WARNING, fold=True, pure=args.pure)
+        if not callouts:
+            print("No callouts.")
+            return 0
+
+        has_error = False
+        for c in callouts:
+            phase = c.phase or "-"
+            sev = (c.severity or "info").upper()
+            code = c.code or "unknown"
+            msg = c.message or ""
+            print(f"{sev} [{phase}:{code}] {msg}")
+            if c.primary and c.primary.span:
+                s = c.primary.span
+                if s.file:
+                    print(f"  --> {s.file}:{s.line}:{s.col}")
+                else:
+                    print(f"  --> line {s.line}, col {s.col}")
+            if c.severity == comp.ERROR:
+                has_error = True
+        return 1 if has_error else 0
 
     if args.code or args.eval or args.trace:
         # Full build pipeline

@@ -1874,6 +1874,7 @@ class DispatchOn(Instruction):
                     frame.failure = result_frame.failure
                 return frame.set_result(result)
 
+        # This should not be an exception? fallback to nil?
         raise comp.CodeError("No branch matched in !on dispatch", self.cop)
 
     def format(self, idx):

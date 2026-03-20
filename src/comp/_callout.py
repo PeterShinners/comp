@@ -295,25 +295,32 @@ def parse_callouts(tree, source, file, module, min_severity=ERROR):
     pass
 
 
-def cop_callouts(definition, min_severity=ERROR, interp=None):
+def cop_callouts(definition, min_severity=ERROR, interp=None, stage="resolved"):
     """Validate cop nodes on a Definition, appending to definition.callouts.
 
-    Works on whichever cop stage the definition has reached: original_cop
-    (raw), resolved_cop (names resolved and folded). Callers should prefer
-    resolved_cop when available.
-
-    Loads the callout stdlib module and calls validate-cop from comp code.
+    Loads the callout stdlib module and calls a stage-specific validator from
+    comp code.
     The comp-side function walks the COP tree and returns callout structs.
 
     Args:
         definition:   (Definition) Definition whose cop nodes to validate
         min_severity: (str) Minimum severity to report
         interp:       (Interp | None) Interpreter instance for calling comp code
+        stage:        (str) One of "early", "resolved", "folded"
     """
     if interp is None:
         return
 
-    cop = definition.resolved_cop or definition.original_cop
+    if stage == "early":
+        cop = definition.original_cop
+        validator_name = "validate-early"
+    elif stage == "folded":
+        cop = definition.resolved_cop or definition.original_cop
+        validator_name = "validate-folded"
+    else:
+        cop = definition.resolved_cop or definition.original_cop
+        validator_name = "validate-resolved"
+
     if cop is None:
         return
 
@@ -328,11 +335,17 @@ def cop_callouts(definition, min_severity=ERROR, interp=None):
     }
     severity_tag_name = severity_tags.get(min_severity, "callout.warning")
 
-    try:
-        callout_mod = interp.module("callout")
-        interp.build(callout_mod)
-    except Exception:
-        return
+    callout_mod = getattr(interp, "_callout_mod", None)
+    if callout_mod is None:
+        interp._disable_build_validations = getattr(interp, "_disable_build_validations", 0) + 1
+        try:
+            callout_mod = interp.module("callout")
+            interp.build(callout_mod, fail_on_validation_error=False)
+            interp._callout_mod = callout_mod
+        except Exception:
+            return
+        finally:
+            interp._disable_build_validations = max(getattr(interp, "_disable_build_validations", 1) - 1, 0)
 
     # Resolve the severity tag from the callout module
     callout_defs = callout_mod.definitions()
@@ -341,11 +354,23 @@ def cop_callouts(definition, min_severity=ERROR, interp=None):
         return
     severity_val = severity_def.value
 
-    try:
-        args = comp.Value.from_python({"min-severity": severity_val})
-        result = interp.call_function(callout_mod, "validate-cop", piped=cop, args=args)
-    except Exception:
+    # Get the validator definition directly, avoiding call_function's re-build
+    validator_def = callout_defs.get(validator_name)
+    if validator_def is None or validator_def.value is None:
         return
+
+    args = comp.Value.from_python({"min-severity": severity_val})
+    env = {k: d.value for k, d in callout_defs.items() if d.value is not None}
+    interp._disable_build_validations = getattr(interp, "_disable_build_validations", 0) + 1
+    try:
+        from comp._interp import ExecutionFrame
+        frame = ExecutionFrame(env, interp=interp, module=callout_mod)
+        result = frame.invoke_block(validator_def.value, args, piped=cop)
+    except Exception as err:
+        print("CALLOUTFAILED:", err)
+        return
+    finally:
+        interp._disable_build_validations = max(getattr(interp, "_disable_build_validations", 1) - 1, 0)
 
     # Convert result struct of callout values into Python Callout objects
     if not isinstance(result.data, dict):
