@@ -661,7 +661,7 @@ def main():
 
         defs = mod.definitions()
         if not args.pure:
-            interp.build_namespace(mod)
+            interp.build_namespaces()
         namespace = mod.namespace()
 
         if not args.raw:
@@ -688,24 +688,15 @@ def main():
         if args.cop:
             for name, definition in sorted_defs:
                 print(f"\n{'='*60}")
-                print(f"Definition: {name} ({definition.shape.qualified})")
+                if definition.startup:
+                    print(f"!startup {name.split('.', 1)[1]}")
+                else:
+                    print(f"Definition: {name} ({definition.shape.qualified})")
                 print(f"{'='*60}")
                 cop = definition.resolved_cop if (not args.raw and definition.resolved_cop) else definition.original_cop
                 if cop is None:
                     continue
                 prettycop(cop, show_pos=args.pos)
-
-            startup_name = args.startup
-            startup_cop = mod.prepare_startup(startup_name)[0] if mod is not None else None
-            if startup_cop is not None:
-                if not args.raw:
-                    startup_cop = comp.cop_resolve_names(startup_cop, namespace)
-                    startup_cop = comp.coptimize(startup_cop, True, namespace,
-                                                 pure=args.pure, defs=namespace, interp=interp)
-                print(f"\n{'='*60}")
-                print(f"!startup {startup_name}")
-                print(f"{'='*60}")
-                prettycop(startup_cop, show_pos=args.pos)
 
         elif args.unparse:
             for name, definition in sorted_defs:
@@ -717,7 +708,7 @@ def main():
         return
 
     if args.definitions:
-        interp.build_namespace(mod)
+        interp.build_namespaces()
         defs = mod.definitions()
         for name, definition in sorted(defs.items()):
             unparse = comp.cop_unparse(definition.original_cop)
@@ -746,7 +737,7 @@ def main():
         return
 
     if args.namespace:
-        interp.build_namespace(mod)
+        interp.build_namespaces()
         ns = mod.namespace()
         prettynamespace(ns)
         return
@@ -793,7 +784,10 @@ def main():
             print("=" * 60)
 
             for name, definition in sorted(defs.items()):
-                print(f"\nDefinition: {name} ({definition.shape.qualified})")
+                if definition.startup:
+                    print(f"\n!startup {name.split('.', 1)[1]}")
+                else:
+                    print(f"\nDefinition: {name} ({definition.shape.qualified})")
                 print(f"Source: {comp.cop_unparse(definition.original_cop)}")
                 print("-" * 40)
 
@@ -802,19 +796,6 @@ def main():
                         print(format_instruction(i, instr))
                 else:
                     print("  (no instructions)")
-
-            startup_name = args.startup
-            startup_cop = mod.prepare_startup(startup_name)[0] if mod is not None else None
-            if startup_cop is not None:
-                resolved_startup = comp.cop_resolve_names(startup_cop, namespace)
-                resolved_startup = comp.coptimize(resolved_startup, True, namespace,
-                                                  pure=args.pure, defs=namespace, interp=interp)
-                startup_instructions = comp.generate_code_for_definition(resolved_startup, namespace=namespace)
-                print(f"\n!startup {startup_name}")
-                print(f"Source: {comp.cop_unparse(startup_cop)}")
-                print("-" * 40)
-                for i, instr in enumerate(startup_instructions):
-                    print(format_instruction(i, instr))
             return
 
         if args.eval or args.trace:
@@ -840,32 +821,25 @@ def main():
                     env[name] = definition.value
 
             startup_name = args.startup
-            startup_cop, context = mod.prepare_startup(startup_name) if mod is not None else (None, None)
-            if startup_cop is not None:
-                resolved_startup = comp.cop_resolve_names(startup_cop, namespace)
-                resolved_startup = comp.coptimize(resolved_startup, True, namespace,
-                                                  pure=args.pure, defs=namespace, interp=interp)
-                startup_instructions = comp.generate_code_for_definition(resolved_startup, namespace=namespace)
-
-                if args.trace:
-                    print(f"\n-- startup {startup_name} --")
-                    frame = TracingFrame(env, interp=interp, module=mod, depth=0)
-                    startup_block = frame.run(startup_instructions)
-                    if startup_block is not None and isinstance(startup_block.data, comp.Callable):
+            startup_defn, context = mod.prepare_startup(startup_name) if mod is not None else (None, None)
+            if startup_defn is not None and startup_defn.value is not None:
+                startup_block = startup_defn.value
+                if isinstance(startup_block.data, comp.Callable):
+                    if args.trace:
+                        print(f"\n-- startup {startup_name} --")
+                        frame = TracingFrame(env, interp=interp, module=mod, depth=0)
                         try:
                             result = frame.invoke_block(startup_block, context, piped=None)
-                        except comp._interp.CompFail as e:
+                        except comp.CompFail as e:
                             print(_format_failure_cli(e.value, source_file=args.source), file=sys.stderr)
                             sys.exit(1)
                         if result is not None:
                             print(result.format())
-                else:
-                    startup_block = interp.execute(startup_instructions, env, module=mod)
-                    if startup_block is not None and isinstance(startup_block.data, comp.Callable):
+                    else:
                         startup_frame = comp.ExecutionFrame(env, interp=interp, module=mod)
                         try:
                             result = startup_frame.invoke_block(startup_block, context, piped=None)
-                        except comp._interp.CompFail as e:
+                        except comp.CompFail as e:
                             print(_format_failure_cli(e.value, source_file=args.source), file=sys.stderr)
                             sys.exit(1)
                         if result is not None:

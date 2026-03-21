@@ -40,8 +40,9 @@ class Module:
         self._imports = None
         self._definitions = None
         self._namespace = None
-        self._finalized = False
-        self.callouts = []  # Module-level callouts (scan errors, import failures, non-definition statements)
+        self._interp_phase = 0          # Set by Interp during build phases
+        self._scan_error = None         # Cached exception from failed scan()
+        self._definitions_error = None  # Cached exception from failed definitions()
 
         # Module-level values (from !mod statements)
         self._mod_values = None
@@ -62,11 +63,6 @@ class Module:
     def __hash__(self):
         return id(self.token)
 
-    @property
-    def is_finalized(self):
-        """(bool) Whether the module has been finalized."""
-        return self._finalized
-
     def scan(self):
         """Scan source for imports and metadata (fast, no full parse).
 
@@ -77,13 +73,24 @@ class Module:
         may be able to provide module information even when a full parse
         would fail.
 
-        Results are cached.
+        Results are cached.  On failure the exception is cached and
+        re-raised on future calls.
 
         Returns:
             ScanResult: Object with .imports(), .package(), .docs() methods
+
+        Raises:
+            Exception: If scanning fails (cached for future calls)
         """
-        if self._scan is None:
+        if self._scan is not None:
+            return self._scan
+        if self._scan_error is not None:
+            raise self._scan_error
+        try:
             self._scan = comp._scan.scan(self.source.content)
+        except Exception as e:
+            self._scan_error = e
+            raise
         return self._scan
 
     def statements(self):
@@ -202,21 +209,22 @@ class Module:
             imports[name] = import_info
         return imports
 
-    def _register_imports(self, imports, definitions, namespace):
-        """Interpreter call to store registered imports and precached data.
-        
-        These modules are likely not parsed or finalized yet, but the
-        interpreter must do this before the complete namespace can be generated.
+    def _register_imports(self, imports):
+        """Register imports and reset module to phase 0.
 
-        if the interpeter has precached information about the module definitions
-        or namespace it can be passed now.
-
+        Called by the interpreter after scanning import statements.
+        Resets all cached build state so the module can be rebuilt
+        through the phase pipeline.
         """
-        if self._imports is not None:
-            raise comp.ModuleError("Module imports already registered.")
-        self._definitions = definitions
-        self._namespace = namespace
         self._imports = imports
+        self._definitions = None
+        self._namespace = None
+        self._interp_phase = 0
+        self._scan_error = None
+        self._definitions_error = None
+        self._mod_values = None
+        self._deferred_defs = []
+        self._exported_aliases = {}
 
     def definitions(self):
         """Parse source and extract definitions into module.definitions dict.
@@ -226,274 +234,129 @@ class Module:
         hierarchies. These definitions will be progressively refined and
         populated through the various build passes.
 
+        Results are cached.  On failure the exception is cached and
+        re-raised on future calls.  No partial state is stored on the
+        module after a failure.
+
         Returns:
             dict: qualified names strings to Definition objects
+
+        Raises:
+            ParseError: If a statement body fails to parse
+            CodeError: If definition extraction fails
         """
         if self._definitions is not None:
             return self._definitions
+        if self._definitions_error is not None:
+            raise self._definitions_error
 
-        self._definitions = {}
-        self._mod_values = {}
+        try:
+            defs, mod_values, deferred = self._build_definitions()
+        except Exception as e:
+            self._definitions_error = e
+            raise
+
+        self._definitions = defs
+        self._mod_values = mod_values
+        self._deferred_defs = deferred
+        return self._definitions
+
+    def _build_definitions(self):
+        """Build definitions from module statements.
+
+        Delegates each statement to _compiler functions, then adopts the
+        resulting Definitions into this module.  Tag definitions get their
+        Tag.module bound here.
+
+        Returns:
+            (tuple) (defs, mod_values, deferred_defs)
+
+        Raises:
+            ParseError: On parse failure
+            CodeError: On structural or duplicate-name errors
+        """
         statements = self.statements()
+        defs = {}
+        mod_values = {}
+        deferred = []
 
-        # Process each statement by dispatching to operator-specific handlers
         for stmt in statements:
             operator = stmt.get("operator")
 
-            # Dispatch to operator-specific handler
-            # Each handler updates module state directly
-            if operator in ("func", "pure"):
-                self._process_func_statement(stmt)
-            elif operator == "tag":
-                self._process_tag_statement(stmt)
-            elif operator == "shape":
-                self._process_shape_statement(stmt)
+            if operator in ("func", "pure", "tag", "shape", "startup"):
+                pairs = comp._compiler.compile_definition(stmt, self.token)
+                for name, defn in pairs:
+                    # Tag parent entries (no cop) skip if name already claimed
+                    if defn.original_cop is None and defn.shape is comp.shape_tag:
+                        if name not in defs:
+                            defs[name] = defn
+                    else:
+                        defs[name] = defn
+                    # Adopt tag definitions — bind Tag.module to this module
+                    if defn.shape is comp.shape_tag and defn.value is not None:
+                        tag_obj = defn.value.data
+                        if isinstance(tag_obj, comp.Tag):
+                            tag_obj.module = self
+
             elif operator == "mod":
-                self._process_mod_statement(stmt)
-            elif operator == "alias":
-                self._process_alias_statement(stmt)
-            elif operator == "export":
-                self._process_export_statement(stmt)
-            else:
-                pass  # Handle import, package, startup separately
+                name, cop_value = comp._compiler.compile_mod_value(stmt)
+                mod_values[name] = cop_value
 
-        return self._definitions
+            elif operator in ("alias", "export"):
+                entry = comp._compiler.compile_deferred(stmt)
+                if entry is not None:
+                    deferred.append(entry)
 
-    def _process_func_statement(self, stmt):
-        """Process a !func or !pure statement, adding definitions to self._definitions."""
-        raw_name = stmt.get("name")
-        is_private = raw_name.endswith("&")
-        name = raw_name[:-1] if is_private else raw_name
-        body = stmt.get("body", "")
-        line_offset = stmt.get("pos", [1])[0]
-        col_offset = stmt.get("body_col", 0)
-
-        tree = comp.lark_parse(body, "comp", "start_func", line_offset=line_offset, col_offset=col_offset)
-        cop_value = comp.lark_to_cop(tree)
-
-        # Determine shape - check if it's wrapped
-        shape = comp.shape_block
-        value_tag = comp.cop_tag(cop_value)
-        if value_tag == "value.wrapper":
-            # Check the wrapped inner value (first kid)
-            try:
-                inner_kids = comp.cop_kids(cop_value)
-                if inner_kids:
-                    inner_tag = comp.cop_tag(inner_kids[0])
-                    if inner_tag not in ("function.define", "value.block"):
-                        shape = comp.shape_struct
-            except (KeyError, AttributeError):
-                shape = comp.shape_struct
-
-        # Create base definition
-        definition = Definition(name, self.token, cop_value, shape, private=is_private)
-        if stmt.get("operator") == "pure":
-            definition.pure = True
-
-        if name in self._definitions:
-            raise comp.CodeError(
-                f"Duplicate definition '{name}' in module '{self.token}'",
-                cop_value,
-            )
-
-        self._definitions[name] = definition
-
-    def _process_tag_statement(self, stmt):
-        """Process a !tag statement, adding tag hierarchy to self._definitions."""
-        raw_name = stmt.get("name")
-        is_private = raw_name.endswith("&")
-        name = raw_name[:-1] if is_private else raw_name
-        body = stmt.get("body", "")
-        line_offset = stmt.get("pos", [1])[0]
-        col_offset = stmt.get("body_col", 0)
-
-        tree = comp.lark_parse(body, "comp", "start_tag", line_offset=line_offset, col_offset=col_offset)
-        cop_value = comp.lark_to_cop(tree)
-
-        # Create main tag definition
-        tag = comp.Tag(name, private=False)
-        tag.module = self
-        main_def = Definition(name, self.token, original_cop=cop_value, shape=comp.shape_tag, private=is_private)
-        main_def.value = comp.Value.from_python(tag)
-        self._definitions[name] = main_def
-
-        # todo not sure full parent hierarchy is right, perhaps just immediate
-        # parent? this depends on how name hierarchy combines with functions
-        # or other statement identifiers
-
-        # Expand hierarchical parents
-        # For "does.exist", create "does"
-        parts = name.split('.')
-        for i in range(1, len(parts)):
-            parent_name = '.'.join(parts[:i])
-            if parent_name not in self._definitions:
-                parent_tag = comp.Tag(parent_name, private=False)
-                parent_tag.module = self
-                parent_def = Definition(parent_name, self.token, original_cop=None, shape=comp.shape_tag)
-                parent_def.value = comp.Value.from_python(parent_tag)
-                self._definitions[parent_name] = parent_def
-
-        # Expand children from cop_value
-        # For each child identifier in struct.define, create name.child
-        for child_cop in comp.cop_kids(cop_value):
-            child_tag = comp.cop_tag(child_cop)
-            child_private = is_private  # children inherit parent privacy
-            if child_tag == "value.private_tag":
-                # Explicit & marker on this child
-                child_private = True
-                inner = comp.cop_kids(child_cop)
-                if inner:
-                    child_cop = inner[0]
-                    child_tag = comp.cop_tag(child_cop)
-            if child_tag == "value.identifier":
-                # Extract child name
-                child_name = self._statement_identifier(child_cop)
-                child_qualified = f"{name}.{child_name}"
-
-                child_tag_obj = comp.Tag(child_qualified, private=False)
-                child_tag_obj.module = self
-                child_def = Definition(child_qualified, self.token, original_cop=None, shape=comp.shape_tag, private=child_private)
-                child_def.value = comp.Value.from_python(child_tag_obj)
-                self._definitions[child_qualified] = child_def
-
-    def _process_shape_statement(self, stmt):
-        """Process a !shape statement, adding shape definition to self._definitions."""
-        raw_name = stmt.get("name")
-        is_private = raw_name.endswith("&")
-        name = raw_name[:-1] if is_private else raw_name
-        body = stmt.get("body", "")
-        line_offset = stmt.get("pos", [1])[0]
-        col_offset = stmt.get("body_col", 0)
-
-        tree = comp.lark_parse(body, "comp", "start_shape", line_offset=line_offset, col_offset=col_offset)
-        cop_value = comp.lark_to_cop(tree)
-
-        # Create shape definition
-        definition = Definition(name, self.token, cop_value, comp.shape_shape, private=is_private)
-        self._definitions[name] = definition
-
-    def _process_mod_statement(self, stmt):
-        """Process a !mod statement, storing value in self._mod_values."""
-        name = stmt.get("name")
-        body = stmt.get("body", "").strip()
-        # Parse the mod body
-        lark_tree = comp.lark_parse(body, "comp", rule="start_mod")
-        cop_value = comp._parse.lark_to_cop(lark_tree)
-
-        # Store mod value separately (not as a definition)
-        # These are module-level configuration values, accessible via module.mod_values()
-        self._mod_values[name] = cop_value
-
-    def _process_alias_statement(self, stmt):
-        """Process a !alias statement, queuing for namespace-time resolution.
-
-        Aliases are resolved during namespace() against the namespace.
-        Syntax: !alias NAME REFERENCE  (NAME may carry & for private)
-        """
-        raw_name = stmt.get("name")
-        is_private = raw_name.endswith("&")
-        alias_name = raw_name[:-1] if is_private else raw_name
-        alias_ref = stmt.get("body", "").strip()
-        if alias_ref:
-            self._deferred_defs.append(("alias", alias_name, alias_ref, is_private))
-
-    def _process_export_statement(self, stmt):
-        """Process a !export statement, queuing for namespace-time resolution.
-
-        Exports are resolved during namespace() against the imports.
-
-        Two forms:
-          !export NAME IMPORT_ALIAS  — re-export all public defs from IMPORT_ALIAS,
-                                       each exported as NAME.def_qualified_name.
-          !export NAME IMPORT_ALIAS.SUB.PATH  — re-export only defs whose qualified
-                                                name starts with SUB.PATH from
-                                                IMPORT_ALIAS; each exported name is
-                                                NAME + suffix after SUB.PATH.
-        NAME may carry & suffix for private.
-        """
-        raw_name = stmt.get("name")
-        is_private = raw_name.endswith("&")
-        export_name = raw_name[:-1] if is_private else raw_name
-        export_ref = stmt.get("body", "").strip()
-        if export_ref:
-            self._deferred_defs.append(("export", export_name, export_ref, is_private))
-
-    def _statement_identifier(self, identifier_cop):
-        """Extract name from value.identifier COP node.
-
-        Args:
-            identifier_cop: value.identifier COP node
-
-        Returns:
-            str: Identifier name (e.g., "add" or "server.host")
-        """
-        # todo this needs to fail on non token/text types (like #2 or $ or expr)
-        # also this should be called on every statement type, not just tags
-        parts = []
-        for kid in comp.cop_kids(identifier_cop):
-            kid_tag = comp.cop_tag(kid)
-            if kid_tag in ("ident.token", "ident.text"):
-                parts.append(kid.field("value").data)
-        return '.'.join(parts) if parts else ""
+        return defs, mod_values, deferred
 
     def startup(self, name):
-        """Find and parse a !startup statement by name.
+        """Get the Definition for a !startup entry point by name.
 
         Args:
-            name: The startup function name (e.g., "main")
+            name: (str) The startup name (e.g., "main")
 
         Returns:
-            Value: The parsed COP node for the startup body, or None if not found
+            (Definition | None) The startup definition, or None if not found
         """
-        for stmt in self.statements():
-            if stmt.get("operator") == "startup" and stmt.get("name") == name:
-                body = stmt.get("body", "")
-                line_offset = stmt.get("pos", [1])[0]
-                col_offset = stmt.get("body_col", 0)
-                tree = comp.lark_parse(body, "comp", "start_startup", line_offset=line_offset, col_offset=col_offset)
-                return comp.lark_to_cop(tree)
-        return None
+        return self.definitions().get(f"!startup.{name}")
 
     def startup_names(self):
-        """Return names of all !startup statements in this module.
+        """Return names of all !startup entry points in this module.
 
         Returns:
             (list) Names of all startup entry points, in source order
         """
+        prefix = "!startup."
         return [
-            stmt["name"]
-            for stmt in self.statements()
-            if stmt.get("operator") == "startup" and stmt.get("name")
+            qualified[len(prefix):]
+            for qualified, defn in self.definitions().items()
+            if defn.startup
         ]
 
     def prepare_startup(self, name):
         """Prepare a named !startup for execution.
 
-        Parses the startup body into COP nodes (not yet optimized) and builds
-        an initial argument struct that will be passed to the startup block.
-
-        The initial struct is assembled from top-level contributions across all
-        modules.  For now it contains a single hardcoded placeholder field so
-        the mechanism has something concrete to evolve from.
+        Returns the startup Definition and an initial argument struct that
+        will be passed to the startup block.
 
         Args:
             name: (str) Name of the startup entry point (e.g. "main")
 
         Returns:
-            (tuple) ``(cop, initial_struct)`` or ``(None, None)`` if not found.
+            (tuple) ``(definition, initial_struct)`` or ``(None, None)``
 
-            cop: (Value) Parsed COP node for the startup body (un-optimized)
+            definition: (Definition) The startup definition
             initial_struct: (Value) Starting struct for the startup invocation
         """
-        cop = self.startup(name)
-        if cop is None:
+        defn = self.startup(name)
+        if defn is None:
             return None, None
 
         # Build the initial struct that is handed to the startup block.
         # Eventually each contributing module will add fields here.  For now
         # we include one placeholder field so the struct is non-empty.
         initial_value = comp.Value.from_python({"timeout": 10})
-        return cop, initial_value
+        return defn, initial_value
 
     def namespace(self):
         """(dict) Resolved namespace dict for identifier lookups.
@@ -520,9 +383,10 @@ class Module:
         if self._namespace is not None:
             return self._namespace
 
-        for import_module, import_err in self._imports.values():
-            if import_err:
-                raise import_err
+        if self._interp_phase < 1:
+            raise comp.ModuleError(
+                "Interpreter must call build_namespaces() before accessing namespace."
+            )
 
         if self._imports is None:
             raise comp.ModuleError("Cannot build namespace until interpreter registers imports.")
@@ -534,7 +398,12 @@ class Module:
             self._namespace = dict(sys.namespace())
 
         for import_name, (import_module, import_err) in self._imports.items():
-            import_definitions = import_module.definitions()
+            if import_err or import_module is None:
+                continue
+            try:
+                import_definitions = import_module.definitions()
+            except (comp.ParseError, comp.CodeError):
+                continue
             import_namespace = create_namespace(import_definitions, import_name)
             self._namespace = merge_namespace(self._namespace, import_namespace, clobber=False)
 
@@ -718,23 +587,6 @@ class Module:
                             perm = ".".join(part_list[i:])
                             _inject_ns(self._namespace, perm, alias_defs)
 
-    def finalize(self):
-        """Build namespace and resolve identifiers. Auto-calls definitions if needed."""
-        definitions = self.definitions()
-        namespace = self.namespace()
-        self.resolve_deferred()
-        self.apply_aliases()
-        for definition in definitions.values():
-            if definition.resolved_cop is not None:
-                continue
-            definition.resolved_cop = comp.cop_resolve_names(
-                definition.original_cop,
-                namespace
-            )
-
-        self._finalized = True
-
-
 class Definition:
     """A module-level definition that can be referenced.
 
@@ -760,9 +612,10 @@ class Definition:
         value: (Value | None) The constant-folded value (Shape/Block/etc) if applicable
         instructions: (list | None) Bytecode instructions for this definition
         private: (bool) Whether this definition is private to the module
+        startup: (bool) Whether this is a !startup entry point
 
     """
-    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "pure", "callouts")
+    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "pure", "startup")
 
     def __init__(self, qualified, module_id, original_cop, shape, private=False):
         self.qualified = qualified
@@ -771,10 +624,10 @@ class Definition:
         self.shape = shape
         self.private = private
         self.pure = False  # Whether this is a !pure definition (evaluate at compile time)
+        self.startup = False  # Whether this is a !startup entry point
         self.resolved_cop = None  # Filled during identifier resolution
         self.value = None  # Filled during constant folding
         self.instructions = None  # Filled during code generation
-        self.callouts = []  # Callouts discovered during any build phase for this definition
 
     def __repr__(self):
         shape_name = self.shape.qualified
@@ -806,6 +659,8 @@ def create_namespace(definitions, prefix):
     """
     namespace = {}
     for qualified, definition in definitions.items():
+        if definition.startup:
+            continue
         for name in _identifier_permutations(definition, prefix):
             if prefix and definition.private:
                 continue

@@ -285,7 +285,7 @@ def _invoke_limits(field, value, frame):
 
         try:
             frame.invoke_block(func_val, args, piped=value)
-        except comp._interp.CompFail as exc:
+        except comp.CompFail as exc:
             return exc.value
 
     return None

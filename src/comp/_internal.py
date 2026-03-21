@@ -83,6 +83,7 @@ class InternalModule(comp.Module):
             content=""  # Internal modules have no source text
         )
         super().__init__(source)
+        self._interp_phase = 2  # Internal modules are always fully available
 
         docs = [{"content": doc}]
         scan = {
@@ -91,7 +92,6 @@ class InternalModule(comp.Module):
         self._scan = comp.Value.from_python(scan)
         self._imports = {}
         self._definitions = {}
-        self._finalized = False
 
     def add_tag(self, qualified_name, private=False):
         """Add a tag definition to this module.
@@ -174,9 +174,6 @@ class InternalModule(comp.Module):
         self._definitions[qualified_name] = definition
         return definition
 
-    def finalize(self):
-        self._finalized = True
-
     def definitions(self):
         return self._definitions
 
@@ -189,6 +186,7 @@ class SystemModule(comp.Module):
         source = type("obj", (object,), {"resource": "system", "content": ""})()
         super().__init__(source)
         self.token = "system#0000"
+        self._interp_phase = 2  # System module is always fully available
 
         self._imports = {}
         self._definitions = {}
@@ -273,8 +271,6 @@ class SystemModule(comp.Module):
         self._add_callable("cop-fields", _builtin_cop_fields, pure=True)
         self._add_callable("walk-cop", _builtin_walk_cop, pure=True)
 
-        self.finalize()
-
     def _add_definition(self, name, value, shape):
         """Add a builtin definition with proper value and COP setup.
 
@@ -310,9 +306,6 @@ class SystemModule(comp.Module):
         """
         callable_obj = InternalCallable(name, func, pure=pure, input_shape=input_shape)
         self._add_definition(name, comp.Value(callable_obj), comp.shape_block)
-
-    def finalize(self):
-        self._finalized = True
 
 
 # Builtin callable implementations
@@ -1315,7 +1308,6 @@ def get_internal_module(resource):
             doc = inspect.getdoc(callback) or ""
             module = comp.InternalModule(resource, doc)
             callback(module)
-            module.finalize()
         _internal_modules[resource] = module
     return module
 

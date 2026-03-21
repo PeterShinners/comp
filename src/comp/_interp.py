@@ -134,6 +134,7 @@ class Interp:
         # Module cache: resource -> Module
         # Stores Module objects that have been created (may or may not be finalized)
         self.modules = {}
+        self._phase = 0  # 0=modules added, 1=namespaces built, 2=instructions built
         # Guard to avoid recursive callout validation while building callout stdlib.
         self._disable_build_validations = 0
 
@@ -273,35 +274,69 @@ class Interp:
         frame = ExecutionFrame(env, interp=self, module=module)
         return frame.run(instructions)
 
+    def build_namespaces(self):
+        """Build namespaces for all modules in the interpreter (phase 0 -> 1).
+
+        Best-effort: builds as many namespaces as possible, skipping modules
+        that failed to parse or whose imports failed. Returns a list of
+        (module, exception) pairs for anything that went wrong.
+
+        After this call, Module.namespace() is unlocked on all modules.
+        Modules with errors will have partial or empty namespaces.
+
+        Idempotent if already at phase >= 1.
+
+        Returns:
+            (list) List of (Module, Exception) pairs for modules that had errors
+        """
+        if self._phase >= 1:
+            return []
+
+        all_modules = self._all_modules()
+        errors = []
+
+        # Pass 1: Definitions — parse all statements into cop nodes
+        for mod in all_modules:
+            try:
+                mod.definitions()
+            except (comp.ParseError, comp.CodeError) as e:
+                errors.append((mod, e))
+
+        # Stamp phase 1 on all modules so namespace() gate is unlocked
+        for mod in all_modules:
+            mod._interp_phase = 1
+
+        # Pass 2: Namespace — build namespace for each module
+        for mod in all_modules:
+            if mod._definitions_error is not None:
+                continue
+            mod.namespace()
+
+        # Pass 3: Resolve aliases — resolve alias/export refs against namespace
+        for mod in all_modules:
+            if mod._definitions_error is not None:
+                continue
+            mod.resolve_deferred()
+
+        # Pass 4: Apply aliases — inject resolved aliases into all namespaces
+        for mod in all_modules:
+            if mod._definitions_error is not None:
+                continue
+            mod.apply_aliases()
+
+        self._phase = 1
+        return errors
+
     def build_namespace(self, module):
         """Build namespaces for a module and all its dependencies.
 
-        Runs passes 1-4 (definitions, namespace, resolve aliases, apply aliases)
-        on all modules in the dependency graph. This is sufficient for namespace
-        inspection without doing the full build pipeline.
-
-        Modules with parse errors in their definitions are skipped — the error
-        is stored on the import record so downstream code can report it.
+        DEPRECATED: Use build_namespaces() instead. This method exists for
+        backward compatibility during the transition.
 
         Args:
             module: (Module) The root module
         """
-        all_modules = self._collect_modules(module)
-        failed = set()
-        for mod in all_modules:
-            try:
-                mod.definitions()
-            except (comp.ParseError, comp.CodeError):
-                failed.add(id(mod))
-        for mod in all_modules:
-            if id(mod) not in failed:
-                mod.namespace()
-        for mod in all_modules:
-            if id(mod) not in failed:
-                mod.resolve_deferred()
-        for mod in all_modules:
-            if id(mod) not in failed:
-                mod.apply_aliases()
+        self.build_namespaces()
 
     def build(self, module, fold=True, pure=False,
               validation_severity="error",
@@ -332,33 +367,13 @@ class Interp:
         Returns:
             (Module) The built module (same object, now fully prepared)
         """
-        # Collect all modules in dependency order (imports before dependents)
-        all_modules = self._collect_modules(module)
+        # Passes 1-4: Definitions, namespaces, aliases
+        errors = self.build_namespaces()
+        if errors and fail_on_validation_error:
+            # Re-raise the first module error
+            raise errors[0][1]
 
-        # Pass 1: Definitions — parse all statements into cop nodes
-        for mod in all_modules:
-            mod.definitions()
-
-        # Pass 1b: Early COP validation on raw definitions
-        for mod in all_modules:
-            self._run_definition_callouts(
-                mod,
-                stage="early",
-                min_severity=validation_severity,
-                fail_on_error=fail_on_validation_error,
-            )
-
-        # Pass 2: Namespace — build namespace for each module
-        for mod in all_modules:
-            mod.namespace()
-
-        # Pass 3: Resolve aliases — resolve alias/export refs against namespace
-        for mod in all_modules:
-            mod.resolve_deferred()
-
-        # Pass 4: Apply aliases — inject resolved aliases into all namespaces
-        for mod in all_modules:
-            mod.apply_aliases()
+        all_modules = self._all_modules()
 
         # Pass 5: Resolution — resolve all identifier cop nodes
         for mod in all_modules:
@@ -453,21 +468,10 @@ class Interp:
                     if not hasattr(ce, "module"):
                         ce.module = mod
                         ce.definition_name = name
-                    self._report_definition_exception_callout(
-                        defn,
-                        comp.PHASE_CODEGEN,
-                        str(ce),
-                        exception=ce,
-                    )
                     if fail_on_validation_error:
                         raise
                 except Exception as e:
                     msg = f"Code generation error for {mod.token}:{name}: {e}"
-                    self._report_definition_exception_callout(
-                        defn,
-                        comp.PHASE_CODEGEN,
-                        msg,
-                    )
                     if fail_on_validation_error:
                         raise comp.CodeError(msg)
 
@@ -485,12 +489,6 @@ class Interp:
                             if not hasattr(ce, "module") or ce.module is None:
                                 ce.module = mod
                                 ce.definition_name = name
-                            self._report_definition_exception_callout(
-                                defn,
-                                comp.PHASE_CODEGEN,
-                                str(ce),
-                                exception=ce,
-                            )
                             if fail_on_validation_error:
                                 raise
                             continue
@@ -505,12 +503,6 @@ class Interp:
                         if not hasattr(ce, "module") or ce.module is None:
                             ce.module = mod
                             ce.definition_name = name
-                        self._report_definition_exception_callout(
-                            defn,
-                            comp.PHASE_CODEGEN,
-                            str(ce),
-                            exception=ce,
-                        )
                         if fail_on_validation_error:
                             raise
                         continue
@@ -519,106 +511,23 @@ class Interp:
 
         return module
 
-    def _report_definition_exception_callout(self, definition, phase, message, exception=None):
-        """Append an ERROR callout to a definition.
-
-        Args:
-            definition: (Definition) Definition receiving the callout
-            phase: (str) callout phase string
-            message: (str) Human-readable error message
-            exception: (CodeError | None) Optional source exception for location extraction
-        """
-        primary = None
-        if exception is not None:
-            cop = getattr(exception, "cop_node", None)
-            if cop is not None:
-                try:
-                    pos = cop.field("pos")
-                    if pos is not None:
-                        row = pos.to_python(0)
-                        col = pos.to_python(1)
-                        mod = getattr(exception, "module", None)
-                        file_path = ""
-                        if mod is not None:
-                            src = getattr(mod, "source", None)
-                            if src is not None:
-                                file_path = getattr(src, "resource", "") or ""
-                        primary = comp.Location(comp.Span(file_path, row, col))
-                except (KeyError, AttributeError, IndexError, TypeError):
-                    pass
-        if definition.callouts is None:
-            definition.callouts = []
-        definition.callouts.append(comp.Callout(
-            severity=comp.ERROR,
-            code="build-error",
-            message=message,
-            phase=phase,
-            primary=primary,
-        ))
-
     def _run_definition_callouts(self, mod, stage, min_severity, fail_on_error):
         """Run comp-side COP validators for each definition in a module.
 
-        Args:
-            mod: (Module) Module containing definitions
-            stage: (str) One of "early", "resolved", "folded"
-            min_severity: (str) Minimum severity threshold
-            fail_on_error: (bool) Raise on first ERROR callout when True
+        This is a no-op during normal builds. It will be reimplemented as
+        part of the standalone validation pipeline which manages its own
+        callout collection.
         """
-        if self._disable_build_validations:
-            return
-
-        for name, definition in mod.definitions().items():
-            comp.cop_callouts(definition, min_severity=min_severity, interp=self, stage=stage)
-            if not fail_on_error:
-                continue
-            for callout in (definition.callouts or []):
-                if callout.severity != comp.ERROR:
-                    continue
-                source = definition.resolved_cop or definition.original_cop
-                err = comp.CodeError(f"Validation error ({callout.code}): {callout.message}", source)
-                err.module = mod
-                err.definition_name = name
-                raise err
-
-        # Also validate !startup blocks — they are not in definitions() so
-        # must be resolved/folded inline here and collected onto mod.callouts.
-        for startup_name in mod.startup_names():
-            raw_cop = mod.startup(startup_name)
-            if raw_cop is None:
-                continue
-            synthetic = comp.Definition(
-                f"!startup {startup_name}", mod.token, raw_cop, comp.shape_block
-            )
-            if stage in ("resolved", "folded"):
-
-                if mod.token.startswith("minimal"):
-                    breakpoint_here=True
-
-                try:
-                    ns = mod.namespace()
-                    resolved = comp.cop_resolve_names(raw_cop, ns)
-                    if stage == "folded":
-                        resolved = comp.coptimize(resolved, True, ns)
-                    synthetic.resolved_cop = resolved
-                except Exception:
-                    pass
-            comp.cop_callouts(synthetic, min_severity=min_severity, interp=self, stage=stage)
-            if synthetic.callouts:
-                mod.callouts.extend(synthetic.callouts)
-            if fail_on_error:
-                for callout in synthetic.callouts:
-                    if callout.severity == comp.ERROR:
-                        err = comp.CodeError(f"Validation error ({callout.code}): {callout.message}", raw_cop)
-                        err.module = mod
-                        err.definition_name = startup_name
-                        raise err
+        pass
 
     def callouts(self, module, min_severity="warning", fold=True, pure=False):
         """Run the build pipeline with validations enabled and collect callouts.
 
         Unlike build(), this method does not stop at the first callout error.
         Exceptions are converted into error callouts when possible.
+
+        Callouts are collected into a local list — the module and definition
+        objects are not modified.
 
         Args:
             module: (Module) Root module
@@ -627,8 +536,9 @@ class Interp:
             pure: (bool) Enable pure evaluation
 
         Returns:
-            (list) Flat list of callouts from module + definitions
+            (list) Flat list of Callout objects
         """
+        all_callouts = []
         try:
             self.build(
                 module,
@@ -638,25 +548,20 @@ class Interp:
                 fail_on_validation_error=False,
             )
         except comp.ParseError as e:
-            module.callouts.append(comp.Callout(
+            all_callouts.append(comp.Callout(
                 severity=comp.ERROR,
                 code="parse-error",
                 message=e.message if hasattr(e, "message") else str(e),
                 phase=comp.PHASE_PARSE,
             ))
         except comp.CodeError as e:
-            module.callouts.append(comp.Callout(
+            all_callouts.append(comp.Callout(
                 severity=comp.ERROR,
                 code="code-error",
                 message=str(e),
                 phase=comp.PHASE_COP,
             ))
 
-        all_callouts = []
-        for mod in self._collect_modules(module):
-            all_callouts.extend(mod.callouts)
-            for definition in mod.definitions().values():
-                all_callouts.extend(definition.callouts or [])
         return all_callouts
 
     def _collect_modules(self, root_module):
@@ -693,6 +598,28 @@ class Interp:
             result.append(mod)
 
         walk(root_module)
+        return result
+
+    def _all_modules(self):
+        """Get all non-internal modules in the interpreter in dependency order."""
+        visited = set()
+        result = []
+
+        def walk(mod):
+            mod_id = id(mod)
+            if mod_id in visited:
+                return
+            if isinstance(mod, (comp._internal.InternalModule, comp._internal.SystemModule)):
+                return
+            visited.add(mod_id)
+            if mod._imports is not None:
+                for import_name, (child_mod, child_err) in mod._imports.items():
+                    if child_mod is not None:
+                        walk(child_mod)
+            result.append(mod)
+
+        for mod in self.module_cache.values():
+            walk(mod)
         return result
 
     def _new_module(self, module):
@@ -737,7 +664,7 @@ class Interp:
 
             children[name] = (child, err)
 
-        module._register_imports(children, definitions=None, namespace=None)
+        module._register_imports(children)
 
     def _parse_import_body(self, body):
         """Parse import statement body: <compiler> "<source>"

@@ -30,6 +30,7 @@ from ._describe import *
 from ._instructions import *
 from ._callout import *
 
+from . import _compiler
 from ._cob import *
 from ._py import *
 from . import _unit_conv

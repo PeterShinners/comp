@@ -12,8 +12,7 @@ Severity levels (low ordinal = high severity):
     HINT    — style / idiomatic, low signal
 
 Phases (in pipeline order):
-    PHASE_PARSE    — lark grammar / token errors
-    PHASE_COP      — cop node construction, resolution, and folding
+    PHASE_COP      — cop node resolution and folding
     PHASE_CODEGEN  — instruction generation
 
 Notes are leaf attachments on a Callout — a message with an optional source
@@ -34,9 +33,10 @@ __all__ = [
     "PHASE_PARSE",
     "PHASE_COP",
     "PHASE_CODEGEN",
-    "parse_callouts",
     "cop_callouts",
     "code_callouts",
+    "exception_to_callout",
+    "callout_to_exception",
 ]
 
 # Severity level constants
@@ -271,32 +271,14 @@ class Collector:
 # ---------------------------------------------------------------------------
 # Callout generation functions
 # ---------------------------------------------------------------------------
-# Each function analyses a specific build artifact and appends callouts to
-# the module or definition. The min_severity threshold lets callers skip
-# validators that cannot produce callouts at the requested severity — e.g.
-# normal execution passes ERROR so INFO/HINT validators are never invoked.
+# Each function analyses a specific build artifact and returns callouts.
+# The min_severity threshold lets callers skip validators that cannot produce
+# callouts at the requested severity — e.g. normal execution passes ERROR
+# so INFO/HINT validators are never invoked.
 # ---------------------------------------------------------------------------
 
-def parse_callouts(tree, source, file, module, min_severity=ERROR):
-    """Validate a lark grammar tree, appending callouts to module.callouts.
-
-    Called after lark_parse succeeds. Parse errors that prevent lark from
-    producing a tree at all are caught by the caller and turned into
-    module-level ERROR callouts directly.
-
-    Args:
-        tree:         (lark.Tree) Parsed grammar tree
-        source:       (str) Original source text
-        file:         (str) Source file path (for Span construction)
-        module:       (Module) Module to append callouts to
-        min_severity: (str) Minimum severity to report; skip cheaper checks
-    """
-    # Validators to be added here
-    pass
-
-
 def cop_callouts(definition, min_severity=ERROR, interp=None, stage="resolved"):
-    """Validate cop nodes on a Definition, appending to definition.callouts.
+    """Validate cop nodes on a Definition.
 
     Loads the callout stdlib module and calls a stage-specific validator from
     comp code.
@@ -306,15 +288,15 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, stage="resolved"):
         definition:   (Definition) Definition whose cop nodes to validate
         min_severity: (str) Minimum severity to report
         interp:       (Interp | None) Interpreter instance for calling comp code
-        stage:        (str) One of "early", "resolved", "folded"
+        stage:        (str) "resolved" or "folded"
+
+    Returns:
+        (list) List of Callout objects found, or empty list
     """
     if interp is None:
-        return
+        return []
 
-    if stage == "early":
-        cop = definition.original_cop
-        validator_name = "validate-early"
-    elif stage == "folded":
+    if stage == "folded":
         cop = definition.resolved_cop or definition.original_cop
         validator_name = "validate-folded"
     else:
@@ -322,7 +304,7 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, stage="resolved"):
         validator_name = "validate-resolved"
 
     if cop is None:
-        return
+        return []
 
     import comp
 
@@ -343,7 +325,7 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, stage="resolved"):
             interp.build(callout_mod, fail_on_validation_error=False)
             interp._callout_mod = callout_mod
         except Exception:
-            return
+            return []
         finally:
             interp._disable_build_validations = max(getattr(interp, "_disable_build_validations", 1) - 1, 0)
 
@@ -351,13 +333,13 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, stage="resolved"):
     callout_defs = callout_mod.definitions()
     severity_def = callout_defs.get(severity_tag_name)
     if severity_def is None or severity_def.value is None:
-        return
+        return []
     severity_val = severity_def.value
 
     # Get the validator definition directly, avoiding call_function's re-build
     validator_def = callout_defs.get(validator_name)
     if validator_def is None or validator_def.value is None:
-        return
+        return []
 
     args = comp.Value.from_python({"min-severity": severity_val})
     env = {k: d.value for k, d in callout_defs.items() if d.value is not None}
@@ -368,22 +350,22 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, stage="resolved"):
         result = frame.invoke_block(validator_def.value, args, piped=cop)
     except Exception as err:
         print("CALLOUTFAILED:", err)
-        return
+        return []
     finally:
         interp._disable_build_validations = max(getattr(interp, "_disable_build_validations", 1) - 1, 0)
 
     # Convert result struct of callout values into Python Callout objects
     if not isinstance(result.data, dict):
-        return
+        return []
 
+    found = []
     for val in result.data.values():
         if not isinstance(val.data, dict):
             continue
         callout = _value_to_callout(val)
         if callout is not None:
-            if definition.callouts is None:
-                definition.callouts = []
-            definition.callouts.append(callout)
+            found.append(callout)
+    return found
 
 
 def _value_to_callout(val):
@@ -435,11 +417,61 @@ def _value_to_callout(val):
 
 
 def code_callouts(definition, min_severity=ERROR):
-    """Validate generated instructions on a Definition, appending to definition.callouts.
+    """Validate generated instructions on a Definition.
 
     Args:
         definition:   (Definition) Definition with instructions populated
         min_severity: (str) Minimum severity to report
+
+    Returns:
+        (list) List of Callout objects found, or empty list
     """
     # Validators to be added here
-    pass
+    return []
+
+
+def exception_to_callout(exc, stmt=None, source_file=None):
+    """Convert a Python exception from statement processing into an error Callout.
+
+    Args:
+        exc: The exception that was raised
+        stmt: (dict | None) Statement dict with pos info
+        source_file: (str | None) Source file path for location
+
+    Returns:
+        (Callout) An error-severity callout
+    """
+    import comp
+    message = getattr(exc, "message", None) or str(exc)
+    if isinstance(exc, comp.ParseError):
+        code = "parse-error"
+        phase = PHASE_PARSE
+    else:
+        code = "definition-error"
+        phase = PHASE_COP
+
+    primary = None
+    if stmt and source_file:
+        pos = stmt.get("pos")
+        if pos and len(pos) >= 2:
+            primary = Location(Span(source_file, pos[0], pos[1]))
+
+    return Callout(
+        severity=ERROR, code=code, message=message,
+        phase=phase, primary=primary,
+    )
+
+
+def callout_to_exception(callout):
+    """Promote an error Callout to the appropriate Python exception.
+
+    Args:
+        callout: (Callout) The callout to convert
+
+    Returns:
+        (Exception) ParseError or CodeError
+    """
+    import comp
+    if callout.phase == PHASE_PARSE:
+        return comp.ParseError(callout.message)
+    return comp.CodeError(callout.message)

@@ -20,9 +20,117 @@ __all__ = [
     "cop_rebuild",
     "cop_unparse",
     "cop_resolve",
+    "cop_check_structure",
 ]
 
 import comp
+
+
+# ---------------------------------------------------------------------------
+# COP tag and shape registry
+# ---------------------------------------------------------------------------
+
+# Canonical list of all COP node types. Each entry becomes a cop-type.X tag
+# in the internal "cop" module. The comment documents the expected fields
+# and kids for each node type.
+_COP_TAGS = (
+    "shape.identifier",  # (identifier, checks, array, default)
+    "shape.union",  # (kids) list of shape.field alternatives
+    "shape.define",  # (fields, checks, array)
+    "shape.field",  # (kids) shape type and optional unit/limits/repeat/default
+    "shape.unit",  # (kids) 1 kid - unit identifier
+    "value.limit",  # (kids) limit constraint: 1 kid (bare name) or 2 kids (name + value)
+    "shape.repeat",  # (kids) array/repetition specification (0-2 number children)
+    "shape.default",  # (kids) 1 kid - default value
+    "signature.input",  # (kids) 1 kid - function input shape
+    "signature.param",  # (kids) 1 or 2 kids - !param declaration with shape and optional default
+    "signature.depend",  # (kids) 1 or 2 kids - !depend declaration with shape and optional default
+    "signature.delivers",  # (kids) 1 kid - !delivers declaration with required shape
+    "function.define",  # (sig, body) function definition with signature and body
+    "function.signature",  # (kids) function signature (input shape)
+    "function.body",  # (kids or sig+body) function body, may have block signature
+    "block.signature",  # (kids) signature for block/statement (:param/:block declarations)
+    "statement.define",  # (kids) sequence of statements
+    "statement.field",  # (kids) single statement/expression in a sequence
+    "op.my",  # (kids) 2 kids - name and value for !my assignment
+    "op.ctx",  # (kids) 2 kids - name and value for !ctx (like !my, also updates frame context)
+    "op.stash",  # (kids) target, key, *path, value — !stash var&key.path val
+    "op.defer",  # (kids) 1 kid - expression wrapped in a deferred (zero-arg) Block
+    "op.forward",  # (kids) 0 kids - re-dispatch to next less-specific overload
+    "op.on",  # (kids) expression and branches for !on dispatch
+    "op.on.branch",  # (kids) 2 kids - shape and expression for an !on branch
+    "op.deliver",  # (kids) 2 kids - runtime dependency publish: name, value
+    "struct.define",  # (kids)
+    "struct.posfield",  # (kids) 1 kid
+    "struct.namefield",  # (op, kids) 2 kids (name value)
+    "struct.letassign",  # (name, kids) 1 kid (value) [DEPRECATED - use op.my]
+    "mod.define",  # (kids)
+    "mod.namefield",  # (op, kids) 2 kids (name value)
+    "value.identassign",  # (kids)  same as identifier, but in an assignment
+    "value.identifier",  # (kids)
+    "value.reference",  # (definition qualified namespace)
+    "value.local",      # (name, kids) resolved local variable; name=str, kids=field access tokens
+    "value.namespace",  # (qualified, module_id) resolved namespace reference
+    "value.constant",  # (value) Constant value
+    "ident.input",  # (value)
+    "ident.token",  # (value)
+    "ident.index",  # (value)
+    "ident.indexpr",  # (value)
+    "ident.expr",  # (value)
+    "ident.text",  # (value)
+    "value.number",  # (value)
+    "value.text",  # (value)
+    "value.block",  # (kids)  kids; signature, body - for :(...) block values
+    "value.wrapper",  # (wrapper, kids) wrapper reference and wrapped value
+    "value.binding",  # (callable, bindings) function call with parameter bindings
+    "value.math.unary",  # (op, kids)  1 kid
+    "value.math.binary",  # (op, kids)  2 kids
+    "value.compare",  # (op, kids)  2 kids
+    "value.logic.binary",  # (op, kids)  2 kids
+    "value.logic.unary",  # (op, kids)  1 kids
+    "value.invoke",  # (kids)  kids 2+ kids; callable, argsandblocks [DEPRECATED - will be removed]
+    "value.pipeline",  # (kids) pipeline stages
+    "value.pipeline_fallback",  # (kids) |? handler stage (wraps one stage cop)
+    "value.fallback",  # (left, right) ?? operator
+    "op.fail",  # (expr) !fail — raise a failure value
+    "value.field",  # field access: (left, field)
+    "value.stash",  # stash access: (target, field_ident) — expr&field
+    "value.on",  # (expr, branches) on-dispatch with expression and branch list
+    "value.transact",  # (kids)
+    "value.handle",  # (op, kids) grab/drop/pull/etc
+    "value.cast_unit",  # (value, unit) apply unit tag to a value: 12#inch
+    "value.strip_unit",  # (value) strip unit annotation from a value
+    "stmt.assign",  # (kids) 2 kids (lvalue, rvalue)
+    "value.private_tag",  # (kids) 1 kid - identifier for a private tag child (& suffix)
+    "value.undefined",  # (name, pos) grenade node for unresolved identifiers — errors at codegen
+)
+
+# Set built at first use by cop_check_structure for fast membership testing
+_COP_TAG_SET = None
+
+
+@comp._internal.register_internal_module("cop")
+def _create_cop_module(module):
+    """Create the 'cop' internal module with COP-related tags and shapes."""
+    cop_type_tag = module.add_tag("cop-type", private=False)
+    for tag_name in _COP_TAGS:
+        module.add_tag("cop-type." + tag_name, private=False)
+
+    # Define the recursive cop-node shape
+    cop_shape = comp.Shape("cop-node", private=False)
+    module.add_shape("cop-node", cop_shape)
+
+    tag_field = comp.ShapeField(name=None, shape=cop_type_tag)
+    cop_shape.fields.append(tag_field)
+
+    kids_element = comp.ShapeField(name=None, shape=cop_shape)
+    kids_collection = comp.ShapeCollection(kids_element, min_count=0, max_count=None)
+    kids_field = comp.ShapeField(
+        name="kids",
+        shape=kids_collection,
+        default=comp.Value.from_python({})
+    )
+    cop_shape.fields.append(kids_field)
 
 
 def create_cop(tag_name, kids, **fields):
@@ -793,5 +901,124 @@ def cop_unparse(cop):
         # Catch-all
         case _:
             return f"<{tag}>"
+
+
+# ---------------------------------------------------------------------------
+# Structural integrity check
+# ---------------------------------------------------------------------------
+
+# Nodes that require an "op" field
+_OP_REQUIRED = {
+    "value.math.unary", "value.math.binary", "value.compare",
+    "value.logic.binary", "value.logic.unary",
+}
+
+# Nodes that require a "value" field (leaf literals)
+_VALUE_REQUIRED = {
+    "value.number", "value.text",
+    "ident.token", "ident.text", "ident.index", "ident.input",
+}
+
+# Expected kid counts: tag -> (min, max) or exact int
+_KID_COUNTS = {
+    "value.math.unary": (1, 1),
+    "value.logic.unary": (1, 1),
+    "value.math.binary": (2, 2),
+    "value.compare": (2, 2),
+    "value.logic.binary": (2, 2),
+    "struct.posfield": (1, 1),
+    "struct.namefield": (2, 2),
+    "op.my": (2, 2),
+    "op.ctx": (2, 2),
+    "op.defer": (1, 1),
+    "op.forward": (0, 0),
+    "op.fail": (1, 1),
+    "op.deliver": (2, 2),
+    "op.on.branch": (2, 2),
+    "statement.field": (1, 1),
+    "value.field": (2, 2),
+    "value.stash": (2, 2),
+    "value.cast_unit": (2, 2),
+    "value.strip_unit": (1, 1),
+    "value.wrapper": (2, 2),
+    "value.pipeline_fallback": (1, 1),
+    "shape.unit": (1, 1),
+    "shape.default": (1, 1),
+    "signature.input": (1, 1),
+    "mod.namefield": (2, 2),
+    "value.fallback": (2, None),
+    "value.invoke": (2, None),
+    "op.stash": (3, None),
+}
+
+
+def cop_check_structure(cop):
+    """Verify that a COP tree is structurally sound.
+
+    Walks the entire tree and checks:
+    1. Every node has a recognized cop-type tag
+    2. All kids are themselves valid COP nodes (recursive)
+    3. Operator nodes have an "op" field
+    4. Kid counts match expected invariants
+    5. Leaf literal nodes have a "value" field
+
+    Raises comp.CodeError on the first structural problem found.
+
+    Args:
+        cop: (Value) Root COP node to check
+    """
+    global _COP_TAG_SET
+    if _COP_TAG_SET is None:
+        _COP_TAG_SET = set(_COP_TAGS)
+
+    _check_node(cop, _COP_TAG_SET)
+
+
+def _check_node(cop, valid_tags):
+    """Recursively check a single COP node."""
+    if not isinstance(cop, comp.Value):
+        raise comp.CodeError(f"COP node is not a Value: {type(cop).__name__}")
+
+    if not isinstance(cop.data, dict):
+        raise comp.CodeError(f"COP node data is not a struct: {type(cop.data).__name__}")
+
+    tag = cop_tag(cop)
+    if tag is None:
+        raise comp.CodeError("COP node has no tag")
+
+    if tag not in valid_tags:
+        raise comp.CodeError(f"Unknown COP tag: {tag}")
+
+    # Check required "op" field
+    if tag in _OP_REQUIRED:
+        try:
+            cop.field("op")
+        except (KeyError, AttributeError):
+            raise comp.CodeError(f"COP node {tag} missing required 'op' field")
+
+    # Check required "value" field
+    if tag in _VALUE_REQUIRED:
+        try:
+            cop.field("value")
+        except (KeyError, AttributeError):
+            raise comp.CodeError(f"COP node {tag} missing required 'value' field")
+
+    # Check kid counts
+    kids = cop_kids(cop)
+    if tag in _KID_COUNTS:
+        min_kids, max_kids = _KID_COUNTS[tag]
+        n = len(kids)
+        if n < min_kids:
+            raise comp.CodeError(
+                f"COP node {tag} has {n} kids, expected at least {min_kids}"
+            )
+        if max_kids is not None and n > max_kids:
+            raise comp.CodeError(
+                f"COP node {tag} has {n} kids, expected at most {max_kids}"
+            )
+
+    # Recurse into kids
+    for kid in kids:
+        _check_node(kid, valid_tags)
 
 
