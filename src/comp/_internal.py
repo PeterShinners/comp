@@ -255,7 +255,8 @@ class SystemModule(comp.Module):
 
         self._add_callable("wrap", _builtin_wrap)
         self._add_callable("fmt", _builtin_fmt, pure=True)
-        self._add_callable("apply", _builtin_apply)
+        self._add_callable("invoke", _builtin_invoke, pure=True)
+        self._add_callable("preserve-unit", _builtin_preserve_unit, pure=True)
         self._add_callable("get-unit-tag",    _builtin_get_unit_tag,     pure=True)
         self._add_callable("namespace-lookup",_builtin_namespace_lookup, pure=True)
         self._add_callable("strip-unit",      _builtin_strip_unit,       pure=True)
@@ -654,11 +655,49 @@ def _builtin_output(input_val, args_val, frame):
     return input_val
 
 
-def _builtin_apply(input_val, args_val, frame):
+def _builtin_preserve_unit(input_val, args_val, frame):
+    """Wrapper that preserves the piped input's unit through a transformation.
+
+    Wrapper mode (@preserve-unit on a function definition):
+      Receives invoke-data.  Clones the inner Block with a PreserveUnit
+      instruction appended, then invokes it with the caller's piped input.
+
+    Pipeline mode (value | preserve-unit):
+      Not supported — raises an error.
+    """
+    import comp._instructions as _instr_mod
+
+    if isinstance(input_val.data, dict):
+        _key = comp.Value.from_python
+        statement = input_val.data.get(_key("statement"))
+        inner_input = input_val.data.get(_key("input"))
+
+        if statement is not None:
+            block = None
+            if isinstance(statement.data, comp.Callable):
+                block = statement.data.scalar()
+            elif isinstance(statement.data, comp.Block):
+                block = statement.data
+
+            if block is None:
+                raise comp.CodeError("@preserve-unit requires a block statement")
+
+            new_block = _clone_block_with_extra(
+                block,
+                lambda last_reg: _instr_mod.PreserveUnit(cop=None, result_reg=last_reg),
+            )
+            callable_obj = comp.Callable(new_block.qualified)
+            callable_obj.add(new_block)
+            return frame.invoke_block(comp.Value(callable_obj), args_val, piped=inner_input)
+
+    raise comp.CodeError("preserve-unit is a wrapper — use @preserve-unit on a function definition")
+
+
+def _builtin_invoke(input_val, args_val, frame):
     """Invoke an invoke-data struct: call $.statement with $.input piped in.
 
     This is the counterpart to the wrapper mechanism.  A wrapper receives
-    invoke-data as its piped input ($) and may call `apply` to actually
+    invoke-data as its piped input ($) and may call `invoke` to actually
     execute the wrapped statement.
 
     If $.statement is callable (Block, InternalCallable, Callable) it is
@@ -667,7 +706,7 @@ def _builtin_apply(input_val, args_val, frame):
     """
     ctx = input_val.data
     if not isinstance(ctx, dict):
-        raise comp.CodeError("apply requires invoke-data as piped input")
+        raise comp.CodeError("invoke requires invoke-data as piped input")
 
     _key = comp.Value.from_python
     statement = ctx.get(_key("statement"))
@@ -698,6 +737,7 @@ def _clone_block_with_extra(body_block, extra_instr):
         new_block.body_instructions = list(body_block.body_instructions) + [
             extra_instr(last_reg)
         ]
+    new_block.wrapper = None
     return new_block
 
 
@@ -732,14 +772,16 @@ def _builtin_update(input_val, args_val, frame):
     elif isinstance(statement.data, comp.Block):
         block = statement.data
 
+    inner_input = ctx.get(_key("input"))
+
     if block is not None:
         new_block = _clone_block_with_extra(
             block,
             lambda last_reg: _instr_mod.MergeWithPiped(cop=None, result_reg=last_reg),
         )
-        callable = comp.Callable(new_block.qualified)
-        callable.add(new_block)
-        return comp.Value(callable)
+        callable_obj = comp.Callable(new_block.qualified)
+        callable_obj.add(new_block)
+        return frame.invoke_block(comp.Value(callable_obj), args_val, piped=inner_input)
 
     # Struct value (e.g. @update {b=2}) — synthesise a trivial block that
     # returns the constant struct and then merges it over piped input.
@@ -747,15 +789,15 @@ def _builtin_update(input_val, args_val, frame):
         const_val = statement
         new_block = comp.Block("update.const")
         new_block.input_name = "$"
-        new_block.closure_env = dict(frame.env)
-        new_block.captured_dollar_vars = dict(frame._dollar_vars)
+        new_block.closure_env = {}
+        new_block.captured_dollar_vars = {}
         new_block.body_instructions = [
             _instr_mod.Const(cop=None, value=const_val),
             _instr_mod.MergeWithPiped(cop=None, result_reg=0),
         ]
-        callable = comp.Callable("update.const")
-        callable.add(new_block)
-        return comp.Value(callable)
+        callable_obj = comp.Callable("update.const")
+        callable_obj.add(new_block)
+        return frame.invoke_block(comp.Value(callable_obj), args_val, piped=inner_input)
 
     raise comp.CodeError("update requires a block or struct statement")
 
@@ -790,6 +832,7 @@ def _builtin_flat(input_val, args_val, frame):
     if isinstance(input_val.data, dict):
         _key = comp.Value.from_python
         statement = input_val.data.get(_key("statement"))
+        inner_input = input_val.data.get(_key("input"))
 
         if statement is not None:
             block = None
@@ -805,9 +848,9 @@ def _builtin_flat(input_val, args_val, frame):
                 block,
                 lambda last_reg: _instr_mod.FlattenFields(cop=None, result_reg=last_reg),
             )
-            callable = comp.Callable(new_block.qualified)
-            callable.add(new_block)
-            return comp.Value(callable)
+            callable_obj = comp.Callable(new_block.qualified)
+            callable_obj.add(new_block)
+            return frame.invoke_block(comp.Value(callable_obj), args_val, piped=inner_input)
 
     # Pipeline mode: flatten struct-of-structs at runtime
     if not isinstance(input_val.data, dict):

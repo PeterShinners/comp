@@ -50,6 +50,7 @@ class Block:
         "dependency_names",
         "dependency_shape",
         "deliver_specs",
+        "wrapper",
     )
 
     def __init__(self, qualified):
@@ -70,6 +71,7 @@ class Block:
         self.dependency_names = []
         self.dependency_shape = None
         self.deliver_specs = []
+        self.wrapper = None
 
     def __repr__(self):
         return f"Block<{self.qualified}>"

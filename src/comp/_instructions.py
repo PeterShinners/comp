@@ -810,6 +810,30 @@ class BuildInvokeData(Instruction):
         return f"%{idx}  BuildInvokeData stmt=%{self.statement_reg}"
 
 
+class SetBlockWrapper(Instruction):
+    """Attach a wrapper callable to a Block at definition time.
+
+    Stores wrapper_val on the block so that invoke_block can build an
+    invoke-data struct at every call site and dispatch to the wrapper
+    instead of running the block directly.
+    """
+
+    def __init__(self, cop, block_reg, wrapper_reg):
+        super().__init__(cop)
+        self.block_reg = block_reg
+        self.wrapper_reg = wrapper_reg
+
+    def execute(self, frame):
+        block_val = frame.get_value(self.block_reg)
+        wrapper_val = frame.get_value(self.wrapper_reg)
+        if isinstance(block_val.data, comp.Callable) and block_val.data.entries:
+            block_val.data.entries[0].wrapper = wrapper_val
+        return frame.set_result(block_val)
+
+    def format(self, idx):
+        return f"%{idx}  SetBlockWrapper block=%{self.block_reg} wrapper=%{self.wrapper_reg}"
+
+
 # ---------------------------------------------------------------------------
 # Block / Shape Construction
 # ---------------------------------------------------------------------------

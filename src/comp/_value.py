@@ -195,7 +195,7 @@ class Value:
 
         # Append unit suffix for num and text values
         if self.unit is not None:
-            return f"{base}[{self.unit.qualified}]"
+            return f"{base}#{self.unit.qualified}"
         return base
 
     def as_scalar(self):

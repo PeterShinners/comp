@@ -968,6 +968,38 @@ class ExecutionFrame:
                 input_val = morph_result.value
             return block.func(input_val, args, self)
 
+        # If the block has a runtime wrapper, build invoke-data on the fly and
+        # call the wrapper instead of executing the block directly.
+        if block.wrapper is not None:
+            import copy as _copy
+            wrapper_val = block.wrapper
+            _key = comp.Value.from_python
+            _nil = comp.Value.from_python(comp.tag_nil)
+            input_for_data = piped if piped is not None else _nil
+            # Create statement: a Callable containing a wrapper-free copy of the
+            # block so the wrapper can call `invoke` without triggering recursion.
+            stmt_block = _copy.copy(block)
+            stmt_block.wrapper = None
+            stmt_callable = comp.Callable(block.qualified)
+            stmt_callable.add(stmt_block)
+            stmt_val = comp.Value(stmt_callable)
+            local_data = {_key(k): v for k, v in self.env.items() if "." not in k}
+            locals_val = comp.Value(local_data)
+            ctx_data = {_key(k): v for k, v in self.context.items()}
+            context_val = comp.Value(ctx_data)
+            invoke_data = comp.Value({
+                _key("statement"): stmt_val,
+                _key("input"):     input_for_data,
+                _key("locals"):    locals_val,
+                _key("context"):   context_val,
+            })
+            return self.invoke_block(
+                wrapper_val,
+                comp.Value.from_python({}),
+                piped=invoke_data,
+                source_cop=source_cop,
+            )
+
         # Share the closure environment directly — StoreLocal mutations
         # persist across invocations (e.g. a counter's !let count count+1).
         new_env = block.closure_env

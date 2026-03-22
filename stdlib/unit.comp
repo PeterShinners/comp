@@ -45,6 +45,7 @@
 ///   !pure uppercase ~text (
 ///       $ | py.pure-call :"str.upper"
 ///   )
-!func preserve-unit (
-    $
+!pure preserve-unit ~invoke-data (
+    !my unit [$.input | get-unit-tag]
+    [$ | invoke]#unit
 )

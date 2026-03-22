@@ -748,7 +748,7 @@ class CodeGenContext:
           4. PipeInvoke: invoke-data | wrapper()
 
         The wrapper function receives invoke-data as its piped input ($) and
-        may call `apply` to execute the statement, inspect it, ignore it, or
+        may call `invoke` to execute the statement, inspect it, ignore it, or
         invoke it multiple times.
         """
         kids = _cop_kids(cop)
@@ -824,22 +824,15 @@ class CodeGenContext:
             pure=self.is_pure,
         ))
 
-        # If there was a wrapper, apply it to the compiled Block at definition time:
-        #   invoke-data | wrapper()
-        # Whatever the wrapper returns becomes this definition's value.
+        # If there was a wrapper, attach it to the block so it is called at every
+        # invocation instead of being applied once at definition time.
         if func_wrapper_cop is not None:
-            invoke_data_reg = self.emit(comp._instructions.BuildInvokeData(
-                cop=cop, statement_reg=block_reg
-            ))
             wrapper_reg = self._build_callable_ensure_register(func_wrapper_cop)
-            empty_args  = self.emit(comp._instructions.BuildStruct(cop=cop, fields=[]))
-            pipe_result = self.emit(comp._instructions.PipeInvoke(
+            block_reg = self.emit(comp._instructions.SetBlockWrapper(
                 cop=cop,
-                callable=wrapper_reg,
-                piped=invoke_data_reg,
-                args=empty_args,
+                block_reg=block_reg,
+                wrapper_reg=wrapper_reg,
             ))
-            return pipe_result
 
         return block_reg
 

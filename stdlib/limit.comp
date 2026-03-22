@@ -88,7 +88,7 @@
 
 /// ASCII constraint: text must contain only ASCII characters (codepoints 0-127)
 !pure ascii ~text (
-    !on [{$ "isascii"} | py.call module="str" method="isascii" {text=$}]
+    !on [{$ "isascii"} | py.pure-call "str.isascii"]
     ~false !fail.value "Text contains non-ASCII characters"
     ~true true
 )
