@@ -1,0 +1,90 @@
+/// Default namespace and runtime for comp modules
+!no-default
+
+
+// There are two strategies; either export everything or individually alias
+// them. This will go with individual aliasing. More maintenance work for
+// now but also explicit
+
+!import branch comp "./branch"
+!alias try
+!alias if
+!alias elif
+!alias else
+!alias pick
+
+!import limit comp "./limit"
+!alias measure
+
+!import loop comp "./loop"
+!alias ge
+!alias le
+!alias gt
+!alias lt
+!alias eq
+!alias ne
+!alias integer
+!alias ascii
+!alias non-empty
+!alias single-char
+!alias size
+!alias match
+
+!import num comp "./num"
+!alias pi
+!alias round
+!alias floor
+!alias ceiling
+!alias truncate
+!alias abs
+!alias sign
+!alias pow
+!alias sqrt
+
+!import loop comp "./struct"
+!alias length
+!alias is-empty
+
+!import text comp "./text"
+//!alias length  (already overloaded aliased from struct)
+//!alias is-empty  (already overloaded aliased from struct)
+!alias uppercase
+!alias lowercase
+!alias is-blank
+!alias is-numeric
+!alias is-alpha
+!alias is-alphanumeric
+!alias is-lowercase
+!alias is-uppercase
+!alias contains
+!alias starts-with
+!alias ends-with
+!alias find
+!alias count
+!alias replace
+!alias split
+!alias join
+!alias repeat
+!alias pad-left
+!alias pad-right
+!alias pad-center
+!alias capitalize
+!alias title
+!alias to-num
+
+!import time comp "./time"
+!import unit comp "./unit"
+!alias measure
+!alias preserve-unit
+
+!import unit comp "cob"
+!export cob
+//!import unit comp "cop"
+!import unit comp "py"
+!export py
+
+// Nothing directly exposed through callout, but it's a bootstrappy module
+// that eventually needs to be used by everything
+!import callout comp "./callout"
+
+

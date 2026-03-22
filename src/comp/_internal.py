@@ -256,7 +256,6 @@ class SystemModule(comp.Module):
         self._add_callable("wrap", _builtin_wrap)
         self._add_callable("fmt", _builtin_fmt, pure=True)
         self._add_callable("invoke", _builtin_invoke, pure=True)
-        self._add_callable("preserve-unit", _builtin_preserve_unit, pure=True)
         self._add_callable("get-unit-tag",    _builtin_get_unit_tag,     pure=True)
         self._add_callable("namespace-lookup",_builtin_namespace_lookup, pure=True)
         self._add_callable("strip-unit",      _builtin_strip_unit,       pure=True)
@@ -274,6 +273,7 @@ class SystemModule(comp.Module):
         self._add_callable("is-pure", _builtin_is_pure, pure=True)
         self._add_callable("contains-field", _builtin_contains_field, pure=True)
         self._add_callable("find-duplicates", _builtin_find_duplicates, pure=True)
+        self._add_callable("cop-pattern-key", _builtin_cop_pattern_key, pure=True)
 
     def _add_definition(self, name, value, shape):
         """Add a builtin definition with proper value and COP setup.
@@ -653,44 +653,6 @@ def _builtin_output(input_val, args_val, frame):
     
     print(output_text)
     return input_val
-
-
-def _builtin_preserve_unit(input_val, args_val, frame):
-    """Wrapper that preserves the piped input's unit through a transformation.
-
-    Wrapper mode (@preserve-unit on a function definition):
-      Receives invoke-data.  Clones the inner Block with a PreserveUnit
-      instruction appended, then invokes it with the caller's piped input.
-
-    Pipeline mode (value | preserve-unit):
-      Not supported — raises an error.
-    """
-    import comp._instructions as _instr_mod
-
-    if isinstance(input_val.data, dict):
-        _key = comp.Value.from_python
-        statement = input_val.data.get(_key("statement"))
-        inner_input = input_val.data.get(_key("input"))
-
-        if statement is not None:
-            block = None
-            if isinstance(statement.data, comp.Callable):
-                block = statement.data.scalar()
-            elif isinstance(statement.data, comp.Block):
-                block = statement.data
-
-            if block is None:
-                raise comp.CodeError("@preserve-unit requires a block statement")
-
-            new_block = _clone_block_with_extra(
-                block,
-                lambda last_reg: _instr_mod.PreserveUnit(cop=None, result_reg=last_reg),
-            )
-            callable_obj = comp.Callable(new_block.qualified)
-            callable_obj.add(new_block)
-            return frame.invoke_block(comp.Value(callable_obj), args_val, piped=inner_input)
-
-    raise comp.CodeError("preserve-unit is a wrapper — use @preserve-unit on a function definition")
 
 
 def _builtin_invoke(input_val, args_val, frame):
@@ -1414,6 +1376,38 @@ def _builtin_find_duplicates(input_val, args_val, frame):
     for val in dupes.values():
         result[comp.Unnamed()] = val
     return comp.Value.from_python(result)
+
+
+def _builtin_cop_pattern_key(input_val, args_val, frame):
+    """Extract a position-independent string key from an op.on.branch pattern.
+
+    Drills into the pattern shape to extract the identifier path as a
+    dot-joined string (e.g. "true", "false", "any", "ord.less").
+    Returns nil for complex patterns like struct shapes or unions.
+
+    Usage: on-branch-node | cop-pattern-key  =>  "true" / "any" / "ord.less" / nil
+    """
+    branch_kids = comp._cop.cop_kids(input_val)
+    if not branch_kids:
+        return comp.Value.from_python(comp.tag_nil)
+    shape_node = branch_kids[0]  # shape.define
+    shape_kids = comp._cop.cop_kids(shape_node)
+    if not shape_kids:
+        return comp.Value.from_python(comp.tag_nil)
+    first_kid = shape_kids[0]
+    tag = comp._cop.cop_tag(first_kid)
+    if tag == "value.identifier":
+        parts = []
+        for kid in comp._cop.cop_kids(first_kid):
+            kid_tag = comp._cop.cop_tag(kid)
+            if kid_tag in ("ident.token", "ident.text"):
+                fields = comp._cop.cop_fields(kid)
+                val_node = fields.get("value")
+                if val_node and isinstance(val_node.data, str):
+                    parts.append(val_node.data)
+        if parts:
+            return comp.Value.from_python(".".join(parts))
+    return comp.Value.from_python(comp.tag_nil)
 
 
 def get_internal_module(resource):

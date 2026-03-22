@@ -1,4 +1,5 @@
 /// Standard limits for types.
+!no-default
 /// These are pure functions used as validation constraints during shape morphing.
 /// Each limit either raises a failure or passes without returning a meaningful value.
 

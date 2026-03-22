@@ -321,8 +321,12 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, namespace=None):
     if callout_mod is None:
         interp._disable_build_validations = getattr(interp, "_disable_build_validations", 0) + 1
         try:
+            import time as _time
+            _tc0 = _time.perf_counter()
             callout_mod = interp.module("callout")
             interp.build_instructions()
+            _tc1 = _time.perf_counter()
+            interp.timings["callout.bootstrap"] = interp.timings.get("callout.bootstrap", 0.0) + (_tc1 - _tc0)
             interp._callout_mod = callout_mod
         except Exception:
             return []

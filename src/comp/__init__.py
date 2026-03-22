@@ -4,7 +4,7 @@ Comp Programming Language Implementation
 Interpreted programming language designed to interoperate with Python.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.8.0"
 
 
 from ._error import *
@@ -38,3 +38,5 @@ from . import _unit_conv
 # Deferred initialization: shape_failure fields reference Value objects and
 # comp.Shape/Block/etc., which aren't available during _shape.py import.
 _shape._init_shape_failure()
+
+from . import runtime

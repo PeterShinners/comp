@@ -38,6 +38,7 @@ _PURE_PREFIXES = frozenset([
     "zoneinfo.",   # e.g. zoneinfo.ZoneInfo — pure tz lookup, no side effects
     "datetime.",   # e.g. datetime.datetime, datetime.timedelta, datetime.date …
     "calendar.",   # e.g. calendar.monthrange — pure calendar arithmetic
+    "comp.runtime.pure.",  # struct-manipulation helpers in comp.runtime.pure
 ])
 _PURE_BUILTINS = frozenset([
     "abs", "round", "divmod",

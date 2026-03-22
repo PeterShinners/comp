@@ -1917,8 +1917,8 @@ class DispatchOn(Instruction):
                     frame.failure = result_frame.failure
                 return frame.set_result(result)
 
-        # This should not be an exception? fallback to nil?
-        raise comp.CodeError("No branch matched in !on dispatch", self.cop)
+        # No branch matched — return nil (not an error)
+        return frame.set_result(comp.Value(comp.tag_nil))
 
     def format(self, idx):
         return f"%{idx}  DispatchOn %{self.condition} ({len(self.branches)} branches)"

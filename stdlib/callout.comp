@@ -1,4 +1,5 @@
 /// Callout: validation result definitions for the comp analysis pipeline.
+!no-default
 ///
 /// A callout is any finding emitted during analysis — from a hard parse error
 /// to a style hint. Severity levels, source spans, and the callout shape are
@@ -116,6 +117,20 @@
 /// Walk-cop result with no findings.
 !pure cop-pass {callouts={} accum={}}
 
+/// Extract the simple name from a value.identifier COP node, or nil.
+/// Returns the FIRST ident.token value only.
+/// For dotted names ("ord.less"), use cop-pattern-key on the branch node instead.
+!pure ident-name ~any (
+    !on ([$ | cop-tag] == "value.identifier")
+    ~false nil
+    ~true (
+        !my first-kid [$ | cop-kids | loop.first]
+        !on ([first-kid | cop-tag] == "ident.token")
+        ~false nil
+        ~true [first-kid | cop-fields | ($.value)]
+    )
+)
+
 
 // ===== COP tree walking =====
 
@@ -175,8 +190,9 @@
     [$ | walk-cop filter="op.on" initial={} :(
         !my node $.node
         !my branches [node | cop-kids | loop.where :([$ | cop-tag] == "op.on.branch")]
-        !my patterns [branches | loop.map :([$ | cop-kids | loop.first | cop-tag])]
-        !my dupes [patterns | find-duplicates]
+        !my keys [branches | loop.map :[$ | cop-pattern-key]]
+        !my named-keys [keys | loop.where :($ != nil)]
+        !my dupes [named-keys | find-duplicates]
         !on dupes == {}
         ~true cop-pass
         ~false (
@@ -184,7 +200,34 @@
             [node | cop-callout
                 severity=callout.warning
                 code="duplicate-on-branch"
-                message=[@fmt"Duplicate branch pattern in !on, `%(first-dupe)`"]
+                message=[@fmt"Duplicate branch `~%(first-dupe)` in !on dispatch"]
+            ]
+        )
+    )]
+)
+
+
+/// Check for unreachable branches after a catch-all ~any in !on dispatch.
+///
+/// Any branches written after ~any can never be reached at runtime.
+///
+/// Example: !on $  ~true 1  ~any 99  ~false 2  →  ~false is unreachable
+!pure check-unreachable-branch (
+    [$ | walk-cop filter="op.on" initial={} :(
+        !my node $.node
+        !my branches [node | cop-kids | loop.where :([$ | cop-tag] == "op.on.branch")]
+        !my keys [branches | loop.map :[$ | cop-pattern-key]]
+        !my has-any [keys | loop.some :($ == "any")]
+        !on has-any
+        ~false cop-pass
+        ~true (
+            !my last-key [keys | loop.last]
+            !on last-key == "any"
+            ~true cop-pass
+            ~false [node | cop-callout
+                severity=callout.warning
+                code="unreachable-branch"
+                message=["Branches after ~any are unreachable; ~any always matches"]
             ]
         )
     )]
@@ -215,6 +258,22 @@
             ]
         )]
     )
+)
+
+
+/// Check for unresolved identifier references in the resolved COP tree.
+/// These nodes are planted by the name-resolver as grenades that explode
+/// at codegen; surfacing them early gives cleaner LSP diagnostics.
+!pure check-value-undefined (
+    [$ | walk-cop filter="value.undefined" initial={} :(
+        !my node $.node
+        !my name [node | cop-fields | ($.name)]
+        [node | cop-callout
+            severity=callout.error
+            code="undefined-name"
+            message=[@fmt"Reference to undefined identifier `%(name)`"]
+        ]
+    )]
 )
 
 
@@ -285,6 +344,83 @@
 )
 
 
+/// Check for redundant comparison with bool literals ~true or ~false (hint).
+///
+/// Examples:
+///   [$ | test] == true   →  use `[$ | test]` directly
+///   result == false      →  use `!not result`
+!pure check-comparison-with-bool (
+    [$ | walk-cop filter="value.compare" initial={} :(
+        !my node $.node
+        !my op [node | cop-fields | ($.op)]
+        !on (op == "==" !or op == "!=")
+        ~false cop-pass
+        ~true (
+            !my left [node | cop-kids | loop.first]
+            !my right [node | cop-kids | loop.last]
+            !my left-name [left | ident-name]
+            !my right-name [right | ident-name]
+            !my is-bool :(($ == "true") !or ($ == "false"))
+            !my bool-name (
+                !on [left-name | is-bool]
+                ~true left-name
+                ~false (
+                    !on [right-name | is-bool]
+                    ~true right-name
+                    ~false nil
+                )
+            )
+            !on bool-name == nil
+            ~true cop-pass
+            ~false [node | cop-callout
+                severity=callout.hint
+                code="comparison-with-bool"
+                message=[@fmt"Comparison with `%(bool-name)` — compare the value directly or use !not"]
+            ]
+        )
+    )]
+)
+
+
+/// Check for !not applied directly around == or != comparisons (hint).
+///
+/// Examples:
+///   !not (a == b)  →  use a != b
+///   !not (a != b)  →  use a == b
+!pure check-negated-comparison (
+    [$ | walk-cop filter="value.logic.unary" initial={} :(
+        !my node $.node
+        !my op [node | cop-fields | ($.op)]
+        !on op == "!not"
+        ~false cop-pass
+        ~true (
+            !my inner [node | cop-kids | loop.first]
+            !on ([inner | cop-tag] == "value.compare")
+            ~false cop-pass
+            ~true (
+                !my inner-op [inner | cop-fields | ($.op)]
+                !my suggest (
+                    !on inner-op == "=="
+                    ~true "!="
+                    ~false (
+                        !on inner-op == "!="
+                        ~true "=="
+                        ~false nil
+                    )
+                )
+                !on suggest == nil
+                ~true cop-pass
+                ~false [node | cop-callout
+                    severity=callout.hint
+                    code="negated-comparison"
+                    message=[@fmt"`!not` around `%(inner-op)` — use `%(suggest)` instead"]
+                ]
+            )
+        )
+    )]
+)
+
+
 /// Entry point: run all validators on a resolved-and-folded COP tree.
 ///
 /// Severity gating: runs error-level checks first, then warning-level,
@@ -303,6 +439,7 @@
         ~false {}
         ~true {
             [cop | check-pure-calls-impure context=context namespace=namespace]
+            [cop | check-value-undefined]
             [cop | check-constant-fail]
             [cop | check-constant-undefined-field]
         }
@@ -315,8 +452,18 @@
             [cop | check-zero-division]
             [raw | check-duplicate-struct-fields]
             [raw | check-duplicate-on-branches]
+            [raw | check-unreachable-branch]
         }
     )
 
-    [{errors warnings} | merge]
+    !my hints (
+        !on [callout.hint | severity-rank] <= sev
+        ~false {}
+        ~true {
+            [raw | check-comparison-with-bool]
+            [raw | check-negated-comparison]
+        }
+    )
+
+    [{errors warnings hints} | merge]
 )

@@ -1,4 +1,5 @@
 /// Unit tag definitions for the Comp standard library.
+!no-default
 ///
 /// Numeric unit families live under `measure.*`. Each sub-family groups
 /// related units; all units within a sub-family are mutually convertible

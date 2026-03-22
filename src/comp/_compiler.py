@@ -79,7 +79,8 @@ def compile_deferred(stmt):
     name = raw_name[:-1] if is_private else raw_name
     ref = stmt.get("body", "").strip()
     if not ref:
-        return None
+        # Bare !alias foo — re-export the name as-is from the namespace
+        ref = name
     return (operator, name, ref, is_private)
 
 

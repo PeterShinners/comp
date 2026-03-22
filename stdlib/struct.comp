@@ -1,4 +1,5 @@
 /// Struct operations for finite collections
+!no-default
 /// Functions for field access, membership, slicing, and structural transforms.
 /// No imports — uses only system builtins (length, at, append, reduce).
 

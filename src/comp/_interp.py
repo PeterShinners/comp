@@ -7,6 +7,7 @@ stack for instruction execution.
 
 import hashlib
 import os
+import sys
 from pathlib import Path
 
 import comp
@@ -146,6 +147,10 @@ class Interp:
         self._phase = 0  # 0=modules added, 1=namespaces built, 2=instructions built
         # Guard to avoid recursive callout validation while building callout stdlib.
         self._disable_build_validations = 0
+        # Populated by build_namespaces/build_instructions when timing is needed.
+        self.timings = {}
+        # Set to True to print a line to stderr for every module load/cache-hit.
+        self.trace_imports = False
 
     def __del__(self):
         for fd in getattr(self, 'search_fds', []):
@@ -190,12 +195,15 @@ class Interp:
         # Fast path: already loaded under this exact resource string
         cached = self.module_cache.get(anchored)
         etag = cached.source.etag if cached else None
+        import time as _time
+        _t0 = _time.perf_counter()
         src = comp._import.locate_resource(
             resource=anchored,
             etag=etag,
             search_paths=self.search_paths,
             search_fds=self.search_fds,
         )
+        _t1 = _time.perf_counter()
 
         # etag matched - return cached version
         if src is None:
@@ -208,13 +216,17 @@ class Interp:
         if src.location:
             loc_cached = self.module_cache.get(src.location)
             if loc_cached is not None:
-                self.module_cache[anchored] = loc_cached  # prime resource key
+                # Record the resource alias so future requests for this string are fast.
+                self.module_cache[anchored] = loc_cached
                 return loc_cached
 
         mod = comp.Module(src)
+        # Store ONLY under the canonical absolute path as the primary key.
+        # The resource string alias is also stored so fast-path hits work next time,
+        # but both point at the same object — no duplicate Module instances.
         if src.location:
-            self.module_cache[src.location] = mod  # canonical key (abs path)
-        self.module_cache[anchored] = mod           # resource string key
+            self.module_cache[src.location] = mod
+        self.module_cache[anchored] = mod
         self._new_module(mod)
         return mod
 
@@ -228,6 +240,7 @@ class Interp:
             anchor="",
         )
         mod = comp.Module(src)
+        self.module_cache["txt"] = mod
         self._new_module(mod)
         return mod
 
@@ -305,10 +318,12 @@ class Interp:
         if self._phase >= 1:
             return []
 
+        import time as _time
         all_modules = self._all_modules()
         errors = []
 
         # Pass 1: Definitions — parse all statements into cop nodes
+        _t0 = _time.perf_counter()
         for mod in all_modules:
             try:
                 mod.definitions()
@@ -318,24 +333,42 @@ class Interp:
         # Stamp phase 1 on all modules so namespace() gate is unlocked
         for mod in all_modules:
             mod._interp_phase = 1
+        _t1 = _time.perf_counter()
 
         # Pass 2: Namespace — build namespace for each module
         for mod in all_modules:
             if mod._definitions_error is not None:
                 continue
             mod.namespace()
+        _t2 = _time.perf_counter()
 
         # Pass 3: Resolve aliases — resolve alias/export refs against namespace
         for mod in all_modules:
             if mod._definitions_error is not None:
                 continue
             mod._resolve_deferred()
+        _t3 = _time.perf_counter()
 
         # Pass 4: Apply aliases — inject resolved aliases into all namespaces
+        # Locate the default module once so _apply_aliases doesn't have to
+        # walk each module's import graph (user modules don't import default).
+        default_mod = None
+        for _mod in all_modules:
+            _resource = getattr(_mod.source, "resource", "") or ""
+            if _resource == "default" or _resource.endswith("/default.comp") or _resource.endswith("\\default.comp"):
+                default_mod = _mod
+                break
+
         for mod in all_modules:
             if mod._definitions_error is not None:
                 continue
-            mod._apply_aliases()
+            mod._apply_aliases(default_mod=default_mod)
+        _t4 = _time.perf_counter()
+
+        self.timings["ns.definitions"] = self.timings.get("ns.definitions", 0.0) + (_t1 - _t0)
+        self.timings["ns.namespace"]   = self.timings.get("ns.namespace",   0.0) + (_t2 - _t1)
+        self.timings["ns.resolve"]     = self.timings.get("ns.resolve",     0.0) + (_t3 - _t2)
+        self.timings["ns.aliases"]     = self.timings.get("ns.aliases",     0.0) + (_t4 - _t3)
 
         self._phase = 1
         return errors
@@ -359,7 +392,11 @@ class Interp:
         if self._phase >= 2:
             return []
 
+        import time as _time
+        _tb0 = _time.perf_counter()
         errors = list(self.build_namespaces())
+        _tb1 = _time.perf_counter()
+        self.timings["build.build_namespaces"] = self.timings.get("build.build_namespaces", 0.0) + (_tb1 - _tb0)
         all_modules = self._all_modules()
 
         # Resolve + fold + validate each definition via Definition.callouts()
@@ -368,6 +405,8 @@ class Interp:
         # to avoid recursion.
         failed_defs = set()
         skip_validation = self._disable_build_validations > 0
+        _t0 = _time.perf_counter()
+        _callout_bootstrap_before = self.timings.get("callout.bootstrap", 0.0)
         for mod in all_modules:
             if mod._definitions_error is not None:
                 continue
@@ -397,6 +436,12 @@ class Interp:
                             err.module = mod
                             errors.append((mod, err))
                             break
+        _t1 = _time.perf_counter()
+        _callout_bootstrap_after = self.timings.get("callout.bootstrap", 0.0)
+        self.timings["build.resolve_fold_validate"] = (
+            self.timings.get("build.resolve_fold_validate", 0.0)
+            + (_t1 - _t0) - (_callout_bootstrap_after - _callout_bootstrap_before)
+        )
 
         # Pure evaluation (optional — always enabled for build_instructions)
         for mod in all_modules:
@@ -421,6 +466,7 @@ class Interp:
                         mod_env[name] = result
                     except Exception:
                         pass
+        _t2 = _time.perf_counter()
 
         # Codegen — generate instructions for all non-failed definitions
         for mod in all_modules:
@@ -449,6 +495,7 @@ class Interp:
                         errors.append((mod, comp.CodeError(
                             f"Code generation error for {mod.token}:{name}: {e}"
                         )))
+        _t3 = _time.perf_counter()
 
         # Execute — run instructions to populate definition values
         for mod in all_modules:
@@ -482,6 +529,13 @@ class Interp:
         for mod in all_modules:
             mod._interp_phase = 2
         self._phase = 2
+        _t4 = _time.perf_counter()
+
+        self.timings["build.build_namespaces"] = self.timings.get("build.build_namespaces", 0.0)
+        self.timings["build.pure_eval"]  = self.timings.get("build.pure_eval",  0.0) + (_t2 - _t1)
+        self.timings["build.codegen"]    = self.timings.get("build.codegen",    0.0) + (_t3 - _t2)
+        self.timings["build.execute"]    = self.timings.get("build.execute",    0.0) + (_t4 - _t3)
+
         return errors
 
     def callouts(self, module=None, definition=None, min_severity="warning"):
@@ -662,6 +716,32 @@ class Interp:
 
         # Adding a module invalidates completed phases — force rebuild
         self._phase = 0
+
+        # Eagerly pull in the callout module so it's part of _all_modules() from
+        # the very first build pass, rather than being bootstrapped mid-validation.
+        # Guard: don't recurse when we're registering callout itself.
+        if (module.source.resource != "callout"
+                and self.module_cache.get("callout") is None):
+            try:
+                self.module("callout")
+            except Exception:
+                pass  # callout unavailable; validation degrades gracefully
+
+        # Eagerly pull in the default module so its aliases are available to
+        # every module that doesn't declare !no-default.
+        # Guards: don't recurse when registering default or any of its stdlib
+        # imports, and only attempt once (when default is not yet cached).
+        _default_bootstrap_guard = getattr(self, "_bootstrapping_default", False)
+        if (not _default_bootstrap_guard
+                and not module.no_default
+                and self.module_cache.get("default") is None):
+            self._bootstrapping_default = True
+            try:
+                self.module("default")
+            except Exception:
+                pass  # default unavailable; degrades gracefully
+            finally:
+                self._bootstrapping_default = False
 
         # Get statements from the module scan
         statements = module.statements()
@@ -1128,13 +1208,17 @@ class ExecutionFrame:
         result = new_frame.run(block.body_instructions)
 
         outgoing_coupling = dict(getattr(new_frame, "_delivered_coupling", {}) or {})
-        if outgoing_coupling and not block.deliver_specs:
+
+        # Skip delivery validation when the frame already holds a failure — the
+        # !fail propagation (below) takes priority and the coupling state may be
+        # incomplete or mismatched by design (e.g. ~any !fail branch).
+        if new_frame.failure is None and outgoing_coupling and not block.deliver_specs:
             name = next(iter(outgoing_coupling.keys()))
             raise comp.CodeError(
                 f"Delivered dependency `{name}` is not declared in signature",
                 source_cop or block.signature_cop,
             )
-        if block.deliver_specs:
+        if new_frame.failure is None and block.deliver_specs:
             declared_shapes = {}
             for spec in block.deliver_specs:
                 name = spec.get("name")

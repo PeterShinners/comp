@@ -1,4 +1,5 @@
 /// Iteration and looping functions
+!no-default
 ///
 /// Core iteration primitives built on the `forever` builtin.
 /// The layering is:

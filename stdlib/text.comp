@@ -1,4 +1,5 @@
 /// Text operations
+!no-default
 /// Functions for manipulating and analyzing text strings.
 
 !import py comp "py"
@@ -167,7 +168,7 @@
 )
 
 /// Center text within width
-!pure center ~text @preserve-unit (
+!pure pad-center ~text @preserve-unit (
     !param width ~index
     !param fill ~letter = " "
     [{$ width fill} | py.pure-call "str.center"]

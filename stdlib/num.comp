@@ -1,4 +1,5 @@
 /// Numeric operations and math functions.
+!no-default
 /// Constants and functions for common numerical work.
 
 !import py comp "py"

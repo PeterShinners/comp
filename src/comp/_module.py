@@ -52,11 +52,33 @@ class Module:
         # Only public aliases/exports are stored here. Populated by resolve_deferred().
         self._exported_aliases = {}
 
+        # Set to True when the module declares !no-default, opting out of the
+        # automatic default-namespace injection.  Detected lazily on first call
+        # to no_default property.
+        self._no_default = None
+
     def __repr__(self):
         return f"Module<{self.token}>"
 
     def __hash__(self):
         return id(self.token)
+
+    @property
+    def no_default(self):
+        """True when this module has declared !no-default.
+
+        Lazily scanned from the module's statements so it is available
+        before the full definitions() pass.
+        """
+        if self._no_default is None:
+            try:
+                stmts = self.statements()
+                self._no_default = any(
+                    s.get("operator") == "no-default" for s in stmts
+                )
+            except Exception:
+                self._no_default = False
+        return self._no_default
 
     def scan(self):
         """Scan source for imports and metadata (fast, no full parse).
@@ -190,6 +212,7 @@ class Module:
         self._mod_values = None
         self._deferred_defs = []
         self._exported_aliases = {}
+        self._no_default = None
 
     def definitions(self):
         """Parse source and extract definitions into module.definitions dict.
@@ -396,8 +419,9 @@ class Module:
                 elif isinstance(entry, Ambiguous):
                     return list(entry.definitions)
 
-            # Check if ref is a pending alias in this module
-            if ref in alias_lookup:
+            # Check if ref is a pending alias in this module (but not if
+            # already being resolved — that would be a true cycle).
+            if ref in alias_lookup and ref not in resolving:
                 return resolve_alias_name(ref)
 
             return []
@@ -500,13 +524,19 @@ class Module:
             if not is_private:
                 self._exported_aliases.setdefault(def_name, set()).update(target_defs)
 
-    def _apply_aliases(self):
+    def _apply_aliases(self, default_mod=None):
         """Inject resolved aliases into namespaces.
 
         Pass 4: Called by the interpreter after all modules have run
         resolve_deferred(). Injects resolved aliases into this module's
         own namespace, then merges imported modules' exported aliases
         under their import prefixes.
+
+        Finally, injects the default module's exported aliases (unprefixed)
+        into every module that has not declared !no-default.
+
+        Args:
+            default_mod: (Module | None) The pre-located default module, or None
         """
         # Inject own resolved aliases (public + private) into own namespace
         if hasattr(self, "_resolved_deferred"):
@@ -521,13 +551,35 @@ class Module:
                 if not import_module._exported_aliases:
                     continue
                 for alias_name, alias_defs in import_module._exported_aliases.items():
-                    # Generate prefixed + unprefixed permutations from the alias name
+                    # Generate all suffix permutations from the prefixed alias name.
+                    # e.g. import_name="b", alias_name="if" → "b.if", "if"
+                    parts = [import_name] + alias_name.split(".")
+                    for i in range(len(parts)):
+                        perm = ".".join(parts[i:])
+                        _inject_ns(self._namespace, perm, alias_defs)
+
+        # Inject the default module's exported aliases unprefixed into every
+        # module that has not opted out with !no-default.
+        # Skip if the module already explicitly imports default (the import
+        # loop above already injected the unprefixed aliases).
+        if not self.no_default:
+            if default_mod is None:
+                default_mod = _find_default_module(self)
+            already_imported_default = (
+                default_mod is not None
+                and self._imports is not None
+                and any(m is default_mod for m, _e in self._imports.values())
+            )
+            if default_mod is not None and default_mod._exported_aliases and not already_imported_default:
+                default_ns = {}
+                for alias_name, alias_defs in default_mod._exported_aliases.items():
+                    # Only inject unprefixed — no "default." prefix
                     parts = alias_name.split(".")
-                    parts_prefixed = [import_name] + parts
-                    for part_list in (parts_prefixed, parts):
-                        for i in range(len(part_list)):
-                            perm = ".".join(part_list[i:])
-                            _inject_ns(self._namespace, perm, alias_defs)
+                    for i in range(len(parts)):
+                        perm = ".".join(parts[i:])
+                        _inject_ns(default_ns, perm, alias_defs)
+                # clobber=False: local defs and explicit-import symbols win
+                self._namespace = merge_namespace(default_ns, self._namespace, clobber=True)
 
 
 class Definition:
@@ -701,3 +753,37 @@ def _unique_token(token):
     count = hash(token) & 0xFFFF ^ Module._token_counter
     _token_counter += 1
     return f"{token}#{count:04x}"
+
+
+def _find_default_module(module):
+    """Find the default module from any module's import graph.
+
+    Walks the import graph to locate a module whose source resource is
+    "default" (or ends with "/default.comp" / "default.comp").  Returns
+    None if not found.
+
+    Args:
+        module: (Module) Any module to start the search from
+
+    Returns:
+        (Module | None) The default module, or None
+    """
+    visited = set()
+
+    def _walk(mod):
+        mid = id(mod)
+        if mid in visited:
+            return None
+        visited.add(mid)
+        resource = getattr(mod.source, "resource", "") or ""
+        if resource == "default" or resource.endswith("/default.comp") or resource.endswith("\\default.comp"):
+            return mod
+        imports = getattr(mod, "_imports", None) or {}
+        for _name, (child, _err) in imports.items():
+            if child is not None:
+                result = _walk(child)
+                if result is not None:
+                    return result
+        return None
+
+    return _walk(module)

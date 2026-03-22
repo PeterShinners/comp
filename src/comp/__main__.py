@@ -6,6 +6,7 @@ import os
 import sys
 import io
 import comp
+import time as _time
 from lark import Token, Tree
 
 # Ensure UTF-8 output on Windows
@@ -504,6 +505,10 @@ def main():
 
     parser.add_argument("--startup", metavar="NAME", default="main",
                         help="Entry point to run (default: main)")
+    parser.add_argument("--time", action="store_true",
+                        help="Print phase timings to stderr (load/build/eval)")
+    parser.add_argument("--trace-imports", action="store_true",
+                        help="Print each module load/cache-hit to stderr as it happens")
 
     argv = None
     try:
@@ -527,6 +532,8 @@ def main():
     }
 
     interp = comp.Interp()
+    if getattr(args, "trace_imports", False):
+        interp.trace_imports = True
 
     # --text mode: parse source argument as direct text
     if args.text:
@@ -640,7 +647,9 @@ def main():
         else:
             mod = interp.module_from_text(args.source)
     else:
+        _t_start = _time.perf_counter()
         mod = interp.module(args.source, anchor=os.getcwd())
+        _t_load = _time.perf_counter()
 
     # --- Module-based modes ---
 
@@ -797,6 +806,7 @@ def main():
         # Full build pipeline
         try:
             errors = interp.build_instructions()
+            _t_build = _time.perf_counter()
             if errors:
                 err_mod, err_exc = errors[0]
                 err_exc.module = err_mod
@@ -818,6 +828,7 @@ def main():
             return 1
 
         defs = mod.definitions()
+        interp.build_namespaces()
         namespace = mod.namespace()
 
         if args.code:
@@ -883,8 +894,28 @@ def main():
                         except comp.CompFail as e:
                             print(_format_failure_cli(e.value, source_file=args.source), file=sys.stderr)
                             sys.exit(1)
+                        _t_eval = _time.perf_counter()
                         if result is not None:
                             print(result.format())
+                        if args.time:
+                            t = interp.timings
+                            n_mods = len([m for m in interp.module_cache.values()
+                                          if not hasattr(m, "_interp_phase") or m._interp_phase > 0])
+                            print(f"load  {(_t_load  - _t_start) * 1000:7.1f} ms", file=sys.stderr)
+                            print(f"build {(_t_build - _t_load)  * 1000:7.1f} ms  ({n_mods} modules)", file=sys.stderr)
+                            print(f"  ns.total               {t.get('build.build_namespaces',0)*1000:7.1f} ms", file=sys.stderr)
+                            print(f"    ns.definitions       {t.get('ns.definitions',0)*1000:7.1f} ms  (parse all stmts → COP)", file=sys.stderr)
+                            print(f"      lark.grammar_init  {comp._parse._time_grammar_init*1000:7.1f} ms  (lark table compile, once per grammar)", file=sys.stderr)
+                            print(f"      lark.parse         {comp._parse._time_parse*1000:7.1f} ms  (parser.parse() calls)", file=sys.stderr)
+                            print(f"    ns.namespace         {t.get('ns.namespace',0)*1000:7.1f} ms  (collate namespaces)", file=sys.stderr)
+                            print(f"    ns.resolve+aliases   {(t.get('ns.resolve',0)+t.get('ns.aliases',0))*1000:7.1f} ms", file=sys.stderr)
+                            print(f"  build.resolve+fold     {t.get('build.resolve_fold_validate',0)*1000:7.1f} ms  (cop_resolve + coptimize + callouts)", file=sys.stderr)
+                            print(f"  build.callout_bootstrap{t.get('callout.bootstrap',0)*1000:7.1f} ms  (load+build callout.comp, first call only)", file=sys.stderr)
+                            print(f"  build.pure_eval        {t.get('build.pure_eval',0)*1000:7.1f} ms", file=sys.stderr)
+                            print(f"  build.codegen          {t.get('build.codegen',0)*1000:7.1f} ms", file=sys.stderr)
+                            print(f"  build.execute          {t.get('build.execute',0)*1000:7.1f} ms", file=sys.stderr)
+                            print(f"eval  {(_t_eval  - _t_build) * 1000:7.1f} ms", file=sys.stderr)
+                            print(f"total {(_t_eval  - _t_start) * 1000:7.1f} ms", file=sys.stderr)
             else:
                 # No startup found - fall back to printing all definition values
                 print("\nResults:")

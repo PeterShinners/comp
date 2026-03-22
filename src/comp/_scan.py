@@ -130,7 +130,12 @@ def _scan_mod_statement(node, source):
             break
 
     if not name_parts:
-        return None
+        # !no-default (and similar no-name operators) only have the operator token
+        # and possibly comment children — return a nameless statement.
+        pos = (operator_token.line, operator_token.column,
+               operator_token.end_line or operator_token.line,
+               operator_token.end_column or operator_token.column)
+        return {"operator": operator, "name": "", "pos": pos, "body": "", "body_col": 0, "hash": ""}
 
     name = ".".join(name_parts)
 

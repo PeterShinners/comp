@@ -23,6 +23,8 @@ __all__ = [
 
 import lark
 import comp
+import os as _os
+import time as _time
 
 
 def lark_parse(text, grammar, rule=None, line_offset=1, col_offset=0):
@@ -58,24 +60,35 @@ def lark_parse(text, grammar, rule=None, line_offset=1, col_offset=0):
     """
     # If start is specified, create a unique key for caching
     cache_key = f"{grammar}:{rule}" if rule else grammar
+    global _time_grammar_init, _time_parse
     parser = _parsers.get(cache_key)
     if parser is None:
         path = f"lark/{grammar}.lark"
+        # Cache key -> safe filename: "comp:start_import" -> "comp_start_import"
+        cache_filename = cache_key.replace(":", "_") + ".lark.cache"
+        cache_dir = _os.path.join(_os.path.dirname(__file__), "lark")
+        cache_path = _os.path.join(cache_dir, cache_filename)
         parser_kwargs = {
             "parser": "lalr",
-            "propagate_positions": True
+            "propagate_positions": True,
+            "cache": cache_path,
         }
         if rule is not None:
             parser_kwargs["start"] = rule
+        _gi0 = _time.perf_counter()
         parser = lark.Lark.open(path, rel_to=__file__, **parser_kwargs)
+        _time_grammar_init += _time.perf_counter() - _gi0
         _parsers[cache_key] = parser
 
 
     padded = "\n" * (line_offset - 1) + " " * col_offset + text
+    _p0 = _time.perf_counter()
     try:
         tree = parser.parse(padded)
     except lark.exceptions.UnexpectedInput as e:
         raise _format_lark_error(e, text, line_offset) from None
+    finally:
+        _time_parse += _time.perf_counter() - _p0
     return tree
 
 
@@ -1359,4 +1372,7 @@ def _merge_same_name_namefields(items):
 
 # cached lark parsers
 _parsers = {}
+# Timing accumulators (seconds): grammar init vs actual parse
+_time_grammar_init = 0.0
+_time_parse = 0.0
 

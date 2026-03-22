@@ -1,18 +1,8 @@
 /// Branching helpers built on pipeline dependencies.
+!no-default
 ///
 /// These operators are meant to be used in pipelines so adjacent stages can
 /// coordinate through !delivers / !deliver / !depend declarations.
-
-
-/// Conditionally invoke a value
-///
-/// If the value cannot be invoked on the given input this 
-/// returns the value, otherwise it is the invoked result
-/// [value | try might-call]
-!pure try ~any (
-    !param maybe-callable ~any
-    ([$ | maybe-callable] ?? maybe-callable)
-)
 
 
 /// Conditional branch entry point.
@@ -42,6 +32,7 @@
     !on when
     ~true [$ | try branch-then]
     ~false $
+    ~any !fail.value "if condition must be boolean"
 )
 
 
@@ -68,6 +59,7 @@
         !on when
         ~true [$ | try then]
         ~false $
+        ~any !fail.value "if condition must be boolean"
     )
 )
 
@@ -121,7 +113,7 @@
 /// has matched.
 !pure case (
     !param when ~any  /// value to match against (can be block for computed matching)
-    !param then ~(any|callable)  /// block or value invoked with original piped input when case matches
+    !param then ~any  /// block or value invoked with original piped input when case matches
     !depend match ~match-dependency  /// match state from previous case
     !delivers match ~match-dependency  /// updated match state
     !my when-value [$ | try when]
@@ -145,9 +137,42 @@
 /// Final branch in a match/case chain.
 /// Executes then only when no prior case matched.
 !pure default (
-    !param then ~(any|callable)  /// block or value invoked with original piped input when no case matches
+    !param then ~any  /// block or value invoked with original piped input when no case matches
     !depend match ~match-dependency  /// match state from previous case
     !on match.matched
     ~true $
     ~false [$ | try then]
+)
+
+
+
+/// Conditionally invoke a value
+///
+/// If the value cannot be invoked on the given input this 
+/// returns the value, otherwise it is the invoked result
+/// [value | try might-call]
+!pure try ~any (
+    !param maybe-callable ~any
+    ([$ | maybe-callable] ?? maybe-callable)
+)
+
+
+
+/// Pick one of two conditions based on a boolean.
+/// 
+/// This is a shorthand of using `!on` with `~true` and `~false` branches.
+/// Both are viable, but in lightweight scenarios this can be a lighter
+/// weight expression. Any parameter can be a value or a deferred block.
+/// Any blocks are passed whatever input this receives.
+///
+/// [pick (value < max) value max]
+/// [pick :($.administrator) :[$.credentials | authorize] :[$ | reject]]
+!pure pick ~any (
+    !param cond ~any  /// bool value that determines branching
+    !param then ~(any|block)  /// block or value invoked with piped input when condition is true
+    !param else ~(any|block)  /// block or value invoked with piped input when condition is false
+    !on [$ | try cond]
+    ~true [$ | try then]
+    ~false [$ | try else]
+    ~any !fail.value "pick condition must be boolean"
 )
