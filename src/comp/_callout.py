@@ -33,10 +33,6 @@ __all__ = [
     "PHASE_PARSE",
     "PHASE_COP",
     "PHASE_CODEGEN",
-    "cop_callouts",
-    "code_callouts",
-    "exception_to_callout",
-    "callout_to_exception",
 ]
 
 # Severity level constants
@@ -141,7 +137,7 @@ class Callout:
         notes:    (list[Note]) Attached notes/suggestions (leaves, no severity)
     """
 
-    __slots__ = ("severity", "code", "message", "phase", "primary", "related", "notes")
+    __slots__ = ("severity", "code", "message", "phase", "primary", "related", "notes", "definition_name")
 
     def __init__(self, severity, code, message, phase=None, primary=None,
                  related=(), notes=()):
@@ -152,6 +148,7 @@ class Callout:
         self.primary = primary
         self.related = list(related)
         self.notes = list(notes)
+        self.definition_name = None
 
     def __repr__(self):
         loc = f" {self.primary!r}" if self.primary else ""
@@ -277,18 +274,27 @@ class Collector:
 # so INFO/HINT validators are never invoked.
 # ---------------------------------------------------------------------------
 
-def cop_callouts(definition, min_severity=ERROR, interp=None, stage="resolved"):
-    """Validate cop nodes on a Definition.
+def cop_callouts(definition, min_severity=ERROR, interp=None, namespace=None):
+    """Run comp-side validators on a Definition's COP tree.
 
-    Loads the callout stdlib module and calls a stage-specific validator from
-    comp code.
-    The comp-side function walks the COP tree and returns callout structs.
+    Loads the callout stdlib module (if not already cached on the interpreter)
+    and calls the unified ``validate`` function which runs all enabled
+    validators on the resolved-and-folded COP.
+
+    A context struct is built from the Definition's metadata and passed
+    to the comp validators alongside the COP.  Currently carries:
+
+    - ``pure``: whether the definition was declared !pure
+    - (future: input_shape, etc.)
+
+    This is an internal function.  External callers should use
+    ``Interp.callouts()`` instead.
 
     Args:
         definition:   (Definition) Definition whose cop nodes to validate
         min_severity: (str) Minimum severity to report
         interp:       (Interp | None) Interpreter instance for calling comp code
-        stage:        (str) "resolved" or "folded"
+        namespace:    (dict | None) Module namespace for callee lookups
 
     Returns:
         (list) List of Callout objects found, or empty list
@@ -296,13 +302,7 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, stage="resolved"):
     if interp is None:
         return []
 
-    if stage == "folded":
-        cop = definition.resolved_cop or definition.original_cop
-        validator_name = "validate-folded"
-    else:
-        cop = definition.resolved_cop or definition.original_cop
-        validator_name = "validate-resolved"
-
+    cop = definition.resolved_cop or definition.original_cop
     if cop is None:
         return []
 
@@ -322,7 +322,7 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, stage="resolved"):
         interp._disable_build_validations = getattr(interp, "_disable_build_validations", 0) + 1
         try:
             callout_mod = interp.module("callout")
-            interp.build(callout_mod, fail_on_validation_error=False)
+            interp.build_instructions()
             interp._callout_mod = callout_mod
         except Exception:
             return []
@@ -336,25 +336,79 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, stage="resolved"):
         return []
     severity_val = severity_def.value
 
-    # Get the validator definition directly, avoiding call_function's re-build
-    validator_def = callout_defs.get(validator_name)
+    validator_def = callout_defs.get("validate")
     if validator_def is None or validator_def.value is None:
         return []
 
-    args = comp.Value.from_python({"min-severity": severity_val})
+    # Build context struct from Definition metadata
+    context_val = comp.Value.from_python({"pure": definition.pure})
+
+    # Wrap the namespace as an opaque Value — comp code passes it to is-pure
+    # but does not inspect it directly.
+    ns_val = comp.Value.from_python(namespace) if namespace else comp.Value.from_python(comp.tag_nil)
+
+    original_cop = definition.original_cop
+    original_val = comp.Value.from_python(original_cop) if original_cop else comp.Value.from_python(comp.tag_nil)
+
+    args = comp.Value.from_python({
+        "min-severity": severity_val,
+        "context": context_val,
+        "namespace": ns_val,
+        "original": original_val,
+    })
     env = {k: d.value for k, d in callout_defs.items() if d.value is not None}
+    all_callouts = []
     interp._disable_build_validations = getattr(interp, "_disable_build_validations", 0) + 1
     try:
-        from comp._interp import ExecutionFrame
+        from comp._interp import ExecutionFrame, CompFail
+
+        # Run validators on resolved (post-fold) COP
         frame = ExecutionFrame(env, interp=interp, module=callout_mod)
         result = frame.invoke_block(validator_def.value, args, piped=cop)
-    except Exception as err:
-        print("CALLOUTFAILED:", err)
+    except CompFail as e:
+        import sys
+        fail_val = e.value
+        msg = "(unknown)"
+        if isinstance(fail_val.data, dict):
+            import comp as _comp
+            msg_key = _comp.Value.from_python("message")
+            msg_val = fail_val.data.get(msg_key)
+            if msg_val is not None and isinstance(msg_val.data, str):
+                msg = msg_val.data
+        defn_name = getattr(definition, "token", None) or "?"
+        print(
+            f"Callout validator failure in `{defn_name}`: {msg}",
+            file=sys.stderr,
+        )
+        return []
+    except Exception as e:
+        import sys
+        defn_name = getattr(definition, "token", None) or "?"
+        print(
+            f"Callout validator error in `{defn_name}`: {type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
         return []
     finally:
         interp._disable_build_validations = max(getattr(interp, "_disable_build_validations", 1) - 1, 0)
 
-    # Convert result struct of callout values into Python Callout objects
+    all_callouts.extend(_extract_callouts(result))
+    return all_callouts
+
+
+def _extract_callouts(result):
+    """Recursively extract Callout objects from a comp Value result.
+
+    The validate function returns a nested struct: top-level values may be
+    individual callout structs (with severity/code/message) or sub-structs
+    grouping callouts from different validators.  This flattens them all.
+
+    Args:
+        result: (Value) Struct of callout values (possibly nested)
+
+    Returns:
+        (list) Flat list of Callout objects
+    """
     if not isinstance(result.data, dict):
         return []
 
@@ -365,6 +419,9 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, stage="resolved"):
         callout = _value_to_callout(val)
         if callout is not None:
             found.append(callout)
+        else:
+            # Sub-struct from a validator group — recurse
+            found.extend(_extract_callouts(val))
     return found
 
 
@@ -384,11 +441,13 @@ def _value_to_callout(val):
         code_key = comp.Value.from_python("code")
         message_key = comp.Value.from_python("message")
         phase_key = comp.Value.from_python("phase")
+        pos_key = comp.Value.from_python("pos")
 
         severity_val = val.data.get(severity_key)
         code_val = val.data.get(code_key)
         message_val = val.data.get(message_key)
         phase_val = val.data.get(phase_key)
+        pos_val = val.data.get(pos_key)
 
         if severity_val is None or code_val is None or message_val is None:
             return None
@@ -406,28 +465,27 @@ def _value_to_callout(val):
         if phase_val is not None and isinstance(phase_val.data, comp.Tag):
             phase = phase_val.data.qualified.split(".")[-1]
 
+        # Extract primary location from pos struct {row col end_row end_col}
+        primary = None
+        if pos_val is not None and isinstance(pos_val.data, dict):
+            try:
+                row = pos_val.to_python(0)
+                col = pos_val.to_python(1)
+                end_col = pos_val.to_python(3)
+                length = max(1, end_col - col) if end_col and end_col > col else 1
+                primary = Location(Span(None, row, col, length))
+            except (AttributeError, IndexError, TypeError):
+                pass
+
         return Callout(
             severity=severity,
             code=code,
             message=message,
             phase=phase,
+            primary=primary,
         )
     except Exception:
         return None
-
-
-def code_callouts(definition, min_severity=ERROR):
-    """Validate generated instructions on a Definition.
-
-    Args:
-        definition:   (Definition) Definition with instructions populated
-        min_severity: (str) Minimum severity to report
-
-    Returns:
-        (list) List of Callout objects found, or empty list
-    """
-    # Validators to be added here
-    return []
 
 
 def exception_to_callout(exc, stmt=None, source_file=None):

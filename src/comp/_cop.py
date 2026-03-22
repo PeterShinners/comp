@@ -103,6 +103,7 @@ _COP_TAGS = (
     "stmt.assign",  # (kids) 2 kids (lvalue, rvalue)
     "value.private_tag",  # (kids) 1 kid - identifier for a private tag child (& suffix)
     "value.undefined",  # (name, pos) grenade node for unresolved identifiers — errors at codegen
+    "value.fold-fail",  # (kids) 1 kid — fold-time failure (distinct from user-written op.fail)
 )
 
 # Set built at first use by cop_check_structure for fast membership testing
@@ -933,6 +934,7 @@ _KID_COUNTS = {
     "op.defer": (1, 1),
     "op.forward": (0, 0),
     "op.fail": (1, 1),
+    "value.fold-fail": (1, 1),
     "op.deliver": (2, 2),
     "op.on.branch": (2, 2),
     "statement.field": (1, 1),

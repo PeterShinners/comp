@@ -1,14 +1,8 @@
-"""Main interpreter and instruction types.
+"""Comp interpreter: phased build pipeline and runtime execution.
 
-Instructions are a higher-level bytecode representation that sits between
-COP nodes and execution. Each instruction:
-- Has a reference to its source COP node for error reporting
-- Contains pre-resolved references (no runtime lookups)
-- Holds literal Values when known at build time
-- Uses a register-based model (named slots, not stack)
-
-The instruction stream is linear and easy to march through.
-Performance optimizations can happen later - clarity first.
+The Interp class orchestrates module loading, compilation, and execution
+through a three-phase pipeline.  ExecutionFrame provides the runtime
+stack for instruction execution.
 """
 
 import hashlib
@@ -92,10 +86,31 @@ def _build_delivery_struct(delivery_map):
 
 
 class Interp:
-    """Interpreter and state for Comp.
+    """Comp language interpreter.
 
-    An interpreter must be created to do most anything with comp objects
-    or the language.
+    The interpreter orchestrates a phased build pipeline for modules:
+
+        **Phase 0 — Modules loaded**
+        Modules are added via ``module()`` or ``module_from_text()``.
+        Imports are crawled and resolved.  ``Module.statements()`` and
+        ``Module.definitions()`` are available.
+
+        **build_namespaces() — Phase 1**
+        All module definitions are parsed, namespaces built, and aliases
+        resolved.  ``Module.namespace()`` is now available.
+
+        **build_instructions() — Phase 2**
+        Identifiers are resolved, constants folded, validators run,
+        bytecode generated, and definition values populated.
+        ``invoke()`` is now available.
+
+    Each phase is idempotent: re-calling is a no-op.  Adding a new module
+    resets back to phase 0 so subsequent build calls pick it up.
+
+    Build methods are best-effort — they return ``[(Module, Exception)]``
+    error lists and never raise.  Only ``invoke()`` raises on errors.
+
+    Validation diagnostics (callouts) are collected via ``callouts()``.
     """
 
     def __init__(self):
@@ -127,13 +142,7 @@ class Interp:
                 # Use -1 to indicate fallback to path-based search
                 self.search_fds.append(-1)
 
-        # Module source cache: resource -> ModuleSource
-        # Stores previously located module sources for etag validation and reuse
         self.module_cache = {}
-
-        # Module cache: resource -> Module
-        # Stores Module objects that have been created (may or may not be finalized)
-        self.modules = {}
         self._phase = 0  # 0=modules added, 1=namespaces built, 2=instructions built
         # Guard to avoid recursive callout validation while building callout stdlib.
         self._disable_build_validations = 0
@@ -222,16 +231,15 @@ class Interp:
         self._new_module(mod)
         return mod
 
-    def call_function(self, module, name, piped=None, args=None):
-        """Call a function defined in a comp module from Python.
+    def invoke(self, module, name, piped=None, args=None):
+        """Invoke a named function in a module.
 
-        Loads, builds, and caches the module if needed, then invokes
-        the named function. This is the main entry point for Python
-        code that wants to call into comp.
+        Auto-promotes through ``build_instructions()`` (phase 2) before
+        executing.  Raises immediately if any module has build errors.
 
         Args:
             module: (Module | str) Module object or import path string
-            name: (str) Function name to call
+            name: (str) Function name to invoke
             piped: (Value | None) Piped input value
             args: (Value | dict | None) Arguments; dicts are auto-converted
 
@@ -240,7 +248,12 @@ class Interp:
         """
         if isinstance(module, str):
             module = self.module(module)
-        self.build(module)
+
+        errors = self.build_instructions()
+        if errors:
+            # Check if any error affects this module's dependency chain
+            for mod, exc in errors:
+                raise exc
 
         defs = module.definitions()
         defn = defs.get(name)
@@ -259,9 +272,11 @@ class Interp:
         frame = ExecutionFrame(env, interp=self, module=module)
         return frame.invoke_block(defn.value, args, piped=piped)
 
+    def _execute(self, instructions, env=None, module=None):
+        """Execute a sequence of instructions (internal).
 
-    def execute(self, instructions, env=None, module=None):
-        """Execute a sequence of instructions.
+        Used by ``build_instructions()`` to run definition bytecode.
+        External callers should use ``invoke()`` instead.
 
         Args:
             instructions: List of Instruction objects
@@ -275,16 +290,14 @@ class Interp:
         return frame.run(instructions)
 
     def build_namespaces(self):
-        """Build namespaces for all modules in the interpreter (phase 0 -> 1).
+        """Build namespaces for all modules (phase 0 → 1).
 
-        Best-effort: builds as many namespaces as possible, skipping modules
-        that failed to parse or whose imports failed. Returns a list of
-        (module, exception) pairs for anything that went wrong.
+        Parses all module definitions, stamps phase 1 on every module
+        (unlocking ``Module.namespace()``), builds each namespace from
+        local definitions and imports, then resolves and applies aliases.
 
-        After this call, Module.namespace() is unlocked on all modules.
-        Modules with errors will have partial or empty namespaces.
-
-        Idempotent if already at phase >= 1.
+        Best-effort: builds as many namespaces as possible, skipping
+        modules that failed to parse.  Idempotent if already at phase 1+.
 
         Returns:
             (list) List of (Module, Exception) pairs for modules that had errors
@@ -316,142 +329,107 @@ class Interp:
         for mod in all_modules:
             if mod._definitions_error is not None:
                 continue
-            mod.resolve_deferred()
+            mod._resolve_deferred()
 
         # Pass 4: Apply aliases — inject resolved aliases into all namespaces
         for mod in all_modules:
             if mod._definitions_error is not None:
                 continue
-            mod.apply_aliases()
+            mod._apply_aliases()
 
         self._phase = 1
         return errors
 
-    def build_namespace(self, module):
-        """Build namespaces for a module and all its dependencies.
+    def build_instructions(self):
+        """Build all modules through the full pipeline (phase 1 → 2).
 
-        DEPRECATED: Use build_namespaces() instead. This method exists for
-        backward compatibility during the transition.
+        Auto-calls ``build_namespaces()`` if not yet at phase 1.  Then
+        for every definition: resolves identifiers, folds constants,
+        runs comp-side validators, generates bytecode, and executes
+        definitions to populate their values.
 
-        Args:
-            module: (Module) The root module
-        """
-        self.build_namespaces()
+        Best-effort: accumulates errors and continues.  Definitions
+        that fail validation are skipped during codegen.
 
-    def build(self, module, fold=True, pure=False,
-              validation_severity="error",
-              fail_on_validation_error=True):
-        """Build a module and all its dependencies through the full pipeline.
-
-        This is the primary entry point for preparing a module for execution.
-        It processes all discovered modules as a flat list (no recursive build),
-        applying each pass independently.
-
-        Build passes (each applied to ALL modules before the next begins):
-        1. Definitions — lark parse statements into cop nodes
-        2. Namespace — merge imports + local definitions
-        3. Resolve aliases — resolve alias/export refs against namespace
-        4. Apply aliases — inject resolved aliases into all namespaces
-        5. Resolution — cop_resolve_names on every definition
-        6. Fold/Optimize — coptimize for constant folding (optional)
-        7. Codegen — generate instruction sequences
-        8. Execute — run instructions to populate definition values
-
-        Args:
-            module: (Module) The root module to build
-            fold: (bool) Whether to fold constants (default True)
-            pure: (bool) Whether to evaluate pure functions at compile time
-            validation_severity: (str) Minimum callout severity to run during build
-            fail_on_validation_error: (bool) Stop build on validator ERROR callouts
+        Idempotent if already at phase 2+.
 
         Returns:
-            (Module) The built module (same object, now fully prepared)
+            (list) List of (Module, Exception) pairs for all errors
         """
-        # Passes 1-4: Definitions, namespaces, aliases
-        errors = self.build_namespaces()
-        if errors and fail_on_validation_error:
-            # Re-raise the first module error
-            raise errors[0][1]
+        if self._phase >= 2:
+            return []
 
+        errors = list(self.build_namespaces())
         all_modules = self._all_modules()
 
-        # Pass 5: Resolution — resolve all identifier cop nodes
+        # Resolve + fold + validate each definition via Definition.callouts()
+        # Definitions with error callouts are marked to skip codegen.
+        # Skip validation when building internal dependencies (e.g. callout stdlib)
+        # to avoid recursion.
+        failed_defs = set()
+        skip_validation = self._disable_build_validations > 0
         for mod in all_modules:
+            if mod._definitions_error is not None:
+                continue
             mod_defs = mod.definitions()
             mod_ns = mod.namespace()
             for defn in mod_defs.values():
+                # Resolve and fold even when skipping validation
+                if defn.original_cop is None:
+                    continue
                 if defn.resolved_cop is None:
                     defn.resolved_cop = comp.cop_resolve_names(
                         defn.original_cop, mod_ns
                     )
+                defn.resolved_cop = comp.coptimize(defn.resolved_cop, True, mod_ns)
 
-        # Pass 5b: Validation on resolved COP
+                if not skip_validation:
+                    defn_callouts = comp._callout.cop_callouts(defn, interp=self, namespace=mod_ns)
+                    for c in defn_callouts:
+                        if c.severity == comp.ERROR:
+                            failed_defs.add(id(defn))
+                            err = comp.CodeError(c.message)
+                            if c.primary and c.primary.span:
+                                s = c.primary.span
+                                err.row = s.line
+                                err.col = s.col
+                                err.end_col = s.col + s.length
+                            err.module = mod
+                            errors.append((mod, err))
+                            break
+
+        # Pure evaluation (optional — always enabled for build_instructions)
         for mod in all_modules:
-            self._run_definition_callouts(
-                mod,
-                stage="resolved",
-                min_severity=validation_severity,
-                fail_on_error=fail_on_validation_error,
-            )
-
-        # Pass 6: Fold/Optimize — constant folding
-        if fold:
-            for mod in all_modules:
-                mod_defs = mod.definitions()
-                mod_ns = mod.namespace()
-                for defn in mod_defs.values():
-                    defn.resolved_cop = comp.coptimize(
-                        defn.resolved_cop, True, mod_ns
-                    )
-
-            # Pass 6a: Validation on folded COP
-            for mod in all_modules:
-                self._run_definition_callouts(
-                    mod,
-                    stage="folded",
-                    min_severity=validation_severity,
-                    fail_on_error=fail_on_validation_error,
-                )
-
-        # Pass 6b: Pure evaluation (optional)
-        if pure:
-            # Pre-execute pure definitions so their values are available
-            # for folding. Modules are in dependency order, so imported
-            # pure defs are ready before the modules that use them.
-            for mod in all_modules:
-                mod_defs = mod.definitions()
-                mod_env = {}
-                for name, defn in mod_defs.items():
-                    if defn.pure and defn.resolved_cop is not None and defn.value is None:
-                        try:
-                            defn.instructions = comp.generate_code_for_definition(
-                                defn.resolved_cop,
-                                dispatch_own_name=defn.qualified,
-                                dispatch_set_name=defn.qualified,
-                                pure=True,
-                                namespace=mod.namespace(),
-                            )
-                            result = self.execute(defn.instructions, mod_env, module=mod)
-                            defn.value = result
-                            mod_env[name] = result
-                        except Exception:
-                            pass
-
-            # Now fold definitions using namespace lookup (includes imports)
-            for mod in all_modules:
-                mod_defs = mod.definitions()
-                mod_ns = mod.namespace()
-                comp.evaluate_pure_definitions(mod_defs, mod_ns, self)
-                if fold:
-                    for defn in mod_defs.values():
-                        defn.resolved_cop = comp.coptimize(
-                            defn.resolved_cop, True, mod_ns
+            if mod._definitions_error is not None:
+                continue
+            mod_defs = mod.definitions()
+            mod_env = {}
+            for name, defn in mod_defs.items():
+                if id(defn) in failed_defs:
+                    continue
+                if defn.pure and defn.resolved_cop is not None and defn.value is None:
+                    try:
+                        defn.instructions = comp.generate_code_for_definition(
+                            defn.resolved_cop,
+                            dispatch_own_name=defn.qualified,
+                            dispatch_set_name=defn.qualified,
+                            pure=True,
+                            namespace=mod.namespace(),
                         )
+                        result = self._execute(defn.instructions, mod_env, module=mod)
+                        defn.value = result
+                        mod_env[name] = result
+                    except Exception:
+                        pass
 
-        # Pass 7: Codegen — generate instructions for all definitions
+        # Codegen — generate instructions for all non-failed definitions
         for mod in all_modules:
+            if mod._definitions_error is not None:
+                continue
             mod_defs = mod.definitions()
             for name, defn in mod_defs.items():
+                if id(defn) in failed_defs:
+                    continue
                 if defn.instructions is not None:
                     continue
                 if defn.resolved_cop is None:
@@ -464,19 +442,18 @@ class Interp:
                         pure=defn.pure,
                         namespace=mod.namespace(),
                     )
-                except comp.CodeError as ce:
-                    if not hasattr(ce, "module"):
-                        ce.module = mod
-                        ce.definition_name = name
-                    if fail_on_validation_error:
-                        raise
-                except Exception as e:
-                    msg = f"Code generation error for {mod.token}:{name}: {e}"
-                    if fail_on_validation_error:
-                        raise comp.CodeError(msg)
+                except (comp.CodeError, Exception) as e:
+                    if isinstance(e, comp.CodeError):
+                        errors.append((mod, e))
+                    else:
+                        errors.append((mod, comp.CodeError(
+                            f"Code generation error for {mod.token}:{name}: {e}"
+                        )))
 
-        # Pass 6: Execute — run instructions to populate definition values
+        # Execute — run instructions to populate definition values
         for mod in all_modules:
+            if mod._definitions_error is not None:
+                continue
             mod_defs = mod.definitions()
             mod_env = {}
             # Shapes first (they don't depend on blocks)
@@ -484,13 +461,9 @@ class Interp:
                 if defn.instructions and defn.value is None:
                     if defn.shape.qualified == "shape":
                         try:
-                            result = self.execute(defn.instructions, mod_env, module=mod)
+                            result = self._execute(defn.instructions, mod_env, module=mod)
                         except comp.CodeError as ce:
-                            if not hasattr(ce, "module") or ce.module is None:
-                                ce.module = mod
-                                ce.definition_name = name
-                            if fail_on_validation_error:
-                                raise
+                            errors.append((mod, ce))
                             continue
                         defn.value = result
                         mod_env[name] = result
@@ -498,71 +471,131 @@ class Interp:
             for name, defn in mod_defs.items():
                 if defn.instructions and defn.value is None:
                     try:
-                        result = self.execute(defn.instructions, mod_env, module=mod)
+                        result = self._execute(defn.instructions, mod_env, module=mod)
                     except comp.CodeError as ce:
-                        if not hasattr(ce, "module") or ce.module is None:
-                            ce.module = mod
-                            ce.definition_name = name
-                        if fail_on_validation_error:
-                            raise
+                        errors.append((mod, ce))
                         continue
                     defn.value = result
                     mod_env[name] = result
 
-        return module
+        # Stamp phase 2 on all modules
+        for mod in all_modules:
+            mod._interp_phase = 2
+        self._phase = 2
+        return errors
 
-    def _run_definition_callouts(self, mod, stage, min_severity, fail_on_error):
-        """Run comp-side COP validators for each definition in a module.
+    def callouts(self, module=None, definition=None, min_severity="warning"):
+        """Collect validation callouts.
 
-        This is a no-op during normal builds. It will be reimplemented as
-        part of the standalone validation pipeline which manages its own
-        callout collection.
-        """
-        pass
+        Single entry point for all validation diagnostics.  Ensures
+        namespaces are built (phase 1), then runs comp-side validators
+        on the requested scope.
 
-    def callouts(self, module, min_severity="warning", fold=True, pure=False):
-        """Run the build pipeline with validations enabled and collect callouts.
+        Scoping:
+            - ``callouts()`` — all modules in the interpreter
+            - ``callouts(module=m)`` — one module and its imports
+            - ``callouts(module=m, definition=d)`` — one definition only
 
-        Unlike build(), this method does not stop at the first callout error.
-        Exceptions are converted into error callouts when possible.
-
-        Callouts are collected into a local list — the module and definition
-        objects are not modified.
+        When *definition* is given, *module* must also be given and the
+        definition must belong to that module.
 
         Args:
-            module: (Module) Root module
-            min_severity: (str) Minimum severity threshold for validators
-            fold: (bool) Enable folding
-            pure: (bool) Enable pure evaluation
+            module:       (Module | None) Scope to a single module tree
+            definition:   (Definition | None) Scope to a single definition
+            min_severity: (str) Minimum severity threshold
 
         Returns:
             (list) Flat list of Callout objects
         """
-        all_callouts = []
-        try:
-            self.build(
-                module,
-                fold=fold,
-                pure=pure,
-                validation_severity=min_severity,
-                fail_on_validation_error=False,
-            )
-        except comp.ParseError as e:
-            all_callouts.append(comp.Callout(
-                severity=comp.ERROR,
-                code="parse-error",
-                message=e.message if hasattr(e, "message") else str(e),
-                phase=comp.PHASE_PARSE,
-            ))
-        except comp.CodeError as e:
-            all_callouts.append(comp.Callout(
-                severity=comp.ERROR,
-                code="code-error",
-                message=str(e),
-                phase=comp.PHASE_COP,
-            ))
+        if definition is not None and module is None:
+            raise ValueError("definition requires module")
+        if module is not None:
+            if id(module) not in {id(m) for m in self.module_cache.values()}:
+                raise ValueError("module does not belong to this interpreter")
+        if definition is not None:
+            defs = module.definitions()
+            if definition not in defs.values():
+                raise ValueError("definition does not belong to the given module")
 
+        self.build_namespaces()
+
+        if definition is not None:
+            ns = module.namespace() if module._namespace is not None else {}
+            source_file = getattr(module.source, "resource", None)
+            return self._definition_callouts(definition, ns, min_severity, source_file=source_file)
+
+        all_callouts = []
+        modules = self._collect_modules(module) if module else self._all_modules()
+        for mod in modules:
+            all_callouts.extend(self._module_callouts(mod, min_severity))
         return all_callouts
+
+    def _module_callouts(self, mod, min_severity="error"):
+        """Collect callouts for a single module.
+
+        Combines import errors, parse/definition errors, and per-definition
+        validation callouts.
+
+        Args:
+            mod: (Module) The module to validate
+
+        Returns:
+            (list) Callout objects
+        """
+        result = []
+
+        # Import errors
+        if mod._imports:
+            for import_name, (import_module, import_err) in mod._imports.items():
+                if import_err:
+                    result.append(Callout(
+                        severity=ERROR,
+                        code="import-error",
+                        message=str(import_err),
+                        phase=PHASE_PARSE,
+                    ))
+
+        # Parse/definition errors
+        if mod._definitions_error is not None:
+            result.append(comp._callout.exception_to_callout(mod._definitions_error))
+            return result
+
+        # Per-definition validation (requires phase 1)
+        if mod._interp_phase >= 1 and mod._definitions is not None:
+            ns = mod._namespace or {}
+            source_file = getattr(mod.source, "resource", None)
+            for defn in mod._definitions.values():
+                result.extend(self._definition_callouts(defn, ns, min_severity, source_file=source_file))
+
+        return result
+
+    def _definition_callouts(self, defn, namespace, min_severity="error", source_file=None):
+        """Resolve, fold, and validate a single definition.
+
+        Brings the definition through resolution and folding if not already
+        done, then runs the unified validation pass.
+
+        Args:
+            defn: (Definition) The definition to validate
+            namespace: (dict) Module namespace for identifier resolution
+            source_file: (str | None) Source file path for location context
+
+        Returns:
+            (list) Callout objects from validation
+        """
+        if defn.original_cop is None:
+            return []
+        if defn.resolved_cop is None:
+            defn.resolved_cop = comp.cop_resolve_names(
+                defn.original_cop, namespace
+            )
+            defn.resolved_cop = comp.coptimize(defn.resolved_cop, True, namespace)
+        callouts = comp._callout.cop_callouts(defn, min_severity=min_severity, interp=self, namespace=namespace)
+        for c in callouts:
+            c.definition_name = defn.qualified
+            if c.primary and c.primary.span and not c.primary.span.file:
+                c.primary.span.file = source_file
+        return callouts
 
     def _collect_modules(self, root_module):
         """Collect all modules reachable from root in dependency order.
@@ -626,6 +659,9 @@ class Interp:
         """Internally scan and register module."""
         # module_cache entries (by resource string and abs path) are already
         # set by the module() method before this is called.
+
+        # Adding a module invalidates completed phases — force rebuild
+        self._phase = 0
 
         # Get statements from the module scan
         statements = module.statements()
@@ -805,62 +841,21 @@ class ExecutionFrame:
     def eval(self, cop):
         """Compile and evaluate a COP expression in this frame's context.
 
+        Used internally by instructions that need to evaluate default
+        parameter values at runtime (e.g. ``!param x = <expr>``).
+
         Args:
             cop: (Value) COP node representing an expression
 
         Returns:
             (Value) The evaluated result
         """
-        # Resolve identifiers against the module namespace so codegen
-        # produces LoadVar instead of LoadLocal for namespace names.
         ns = self.module.namespace() if self.module else {}
         resolved = comp._resolve.cop_resolve_names(cop, ns)
         ctx = comp._codegen.CodeGenContext()
         ctx.build_expression(resolved)
-        sub_frame = ExecutionFrame(
-            env=dict(self.env),
-            interp=self.interp,
-            module=self.module,
-            parent_frame=self,
-            context=dict(self.context),
-        )
+        sub_frame = self._make_child_frame(dict(self.env), module=self.module)
         return sub_frame.run(ctx.instructions)
-
-    def lookup(self, name):
-        """Look up a name in environment, module namespace, and system definitions.
-
-        Args:
-            name: (str) Variable or definition name to look up
-
-        Returns:
-            (Definition | None) The definition if found, None otherwise
-        """
-        # Check local environment first
-        if name in self.env:
-            # Env contains Values, but we need to return a Definition-like object
-            # For now, return None to fall through to namespace lookup
-            pass
-
-        # Check module namespace (includes imports and local definitions)
-        if self.module:
-            ns = self.module.namespace()
-            if name in ns:
-                item = ns[name]
-                # Namespace contains Callable objects - extract single definition for backward compat
-                if isinstance(item, comp.Callable) and item.has_pending():
-                    if len(item.entries) == 1:
-                        return item.entries[0]
-                    # For multiple definitions, return the Callable itself
-                    return item
-                return item
-
-        # Fall back to system module for builtins
-        if self.interp and self.interp.system:
-            system = self.interp.system
-            if name in system._definitions:
-                return system._definitions[name]
-
-        return None
 
     def invoke_block(self, block_val, args, piped=None, delivery=None, source_cop=None):
         """Call a function with the given arguments.

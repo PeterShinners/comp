@@ -364,6 +364,14 @@ class CodeGenContext:
                 value_idx = self._build_value_ensure_register(kids[0])
                 return self.emit(comp._instructions.RaiseFail(cop=cop, value_reg=value_idx))
 
+            case "value.fold-fail":
+                # Fold-time failure — same codegen as op.fail
+                kids = _cop_kids(cop)
+                if not kids:
+                    raise comp.CodeError("value.fold-fail requires a value expression", cop)
+                value_idx = self._build_value_ensure_register(kids[0])
+                return self.emit(comp._instructions.RaiseFail(cop=cop, value_reg=value_idx))
+
             case "value.fallback":
                 # expr ?? h1 ?? h2 — chain of Fallback instructions
                 # kids[0] is the initial expression; each remaining kid is a handler

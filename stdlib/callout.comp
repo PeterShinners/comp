@@ -86,16 +86,35 @@
 // ===== Severity ordering =====
 
 /// Severity ordering: error=0, warning=1, info=2, hint=3 (lower = more severe).
-/// Used by validate-cop to skip validators that can't produce
-/// callouts at the requested minimum severity level.
 !pure severity-rank ~callout (
     !on $
     ~callout.error   0
     ~callout.warning 1
     ~callout.info    2
     ~callout.hint    3
-    ~any 4  // shouldn't happen but always happens
+    ~any 4
 )
+
+
+// ===== Helpers =====
+
+/// Build a walk-cop result with a single callout finding.
+/// Pipe the COP node as input ($). Returns the {callouts={...} accum={}} struct.
+!pure cop-callout (
+    !param severity ~callout
+    !param code ~text
+    !param message ~text
+    {callouts={{
+        severity=severity
+        code=code
+        message=message
+        phase=callout.phase.cop
+        pos=[$ | ($.pos)]
+    }} accum={}}
+)
+
+/// Walk-cop result with no findings.
+!pure cop-pass {callouts={} accum={}}
 
 
 // ===== COP tree walking =====
@@ -113,20 +132,12 @@
 ///   $.accum    — value to pass to child traversals
 ///   $.recurse  — false to skip children (default true)
 ///
-/// Returning ~skip also skips recursion into children.
-/// A non-struct return is treated as a single callout to collect.
-///
 /// Args (to walk-cop builtin):
 ///   filter:  (text) COP tag to filter for ("" means all nodes)
 ///   initial: (any) Initial accumulator value
 ///   op:      (block) Called on each matching node
 ///
 /// Returns: struct of all collected callouts
-///
-/// Examples:
-///   cop-root | walk-cop filter="value.constant" :(
-///       {callouts={} accum=nil}
-///   )
 
 
 // ===== Early validators =====
@@ -135,346 +146,177 @@
 
 /// Check for duplicate field names within a single struct literal.
 ///
-/// Finds struct.define nodes where two or more struct.namefield children
-/// share the same name. Reports the second (and later) occurrences.
-///
-/// Example: {x=1 x=2}  →  "duplicate field 'x' in struct literal"
+/// Example: {x=1 x=2}  →  "duplicate field `x` in struct literal"
 !pure check-duplicate-struct-fields (
-    !param min-severity ~callout = callout.warning
-    !on [min-severity | severity-rank] <= [callout.warning | severity-rank]
-    ~false {}
-    ~true (
-        [$ | walk-cop filter="struct.define" initial={} :(
-            !my node $.node
-            !my fields [node | cop-kids | (loop.filter :([$ | cop-tag] == "struct.namefield"))]
-            !my names [fields | loop.map :([$ | cop-fields | ($.name)])]
-            !my dupes [names | loop.find-duplicates]
-            !on dupes == {}
-            ~true {callouts={} accum={}}
-            ~false {callouts={{
+    [$ | walk-cop filter="struct.define" initial={} :(
+        !my node $.node
+        !my fields [node | cop-kids | loop.where :([$ | cop-tag] == "struct.namefield")]
+        !my names [fields | loop.map :([$ | cop-kids | loop.first | cop-fields | ($.value)])]
+        !my dupes [names | find-duplicates]
+        !on dupes == {}
+        ~true cop-pass
+        ~false (
+            !my first-dupe [dupes | loop.first]
+            !my dupe-field [fields | loop.where :([$ | cop-kids | loop.first | cop-fields | ($.value)] == first-dupe) | loop.last]
+            [dupe-field | cop-callout
                 severity=callout.warning
                 code="duplicate-struct-field"
-                message=["Duplicate field name in struct literal: " + [dupes | loop.first]]
-                phase=callout.phase.cop
-            }} accum={}}
-        )]
-    )
+                message=[@fmt"Duplicate field name in struct literal, `%(first-dupe)`"]
+            ]
+        )
+    )]
 )
 
 
 /// Check for duplicate pattern branches in a single !on dispatch.
 ///
-/// Finds op.on nodes where two or more op.on.branch children match the
-/// same shape or tag. Only checks literal pattern arms — computed patterns
-/// are skipped. Reports the second (and later) occurrences.
-///
-/// Example: !on x  ~true ...  ~true ...  →  "duplicate branch ~true in !on"
+/// Example: !on x  ~true ...  ~true ...  →  "duplicate branch `~true` in !on"
 !pure check-duplicate-on-branches (
-    !param min-severity ~callout = callout.warning
-    !on [min-severity | severity-rank] <= [callout.warning | severity-rank]
-    ~false {}
-    ~true (
-        [$ | walk-cop filter="op.on" initial={} :(
-            !my node $.node
-            !my branches [node | cop-kids | (loop.filter :([$ | cop-tag] == "op.on.branch"))]
-            !my patterns [branches | loop.map :([$ | cop-kids | loop.first | cop-tag])]
-            !my dupes [patterns | loop.find-duplicates]
-            !on dupes == {}
-            ~true {callouts={} accum={}}
-            ~false {callouts={{
+    [$ | walk-cop filter="op.on" initial={} :(
+        !my node $.node
+        !my branches [node | cop-kids | loop.where :([$ | cop-tag] == "op.on.branch")]
+        !my patterns [branches | loop.map :([$ | cop-kids | loop.first | cop-tag])]
+        !my dupes [patterns | find-duplicates]
+        !on dupes == {}
+        ~true cop-pass
+        ~false (
+            !my first-dupe [dupes | loop.first]
+            [node | cop-callout
                 severity=callout.warning
                 code="duplicate-on-branch"
-                message=["Duplicate branch pattern in !on: " + [dupes | loop.first]]
-                phase=callout.phase.cop
-            }} accum={}}
-        )]
-    )
+                message=[@fmt"Duplicate branch pattern in !on, `%(first-dupe)`"]
+            ]
+        )
+    )]
 )
 
 
-// !pure check-startup-duplicated (...)
-//   Walk mod.define kids, find more than one !startup declaration.
-
-// !pure check-shape-field-redefined (...)
-//   Walk shape.define kids, find duplicate field name declarations.
-
-// !pure check-shape-union-duplicates (...)
-//   Walk union shape definitions, find duplicate member shapes.
-
-// !pure check-parameter-name-redefined (...)
-//   Walk function.define signatures, find two params with the same name.
-
-// !pure check-local-before-assigned (...)
-//   Walk statement.define bodies, detect value.local refs that appear
-//   before the op.my that introduces the name (requires ordering info).
-
-
-/// Entry point: run all early-phase validators on a raw COP tree.
-///
-/// Call this before name resolution. Checks are purely structural.
-///
-/// Args:
-///   min-severity: (callout) Minimum severity to report (default: warning)
-///
-/// Returns: struct of all collected callouts
-!pure validate-early (
-    !param min-severity ~callout = callout.warning
-    !my args {min-severity=min-severity}
-    {}
-)
-
-
-// ===== Resolved validators =====
-// Run after name resolution. Can inspect purity flags, qualified names,
-// and signature shapes, but folding has not yet occurred.
+// ===== Validators =====
+// Run after name resolution and constant folding.
 
 
 /// Check that pure functions do not call impure functions.
-///
-/// Walks value.block nodes that carry a signature.pure marker. Inside
-/// those bodies, any value.namespace reference to a non-pure callable
-/// used as an invocation target is reported.
-///
-/// Requires a namespace map so purity can be looked up by qualified name.
 !pure check-pure-calls-impure (
-    !param min-severity ~callout = callout.error
+    !param context ~any = {}
     !param namespace ~any = nil
-    !on [min-severity | severity-rank] <= [callout.error | severity-rank]
+    !my def-is-pure [context | ($.pure)]
+    !on def-is-pure == true !and namespace != nil
     ~false {}
     ~true (
-        [$ | walk-cop filter="value.block" initial={} :(
+        [$ | walk-cop filter="value.namespace" initial={} :(
             !my node $.node
-            !my sig [node | cop-kids | loop.first]
-            !my is-pure [sig | cop-fields | ($.pure)] != nil
-            !on is-pure
-            ~false {callouts={} accum={} recurse=false}
-            ~true (
-                // Walk the body of this pure block looking for impure calls
-                !my body [node | cop-kids | loop.last]
-                [body | walk-cop filter="value.invoke" initial={} :(
-                    !my callee [$.node | cop-kids | loop.first]
-                    !my callee-tag [callee | cop-tag]
-                    !on callee-tag == "value.namespace"
-                    ~false {callouts={} accum={}}
-                    ~true (
-                        !my name [callee | cop-fields | ($.name)]
-                        !my defn [namespace | (name)]
-                        !my is-impure [defn | cop-fields | ($.pure)] == nil
-                        !on is-impure
-                        ~false {callouts={} accum={}}
-                        ~true {callouts={{
-                            severity=callout.error
-                            code="pure-calls-impure"
-                            message=["Pure function calls impure function: " + name]
-                            phase=callout.phase.cop
-                        }} accum={}}
-                    )
-                )]
-            )
-        )]
-    )
-)
-
-
-/// Check that each pipeline stage's !depend declarations are satisfied
-/// by a preceding stage's !delivers declarations.
-///
-/// Walks value.pipeline nodes left-to-right, maintaining a set of names
-/// delivered so far. Reports any !depend requirement not in that set.
-// !pure check-pipeline-dependencies (...)
-//   Walks value.pipeline nodes left-to-right, maintaining a set of names
-//   delivered so far. Reports any !depend requirement not in that set.
-//   (Disabled: !not operator inside loop.filter block needs syntax fix)
-
-
-// !pure check-pure-uses-handle (...)
-//   Walk pure function bodies for grab/drop/push/pull operators.
-
-// !pure check-overload-ambiguous-shapes (...)
-//   Walk mod.define collecting functions by base name, compare input shapes
-//   of overloads for ambiguous overlap.
-
-// !pure check-parameter-unused (...)
-//   Walk function.define bodies; collect param names from signature and local
-//   refs from body; report params with no corresponding value.local reference.
-
-// !pure check-missing-doc-public (...)
-//   Enumerate mod.define kids; for non-private definitions, check whether
-//   a doc comment node is attached.
-
-// !pure check-shadowed-local (...)
-//   Walk statement.define bodies; detect value.undefined refs that share a
-//   name with a local defined in an outer scope (likely shadowed typo).
-
-
-/// Entry point: run all resolved-phase validators on a name-resolved COP tree.
-///
-/// Call this after cop_resolve_names. Validators may inspect qualified names
-/// and purity flags but should not assume constant folding has occurred.
-///
-/// Args:
-///   min-severity: (callout) Minimum severity to report (default: error)
-///   namespace:    (any) Resolved module namespace for purity/shape lookups
-///
-/// Returns: struct of all collected callouts
-!pure validate-resolved (
-    !param min-severity ~callout = callout.error
-    !param namespace ~any = nil
-    !my args {min-severity=min-severity namespace=namespace}
-    [$ | check-zero-division args]
-)
-
-
-// ===== Folded validators =====
-// Run after constant folding. Constants have been evaluated as far as possible;
-// validators here can inspect known-constant values for partial-constant checks
-// that folding itself cannot fully evaluate.
-
-
-/// Check for division or modulo by a constant zero on the right-hand side.
-///
-/// Catches `x / 0`even when the left side is dynamic, since
-/// the failure is guaranteed regardless of the numerator.
-!pure check-zero-division (
-    !param min-severity ~callout = callout.warning
-    !on [min-severity | severity-rank] <= [callout.warning | severity-rank]
-    ~false {}
-    ~true (
-        [$ | walk-cop filter="value.math.binary" initial={} :(
-            !my node $.node
-            !my op [node | cop-fields | ($.op)]
-            !on (op == "/")
-            ~false {callouts={} accum={}}
-            ~true (
-                !my rhs [node | cop-kids | loop.last]
-                !my rhs-tag [rhs | cop-tag]
-                !on (rhs-tag == "value.number" !or rhs-tag == "value.constant")
-                ~false {callouts={} accum={}}
-                ~true (
-                    !my rhs-val [rhs | cop-fields | ($.value)]
-                    !on rhs-val == "0"
-                    ~false {callouts={} accum={}}
-                    ~true {callouts={{
-                        severity=callout.warning
-                        code="zero-division"
-                        message=["Division or modulo by constant zero will always fail at runtime"]
-                        phase=callout.phase.cop
-                    }} accum={}}
-                )
-            )
-        )]
-    )
-)
-
-
-/// Check for named field access on a constant struct where the field is absent.
-///
-/// When a value.field node targets a value.constant whose value is a struct,
-/// and the requested field name is not present, the access will always fail
-/// at runtime. This is detectable after folding because the base is constant.
-///
-/// Example: {x=1} | (.y)  →  "field 'y' not found on constant struct"
-!pure check-constant-undefined-field (
-    !param min-severity ~callout = callout.error
-    !on [min-severity | severity-rank] <= [callout.error | severity-rank]
-    ~false {}
-    ~true (
-        [$ | walk-cop filter="value.field" initial={} :(
-            !my node $.node
-            !my base [node | cop-kids | loop.first]
-            !my base-tag [base | cop-tag]
-            !on base-tag == "value.constant"
-            ~false {callouts={} accum={}}
-            ~true (
-                !my field-name [node | cop-fields | ($.field)]
-                !my struct-val [base | cop-fields | ($.value)]
-                !my has-field [struct-val | contains-field field-name]
-                !on has-field
-                ~true {callouts={} accum={}}
-                ~false {callouts={{
-                    severity=callout.error
-                    code="undefined-field"
-                    message=["Field '" + field-name + "' not found on constant struct"]
-                    phase=callout.phase.cop
-                }} accum={}}
-            )
-        )]
-    )
-)
-
-
-// !pure check-constant-wrong-shape (...)
-//   Walk value.invoke / value.pipeline where the callee has a known input shape
-//   and the piped input is a value.constant. Attempt morph; report mismatch.
-
-// !pure check-constant-out-of-bounds (...)
-//   Walk value.field nodes using positional access (#N) where the base is a
-//   value.constant struct. Report when N >= struct field count.
-
-// !pure check-logic-known-non-bool (...)
-//   Walk value.logic.binary nodes where one side is a value.constant not of
-//   bool type. Report the non-boolean operand.
-
-// !pure check-math-known-non-number (...)
-//   Walk value.math.binary nodes where one side is a value.constant not of
-//   num type. Report the non-numeric operand.
-
-// !pure check-unreachable-on-branches (...)
-//   Walk op.on nodes where the condition is value.constant. Report branches
-//   whose pattern cannot match the known constant value.
-
-// !pure check-shape-invoke-constant-fail (...)
-//   Walk value.invoke where callee resolves to a shape and piped input is
-//   value.constant. Attempt morph at compile time; report guaranteed failure.
-
-// !pure check-sql-template-unit (...)
-//   Walk string template expressions passed to functions expecting a text unit.
-//   Report when a template contains unguarded dynamic values (injection risk).
-
-
-/// Check for op.fail nodes in a constant-folded COP tree.
-///
-/// The folder converts guaranteed-failure expressions (e.g. pure evaluation problems,
-/// type mismatches) into op.fail nodes rather than aborting compilation.
-/// Any op.fail reachable at runtime will always fail, so we surface these
-/// here as errors after folding is complete.
-///
-/// This catches both fold-synthesised failures and user-written !fail
-/// expressions that appear in always-reachable positions.
-!pure check-constant-fail (
-    !param min-severity ~callout = callout.warning
-    !on [min-severity | severity-rank] <= [callout.warning | severity-rank]
-    ~false {}
-    ~true (
-        [$ | walk-cop filter="op.fail" initial={} :(
-            !my node $.node
-            !my inner [node | cop-kids | loop.first | cop-fields | ($.value)]
-            !my reason [inner | ($.fail)]
-            {callouts={{
+            !my name [node | cop-fields | ($.qualified)]
+            !on [namespace | is-pure name]
+            ~true cop-pass
+            ~false [node | cop-callout
                 severity=callout.error
-                code="constant-fail"
-                message=[@fmt"Expression always fails at runtime: %(reason)"]
-                phase=callout.phase.cop
-            }} accum={}}
+                code="pure-calls-impure"
+                message=[@fmt"Pure function calls impure function, `%(name)`"]
+            ]
         )]
     )
 )
 
 
-/// Entry point: run all folded-phase validators on a constant-folded COP tree.
+/// Check for division or modulo by a constant zero.
+!pure check-zero-division (
+    [$ | walk-cop filter="value.math.binary" initial={} :(
+        !my node $.node
+        !my op [node | cop-fields | ($.op)]
+        !on (op == "/")
+        ~false cop-pass
+        ~true (
+            !my rhs [node | cop-kids | loop.last]
+            !my rhs-tag [rhs | cop-tag]
+            !on (rhs-tag == "value.number" !or rhs-tag == "value.constant")
+            ~false cop-pass
+            ~true (
+                !my rhs-val [rhs | cop-fields | ($.value)]
+                !on rhs-val == "0"
+                ~false cop-pass
+                ~true [node | cop-callout
+                    severity=callout.warning
+                    code="zero-division"
+                    message=["Division or modulo by constant zero will always fail at runtime"]
+                ]
+            )
+        )
+    )]
+)
+
+
+/// Check for field access on a constant struct where the field is absent.
+!pure check-constant-undefined-field (
+    [$ | walk-cop filter="value.field" initial={} :(
+        !my node $.node
+        !my base [node | cop-kids | loop.first]
+        !my base-tag [base | cop-tag]
+        !on base-tag == "value.constant"
+        ~false cop-pass
+        ~true (
+            !my field-name [node | cop-fields | ($.field)]
+            !my struct-val [base | cop-fields | ($.value)]
+            !my has-field [struct-val | contains-field field-name]
+            !on has-field
+            ~true cop-pass
+            ~false [node | cop-callout
+                severity=callout.error
+                code="undefined-field"
+                message=[@fmt"Field `%(field-name)` not found on constant struct"]
+            ]
+        )
+    )]
+)
+
+
+/// Check for fold-synthesised failure nodes (guaranteed runtime failures).
+!pure check-constant-fail (
+    [$ | walk-cop filter="value.fold-fail" initial={} :(
+        !my node $.node
+        !my inner-node [node | cop-kids | loop.first]
+        !my inner [inner-node | cop-fields | ($.value)]
+        !my reason [inner | ($.fail)]
+        [inner-node | cop-callout
+            severity=callout.error
+            code="constant-fail"
+            message=[@fmt"Expression always fails at runtime, %(reason)"]
+        ]
+    )]
+)
+
+
+/// Entry point: run all validators on a resolved-and-folded COP tree.
 ///
-/// Call this after coptimize with fold=True. Folding has already evaluated
-/// all fully-constant subexpressions; validators here cover partial-constant
-/// cases that remain after folding.
-///
-/// Args:
-///   min-severity: (callout) Minimum severity to report (default: warning)
-///   namespace:    (any) Resolved module namespace for shape lookups
-///
-/// Returns: struct of all collected callouts
-!pure validate-folded (
+/// Severity gating: runs error-level checks first, then warning-level,
+/// then info/hint. Skips tiers below the requested min-severity.
+!pure validate (
     !param min-severity ~callout = callout.warning
+    !param context ~any = {}
     !param namespace ~any = nil
-    !my args {min-severity=min-severity namespace=namespace}
-    [$ | check-constant-fail args]
+    !param original ~any = nil
+    !my cop $
+    !my sev [min-severity | severity-rank]
+    !my raw [!on original == nil ~true cop ~false original]
+
+    !my errors (
+        !on [callout.error | severity-rank] <= sev
+        ~false {}
+        ~true {
+            [cop | check-pure-calls-impure context=context namespace=namespace]
+            [cop | check-constant-fail]
+            [cop | check-constant-undefined-field]
+        }
+    )
+
+    !my warnings (
+        !on [callout.warning | severity-rank] <= sev
+        ~false {}
+        ~true {
+            [cop | check-zero-division]
+            [raw | check-duplicate-struct-fields]
+            [raw | check-duplicate-on-branches]
+        }
+    )
+
+    {errors warnings}
 )

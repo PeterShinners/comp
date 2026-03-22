@@ -100,43 +100,28 @@ def _format_lark_error(exc, source_text, line_offset):
     line = getattr(exc, "line", None)
     col = getattr(exc, "column", None)
 
-    # Build summary
+    # Build summary — just show the unexpected token, not expected list
     if isinstance(exc, lark.exceptions.UnexpectedToken):
         token = getattr(exc, "token", None)
-        expected = getattr(exc, "expected", None)
-        if token is not None:
-            token_val = repr(str(token)[:30])
-            summary = f"Unexpected {token_val}"
+        if token is not None and str(token).strip():
+            summary = f"Unexpected `{str(token)[:30]}`"
+        elif token is not None:
+            summary = "Unexpected end of input"
         else:
             summary = "Unexpected token"
-        if expected:
-            # Filter out internal grammar names, show a few readable ones
-            readable = _readable_expected(expected)
-            if readable:
-                summary += f", expected {readable}"
     elif isinstance(exc, lark.exceptions.UnexpectedCharacters):
         char = getattr(exc, "char", None)
         if char:
-            summary = f"Unexpected character {repr(char)}"
+            summary = f"Unexpected character `{char}`"
         else:
             summary = "Unexpected character"
-        expected = getattr(exc, "allowed", None)
-        if expected:
-            readable = _readable_expected(expected)
-            if readable:
-                summary += f", expected {readable}"
     elif isinstance(exc, lark.exceptions.UnexpectedEOF):
-        expected = getattr(exc, "expected", None)
         summary = "Unexpected end of input"
-        if expected:
-            readable = _readable_expected(expected)
-            if readable:
-                summary += f", expected {readable}"
     else:
         summary = str(exc).split("\n")[0]
 
     # Build context display
-    parts = [summary]
+    parts = [f"Parse failure; {summary}"]
 
     if line is not None and col is not None:
         parts.append(f"  --> line {line}, col {col}")

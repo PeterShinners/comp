@@ -211,7 +211,7 @@
 ///   )
 ///   // {10 20 30}
 !pure iterate ~struct (
-    !param op ~nil
+    !param op ~any
     !my items $
     !my acc {}
     !my len [items | s.length]

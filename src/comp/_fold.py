@@ -744,22 +744,24 @@ def _make_constant(original, value):
 
 
 def _make_fail_cop(original, message):
-    """Create an op.fail COP node wrapping a {fail: message} constant.
+    """Create a value.fold-fail COP node wrapping a {fail: message} constant.
 
     Used by constant folding when an operation raises a Python exception at
     compile time (e.g. 3 + "four").  The resulting node signals a failure at
-    runtime instead of crashing the compiler.
+    runtime instead of crashing the compiler.  Distinct from user-written
+    op.fail so validators can distinguish intentional failures from
+    compile-time proof of always-failing code.
 
     Args:
         original: (Value) Original COP node for position info
         message: (str) Human-readable error message
 
     Returns:
-        (Value) op.fail COP node
+        (Value) value.fold-fail COP node
     """
     fail_val = comp.Value.from_python({"fail": message})
     inner = _make_constant(original, fail_val)
-    return comp.create_cop("op.fail", [inner])
+    return comp.create_cop("value.fold-fail", [inner])
 
 
 def _make_local(original, name, remaining_kids):

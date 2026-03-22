@@ -253,7 +253,7 @@ structure_item: my_assign | ctx_assign | stash_assign | field_or_expr
 field_or_expr: DOTTED_PATH EQUALS unary -> deep_named_field
              | TOKENFIELD EQUALS unary -> named_field
              | QUOTE expression QUOTE EQUALS unary -> expr_named_field
-             | unary
+             | expression
 
 signature: signature_decl+
 signature_decl: param_decl

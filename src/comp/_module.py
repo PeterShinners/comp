@@ -9,25 +9,20 @@ __all__ = ["Module", "Definition", "Ambiguous"]
 
 
 class Module:
-    """A module in the Comp language.
+    """A module of Comp source code, usually from a single file.
 
-    The module represents the data and code from source code. The module
-    is not immediately parsed or loaded into this class. Methods like
-    `scan` and `definitions` will incrementally build and prepare
-    the module.
+    Modules are created and managed by an ``Interp`` — never instantiated
+    directly.  The module is lazily parsed; data becomes available as the
+    interpreter advances through its build phases:
 
-    Modules are created and managed by an Interp, not created directly.
-    
-    Modules will import and reference other modules with import statements.
-    Each import statement can use different compilers and resource locators
-    but will always result in this same Module object.
-        
-    Modules are immutable once finalized. The finalize() method must be called
-    before any code from the module can be compiled or executed.
-    
+        **Phase 0** — ``scan()``, ``statements()``, ``definitions()``
+        **Phase 1** (after ``build_namespaces()``) — ``namespace()``
+        **Phase 2** (after ``build_instructions()``) — definition values populated
+
+    Validation is accessed through ``Interp.callouts(module=m)``.
+
     Args:
-        source: ModuleSource containing the module's location and content
-
+        source: (ModuleSource) Location, content, and etag for this module
     """
     _token_counter = os.getpid() & 0xFFFF
 
@@ -110,104 +105,74 @@ class Module:
         return scan_result.to_python("statements") or []
 
     def comment(self, context=None):
-        """Get comment for a given context.
+        """Get module-level documentation comment.
 
         Args:
-            context: Currently only None is supported (module-level comment)
+            context: Reserved for future use (must be None)
 
         Returns:
-            str: The comment text, or empty string if no comment found
-
-        For context=None, returns the first comment in the file (module-level documentation).
-        This is typically a doc comment (///) or block comment (/* */) at the top of the file.
+            (str) The comment text, or empty string
         """
         if context is not None:
-            # Future: support getting comments for specific statements
             return ""
-
-        # Get module-level comment (first comment in the file)
         scan_result = self.scan()
         docs = scan_result.to_python("docs") or []
         if not docs:
             return ""
-
-        # Return the first comment's content
-        first_comment = docs[0]
-        return first_comment.get("content", "")
+        return docs[0].get("content", "")
 
     def package(self):
         """Get package metadata from !package statements.
 
         Returns:
-            dict: {key: Value} package metadata key-value pairs
+            (dict) {key: Value} package metadata
         """
         statements = self.statements()
         metadata = {}
-
         for stmt in statements:
             if stmt.get("operator") != "package":
                 continue
-
             key = stmt.get("name")
             body = stmt.get("body", "")
             line_offset = stmt.get("pos", [1])[0]
             col_offset = stmt.get("body_col", 0)
-
             tree = comp.lark_parse(body, "comp", "start_package", line_offset=line_offset, col_offset=col_offset)
             cop = comp.lark_to_cop(tree)
             sys_ns = comp.get_internal_module("system").namespace()
             folded = comp.coptimize(cop, fold=True, namespace=sys_ns)
-
             if comp.cop_tag(folded) == "value.constant":
                 value = folded.field("value")
             else:
                 value = comp.Value.from_python(body.strip())
-
             metadata[key] = value
-
         return metadata
 
     def imports(self):
         """Dictionary of imported modules with metadata.
 
-        Each key is the name the module is imported as. The value is a dictionary
-        containing the module object, possible import error, source location,
-        documentation, and other known data.
-
-        This requires the module belongs to an Interpreter that has already
-        scanned and resolved its imports.
+        Requires the module to belong to an interpreter that has scanned
+        and resolved its imports.
 
         Returns:
-            dict: {name: {"module": Module|None, "error": Exception|None,
-                          "source": str, "location": str, "docs": str, ...}}
+            (dict) {name: {"module": Module|None, "error": Exception|None, ...}}
         """
         if self._imports is None:
             raise comp.ModuleError("Module must belong to an interpreter.")
-
-        imports = {}
+        result = {}
         for name, (mod, err) in self._imports.items():
-            import_info = {
-                "module": mod,
-                "error": err,
-                "source": None,
-                "location": None,
-                "docs": None,
-            }
-
-            # Extract metadata from module if available
+            info = {"module": mod, "error": err, "source": None, "location": None, "docs": None}
             if mod is not None:
-                import_info["source"] = mod.source.resource
-                import_info["location"] = mod.source.location
+                info["source"] = mod.source.resource
+                info["location"] = mod.source.location
                 try:
                     scan = mod.scan()
                     docs = scan.to_python("docs") or []
                     if docs:
-                        import_info["docs"] = docs[0].get("content", "")
-                except:
+                        info["docs"] = docs[0].get("content", "")
+                except Exception:
                     pass
-
-            imports[name] = import_info
-        return imports
+            result[name] = info
+        return result
 
     def _register_imports(self, imports):
         """Register imports and reset module to phase 0.
@@ -320,19 +285,6 @@ class Module:
         """
         return self.definitions().get(f"!startup.{name}")
 
-    def startup_names(self):
-        """Return names of all !startup entry points in this module.
-
-        Returns:
-            (list) Names of all startup entry points, in source order
-        """
-        prefix = "!startup."
-        return [
-            qualified[len(prefix):]
-            for qualified, defn in self.definitions().items()
-            if defn.startup
-        ]
-
     def prepare_startup(self, name):
         """Prepare a named !startup for execution.
 
@@ -359,25 +311,15 @@ class Module:
         return defn, initial_value
 
     def namespace(self):
-        """(dict) Resolved namespace dict for identifier lookups.
+        """Resolved namespace for identifier lookups.
 
-        This cached dictionary is derived from the module definitions().
-        The namespace combines definitions from this module and its imports.
-        
-        The namespace dictionary contains qualified names as keys and
-        each value is either
+        Available after ``Interp.build_namespaces()`` (phase 1+).  Combines
+        definitions from this module, its imports, and the system module.
+        Keys are qualified name strings; values are ``Callable`` (single or
+        overloaded) or ``Ambiguous`` entries.
 
-        - Callable for invokable references (single or overloaded)
-        - Ambiguous for conflicting references from imports
-
-        Most definitions will have multiple references from the namespace
-        dictionary. Any value is referencable by shortened fragments of
-        the fully qualified name.
-        
-        At this point any failed import statements will result in an exception.
-
-        This requires the module belongs to an Interpreter that has already
-        scanned and resolved its imports.
+        Results are cached.  Raises ``ModuleError`` if called before the
+        interpreter has reached phase 1.
 
         """
         if self._namespace is not None:
@@ -413,7 +355,7 @@ class Module:
 
         return self._namespace
 
-    def resolve_deferred(self):
+    def _resolve_deferred(self):
         """Resolve queued alias and export refs against the namespace.
 
         Pass 3: Called by the interpreter after all module namespaces are
@@ -558,7 +500,7 @@ class Module:
             if not is_private:
                 self._exported_aliases.setdefault(def_name, set()).update(target_defs)
 
-    def apply_aliases(self):
+    def _apply_aliases(self):
         """Inject resolved aliases into namespaces.
 
         Pass 4: Called by the interpreter after all modules have run
@@ -587,33 +529,32 @@ class Module:
                             perm = ".".join(part_list[i:])
                             _inject_ns(self._namespace, perm, alias_defs)
 
+
 class Definition:
-    """A module-level definition that can be referenced.
+    """A single module-level definition (function, shape, tag, etc.).
 
-    Definitions are created during the extraction phase and progressively
-    enhanced through the compilation pipeline:
-    1. Extract: Create with original_cop and shape
-    2. Resolve: Populate resolved_cop with identifier references resolved
-    3. Fold: Populate value with constant-folded Shape/Block/etc
-    4. Codegen: Populate instructions with bytecode
+    Definitions are data objects created during ``build_namespaces()``
+    and progressively populated through ``build_instructions()``:
 
-    Args:
-        qualified: (str) Fully qualified name (e.g., "cart", "add")
-        module_id: (str) Module token string (not reference)
-        original_cop: (Value) The original COP node
-        shape: (Shape) Shape constant (comp.shape_block, comp.shape_shape, etc.)
-        private: (bool) Whether this definition is private to the module
+        1. **Extract** — ``original_cop`` and ``shape`` set
+        2. **Resolve** — ``resolved_cop`` filled with resolved identifiers
+        3. **Fold** — ``resolved_cop`` updated with folded constants
+        4. **Codegen** — ``instructions`` generated, ``value`` populated
+
+    Definitions are accessed via ``Module.definitions()`` and are
+    validated through ``Interp.callouts()``.
+
     Attributes:
-        qualified: (str) Fully qualified name
-        module_id: (str) Module token that owns this definition (avoids circular refs)
-        original_cop: (Value) The original COP node from parsing
-        resolved_cop: (Value | None) The resolved+folded+optimized COP node
-        shape: (Shape) Shape constant indicating definition type
-        value: (Value | None) The constant-folded value (Shape/Block/etc) if applicable
-        instructions: (list | None) Bytecode instructions for this definition
-        private: (bool) Whether this definition is private to the module
-        startup: (bool) Whether this is a !startup entry point
-
+        qualified:    (str) Fully qualified name (e.g. "cart", "add")
+        module_id:    (str) Owning module's token (avoids circular refs)
+        original_cop: (Value) Raw COP node from parsing
+        resolved_cop: (Value | None) Resolved + folded COP node
+        shape:        (Shape) Definition type (shape_block, shape_shape, etc.)
+        value:        (Value | None) Evaluated definition value
+        instructions: (list | None) Bytecode for this definition
+        private:      (bool) Private to the module
+        pure:         (bool) Compile-time evaluable (!pure)
+        startup:      (bool) Entry point (!startup)
     """
     __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "pure", "startup")
 

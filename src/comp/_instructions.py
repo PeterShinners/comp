@@ -1667,9 +1667,28 @@ class RaiseFail(Instruction):
         val = frame.get_value(self.value_reg)
         # Auto-wrap bare strings and tags into a proper failure struct
         if isinstance(val.data, str):
-            val = comp._interp._make_fail_value(val.data)
+            val = comp._interp._make_fail_value(val.data, cop_val=self.cop)
         elif isinstance(val.data, comp.Tag) and val.data.qualified.startswith("fail"):
-            val = comp._interp._make_fail_value("", tag=val.data)
+            val = comp._interp._make_fail_value("", tag=val.data, cop_val=self.cop)
+        elif isinstance(val.data, dict):
+            # Normalize struct: extract tag/message from positional/named fields
+            # and rebuild as canonical failure with cop position attached.
+            tag = None
+            msg = ""
+            cause = None
+            for k, v in val.data.items():
+                if isinstance(k, comp.Unnamed) and isinstance(v.data, comp.Tag):
+                    tag = v.data
+                elif isinstance(k, comp.Value) and isinstance(k.data, str):
+                    if k.data == "message":
+                        msg = v.data if isinstance(v.data, str) else v.format()
+                    elif k.data == "fail":
+                        tag = v.data if isinstance(v.data, comp.Tag) else None
+                    elif k.data == "cause":
+                        cause = v
+            val = comp._interp._make_fail_value(
+                msg, tag=tag, cause=cause, cop_val=self.cop
+            )
         frame.failure = val
         return frame.set_result(val)
 

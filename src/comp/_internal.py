@@ -270,6 +270,9 @@ class SystemModule(comp.Module):
         self._add_callable("cop-kids", _builtin_cop_kids, pure=True)
         self._add_callable("cop-fields", _builtin_cop_fields, pure=True)
         self._add_callable("walk-cop", _builtin_walk_cop, pure=True)
+        self._add_callable("is-pure", _builtin_is_pure, pure=True)
+        self._add_callable("contains-field", _builtin_contains_field, pure=True)
+        self._add_callable("find-duplicates", _builtin_find_duplicates, pure=True)
 
     def _add_definition(self, name, value, shape):
         """Add a builtin definition with proper value and COP setup.
@@ -1175,6 +1178,50 @@ def _builtin_cop_fields(input_val, args_val, frame):
     return comp.Value.from_python(fields)
 
 
+def _builtin_is_pure(input_val, args_val, frame):
+    """Check whether a named callable is pure in a given namespace.
+
+    Input (piped): namespace struct (module namespace dict wrapped via
+    Value.from_python — keys are Value(str), values are Value(Callable))
+    Arg (positional): qualified name (text)
+
+    Returns :true if the callable is pure (declared !pure, or a pure
+    builtin), :false otherwise.  Returns :false for names not found
+    in the namespace, and :true for tags and shapes (they cannot have
+    side effects).
+
+    Usage: namespace | is-pure "my-func"   => :true / :false
+    """
+    name_val = args_val.positional(0)
+    if name_val is None or not isinstance(name_val.data, str):
+        return comp.Value.from_python(False)
+    name = name_val.data
+
+    ns = input_val.data
+    if not isinstance(ns, dict):
+        return comp.Value.from_python(False)
+
+    # Namespace was converted via from_python so keys are Value(str)
+    name_key = comp.Value.from_python(name)
+    entry_val = ns.get(name_key)
+    if entry_val is None:
+        return comp.Value.from_python(False)
+
+    # Unwrap: from_python wraps Callable in Value
+    entry = entry_val.data if isinstance(entry_val, comp.Value) else entry_val
+    if not isinstance(entry, comp.Callable):
+        return comp.Value.from_python(False)
+
+    for defn in entry.entries:
+        if not isinstance(defn, comp.Definition):
+            continue
+        if defn.shape != comp.shape_block:
+            return comp.Value.from_python(True)
+        return comp.Value.from_python(comp._pure._is_pure_definition(defn))
+
+    return comp.Value.from_python(False)
+
+
 def _builtin_walk_cop(input_val, args_val, frame):
     """Walk a COP tree depth-first, calling a block on each node.
 
@@ -1284,6 +1331,46 @@ def _builtin_walk_cop(input_val, args_val, frame):
     for item in collected:
         result_data[comp.Unnamed()] = item
     return comp.Value.from_python(result_data)
+
+
+def _builtin_contains_field(input_val, args_val, frame):
+    """Check if a struct contains a named field.
+
+    Usage: struct-val | contains-field "field-name"  =>  true/false
+    """
+    if not isinstance(input_val.data, dict):
+        return comp.Value.from_python(comp.tag_false)
+    field_name = args_val.positional(0)
+    name = field_name.data if isinstance(field_name.data, str) else str(field_name.data)
+    key = comp.Value.from_python(name)
+    if key in input_val.data:
+        return comp.Value.from_python(comp.tag_true)
+    return comp.Value.from_python(comp.tag_false)
+
+
+def _builtin_find_duplicates(input_val, args_val, frame):
+    """Find duplicate values in a struct, returning a struct of duplicated values.
+
+    Usage: {1 2 3 2 1} | find-duplicates  =>  {1 2}
+
+    Compares values by their formatted string representation.
+    Returns an empty struct if no duplicates found.
+    """
+    if not isinstance(input_val.data, dict):
+        return comp.Value.from_python({})
+    seen = {}
+    dupes = {}
+    for val in input_val.data.values():
+        key = val.format()
+        if key in seen:
+            if key not in dupes:
+                dupes[key] = val
+        else:
+            seen[key] = val
+    result = {}
+    for val in dupes.values():
+        result[comp.Unnamed()] = val
+    return comp.Value.from_python(result)
 
 
 def get_internal_module(resource):

@@ -321,9 +321,9 @@ class Value:
         if value is None:
             return cls(comp.tag_nil)
         if value is True:
-            return comp.tag_true
+            return cls(comp.tag_true)
         if value is False:
-            return comp.tag_false
+            return cls(comp.tag_false)
 
         if isinstance(value, int):
             return cls((value, 1, 0))

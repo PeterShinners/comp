@@ -301,7 +301,7 @@ def format_instruction(idx, instr, indent=0):
     return result
 
 
-def _format_code_error(e, label="Build error"):
+def _format_code_error(e, label="Build failure"):
     """Format a CodeError with source location context.
 
     Extracts position from the COP node attached to the error and shows
@@ -310,18 +310,23 @@ def _format_code_error(e, label="Build error"):
 
     Args:
         e: (CodeError) The error to format
-        label: (str) Prefix label (e.g. 'Build error', 'Error')
+        label: (str) Prefix label (e.g. 'Build failure', 'Failure')
 
     Returns:
         (str) Formatted error string for stderr output
     """
     msg = e.message if hasattr(e, "message") else str(e)
-    parts = [f"{label}:"]
+    parts = [f"{label};"]
 
-    # Try to extract position from cop_node
+    # Try to extract position from cop_node or direct row/col attributes
     cop = getattr(e, "cop_node", None)
     row, col, end_col = None, None, None
-    if cop is not None:
+    # Prefer direct position attributes (set by callout pipeline)
+    row = getattr(e, "row", None)
+    col = getattr(e, "col", None)
+    end_col = getattr(e, "end_col", None)
+    # Fall back to cop_node extraction
+    if row is None and cop is not None:
         try:
             pos = cop.field("pos")
             if pos is not None:
@@ -347,12 +352,14 @@ def _format_code_error(e, label="Build error"):
         parts.append(msg)
 
     if row is not None and col is not None:
-        loc = f"line {row}, col {col}"
-        if source_file:
-            loc = f"{source_file}:{row}:{col}"
+        loc_parts = []
         if defn_name:
-            loc += f"  (in {defn_name})"
-        parts.append(f"  --> {loc}")
+            loc_parts.append(defn_name)
+        if source_file:
+            loc_parts.append(f"{source_file}:{row}:{col}")
+        else:
+            loc_parts.append(f"line {row}, col {col}")
+        parts.append(f"  --> {', '.join(loc_parts)}")
 
         if source_lines and 1 <= row <= len(source_lines):
             src_line = source_lines[row - 1].rstrip("\n")
@@ -384,7 +391,7 @@ def _format_failure_cli(fail_val, source_file=None, source_lines=None, depth=0):
         (str) Formatted error string for stderr output
     """
     if not isinstance(fail_val.data, dict):
-        return f"!fail {fail_val.format()}"
+        return f"Failure; {fail_val.format()}"
 
     indent = "  " * depth
 
@@ -402,20 +409,20 @@ def _format_failure_cli(fail_val, source_file=None, source_lines=None, depth=0):
     cop_val = fail_val.data.get(cop_key, nil)
     frame_val = fail_val.data.get(frame_key, nil)
 
-    # Tag string
+    # Tag string (without # prefix)
     if isinstance(tag_val.data, comp.Tag):
-        tag_str = f"#{tag_val.data.qualified}"
+        tag_str = tag_val.data.qualified
     else:
         tag_str = tag_val.format()
 
     # Message string
     msg_str = msg_val.data if isinstance(msg_val.data, str) else ""
 
-    # Build first line
+    # Build first line: "Failure; tag message"
     if msg_str:
-        first_line = f"{indent}!fail {tag_str}: {msg_str}"
+        first_line = f"{indent}Failure; {tag_str} {msg_str}"
     else:
-        first_line = f"{indent}!fail {tag_str}"
+        first_line = f"{indent}Failure; {tag_str}"
 
     parts = [first_line]
 
@@ -429,14 +436,15 @@ def _format_failure_cli(fail_val, source_file=None, source_lines=None, depth=0):
                 col = pos_val.to_python(1)
                 end_col = pos_val.to_python(3)
 
-                # Location line
-                loc = f"line {row}, col {col}"
-                if source_file:
-                    loc = f"{source_file}:{row}:{col}"
-                parts.append(f"{indent}  --> {loc}")
-                # Frame context (which function contained the error)
+                # Location line — frame context before file:line
+                loc_parts = []
                 if isinstance(frame_val.data, str):
-                    parts[-1] += f"  (in {frame_val.data})"
+                    loc_parts.append(frame_val.data)
+                if source_file:
+                    loc_parts.append(f"{source_file}:{row}:{col}")
+                else:
+                    loc_parts.append(f"line {row}, col {col}")
+                parts.append(f"{indent}  --> {', '.join(loc_parts)}")
 
                 # Source line + caret (lazy-read if needed)
                 if source_lines is None and source_file:
@@ -538,7 +546,7 @@ def main():
                     tree = comp._parse.lark_parse(args.source, "comp", rule=entry_point)
                     prettylark(tree, show_positions=args.pos)
                 except comp.ParseError as e:
-                    print(f"Parse error:\n{e.message}", file=sys.stderr)
+                    print(e.message, file=sys.stderr)
                     return 1
             return
 
@@ -559,9 +567,9 @@ def main():
                 return
             except (comp.ParseError, comp.CodeError) as e:
                 if isinstance(e, comp.CodeError):
-                    print(_format_code_error(e, "Error"), file=sys.stderr)
+                    print(_format_code_error(e, "Failure"), file=sys.stderr)
                 else:
-                    print(f"Error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
+                    print(e.message if hasattr(e, "message") else str(e), file=sys.stderr)
                 return 1
 
         elif args.code and entry_point is not None:
@@ -581,9 +589,9 @@ def main():
                 return
             except (comp.ParseError, comp.CodeError) as e:
                 if isinstance(e, comp.CodeError):
-                    print(_format_code_error(e, "Error"), file=sys.stderr)
+                    print(_format_code_error(e, "Failure"), file=sys.stderr)
                 else:
-                    print(f"Error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
+                    print(e.message if hasattr(e, "message") else str(e), file=sys.stderr)
                 return 1
 
         elif (args.eval or args.trace) and entry_point is not None:
@@ -624,9 +632,9 @@ def main():
                 return
             except (comp.ParseError, comp.CodeError) as e:
                 if isinstance(e, comp.CodeError):
-                    print(_format_code_error(e, "Error"), file=sys.stderr)
+                    print(_format_code_error(e, "Failure"), file=sys.stderr)
                 else:
-                    print(f"Error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
+                    print(e.message if hasattr(e, "message") else str(e), file=sys.stderr)
                 return 1
 
         else:
@@ -657,7 +665,7 @@ def main():
         if args.pure:
             # Full build pipeline needed so imported pure definitions
             # are compiled/executed and available for folding.
-            interp.build(mod, fold=True, pure=True)
+            interp.build_instructions()
 
         defs = mod.definitions()
         if not args.pure:
@@ -743,24 +751,44 @@ def main():
         return
 
     if args.callouts:
-        callouts = interp.callouts(mod, min_severity=comp.WARNING, fold=True, pure=args.pure)
+        callouts = interp.callouts(module=mod, min_severity=comp.WARNING)
         if not callouts:
             print("No callouts.")
             return 0
 
         has_error = False
         for c in callouts:
-            phase = c.phase or "-"
             sev = (c.severity or "info").upper()
-            code = c.code or "unknown"
             msg = c.message or ""
-            print(f"{sev} [{phase}:{code}] {msg}")
+            print(f"{sev}; {msg}")
+
             if c.primary and c.primary.span:
                 s = c.primary.span
+                loc_parts = []
+                defn_name = getattr(c, "definition_name", None)
+                if defn_name:
+                    loc_parts.append(f"`{defn_name}`")
                 if s.file:
-                    print(f"  --> {s.file}:{s.line}:{s.col}")
+                    loc_parts.append(f"{s.file}:{s.line}:{s.col}")
                 else:
-                    print(f"  --> line {s.line}, col {s.col}")
+                    loc_parts.append(f"line {s.line}, col {s.col}")
+                print(f"  --> {', '.join(loc_parts)}")
+
+                # Show source line with caret
+                source_lines = None
+                if s.file:
+                    try:
+                        with open(s.file, encoding="utf-8") as f:
+                            source_lines = f.readlines()
+                    except OSError:
+                        pass
+                if source_lines and 1 <= s.line <= len(source_lines):
+                    src_line = source_lines[s.line - 1].rstrip("\n")
+                    print(f"   | {src_line}")
+                    span = s.length if s.length > 0 else 1
+                    caret = " " * (s.col - 1) + "^" * span
+                    print(f"   | {caret}")
+
             if c.severity == comp.ERROR:
                 has_error = True
         return 1 if has_error else 0
@@ -768,12 +796,25 @@ def main():
     if args.code or args.eval or args.trace:
         # Full build pipeline
         try:
-            interp.build(mod, fold=True, pure=args.pure)
+            errors = interp.build_instructions()
+            if errors:
+                err_mod, err_exc = errors[0]
+                err_exc.module = err_mod
+                raise err_exc
         except (comp.ParseError, comp.CodeError) as e:
             if isinstance(e, comp.CodeError):
-                print(_format_code_error(e, "Build error"), file=sys.stderr)
+                print(_format_code_error(e, "Build failure"), file=sys.stderr)
             else:
-                print(f"Build error:\n{e.message if hasattr(e, 'message') else e}", file=sys.stderr)
+                msg = e.message if hasattr(e, "message") else str(e)
+                err_mod = getattr(e, "module", None)
+                if err_mod is not None:
+                    try:
+                        source_file = err_mod.source.resource
+                        msg = msg.replace("  --> line ", f"  --> {source_file}:")
+                        msg = msg.replace(", col ", ":")
+                    except (AttributeError, TypeError):
+                        pass
+                print(msg, file=sys.stderr)
             return 1
 
         defs = mod.definitions()
