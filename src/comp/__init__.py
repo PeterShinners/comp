@@ -33,6 +33,7 @@ from ._callout import *
 from . import _compiler
 from ._cob import *
 from ._py import *
+from ._fs import *
 from . import _unit_conv
 
 # Deferred initialization: shape_failure fields reference Value objects and

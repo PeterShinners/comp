@@ -1,0 +1,252 @@
+/// Entry-centric filesystem access for Comp.
+///
+/// All filesystem access flows through entry values. An entry represents
+/// a named thing in a filesystem — a file, directory, symlink, or a name
+/// that doesn't exist yet (missing).
+///
+/// Entries carry opaque capability data that the filesystem backend uses
+/// to perform operations. The root field links every entry back to the
+/// filesystem root it came from.
+///
+/// Example:
+///   !my root ["/home/user" | fs.open]
+///   !my text [root | fs.file "notes.txt" | fs.read]
+///   [root | fs.dir "output" | fs.file "result.txt" | fs.write "hello"]
+///
+/// Navigation:
+///   !my sub [root | fs.dir "projects" | fs.dir "comp"]
+///   !my entries [sub | fs.list]
+///   !my parent [sub | fs.up]
+///
+/// Type functions ensure the entry is the right type, creating if needed:
+///   fs.file  — ensures a file (creates empty file if missing)
+///   fs.dir   — ensures a directory (creates if missing, opens handle)
+///   fs.at    — generic lookup (stats, returns whatever exists or missing)
+
+!import fsn comp "fs-native"
+
+
+// ---------------------------------------------------------------------------
+// Shapes
+// ---------------------------------------------------------------------------
+
+/// An entry in a filesystem — file, directory, symlink, or missing.
+///
+/// Core fields:
+///   entry-type — what kind of entry this is (fsn.entry-type.dir, .file, .link, .missing)
+///   name       — the final path component (basename)
+///   root       — the root entry of this filesystem (nil for root entries)
+///
+/// Additional metadata fields (size, modified, etc.) may be present
+/// depending on how the entry was obtained. Use fs.meta to enrich an
+/// entry with full stat metadata.
+!shape entry ~{
+    entry-type~any
+    name~text
+    root~any
+}
+
+
+// ---------------------------------------------------------------------------
+// Root / handle opening
+// ---------------------------------------------------------------------------
+
+/// Open an absolute path as a filesystem root entry.
+///
+/// Returns a directory entry with root=nil. This entry has an open
+/// directory handle and can be used for navigation and listing.
+///
+/// Example:
+///   !my root ["/home/user" | fs.open]
+!func open ~text (
+    [$ | fsn.open-root]
+)
+
+/// Open the current working directory as a filesystem root entry.
+///
+/// Example:
+///   !my here [nil | fs.cwd]
+!func cwd ~nil (
+    [nil | fsn.cwd]
+)
+
+
+// ---------------------------------------------------------------------------
+// Navigation — type-ensuring functions
+// ---------------------------------------------------------------------------
+
+/// Look up a named child within a directory entry.
+///
+/// Stats the child to determine its type. Returns a missing entry if
+/// the child does not exist. For directory children, automatically opens
+/// a handle so the entry is navigable.
+///
+/// Supports multi-segment paths: "a/b/file.txt" navigates through
+/// intermediate directories.
+///
+/// Example:
+///   !my e [root | fs.at "notes.txt"]
+///   !my e [root | fs.at "docs/readme.md"]
+!func at (
+    !param name~text
+    [$ | fsn.entry-at name]
+)
+
+/// Ensure a file entry exists within a directory.
+///
+/// If the name already exists as a file, returns the entry.
+/// If nothing exists at the name, creates an empty file.
+/// Fails if something exists with a different type (e.g. directory).
+///
+/// Example:
+///   !my f [root | fs.file "notes.txt"]
+///   !my text [root | fs.file "notes.txt" | fs.read]
+!func file (
+    !param name~text
+    [$ | fsn.entry-file name]
+)
+
+/// Ensure a directory entry exists within a directory.
+///
+/// If the name already exists as a directory, opens and returns it.
+/// If nothing exists, creates the directory.
+/// Fails if something exists with a different type (e.g. file).
+///
+/// Supports multi-segment paths: "a/b/c" ensures each segment exists
+/// as a directory (makedirs for free).
+///
+/// Example:
+///   !my d [root | fs.dir "projects"]
+///   !my deep [root | fs.dir "a/b/c"]
+///   [root | fs.dir "output" | fs.file "result.txt" | fs.write "hello"]
+!func dir (
+    !param name~text
+    [$ | fsn.entry-dir name]
+)
+
+
+// ---------------------------------------------------------------------------
+// File I/O
+// ---------------------------------------------------------------------------
+
+/// Read a file entry's content as text (UTF-8).
+///
+/// Example:
+///   !my text [root | fs.file "config.txt" | fs.read]
+!func read (
+    [$ | fsn.entry-read]
+)
+
+/// Write text content to a file entry.
+/// Creates the file if it does not exist; overwrites if it does.
+///
+/// Example:
+///   [root | fs.file "output.txt" | fs.write "hello"]
+!func write (
+    !param content~text
+    [$ | fsn.entry-write content]
+)
+
+
+// ---------------------------------------------------------------------------
+// Directory listing
+// ---------------------------------------------------------------------------
+
+/// List all children of a directory entry, returning a struct of entries.
+///
+/// Entries include whatever metadata the backend provides cheaply.
+/// Listed entries can be used directly for read/write/remove.
+///
+/// Example:
+///   !my entries [root | fs.dir "docs" | fs.list]
+///   !my files [entries | filter :{$ | fs.is-file?}]
+!func list (
+    [$ | fsn.entry-list]
+)
+
+
+// ---------------------------------------------------------------------------
+// Metadata and inspection
+// ---------------------------------------------------------------------------
+
+/// Return an enriched copy of an entry with full stat metadata.
+///
+/// Re-stats the entry. The returned entry has additional fields like
+/// size and modified, depending on what the filesystem backend provides.
+///
+/// Example:
+///   !my info [root | fs.file "data.bin" | fs.meta]
+///   !my size [info.size]
+!func meta (
+    [$ | fsn.entry-meta]
+)
+
+/// Check if an entry is a directory.
+!func is-dir? (
+    [$ | fsn.is-dir?]
+)
+
+/// Check if an entry is a regular file.
+!func is-file? (
+    [$ | fsn.is-file?]
+)
+
+/// Check if an entry is missing (does not exist on the filesystem).
+!func is-missing? (
+    [$ | fsn.is-missing?]
+)
+
+/// Check if an entry is a symbolic link.
+!func is-link? (
+    [$ | fsn.is-link?]
+)
+
+
+// ---------------------------------------------------------------------------
+// Entry management
+// ---------------------------------------------------------------------------
+
+/// Remove a file or empty directory.
+///
+/// Example:
+///   [root | fs.at "old-file.txt" | fs.remove]
+!func remove (
+    [$ | fsn.entry-remove]
+)
+
+
+// ---------------------------------------------------------------------------
+// Navigation
+// ---------------------------------------------------------------------------
+
+/// Return the parent entry. Returns nil for root entries.
+///
+/// Example:
+///   !my parent [entry | fs.up]
+!func up (
+    [$ | fsn.entry-up]
+)
+
+/// Return a fresh entry with the same identity but no cached metadata.
+///
+/// Other holders of the old entry are unaffected (snapshot semantics).
+///
+/// Example:
+///   !my fresh [entry | fs.refresh]
+!func refresh (
+    [$ | fsn.entry-refresh]
+)
+
+
+// ---------------------------------------------------------------------------
+// Path helpers
+// ---------------------------------------------------------------------------
+
+/// Extract the last component (basename) of a path string.
+/// Works on both "/" and "\" separators.
+///
+/// Example:
+///   !my name ["/home/user/docs" | fs.basename]  // => "docs"
+!pure basename ~text [
+    [$ | fsn.basename-of]
+]
