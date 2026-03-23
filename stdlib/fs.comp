@@ -1,0 +1,250 @@
+/// Capability-based filesystem access for Comp.
+/// 
+/// Provides a two-tier API:
+///   - High-level helpers (open, list, read, write, stat, exists, mkdir, remove)
+///   - Low-level handle operations proxied from the internal "fs" module
+///
+/// All access flows through directory handles opened from a root path,
+/// preventing path-traversal attacks and TOCTOU races.
+///
+/// Example (basic):
+///   !my root ["/home/user" | fs.open]
+///   !my entries [root | fs.list]
+///   !my text [root | fs.read "notes.txt"]
+///   [root | fs.write "out.txt" "hello world"]
+///
+/// The internal "fs" module provides the platform backend:
+///   POSIX  — os.open / os.openat with integer file descriptors
+///   Windows — ctypes.windll.ntdll NtCreateFile and related NT APIs
+
+!import fsn comp "fs-native"
+
+
+// ---------------------------------------------------------------------------
+// Tags
+// ---------------------------------------------------------------------------
+
+/// Filesystem type tag family
+!tag fs-type {disk memory}
+
+/// Entry type tag family — describes what kind of item an entry is
+!tag entry-type {dir file link missing}
+
+
+// ---------------------------------------------------------------------------
+// Shapes
+// ---------------------------------------------------------------------------
+
+/// Metadata for a single filesystem entry (file, directory, symlink, or missing).
+///
+/// Fields:
+///   fs-type    — which filesystem implementation owns this entry (disk, memory, …)
+///   entry-type — what kind of entry this is (dir, file, link, missing)
+///   name       — the final path component (basename)
+///   path       — full absolute path to this entry
+///   size       — entry size in bytes (0 for directories)
+///   modified   — last-modification time as Unix epoch seconds
+!shape entry ~{
+    fs-type~any
+    entry-type~any
+    name~text
+    path~text
+    size~num
+    modified~num
+}
+
+/// A root directory handle — a superset of entry that also carries the
+/// directory handle opened by the filesystem backend.
+///
+/// Root is a superset of entry so it can be passed wherever an entry is
+/// expected (struct morphing drops the extra fields).
+///
+/// Additional fields beyond entry:
+///   handle — the directory handle opened by the fs backend (handle#fsn.dir)
+!shape root ~{
+    fs-type~any
+    entry-type~any
+    name~text
+    path~text
+    size~num
+    modified~num
+    handle~any
+}
+
+
+// ---------------------------------------------------------------------------
+// Root / handle opening
+// ---------------------------------------------------------------------------
+
+/// Open an absolute path as a filesystem root, returning a root struct.
+/// The handle within the root remains open for relative operations.
+///
+/// Example:
+///   !my root ["/home/user" | fs.open]
+!func open ~text (
+    !my h [$ | fsn.open-root]
+    !my p [h | fsn.path-of]
+    [{
+        fs-type = fs-type.disk
+        entry-type = entry-type.dir
+        name = [p | basename]
+        path = p
+        size = 0
+        modified = 0
+        handle = h
+    } | root]
+)
+
+/// Open the current working directory as a filesystem root.
+///
+/// Example:
+///   !my here [nil | fs.cwd-root]
+!func cwd-root ~nil (
+    !my h [nil | fsn.cwd]
+    !my p [h | fsn.path-of]
+    [{
+        fs-type = fs-type.disk
+        entry-type = entry-type.dir
+        name = [p | basename]
+        path = p
+        size = 0
+        modified = 0
+        handle = h
+    } | root]
+)
+
+
+// ---------------------------------------------------------------------------
+// Directory navigation
+// ---------------------------------------------------------------------------
+
+/// Open a named sub-directory relative to a root or dir entry, returning
+/// a new root whose handle points at the sub-directory.
+///
+/// Example:
+///   !my sub [root | fs.open-dir "projects"]
+!func open-dir ~root (
+    !param name~text
+    !my h [$.handle | fsn.open-at name]
+    !my p [h | fsn.path-of]
+    [{
+        fs-type = $.fs-type
+        entry-type = entry-type.dir
+        name = name
+        path = p
+        size = 0
+        modified = 0
+        handle = h
+    } | root]
+)
+
+
+// ---------------------------------------------------------------------------
+// Directory listing
+// ---------------------------------------------------------------------------
+
+/// List all entries in a directory, returning an unnamed struct of entry
+/// values (one per file/dir/link).
+///
+/// Example:
+///   !my entries [root | fs.list]
+///   !my dirs    [$entries | filter :{$.entry-type == entry-type.dir}]
+!func list ~root (
+    [$.handle | fsn.list-at]
+)
+
+
+// ---------------------------------------------------------------------------
+// Metadata
+// ---------------------------------------------------------------------------
+
+/// Get metadata for a named entry within a directory without opening it.
+///
+/// Returns an entry struct (no handle).
+///
+/// Example:
+///   !my info [root | fs.stat "notes.txt"]
+!func stat ~root (
+    !param name~text
+    [$.handle | fsn.stat-at name]
+)
+
+/// Return true if a named entry exists within a directory, false otherwise.
+///
+/// Example:
+///   !my found [root | fs.exists "readme.md"]
+!func exists ~root (
+    !param name~text
+    [$.handle | fsn.exists-at name]
+)
+
+
+// ---------------------------------------------------------------------------
+// File I/O
+// ---------------------------------------------------------------------------
+
+/// Read a file's content as text (UTF-8) relative to a directory handle.
+///
+/// Example:
+///   !my text [root | fs.read "config.txt"]
+!func read ~root (
+    !param name~text
+    [$.handle | fsn.read-at name]
+)
+
+/// Write text content to a named file relative to a directory handle.
+/// Creates the file if it does not exist; overwrites if it does.
+///
+/// Example:
+///   [root | fs.write "output.txt" "hello"]
+!func write ~root (
+    !param name~text
+    !param content~text
+    [$.handle | fsn.write-at name content]
+)
+
+
+// ---------------------------------------------------------------------------
+// Directory / entry management
+// ---------------------------------------------------------------------------
+
+/// Create a new directory with the given name relative to a directory handle.
+///
+/// Example:
+///   [root | fs.mkdir "new-folder"]
+!func mkdir ~root (
+    !param name~text
+    [$.handle | fsn.mkdir-at name]
+)
+
+/// Remove a file or empty directory with the given name relative to a
+/// directory handle.
+///
+/// Example:
+///   [root | fs.remove "old-file.txt"]
+!func remove ~root (
+    !param name~text
+    [$.handle | fsn.remove-at name]
+)
+
+
+// ---------------------------------------------------------------------------
+// Path helpers
+// ---------------------------------------------------------------------------
+
+/// Return the absolute path stored in a root's handle.
+///
+/// Example:
+///   !my p [root | fs.path]
+!func path ~root (
+    [$.handle | fsn.path-of]
+)
+
+/// Extract the last component (basename) of a path string.
+/// Works on both "/" and "\" separators.
+///
+/// Example:
+///   !my name ["/home/user/docs" | fs.basename]  // => "docs"
+!pure basename ~text [
+    [$ | fsn.basename-of]
+]
