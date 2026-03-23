@@ -271,7 +271,7 @@ class Module:
         for stmt in statements:
             operator = stmt.get("operator")
 
-            if operator in ("func", "pure", "tag", "shape", "startup"):
+            if operator in ("func", "pure", "tag", "shape", "startup", "main"):
                 pairs = comp._compiler.compile_definition(stmt, self.token)
                 for name, defn in pairs:
                     # Tag parent entries (no cop) skip if name already claimed
@@ -298,40 +298,76 @@ class Module:
         return defs, mod_values, deferred
 
     def startup(self, name):
-        """Get the Definition for a !startup entry point by name.
+        """Get the Definition for a !startup context preparation by name.
 
         Args:
-            name: (str) The startup name (e.g., "main")
+            name: (str) The startup context name (e.g., "default", "web")
 
         Returns:
             (Definition | None) The startup definition, or None if not found
         """
         return self.definitions().get(f"!startup.{name}")
 
-    def prepare_startup(self, name):
-        """Prepare a named !startup for execution.
-
-        Returns the startup Definition and an initial argument struct that
-        will be passed to the startup block.
-
-        Args:
-            name: (str) Name of the startup entry point (e.g. "main")
+    def startups(self):
+        """Get all !startup context preparation definitions.
 
         Returns:
-            (tuple) ``(definition, initial_struct)`` or ``(None, None)``
-
-            definition: (Definition) The startup definition
-            initial_struct: (Value) Starting struct for the startup invocation
+            (dict) Mapping of context name to Definition
         """
-        defn = self.startup(name)
+        result = {}
+        for name, defn in self.definitions().items():
+            if defn.startup:
+                ctx_name = name.split(".", 1)[1] if "." in name else name
+                result[ctx_name] = defn
+        return result
+
+    def main_entry(self, name):
+        """Get the Definition for a !main entry point by name.
+
+        Args:
+            name: (str) The entry point name (e.g., "console", "serve")
+
+        Returns:
+            (Definition | None) The main definition, or None if not found
+        """
+        return self.definitions().get(f"!main.{name}")
+
+    def main_entries(self):
+        """Get all !main entry point definitions.
+
+        Returns:
+            (dict) Mapping of entry point name to Definition
+        """
+        result = {}
+        for name, defn in self.definitions().items():
+            if defn.main:
+                entry_name = name.split(".", 1)[1] if "." in name else name
+                result[entry_name] = defn
+        return result
+
+    def prepare_main(self, name):
+        """Prepare a named !main entry point for execution.
+
+        Returns the main Definition and an initial context struct built
+        by executing the startup context DAG.
+
+        Args:
+            name: (str) Name of the entry point (e.g. "console", "serve")
+
+        Returns:
+            (tuple) ``(definition, initial_context)`` or ``(None, None)``
+
+            definition: (Definition) The main entry point definition
+            initial_context: (Value) Starting context struct
+        """
+        defn = self.main_entry(name)
         if defn is None:
             return None, None
 
-        # Build the initial struct that is handed to the startup block.
-        # Eventually each contributing module will add fields here.  For now
-        # we include one placeholder field so the struct is non-empty.
-        initial_value = comp.Value.from_python({"timeout": 10})
-        return defn, initial_value
+        # For now, return an empty context struct.
+        # The full DAG execution will be wired up in the interpreter.
+        initial_context = comp.Value.from_python({})
+        return defn, initial_context
 
     def namespace(self):
         """Resolved namespace for identifier lookups.
@@ -606,9 +642,12 @@ class Definition:
         instructions: (list | None) Bytecode for this definition
         private:      (bool) Private to the module
         pure:         (bool) Compile-time evaluable (!pure)
-        startup:      (bool) Entry point (!startup)
+        startup:      (bool) Context preparation (!startup)
+        startup_deps: (list) Dependency names for !startup context
+        main:         (bool) Entry point (!main)
+        main_deps:    (list) Dependency names for !main entry point
     """
-    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "pure", "startup")
+    __slots__ = ("qualified", "module_id", "original_cop", "resolved_cop", "shape", "value", "instructions", "private", "pure", "startup", "startup_deps", "main", "main_deps")
 
     def __init__(self, qualified, module_id, original_cop, shape, private=False):
         self.qualified = qualified
@@ -617,7 +656,10 @@ class Definition:
         self.shape = shape
         self.private = private
         self.pure = False  # Whether this is a !pure definition (evaluate at compile time)
-        self.startup = False  # Whether this is a !startup entry point
+        self.startup = False  # Whether this is a !startup context preparation
+        self.startup_deps = []  # Dependency names for context preparation
+        self.main = False  # Whether this is a !main entry point
+        self.main_deps = []  # Dependency names for entry point
         self.resolved_cop = None  # Filled during identifier resolution
         self.value = None  # Filled during constant folding
         self.instructions = None  # Filled during code generation
@@ -652,7 +694,7 @@ def create_namespace(definitions, prefix):
     """
     namespace = {}
     for qualified, definition in definitions.items():
-        if definition.startup:
+        if definition.startup or definition.main:
             continue
         for name in _identifier_permutations(definition, prefix):
             if prefix and definition.private:
@@ -776,7 +818,9 @@ def _find_default_module(module):
             return None
         visited.add(mid)
         resource = getattr(mod.source, "resource", "") or ""
-        if resource == "default" or resource.endswith("/default.comp") or resource.endswith("\\default.comp"):
+        if (resource in ("default", "default.comp")
+                or resource.endswith("/default.comp")
+                or resource.endswith("\\default.comp")):
             return mod
         imports = getattr(mod, "_imports", None) or {}
         for _name, (child, _err) in imports.items():

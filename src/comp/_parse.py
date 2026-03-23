@@ -24,6 +24,7 @@ __all__ = [
 import lark
 import comp
 import os as _os
+import re as _re
 import time as _time
 
 
@@ -124,7 +125,18 @@ def _format_lark_error(exc, source_text, line_offset):
             summary = "Unexpected token"
     elif isinstance(exc, lark.exceptions.UnexpectedCharacters):
         char = getattr(exc, "char", None)
-        if char:
+        if char == "\"":
+            summary = "Text literal missing closing quote"
+        elif char == "!" and line is not None and col is not None:
+            # Try to extract the operator name after !
+            src_line = source_lines[line - 1] if line <= len(source_lines) else ""
+            rest = src_line[col - 1:]  # from ! onward
+            m = _re.match(r"!([a-zA-Z][\w-]*)", rest)
+            if m:
+                summary = f"Unknown operator `!{m.group(1)}`"
+            else:
+                summary = f"Unexpected character `{char}`"
+        elif char:
             summary = f"Unexpected character `{char}`"
         else:
             summary = "Unexpected character"
@@ -229,6 +241,16 @@ def _parsed(treetoken, tag, kids, **fields):
             fields["pos"] = pos
 
     return comp.create_cop("cop-type." + tag, kids, **fields)
+
+
+def _identifier_to_string(ident_cop):
+    """Extract dotted name string from a value.identifier COP node."""
+    parts = []
+    for kid in comp.cop_kids(ident_cop):
+        kid_tag = comp.cop_tag(kid)
+        if kid_tag in ("ident.token", "ident.text"):
+            parts.append(kid.field("value").data)
+    return ".".join(parts) if parts else ""
 
 
 def lark_to_cop(tree):
@@ -970,10 +992,53 @@ def lark_to_cop(tree):
                 return _parsed(tree, "shape.define", [field])
             return result
 
-        case "start_func" | "start_startup" | "start_mod" | "start_package" | "start_import":
+        case "start_func" | "start_mod" | "start_package" | "start_import":
             # These are entry points that wrap the actual content
             # Just pass through to the first child
             return lark_to_cop(kids[0])
+
+        case "start_startup":
+            # start_startup: startup_deps structure | structure
+            # Parse optional deps and body into a startup.define COP
+            deps = []
+            body_cop = None
+            for kid in kids:
+                if isinstance(kid, lark.Tree):
+                    if kid.data == "startup_deps":
+                        for dep_kid in kid.children:
+                            if isinstance(dep_kid, lark.Tree) and dep_kid.data == "identifier":
+                                dep_cop = lark_to_cop(dep_kid)
+                                dep_name = _identifier_to_string(dep_cop)
+                                if dep_name:
+                                    deps.append(dep_name)
+                    elif kid.data == "structure":
+                        body_cop = lark_to_cop(kid)
+            if body_cop is None:
+                body_cop = _parsed(tree, "struct.define", [])
+            return _parsed(tree, "startup.define", [body_cop], deps=deps)
+
+        case "start_main":
+            # start_main: main_deps func_struct | func_struct
+            # Parse optional deps and body into a main.define COP
+            deps = []
+            body_tree = None
+            for kid in kids:
+                if isinstance(kid, lark.Tree):
+                    if kid.data == "main_deps":
+                        for dep_kid in kid.children:
+                            if isinstance(dep_kid, lark.Tree) and dep_kid.data == "identifier":
+                                dep_cop = lark_to_cop(dep_kid)
+                                dep_name = _identifier_to_string(dep_cop)
+                                if dep_name:
+                                    deps.append(dep_name)
+                    elif kid.data == "func_struct":
+                        body_tree = kid
+                    elif kid.data in ("statement", "structure", "pipeline"):
+                        body_tree = kid
+            body_cop = lark_to_cop(body_tree) if body_tree else _parsed(tree, "statement.define", [])
+            # Wrap body in a function.define
+            func_def = _parsed(tree, "function.define", [body_cop])
+            return _parsed(tree, "main.define", [func_def], deps=deps)
 
         case "start_tag":
             # start_tag: (BRACE_OPEN tag_item* BRACE_CLOSE)?
@@ -997,9 +1062,8 @@ def lark_to_cop(tree):
                 return _parsed(tree, "value.private_tag", [ident_cop])
             return ident_cop
 
-        case "func_body" | "startup_body":
+        case "func_body":
             # func_body: shape wrapper* func_struct | wrapper+ func_struct | func_struct
-            # startup_body: wrapper+ func_struct | func_struct
             # Separate into shape (optional), wrappers, and body
             shape_cop = None
             wrappers = []

@@ -302,6 +302,177 @@ class Interp:
         frame = ExecutionFrame(env, interp=self, module=module)
         return frame.run(instructions)
 
+    def resolve_startup_dag(self, main_defn):
+        """Resolve the startup dependency DAG for a !main entry point.
+
+        Builds a topologically sorted list of startup context names that
+        need to be executed before the entry point runs. The implicit
+        "default" layer is always included as the base.
+
+        Args:
+            main_defn: (Definition) The !main entry point definition
+
+        Returns:
+            (list) Topologically sorted list of startup context names,
+                   starting with "default"
+
+        Raises:
+            comp.CodeError: On circular dependencies
+        """
+        deps = main_defn.main_deps if main_defn.main_deps else []
+
+        # Collect all startup definitions across all modules
+        all_startups = {}
+        for mod in self._unique_modules():
+            for ctx_name, defn in mod.startups().items():
+                if ctx_name not in all_startups:
+                    all_startups[ctx_name] = []
+                all_startups[ctx_name].append(defn)
+
+        # Build dependency graph from startup definitions
+        dep_graph = {}
+        for ctx_name, defns in all_startups.items():
+            dep_graph[ctx_name] = set()
+            for defn in defns:
+                for dep in defn.startup_deps:
+                    dep_graph[ctx_name].add(dep)
+
+        # Add the main's direct dependencies
+        needed = set(deps)
+        needed.add("default")
+
+        # Expand transitive dependencies
+        visited = set()
+        order = []
+
+        def visit(name, path):
+            if name in path:
+                cycle = " -> ".join(list(path) + [name])
+                raise comp.CodeError(
+                    f"Circular startup dependency: {cycle}"
+                )
+            if name in visited:
+                return
+            visited.add(name)
+            path_set = path | {name}
+            for dep in dep_graph.get(name, set()):
+                visit(dep, path_set)
+            order.append(name)
+
+        for dep in sorted(needed):
+            visit(dep, set())
+
+        # Ensure default is always first
+        if "default" in order:
+            order.remove("default")
+        order.insert(0, "default")
+
+        return order
+
+    def collect_startup_providers(self, context_name):
+        """Collect all !startup providers for a given context name.
+
+        Walks all modules in the import tree and collects definitions
+        that match the given context name.
+
+        Args:
+            context_name: (str) The startup context name (e.g., "default", "web")
+
+        Returns:
+            (list) List of (module, definition) tuples
+        """
+        providers = []
+        for mod in self._unique_modules():
+            defn = mod.startup(context_name)
+            if defn is not None:
+                providers.append((mod, defn))
+        return providers
+
+    def execute_startup_context(self, module, main_name):
+        """Execute the full startup context DAG for a !main entry point.
+
+        Resolves the dependency DAG, executes each layer of context
+        providers in order, and returns the merged context.
+
+        Args:
+            module: (Module) The root module containing the !main
+            main_name: (str) Name of the !main entry point
+
+        Returns:
+            (Value) Merged context struct with hierarchical keys
+
+        Raises:
+            comp.CodeError: On circular deps or context key conflicts
+        """
+        main_defn = module.main_entry(main_name)
+        if main_defn is None:
+            return comp.Value.from_python({})
+
+        dag_order = self.resolve_startup_dag(main_defn)
+        merged_context = {}
+
+        for layer_name in dag_order:
+            providers = self.collect_startup_providers(layer_name)
+            if not providers:
+                continue
+
+            # Execute each provider independently
+            layer_results = {}
+            for provider_mod, provider_defn in providers:
+                if provider_defn.value is None:
+                    continue
+                block_val = provider_defn.value
+                if not isinstance(block_val.data, comp.Callable):
+                    continue
+
+                # Build $ input from dependency contexts
+                dep_input = {}
+                for dep_name in provider_defn.startup_deps:
+                    if dep_name in merged_context:
+                        dep_input[dep_name] = merged_context[dep_name]
+                dollar_val = comp.Value.from_python(dep_input)
+
+                # Execute the provider block
+                env = {n: d.value for n, d in provider_mod.definitions().items()
+                       if d.value is not None}
+                frame = ExecutionFrame(env, interp=self, module=provider_mod)
+                result = frame.invoke_block(block_val, dollar_val, piped=None)
+
+                # Collect results — each field becomes layer_name.field in context
+                if result is not None and result.shape == comp.shape_struct:
+                    for key, val in result.data.items():
+                        if isinstance(key, comp.Unnamed):
+                            continue
+                        field_name = key.data if hasattr(key, "data") else str(key)
+                        qualified_key = f"{layer_name}.{field_name}"
+                        if qualified_key in layer_results:
+                            raise comp.CodeError(
+                                f"Context conflict in '{layer_name}': "
+                                f"multiple providers define '{field_name}'"
+                            )
+                        layer_results[qualified_key] = val
+
+            # Merge layer results into the accumulated context
+            merged_context.update(layer_results)
+            # Also store a sub-struct for $ access in dependent layers
+            layer_struct = {}
+            for qkey, val in layer_results.items():
+                field = qkey.split(".", 1)[1] if "." in qkey else qkey
+                layer_struct[field] = val
+            merged_context[layer_name] = comp.Value.from_python(layer_struct)
+
+        return comp.Value.from_python(merged_context)
+
+    def _unique_modules(self):
+        """Get deduplicated list of modules from the cache."""
+        seen = set()
+        modules = []
+        for mod in self.module_cache.values():
+            if id(mod) not in seen:
+                seen.add(id(mod))
+                modules.append(mod)
+        return modules
+
     def build_namespaces(self):
         """Build namespaces for all modules (phase 0 → 1).
 
@@ -355,7 +526,9 @@ class Interp:
         default_mod = None
         for _mod in all_modules:
             _resource = getattr(_mod.source, "resource", "") or ""
-            if _resource == "default" or _resource.endswith("/default.comp") or _resource.endswith("\\default.comp"):
+            if (_resource in ("default", "default.comp")
+                    or _resource.endswith("/default.comp")
+                    or _resource.endswith("\\default.comp")):
                 default_mod = _mod
                 break
 
@@ -1156,9 +1329,9 @@ class ExecutionFrame:
             else:
                 new_env[block.input_name] = args_val
 
-        # Spread :param names individually into the environment, TryInvoking each
+        # Spread !param names individually into the environment, TryInvoking each
         # value so that zero-arg callables are resolved to their result.
-        # These come from :param declarations such as ":param timeout ~num=4".
+        # These come from !param declarations such as "!param timeout ~num=4".
         # After mask(), args_val is a named struct like {timeout: 4}.
         if block.param_names and isinstance(args_val.data, dict):
             param_set = set(block.param_names)

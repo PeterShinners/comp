@@ -44,14 +44,8 @@
 }
 
 
-// Callers set the ambient timezone via:  !ctx timezone [tz "America/New_York"]
-// Functions that need a timezone declare  !param timezone~zone = utc
-// so the context value is injected automatically, falling back to UTC when absent.
-
-
 /// Look up a zone by IANA name string (e.g. "America/New_York", "UTC").
-/// Returns a zone struct. Aliased as tz for brevity:
-///   !ctx timezone [tz "America/New_York"]
+/// Returns a zone struct.
 !func tz ~text (
     !my info [{$} | py.pure-call "zoneinfo.ZoneInfo"]
     !my offset [info | py.method {"utcoffset" nil} | py.method {"total_seconds"}]
@@ -63,13 +57,19 @@
     [{name="UTC" offset-sec=0} | zone]
 ]
 
+/// Default context: provides an ambient timezone for all time operations.
+/// Applications override with a higher-layer !startup that sets zone.
+!startup default {
+    timezone = [utc]
+}
 
-/// Current moment as a date-time, zone from context (falls back to UTC).
+
+/// Current moment as a date-time, zone from context.
 /// Attaches a monotonic clock reading as sidecar &mono for accurate elapsed
 /// timing without wall-clock skew.
 /// To get a shifted "now", chain: [now | shift 3~day]
 !func now ~nil (
-    !param timezone~zone = utc
+    !param timezone~zone
     !my dt [nil | py.call "datetime.datetime.now"]
     !my result [dt | py-to-date-time timezone]
     !my mono [nil | py.call "time.monotonic"]
@@ -86,11 +86,11 @@
 /// Express the same absolute moment in a different zone (conversion).
 /// Preserves &mono sidecar since the underlying instant is unchanged.
 !func convert ~date-time (
-    !param zone~zone
+    !param timezone~zone
     !my py-dt [$ | date-time-to-py]
-    !my py-tz [zone.name | py.pure-call "zoneinfo.ZoneInfo"]
+    !my py-tz [timezone.name | py.pure-call "zoneinfo.ZoneInfo"]
     !my converted [py-dt | py.method {"astimezone" py-tz}]
-    !my result [converted | py-to-date-time zone]
+    !my result [converted | py-to-date-time timezone]
     !stash result&mono $&mono
     result
 )
@@ -159,19 +159,19 @@
     )
 )
 
-/// Parse a string to a date-time. Zone defaults to context timezone or UTC.
+/// Parse a string to a date-time. Zone defaults to context zone.
 /// (Requires datetime.datetime.strptime in py.comp's pure-call allowlist.)
 !func parse ~text (
     !param layout~text#datetime-fmt
-    !param timezone~zone = utc
+    !param timezone~zone
     !my py-dt [{$ layout} | py.pure-call "datetime.datetime.strptime"]
     [py-dt | py-to-date-time timezone]
 )
 
 /// Convert epoch seconds (plain num) to a date-time.
-/// Zone defaults to context timezone or UTC.
+/// Zone defaults to context zone.
 !func from-epoch ~num (
-    !param timezone~zone = utc
+    !param timezone~zone
     !my py-dt [{$} | py.pure-call "datetime.datetime.utcfromtimestamp"]
     [py-dt | py-to-date-time timezone]
 )
@@ -234,9 +234,11 @@
 /// target month (e.g. Jan 31 + 1 month = Feb 28/29).
 !func shift-months& ~date-time (
     !param months~num
-    !my raw-m [$.month + months - 1]
-    !my new-month [[raw-m | divmod 12] + 1]
-    !my new-year [$.year + [raw-m / 12 | floor]]
+    !my m [months | strip-unit]
+    !my raw-m ($.month + m - 1)
+    !my qr [raw-m | divmod 12]
+    !my new-month (qr.remainder + 1)
+    !my new-year ($.year + qr.quotient)
     !my days-in-m [{new-year new-month} | py.pure-call "calendar.monthrange" | py.method {"__getitem__" 1}]
     !my clamped-day (!on [$.day > days-in-m]
         ~true  days-in-m

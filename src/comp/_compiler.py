@@ -44,6 +44,8 @@ def compile_definition(stmt, module_id):
         return _compile_shape(stmt, module_id)
     elif operator == "startup":
         return _compile_startup(stmt, module_id)
+    elif operator == "main":
+        return _compile_main(stmt, module_id)
     else:
         raise comp.CodeError(f"Unknown definition operator: {operator}")
 
@@ -206,13 +208,47 @@ def _compile_shape(stmt, module_id):
 
 
 def _compile_startup(stmt, module_id):
-    """Compile a !startup statement."""
+    """Compile a !startup context preparation statement.
+
+    The COP is a startup.define node containing optional dependency names
+    and a struct body that produces context values.
+    """
     name = stmt.get("name")
     cop = _parse_stmt_body(stmt, "start_startup")
     qualified = f"!startup.{name}"
     definition = comp.Definition(qualified, module_id, cop, comp.shape_block,
                                  private=True)
     definition.startup = True
+    # Extract dependency names from the COP node
+    try:
+        deps_val = cop.field("deps")
+        definition.startup_deps = [v.data for v in deps_val.data.values()]
+    except (KeyError, TypeError, AttributeError):
+        definition.startup_deps = []
+    # Enforce: default context cannot have dependencies
+    if name == "default" and definition.startup_deps:
+        raise comp.CodeError("!startup default cannot declare dependencies")
+    return [(qualified, definition)]
+
+
+def _compile_main(stmt, module_id):
+    """Compile a !main entry point statement.
+
+    The COP is a main.define node containing optional dependency names
+    and a function body.
+    """
+    name = stmt.get("name")
+    cop = _parse_stmt_body(stmt, "start_main")
+    qualified = f"!main.{name}"
+    definition = comp.Definition(qualified, module_id, cop, comp.shape_block,
+                                 private=True)
+    definition.main = True
+    # Extract dependency names from the COP node
+    try:
+        deps_val = cop.field("deps")
+        definition.main_deps = [v.data for v in deps_val.data.values()]
+    except (KeyError, TypeError, AttributeError):
+        definition.main_deps = []
     return [(qualified, definition)]
 
 

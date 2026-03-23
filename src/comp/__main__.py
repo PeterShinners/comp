@@ -241,6 +241,7 @@ def prettylark_statements(module, show_positions=False):
         "func": "start_func",
         "pure": "start_func",  # pure uses same entry point as func
         "startup": "start_startup",
+        "main": "start_main",
         "tag": "start_tag",
     }
 
@@ -477,6 +478,54 @@ def _format_failure_cli(fail_val, source_file=None, source_lines=None, depth=0):
     return "\n".join(parts)
 
 
+def _print_timings(interp, _t_start, _t_load, _t_build, _t_eval):
+    t = interp.timings
+    n_mods = len([m for m in interp.module_cache.values()
+                  if not hasattr(m, "_interp_phase") or m._interp_phase > 0])
+    print(f"load  {(_t_load  - _t_start) * 1000:7.1f} ms", file=sys.stderr)
+    print(f"build {(_t_build - _t_load)  * 1000:7.1f} ms  ({n_mods} modules)", file=sys.stderr)
+    print(f"  ns.total               {t.get('build.build_namespaces',0)*1000:7.1f} ms", file=sys.stderr)
+    print(f"    ns.definitions       {t.get('ns.definitions',0)*1000:7.1f} ms  (parse all stmts → COP)", file=sys.stderr)
+    print(f"      lark.grammar_init  {comp._parse._time_grammar_init*1000:7.1f} ms  (lark table compile, once per grammar)", file=sys.stderr)
+    print(f"      lark.parse         {comp._parse._time_parse*1000:7.1f} ms  (parser.parse() calls)", file=sys.stderr)
+    print(f"    ns.namespace         {t.get('ns.namespace',0)*1000:7.1f} ms  (collate namespaces)", file=sys.stderr)
+    print(f"    ns.resolve+aliases   {(t.get('ns.resolve',0)+t.get('ns.aliases',0))*1000:7.1f} ms", file=sys.stderr)
+    print(f"  build.resolve+fold     {t.get('build.resolve_fold_validate',0)*1000:7.1f} ms  (cop_resolve + coptimize + callouts)", file=sys.stderr)
+    print(f"  build.callout_bootstrap{t.get('callout.bootstrap',0)*1000:7.1f} ms  (load+build callout.comp, first call only)", file=sys.stderr)
+    print(f"  build.pure_eval        {t.get('build.pure_eval',0)*1000:7.1f} ms", file=sys.stderr)
+    print(f"  build.codegen          {t.get('build.codegen',0)*1000:7.1f} ms", file=sys.stderr)
+    print(f"  build.execute          {t.get('build.execute',0)*1000:7.1f} ms", file=sys.stderr)
+    print(f"eval  {(_t_eval  - _t_build) * 1000:7.1f} ms", file=sys.stderr)
+    print(f"total {(_t_eval  - _t_start) * 1000:7.1f} ms", file=sys.stderr)
+
+
+def _context_value_to_dict(context_val):
+    """Convert a context Value struct to a flat string-keyed dict.
+
+    The frame context dict maps string names to Value objects.
+    Both qualified (layer.field) and unqualified (field) keys are stored
+    for context parameter matching.
+
+    For unqualified names, the last layer in DAG order wins (most
+    specific dependency takes priority). The merged context is already
+    ordered by DAG execution, so later entries override earlier ones.
+    """
+    result = {}
+    if context_val.shape == comp.shape_struct and isinstance(context_val.data, dict):
+        for key, val in context_val.data.items():
+            if isinstance(key, comp.Unnamed):
+                continue
+            key_str = key.data if hasattr(key, "data") else str(key)
+            # Skip layer sub-structs (e.g., "default", "web")
+            if "." not in key_str:
+                continue
+            result[key_str] = val
+            # Unqualified shortcut — later layers override earlier ones
+            field = key_str.split(".", 1)[1]
+            result[field] = val
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="comp",
@@ -502,9 +551,13 @@ def main():
     modes.add_argument("--definitions", action="store_true", help="Show list of module definitions")
     modes.add_argument("--describe", metavar="NAME", help="Describe a named definition as a markdown report (supports overloads)")
     modes.add_argument("--callouts", action="store_true", help="Run module validation pipeline and print callouts")
+    modes.add_argument("--list-mains", action="store_true",
+                        help="List available !main entry points and exit")
+    modes.add_argument("--context", action="store_true",
+                        help="Show assembled startup context for the given --main entry point")
 
-    parser.add_argument("--startup", metavar="NAME", default="main",
-                        help="Entry point to run (default: main)")
+    parser.add_argument("--main", metavar="NAME", default=None,
+                        help="Entry point to run (e.g. console, serve, test)")
     parser.add_argument("--time", action="store_true",
                         help="Print phase timings to stderr (load/build/eval)")
     parser.add_argument("--trace-imports", action="store_true",
@@ -526,6 +579,7 @@ def main():
         "shape": "start_shape",
         "func": "start_func",
         "startup": "start_startup",
+        "main": "start_main",
         "statement": "statement_body",
         "expression": "expression",
         "module": None,  # Use module parsing (default)
@@ -648,7 +702,12 @@ def main():
             mod = interp.module_from_text(args.source)
     else:
         _t_start = _time.perf_counter()
-        mod = interp.module(args.source, anchor=os.getcwd())
+        try:
+            mod = interp.module(args.source, anchor=os.getcwd())
+        except (comp.ParseError, comp.CodeError) as e:
+            msg = e.message if hasattr(e, "message") else str(e)
+            print(msg, file=sys.stderr)
+            return 1
         _t_load = _time.perf_counter()
 
     # --- Module-based modes ---
@@ -706,7 +765,13 @@ def main():
             for name, definition in sorted_defs:
                 print(f"\n{'='*60}")
                 if definition.startup:
-                    print(f"!startup {name.split('.', 1)[1]}")
+                    ctx_name = name.split(".", 1)[1]
+                    deps_str = " {" + " ".join(definition.startup_deps) + "}" if definition.startup_deps else ""
+                    print(f"!startup {ctx_name}{deps_str}")
+                elif definition.main:
+                    entry_name = name.split(".", 1)[1]
+                    deps_str = " {" + " ".join(definition.main_deps) + "}" if definition.main_deps else ""
+                    print(f"!main {entry_name}{deps_str}")
                 else:
                     print(f"Definition: {name} ({definition.shape.qualified})")
                 print(f"{'='*60}")
@@ -802,7 +867,7 @@ def main():
                 has_error = True
         return 1 if has_error else 0
 
-    if args.code or args.eval or args.trace:
+    if args.code or args.eval or args.trace or args.list_mains or args.context:
         # Full build pipeline
         try:
             errors = interp.build_instructions()
@@ -837,7 +902,13 @@ def main():
 
             for name, definition in sorted(defs.items()):
                 if definition.startup:
-                    print(f"\n!startup {name.split('.', 1)[1]}")
+                    ctx_name = name.split(".", 1)[1]
+                    deps_str = " {" + " ".join(definition.startup_deps) + "}" if definition.startup_deps else ""
+                    print(f"\n!startup {ctx_name}{deps_str}")
+                elif definition.main:
+                    entry_name = name.split(".", 1)[1]
+                    deps_str = " {" + " ".join(definition.main_deps) + "}" if definition.main_deps else ""
+                    print(f"\n!main {entry_name}{deps_str}")
                 else:
                     print(f"\nDefinition: {name} ({definition.shape.qualified})")
                 print(f"Source: {comp.cop_unparse(definition.original_cop)}")
@@ -848,6 +919,69 @@ def main():
                         print(format_instruction(i, instr))
                 else:
                     print("  (no instructions)")
+            return
+
+        if args.list_mains:
+            # List all available !main entry points
+            if mod is not None:
+                main_entries = mod.main_entries()
+                if main_entries:
+                    print("Available entry points:")
+                    for entry_name, defn in sorted(main_entries.items()):
+                        deps_str = " {" + " ".join(defn.main_deps) + "}" if defn.main_deps else ""
+                        print(f"  !main {entry_name}{deps_str}")
+                else:
+                    print("No !main entry points defined.")
+                startups = mod.startups()
+                if startups:
+                    print("\nStartup contexts:")
+                    for ctx_name, defn in sorted(startups.items()):
+                        deps_str = " {" + " ".join(defn.startup_deps) + "}" if defn.startup_deps else ""
+                        print(f"  !startup {ctx_name}{deps_str}")
+            return
+
+        if args.context:
+            main_name = args.main
+            if main_name is None:
+                print("--context requires --main NAME", file=sys.stderr)
+                sys.exit(1)
+            if mod is not None:
+                main_defn = mod.main_entry(main_name)
+                if main_defn is None:
+                    print(f"No !main '{main_name}' found.", file=sys.stderr)
+                    main_entries = mod.main_entries()
+                    if main_entries:
+                        print(f"Available: {', '.join(sorted(main_entries.keys()))}", file=sys.stderr)
+                    sys.exit(1)
+                try:
+                    context = interp.execute_startup_context(mod, main_name)
+                except comp.CodeError as e:
+                    print(f"Context error: {e}", file=sys.stderr)
+                    sys.exit(1)
+                dag = interp.resolve_startup_dag(main_defn)
+                print(f"Entry point: !main {main_name}")
+                print(f"DAG order:   {' -> '.join(dag)}")
+                print()
+                if context.shape == comp.shape_struct and isinstance(context.data, dict):
+                    for layer_name in dag:
+                        layer_keys = []
+                        for key, val in context.data.items():
+                            if isinstance(key, comp.Unnamed):
+                                continue
+                            key_str = key.data if hasattr(key, "data") else str(key)
+                            if key_str.startswith(layer_name + "."):
+                                layer_keys.append((key_str, val))
+                        if layer_keys:
+                            print(f"  [{layer_name}]")
+                            for key_str, val in layer_keys:
+                                field = key_str.split(".", 1)[1]
+                                print(f"    {field} = {val.format()}")
+                    print()
+                    ctx_dict = _context_value_to_dict(context)
+                    print("Resolved context (unqualified):")
+                    for name in sorted(ctx_dict):
+                        if "." not in name:
+                            print(f"  {name} = {ctx_dict[name].format()}")
             return
 
         if args.eval or args.trace:
@@ -872,58 +1006,52 @@ def main():
                 if definition.value is not None:
                     env[name] = definition.value
 
-            startup_name = args.startup
-            startup_defn, context = mod.prepare_startup(startup_name) if mod is not None else (None, None)
-            if startup_defn is not None and startup_defn.value is not None:
-                startup_block = startup_defn.value
-                if isinstance(startup_block.data, comp.Callable):
-                    if args.trace:
-                        print(f"\n-- startup {startup_name} --")
-                        frame = TracingFrame(env, interp=interp, module=mod, depth=0)
+            main_name = args.main
+
+            if main_name is not None and mod is not None:
+                main_defn = mod.main_entry(main_name)
+                if main_defn is not None and main_defn.value is not None:
+                    main_block = main_defn.value
+                    if isinstance(main_block.data, comp.Callable):
+                        # Execute the startup context DAG
                         try:
-                            result = frame.invoke_block(startup_block, context, piped=None)
-                        except comp.CompFail as e:
-                            print(_format_failure_cli(e.value, source_file=args.source), file=sys.stderr)
+                            context = interp.execute_startup_context(mod, main_name)
+                        except comp.CodeError as e:
+                            print(f"Context error: {e}", file=sys.stderr)
                             sys.exit(1)
-                        if result is not None:
-                            print(result.format())
-                    else:
-                        startup_frame = comp.ExecutionFrame(env, interp=interp, module=mod)
-                        try:
-                            result = startup_frame.invoke_block(startup_block, context, piped=None)
-                        except comp.CompFail as e:
-                            print(_format_failure_cli(e.value, source_file=args.source), file=sys.stderr)
-                            sys.exit(1)
-                        _t_eval = _time.perf_counter()
-                        if result is not None:
-                            print(result.format())
-                        if args.time:
-                            t = interp.timings
-                            n_mods = len([m for m in interp.module_cache.values()
-                                          if not hasattr(m, "_interp_phase") or m._interp_phase > 0])
-                            print(f"load  {(_t_load  - _t_start) * 1000:7.1f} ms", file=sys.stderr)
-                            print(f"build {(_t_build - _t_load)  * 1000:7.1f} ms  ({n_mods} modules)", file=sys.stderr)
-                            print(f"  ns.total               {t.get('build.build_namespaces',0)*1000:7.1f} ms", file=sys.stderr)
-                            print(f"    ns.definitions       {t.get('ns.definitions',0)*1000:7.1f} ms  (parse all stmts → COP)", file=sys.stderr)
-                            print(f"      lark.grammar_init  {comp._parse._time_grammar_init*1000:7.1f} ms  (lark table compile, once per grammar)", file=sys.stderr)
-                            print(f"      lark.parse         {comp._parse._time_parse*1000:7.1f} ms  (parser.parse() calls)", file=sys.stderr)
-                            print(f"    ns.namespace         {t.get('ns.namespace',0)*1000:7.1f} ms  (collate namespaces)", file=sys.stderr)
-                            print(f"    ns.resolve+aliases   {(t.get('ns.resolve',0)+t.get('ns.aliases',0))*1000:7.1f} ms", file=sys.stderr)
-                            print(f"  build.resolve+fold     {t.get('build.resolve_fold_validate',0)*1000:7.1f} ms  (cop_resolve + coptimize + callouts)", file=sys.stderr)
-                            print(f"  build.callout_bootstrap{t.get('callout.bootstrap',0)*1000:7.1f} ms  (load+build callout.comp, first call only)", file=sys.stderr)
-                            print(f"  build.pure_eval        {t.get('build.pure_eval',0)*1000:7.1f} ms", file=sys.stderr)
-                            print(f"  build.codegen          {t.get('build.codegen',0)*1000:7.1f} ms", file=sys.stderr)
-                            print(f"  build.execute          {t.get('build.execute',0)*1000:7.1f} ms", file=sys.stderr)
-                            print(f"eval  {(_t_eval  - _t_build) * 1000:7.1f} ms", file=sys.stderr)
-                            print(f"total {(_t_eval  - _t_start) * 1000:7.1f} ms", file=sys.stderr)
-            else:
-                # No startup found - fall back to printing all definition values
-                print("\nResults:")
-                print("=" * 60)
-                for name, definition in sorted(defs.items()):
-                    if name in env:
-                        value = env[name]
-                        print(f"{name} = {value.format()}")
+
+                        # Convert context Value struct → flat string-keyed dict for frame
+                        ctx_dict = _context_value_to_dict(context)
+
+                        if args.trace:
+                            print(f"\n-- main {main_name} --")
+                            frame = TracingFrame(env, interp=interp, module=mod, depth=0, context=ctx_dict)
+                            try:
+                                result = frame.invoke_block(main_block, context, piped=None)
+                            except comp.CompFail as e:
+                                print(_format_failure_cli(e.value, source_file=args.source), file=sys.stderr)
+                                sys.exit(1)
+                            if result is not None:
+                                print(result.format())
+                        else:
+                            main_frame = comp.ExecutionFrame(env, interp=interp, module=mod, context=ctx_dict)
+                            try:
+                                result = main_frame.invoke_block(main_block, context, piped=None)
+                            except comp.CompFail as e:
+                                print(_format_failure_cli(e.value, source_file=args.source), file=sys.stderr)
+                                sys.exit(1)
+                            _t_eval = _time.perf_counter()
+                            if result is not None:
+                                print(result.format())
+                            if args.time:
+                                _print_timings(interp, _t_start, _t_load, _t_build, _t_eval)
+                else:
+                    print(f"No !main '{main_name}' found.", file=sys.stderr)
+                    main_entries = mod.main_entries()
+                    if main_entries:
+                        print(f"Available: {', '.join(sorted(main_entries.keys()))}", file=sys.stderr)
+                    sys.exit(1)
+
             return
 
 

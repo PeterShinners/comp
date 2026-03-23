@@ -202,7 +202,7 @@ leaking through untyped paths.
 !shape branch ~tree|nil = nil
 
 !pure tree-insert ~nil (
-    :param value~num
+    !param value~num
     tree :value
 )
 ```

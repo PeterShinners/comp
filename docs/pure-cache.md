@@ -18,7 +18,7 @@ The surface-level API is a **wrapper**:
 
 ```
 !pure fib ~num @memoize (
-    :param val~num
+    !param val~num
     !on $ < 2
     ~true 1
     ~false (fib (val - 1)) + (fib (val - 2))

@@ -77,6 +77,23 @@ def _resolve_walk(cop, namespace, locals):
     if tag == "function.define":
         return _resolve_function(cop, namespace, locals)
 
+    # --- Startup context / main entry: resolve inner nodes ---
+    if tag == "startup.define":
+        kids = list(comp.cop_kids(cop))
+        if kids:
+            new_body = _resolve_walk(kids[0], namespace, locals)
+            if new_body is not kids[0]:
+                return comp.cop_rebuild(cop, [new_body])
+        return cop
+
+    if tag == "main.define":
+        kids = list(comp.cop_kids(cop))
+        if kids:
+            new_func = _resolve_function(kids[0], namespace, locals)
+            if new_func is not kids[0]:
+                return comp.cop_rebuild(cop, [new_func])
+        return cop
+
     # --- Sequential containers: track op.my / named-field bindings ---
     if tag in ("statement.define", "struct.define"):
         return _resolve_sequential(cop, namespace, locals)

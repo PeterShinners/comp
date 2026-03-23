@@ -49,7 +49,7 @@ _COP_TAGS = (
     "function.define",  # (sig, body) function definition with signature and body
     "function.signature",  # (kids) function signature (input shape)
     "function.body",  # (kids or sig+body) function body, may have block signature
-    "block.signature",  # (kids) signature for block/statement (:param/:block declarations)
+    "block.signature",  # (kids) signature for block/statement (!param declarations)
     "statement.define",  # (kids) sequence of statements
     "statement.field",  # (kids) single statement/expression in a sequence
     "op.my",  # (kids) 2 kids - name and value for !my assignment
@@ -104,6 +104,8 @@ _COP_TAGS = (
     "value.private_tag",  # (kids) 1 kid - identifier for a private tag child (& suffix)
     "value.undefined",  # (name, pos) grenade node for unresolved identifiers — errors at codegen
     "value.fold-fail",  # (kids) 1 kid — fold-time failure (distinct from user-written op.fail)
+    "startup.define",  # (deps, body) context preparation block; deps=list of name strings, body=struct
+    "main.define",  # (deps, body) entry point; deps=list of startup name strings, body=function.define
 )
 
 # Set built at first use by cop_check_structure for fast membership testing

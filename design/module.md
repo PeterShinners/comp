@@ -217,24 +217,96 @@ information that tools can query without executing the module.
 
 ## Startup and Context
 
-The `!startup` operator defines named entry points. When Comp executes a module,
-it looks for a startup function matching the requested context. The startup
-function bootstraps the application, establishing initial context values that
-flow through the entire call chain.
+Comp separates **context preparation** (`!startup`) from **entry points**
+(`!main`). This two-layer design lets deep library modules initialize
+themselves conditionally — based on which entry point the application
+chooses — without polluting the declarative namespace.
+
+### Context Preparation (`!startup`)
+
+The `!startup` operator defines named context providers. Any module in the
+import tree can contribute values to a named context. The body is a structure
+literal whose fields become context entries.
 
 ```comp
-!startup main (
-    {5 3 8 1 7 9}
-    | reduce :initial=nil :(tree-insert)
-    | tree-values
-    | output
+// In stdlib/os.comp — always contributes to "default"
+!startup default {
+    temp-dir = [env "TMPDIR" | fallback "/tmp"]
+    stdout = [stream.stdout]
+    platform = [detect-platform]
+}
+
+// In lib/web.comp — depends on default context
+!startup web <default> {
+    server.port = [env "PORT" | fallback 8080 | as-num]
+    server.host = [env "HOST" | fallback "0.0.0.0"]
+}
+```
+
+`!startup` declarations are **not** added to the module namespace. They are
+purely runtime initialization code.
+
+**Dependencies.** A startup can declare dependencies on other startup contexts
+using angle brackets: `!startup web <io default>`. The provider receives the
+merged dependency context as `$`, allowing access to values from lower layers:
+
+```comp
+!startup web <io> {
+    upload-dir = [$.io.temp-dir | path.join "uploads"]
+    server.port = 8080
+}
+```
+
+**Rules:**
+- `!startup default` is special: it cannot declare dependencies and always
+  runs as the base layer. Its `$` is always an empty struct.
+- Multiple modules can contribute to the same startup name. Each runs
+  independently (no sibling visibility). Their outputs merge.
+- Two providers producing the same field name within the same startup layer
+  is a build error (context conflict).
+- A module can define multiple startup blocks with different names.
+- Circular dependencies between startup layers are detected and reported as
+  build errors.
+
+### Entry Points (`!main`)
+
+The `!main` operator defines named entry points in the root module. When Comp
+executes a module, it looks for a `!main` matching the requested entry point
+name and runs it.
+
+```comp
+!main console (
+    [greet]
+    [process-input]
 )
 
-!startup rio {
-    title = "Todo"
-    state = state
-    component = todo-app
-}
+!main serve <web> (
+    [run-server]
+)
+
+!main test <testing> (
+    [run-all-tests]
+)
+```
+
+Entry points can declare startup dependencies using angle brackets:
+`!main serve <web>`. This triggers the startup context DAG — all startup
+layers needed by `web` (and its transitive dependencies) execute before the
+entry point runs.
+
+**Execution order for `!main serve <web>`:**
+1. Collect the dependency DAG: `serve → web → default`
+2. Execute all `!startup default` providers across the import tree. Merge.
+3. Execute all `!startup web` providers. Each receives merged default context
+   as `$`. Merge.
+4. Assemble the full context. Run `!main serve` with context available for
+   parameter matching.
+
+The CLI selects an entry point with `--main NAME`:
+```
+comp app.comp --eval --main serve
+comp app.comp --eval --main test
+comp app.comp --list-mains       # show available entry points
 ```
 
 ### Context Scope
@@ -254,12 +326,12 @@ available at all levels of the application.
 !func outer (
     !ctx url "http://example.com/"
 
-    !let one inner              // inner sees url from context
-    !let two inner :url="http://dev.example.com/"  // explicit overrides context
+    !let one [inner]              // inner sees url from context
+    !let two [inner url="http://dev.example.com/"]  // explicit overrides context
 )
 
-!func inner (
-    :param url~text
+!func inner ~text (
+    !param url~text
     @fmt"%(url)/v1/ping/"
 )
 ```
@@ -267,8 +339,29 @@ available at all levels of the application.
 Context values are matched by name and type against parameter declarations. A
 context value only populates a parameter if both the name matches and the type
 is compatible. Parameters provided explicitly always take priority over
-context. Modules define their initial context through `!startup` declarations,
-which establish the context before the entry point function is invoked.
+context.
+
+Context values from `!startup` providers use hierarchical names like
+`server.port`. These follow the same shortest-unambiguous-path resolution as
+the module namespace: if `port` is only defined once across all startup layers,
+a parameter `!param port~num` matches it directly. If multiple layers define
+`port`, qualification is required: `!param server.port~num`.
+
+### Design Principles
+
+**Singletons are context.** Anything that would be a singleton, global
+variable, service locator, or dependency injection binding in another language
+belongs in the startup context. Database connections, configuration values,
+stream handles, feature flags — these are all context entries.
+
+**Context vs. values.** Context holds ambient state the caller shouldn't
+thread through every call (similar to environment variables). Regular
+parameters hold data the function operates on (similar to function arguments).
+
+**No conditional imports.** The module namespace is fully declarative and
+shared across all entry points. Different `!main` choices activate different
+startup contexts (and thus different runtime resources), but the set of
+available names never changes.
 
 ## Platform-Specific Modules
 

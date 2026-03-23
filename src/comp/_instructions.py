@@ -895,7 +895,7 @@ class BuildBlock(Instruction):
                         break
 
             elif field_tag in ("signature.param",):
-                # --- Named :param or :block declaration ---
+                # --- Named !param declaration ---
                 try:
                     param_name = field_cop.to_python("name")
                 except (KeyError, AttributeError):
@@ -1006,7 +1006,7 @@ class BuildBlock(Instruction):
                         block.arg_shape = param_shape
                 legacy_index += 1
 
-        # Build arg Shape from accumulated :param fields.
+        # Build arg Shape from accumulated !param fields.
         if param_fields:
             arg_shape = comp.Shape("args", private=False)
             arg_shape.fields = param_fields
@@ -1895,6 +1895,12 @@ class DispatchOn(Instruction):
             if isinstance(pattern_data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
                 morph_result = comp.morph(condition_val, pattern_data, frame)
                 matched = not morph_result.failure_reason
+                # Dispatch requires exact unit matching — a sibling unit score of 1
+                # means "same family but different unit" (e.g. ~num#year matching
+                # 1#week because both are measure.time.*).  Reject those: the user
+                # wrote ~num#year to mean exactly year-units, not any time unit.
+                if matched and morph_result.score[2] == 1:
+                    matched = False
                 # Leaf-tag identity: morph rejects depth-0 matches (tags are
                 # abstract shape roots, not values).  For exact leaf-tag dispatch
                 # (e.g. ~true, ~false, ~nil, ~less) fall back to qualified-name

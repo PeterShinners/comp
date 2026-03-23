@@ -9,14 +9,15 @@ start_package: field_default_value                     // !package name value
 start_import: identifier text                          // !import compiler "source"
 start_mod: expression                                  // !mod name value (allow structures)
 start_shape: shape                                     // !shape name ~spec
-start_func: func_body  // !func name [~type] [@wrapper] body
+start_func: func_body  // !func name ~type [@wrapper] body
 func_body: shape wrapper* func_struct
-         | wrapper+ func_struct
-         | func_struct
 func_struct: statement | structure | pipeline
-start_startup: startup_body  // !startup name [@wrapper] body
-startup_body: wrapper+ func_struct
-            | func_struct
+start_startup: startup_deps structure    // !startup name <deps> { body }
+             | structure                   // !startup name { body }
+startup_deps: ANGLE_OPEN identifier* ANGLE_CLOSE
+start_main: main_deps func_struct          // !main name <deps> body
+          | func_struct                    // !main name body
+main_deps: ANGLE_OPEN identifier* ANGLE_CLOSE
 start_tag: (BRACE_OPEN tag_item* BRACE_CLOSE)?        // !tag name {items}
 tag_item: identifier AMPERSAND? (BRACE_OPEN tag_item* BRACE_CLOSE)?
 

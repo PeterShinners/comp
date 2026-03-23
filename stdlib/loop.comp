@@ -137,7 +137,7 @@
 ///   range 5         // {0 1 2 3 4 5}
 ///   range 1 5      // {1 2 3 4 5}
 ///   range 0 10 step=3   // {0 3 6 9}
-!pure range (
+!pure range ~nil (
     !param start ~num = 0
     !param end ~num
     !param step ~num = 1
@@ -278,7 +278,7 @@
 ///       ~false ($ + 1)
 ///   )
 ///   /// accumulates $ (the counter), not the fib values
-!pure generate (
+!pure generate ~any (
     !param gen ~nil
     !my acc {}
     // Pipe initial state into forever; $ is the running state

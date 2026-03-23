@@ -255,6 +255,17 @@ class CodeGenContext:
             case "function.define":
                 return self._build_function(cop)
 
+            case "startup.define":
+                # Context preparation — body is a struct, compile it as a function
+                body_cop = list(comp.cop_kids(cop))[0]
+                func_cop = comp.create_cop("cop-type.function.define", [body_cop])
+                return self._build_function(func_cop)
+
+            case "main.define":
+                # Entry point — body is already a function.define
+                func_cop = list(comp.cop_kids(cop))[0]
+                return self._build_function(func_cop)
+
             case "value.block":
                 return self._build_block(cop)
 
@@ -1164,7 +1175,7 @@ class CodeGenContext:
         else:
             # Inline block — any statement.define in callable/args position
             # should be compiled as a deferred Block, whether or not it has
-            # a block.signature (i.e. :param declarations).
+            # a block.signature (i.e. !param declarations).
             if tag == "statement.define":
                 kids = list(_cop_kids(cop))
                 if kids and comp.cop_tag(kids[0]) == "block.signature":
@@ -1177,8 +1188,8 @@ class CodeGenContext:
     def _build_inline_block_with_signature(self, cop, kids):
         """Build an inline block from a statement.define in callable/args position.
 
-        When a binding argument like :(:param item~any expr) appears inside
-        _build_args_struct, the (:param ...) creates a statement.define with a
+        When a binding argument like :(!param item~any expr) appears inside
+        _build_args_struct, the (!param ...) creates a statement.define with a
         leading block.signature child.  This method compiles it into a proper
         BuildBlock so that parameter declarations take effect and the block
         can be invoked repeatedly by builtins like reduce.

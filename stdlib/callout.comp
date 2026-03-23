@@ -101,7 +101,7 @@
 
 /// Build a walk-cop result with a single callout finding.
 /// Pipe the COP node as input ($). Returns the {callouts={...} accum={}} struct.
-!pure cop-callout (
+!pure cop-callout ~any (
     !param severity ~callout
     !param code ~text
     !param message ~text
@@ -115,7 +115,7 @@
 )
 
 /// Walk-cop result with no findings.
-!pure cop-pass {callouts={} accum={}}
+!pure cop-pass ~any {callouts={} accum={}}
 
 /// Extract the simple name from a value.identifier COP node, or nil.
 /// Returns the FIRST ident.token value only.
@@ -162,7 +162,7 @@
 /// Check for duplicate field names within a single struct literal.
 ///
 /// Example: {x=1 x=2}  →  "duplicate field `x` in struct literal"
-!pure check-duplicate-struct-fields (
+!pure check-duplicate-struct-fields ~any (
     [$ | walk-cop filter="struct.define" initial={} :(
         !my node $.node
         !my fields [node | cop-kids | loop.where :([$ | cop-tag] == "struct.namefield")]
@@ -186,7 +186,7 @@
 /// Check for duplicate pattern branches in a single !on dispatch.
 ///
 /// Example: !on x  ~true ...  ~true ...  →  "duplicate branch `~true` in !on"
-!pure check-duplicate-on-branches (
+!pure check-duplicate-on-branches ~any (
     [$ | walk-cop filter="op.on" initial={} :(
         !my node $.node
         !my branches [node | cop-kids | loop.where :([$ | cop-tag] == "op.on.branch")]
@@ -212,7 +212,7 @@
 /// Any branches written after ~any can never be reached at runtime.
 ///
 /// Example: !on $  ~true 1  ~any 99  ~false 2  →  ~false is unreachable
-!pure check-unreachable-branch (
+!pure check-unreachable-branch ~any (
     [$ | walk-cop filter="op.on" initial={} :(
         !my node $.node
         !my branches [node | cop-kids | loop.where :([$ | cop-tag] == "op.on.branch")]
@@ -239,7 +239,7 @@
 
 
 /// Check that pure functions do not call impure functions.
-!pure check-pure-calls-impure (
+!pure check-pure-calls-impure ~any (
     !param context ~any = {}
     !param namespace ~any = nil
     !my def-is-pure [context | ($.pure)]
@@ -264,7 +264,7 @@
 /// Check for unresolved identifier references in the resolved COP tree.
 /// These nodes are planted by the name-resolver as grenades that explode
 /// at codegen; surfacing them early gives cleaner LSP diagnostics.
-!pure check-value-undefined (
+!pure check-value-undefined ~any (
     [$ | walk-cop filter="value.undefined" initial={} :(
         !my node $.node
         !my name [node | cop-fields | ($.name)]
@@ -278,7 +278,7 @@
 
 
 /// Check for division or modulo by a constant zero.
-!pure check-zero-division (
+!pure check-zero-division ~any (
     [$ | walk-cop filter="value.math.binary" initial={} :(
         !my node $.node
         !my op [node | cop-fields | ($.op)]
@@ -305,7 +305,7 @@
 
 
 /// Check for field access on a constant struct where the field is absent.
-!pure check-constant-undefined-field (
+!pure check-constant-undefined-field ~any (
     [$ | walk-cop filter="value.field" initial={} :(
         !my node $.node
         !my base [node | cop-kids | loop.first]
@@ -329,7 +329,7 @@
 
 
 /// Check for fold-synthesised failure nodes (guaranteed runtime failures).
-!pure check-constant-fail (
+!pure check-constant-fail ~any (
     [$ | walk-cop filter="value.fold-fail" initial={} :(
         !my node $.node
         !my inner-node [node | cop-kids | loop.first]
@@ -349,7 +349,7 @@
 /// Examples:
 ///   [$ | test] == true   →  use `[$ | test]` directly
 ///   result == false      →  use `!not result`
-!pure check-comparison-with-bool (
+!pure check-comparison-with-bool ~any (
     [$ | walk-cop filter="value.compare" initial={} :(
         !my node $.node
         !my op [node | cop-fields | ($.op)]
@@ -387,7 +387,7 @@
 /// Examples:
 ///   !not (a == b)  →  use a != b
 ///   !not (a != b)  →  use a == b
-!pure check-negated-comparison (
+!pure check-negated-comparison ~any (
     [$ | walk-cop filter="value.logic.unary" initial={} :(
         !my node $.node
         !my op [node | cop-fields | ($.op)]
@@ -425,7 +425,7 @@
 ///
 /// Severity gating: runs error-level checks first, then warning-level,
 /// then info/hint. Skips tiers below the requested min-severity.
-!pure validate (
+!pure validate ~any (
     !param min-severity ~callout = callout.warning
     !param context ~any = {}
     !param namespace ~any = nil

@@ -66,12 +66,13 @@ def scan(source):
     return comp.Value.from_python(result)
 
 
+
 def _scan_mod_statement(node, source):
     """Extract module definition info from mod_statement node.
 
     Returns dict or None: (operator~str name~str pos~(num num num num) body~str)
     """
-    if len(node.children) < 2:
+    if len(node.children) < 1:
         return None
 
     # First child is the operator token (!import, !func, !shape, etc.)

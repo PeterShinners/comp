@@ -146,7 +146,7 @@ OLD IMPLEMENTATION, SLOWLY MIGRATING NORTH
 
 
 /// Test function that raises a Python sqlite exception
-!func test-sqlite-error [
+!func test-sqlite-error ~nil [
     py.call-func name="sqlite3.connect"
         {database="/invalid/path/that/does/not/exist/test.db"}
 ]
