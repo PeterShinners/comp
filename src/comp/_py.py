@@ -38,6 +38,8 @@ _PURE_PREFIXES = frozenset([
     "zoneinfo.",   # e.g. zoneinfo.ZoneInfo — pure tz lookup, no side effects
     "datetime.",   # e.g. datetime.datetime, datetime.timedelta, datetime.date …
     "calendar.",   # e.g. calendar.monthrange — pure calendar arithmetic
+    "urllib.parse.",  # e.g. urllib.parse.urlparse, urllib.parse.quote …
+    "posixpath.",  # e.g. posixpath.split, posixpath.splitext — pure path arithmetic
     "comp.runtime.pure.",  # struct-manipulation helpers in comp.runtime.pure
 ])
 _PURE_BUILTINS = frozenset([
@@ -119,11 +121,12 @@ def _unwrap_py_object(handle_val):
 # Conversion helpers
 # ---------------------------------------------------------------------------
 
-def _comp_to_python(value):
+def _comp_to_python(value, _seen=None):
     """Recursively convert a Comp Value to a Python object.
 
     Args:
         value: (Value) Comp value to convert
+        _seen: (set|None) Tracks visited object ids to detect cycles
 
     Returns:
         Python object (dict, list, int, float, str, bool, None)
@@ -132,6 +135,15 @@ def _comp_to_python(value):
         ValueError: If value contains unconvertible types (handles, blocks)
     """
     data = value.data
+
+    # Detect circular references (e.g. root entry pointing to itself)
+    if isinstance(data, dict):
+        if _seen is None:
+            _seen = set()
+        vid = id(value)
+        if vid in _seen:
+            return None  # break cycle
+        _seen = _seen | {vid}
 
     # Tag values
     if isinstance(data, comp.Tag):
@@ -159,7 +171,7 @@ def _comp_to_python(value):
             all(isinstance(k, comp.Unnamed) for k in data)
         )
         if all_unnamed:
-            return [_comp_to_python(v) for v in data.values()]
+            return [_comp_to_python(v, _seen) for v in data.values()]
         result = {}
         unnamed_idx = 0
         for k, v in data.items():
@@ -167,10 +179,10 @@ def _comp_to_python(value):
                 py_key = unnamed_idx
                 unnamed_idx += 1
             elif isinstance(k, comp.Value):
-                py_key = _comp_to_python(k)
+                py_key = _comp_to_python(k, _seen)
             else:
                 py_key = str(k)
-            result[py_key] = _comp_to_python(v)
+            result[py_key] = _comp_to_python(v, _seen)
         return result
 
     if isinstance(data, comp.HandleInstance):
@@ -211,6 +223,11 @@ def _python_to_comp(obj):
     if isinstance(obj, dict):
         d = {}
         for k, v in obj.items():
+            d[comp.Value.from_python(k)] = _python_to_comp(v)
+        return comp.Value(d)
+    if isinstance(obj, tuple) and hasattr(obj, "_asdict"):
+        d = {}
+        for k, v in obj._asdict().items():
             d[comp.Value.from_python(k)] = _python_to_comp(v)
         return comp.Value(d)
     if isinstance(obj, (list, tuple)):

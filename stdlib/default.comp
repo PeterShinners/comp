@@ -14,9 +14,6 @@
 !alias pick
 
 !import limit comp "./limit"
-!alias measure
-
-!import loop comp "./loop"
 !alias ge
 !alias le
 !alias gt
@@ -29,6 +26,21 @@
 !alias single-char
 !alias size
 !alias match
+
+!import loop comp "./loop"
+!alias where
+!alias map
+!alias each
+!alias some
+!alias every
+!alias range
+!alias reduce
+!alias iterate
+!alias generate
+!alias slice
+!alias first
+!alias last
+!alias reverse
 
 !import num comp "./num"
 !alias pi

@@ -96,6 +96,10 @@ class InternalModule(comp.Module):
     def add_tag(self, qualified_name, private=False):
         """Add a tag definition to this module.
 
+        Automatically creates parent tag definitions for hierarchical
+        names (e.g. "entry-type.dir" also creates "entry-type") matching
+        the behavior of source-defined tags.
+
         Args:
             qualified_name: Qualified name like "test" or "value.block"
             private: Whether this is a private tag
@@ -103,6 +107,22 @@ class InternalModule(comp.Module):
         Returns:
             Tag: The created Tag object
         """
+        # Create parent tag definitions for hierarchical names
+        parts = qualified_name.split(".")
+        for i in range(1, len(parts)):
+            parent_name = ".".join(parts[:i])
+            if parent_name not in self._definitions:
+                parent_tag = comp.Tag(parent_name, private=False)
+                parent_tag.module = self
+                parent_def = comp.Definition(
+                    qualified=parent_name,
+                    module_id=self.token,
+                    original_cop=None,
+                    shape=comp.shape_struct
+                )
+                parent_def.value = comp.Value.from_python(parent_tag)
+                self._definitions[parent_name] = parent_def
+
         # Create the Tag object
         tag = comp.Tag(qualified_name, private)
         tag.module = self
@@ -115,8 +135,6 @@ class InternalModule(comp.Module):
             shape=comp.shape_struct  # Tags are struct-shaped values
         )
         definition.value = comp.Value.from_python(tag)
-        # definition.resolved_cop = comp._fold.make_constant(None, definition.value)  # Already resolved
-        # definition.original_cop = definition.resolved_cop
 
         self._definitions[qualified_name] = definition
         return tag
@@ -256,8 +274,9 @@ class SystemModule(comp.Module):
         self._add_callable("wrap", _builtin_wrap)
         self._add_callable("fmt", _builtin_fmt, pure=True)
         self._add_callable("invoke", _builtin_invoke, pure=True)
-        self._add_callable("get-unit-tag",    _builtin_get_unit_tag,     pure=True)
         self._add_callable("namespace-lookup",_builtin_namespace_lookup, pure=True)
+        self._add_callable("dispatch",        _builtin_dispatch)
+        self._add_callable("promote-root",    _builtin_promote_root)
         self._add_callable("strip-unit",      _builtin_strip_unit,       pure=True)
         self._add_callable("to-text",         _builtin_to_text,          pure=True)
         self._add_callable("substitute",      _builtin_substitute,       pure=True)
@@ -265,7 +284,6 @@ class SystemModule(comp.Module):
         self._add_callable("flat", _builtin_flat)
         self._add_callable("reduce", _builtin_reduce)
         self._add_callable("forever", _builtin_forever, pure=True)
-        self._add_callable("make-raw-tag", _builtin_make_raw_tag, pure=True)
         self._add_callable("cop-tag", _builtin_cop_tag, pure=True)
         self._add_callable("cop-kids", _builtin_cop_kids, pure=True)
         self._add_callable("cop-fields", _builtin_cop_fields, pure=True)
@@ -918,24 +936,22 @@ def _builtin_fmt(input_val, args_val, frame):
 
     Wrapper mode — invoked via @fmt "template":
       input_val is an invoke-data struct.  The format string is taken from
-      $.statement and substitutions use $.locals for $(name) tokens and
-      $.input for %(ref) tokens.
+      $.statement.  %(name) tokens resolve from local variables captured
+      at the call site, and %($) resolves to the piped input.
 
     Pipeline mode — invoked via value | fmt :"template":
       input_val is the value to format.  The format string is the first
-      positional argument.  %(ref) tokens draw from input_val; $(name)
-      tokens have no locals source (produce empty string).
+      positional argument.  %(ref) tokens draw from input_val.
 
     Token syntax:
       %()     — the whole piped input
       %(#N)   — Nth unnamed positional field of the piped input, 1-based
-      %(name) — named field 'name' of the piped input
-      $(name) — local variable 'name' captured from the call site (wrapper mode)
+      %(name) — named field 'name' of the input (or local variable in wrapper mode)
 
     Examples:
       12 | fmt :"%()"                         → "12"
       {x=5} | fmt :"x is %(x)"               → "x is 5"
-      @fmt "x is $(x)"  (with !let x 5 above) → "x is 5"
+      @fmt "x is %(x)"  (with !let x 5 above) → "x is 5"
     """
     import comp._fmt as _fmt
 
@@ -956,7 +972,7 @@ def _builtin_fmt(input_val, args_val, frame):
             if input_from_data is not None:
                 base[comp.Value.from_python("$")] = input_from_data
             scope = comp.Value(base) if base else comp.Value.from_python({})
-            result = _fmt.apply_format(parsed, scope, locals_val=locals_val)
+            result = _fmt.apply_format(parsed, scope)
             return comp.Value.from_python(result)
 
     # Pipeline mode: value | fmt :"template"
@@ -1060,6 +1076,153 @@ def _builtin_namespace_lookup(input_val, args_val, frame):
     if hasattr(entry, "value") and entry.value is not None:
         return entry.value
     return comp.Value.from_python(None)
+
+
+def _resolve_from_module(name, module, frame):
+    """Resolve a name to a Value from a specific module's namespace.
+
+    Handles overload sets (Callable with pending entries), single definitions,
+    and InternalCallable entries. Returns None if not found or not resolvable.
+    """
+    ns = module.namespace()
+    entry = ns.get(name)
+    if entry is None:
+        return None
+    if isinstance(entry, comp.Callable):
+        callable = comp.Callable(name)
+        for defn in entry.entries:
+            comp._instructions._ensure_definition_value(defn, frame)
+            if defn.value is None:
+                continue
+            data = defn.value.data
+            if isinstance(data, comp.Callable):
+                for b in data.entries:
+                    callable.add(b)
+                if data.shape is not None and callable.shape is None:
+                    callable.shape = data.shape
+                if data.pipeline is not None and callable.pipeline is None:
+                    callable.pipeline = data.pipeline
+            elif isinstance(data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                callable.shape = data
+            elif isinstance(data, comp.InternalCallable):
+                callable.add(data)
+            else:
+                if len(entry.entries) == 1:
+                    return defn.value
+        if not callable.entries and callable.shape is not None and callable.pipeline is None:
+            return comp.Value.from_python(callable.shape)
+        if callable.entries or callable.pipeline:
+            return comp.Value(callable)
+        for defn in entry.entries:
+            if defn.value is not None:
+                return defn.value
+        return None
+    elif hasattr(entry, "value"):
+        comp._instructions._ensure_definition_value(entry, frame)
+        if entry.value is not None:
+            return entry.value
+    return None
+
+
+def _builtin_dispatch(input_val, args_val, frame):
+    """Dispatch a call to a function in the module that owns a tag.
+
+    Looks up a named function in the tag's defining module and invokes it
+    with the original piped input. Additional args beyond the tag and name
+    are forwarded to the dispatched function.
+
+    Args (positional):
+        tag: (tag) Identifies which module to dispatch to
+        name: (text) Function name to call in that module
+
+    Any additional positional or named args are forwarded.
+
+    Examples:
+      entry | dispatch $.vfs "entry-read"
+      entry | dispatch $.vfs "entry-write" content
+    """
+    args_data = args_val.data if isinstance(args_val.data, dict) else {}
+
+    # Extract tag (first positional) and name (second positional)
+    tag_val = None
+    name_val = None
+    pos_index = 0
+    forwarded = {}
+    for key, val in args_data.items():
+        if isinstance(key, comp.Unnamed):
+            if pos_index == 0:
+                tag_val = val
+            elif pos_index == 1:
+                name_val = val
+            else:
+                forwarded[comp.Unnamed()] = val
+            pos_index += 1
+        else:
+            forwarded[key] = val
+
+    if tag_val is None:
+        raise comp.CodeError("dispatch: requires a tag as first argument")
+    if not isinstance(tag_val.data, comp.Tag):
+        raise comp.CodeError(
+            f"dispatch: first argument must be a tag, got {tag_val.format()}"
+        )
+    tag = tag_val.data
+    if tag.module is None:
+        raise comp.CodeError(
+            f"dispatch: tag {tag.qualified} has no owning module"
+        )
+
+    if name_val is None or name_val.shape is not comp.shape_text:
+        raise comp.CodeError("dispatch: requires a text function name as second argument")
+    name = name_val.data
+
+    # Block private functions from dispatch — check namespace definitions
+    ns = tag.module.namespace()
+    ns_entry = ns.get(name)
+    if ns_entry is not None and isinstance(ns_entry, comp.Callable):
+        if any(getattr(d, "private", False) for d in ns_entry.entries):
+            raise comp.CodeError(
+                f"dispatch: cannot dispatch to private function '{name}'"
+            )
+    elif ns_entry is not None and hasattr(ns_entry, "private") and ns_entry.private:
+        raise comp.CodeError(
+            f"dispatch: cannot dispatch to private function '{name}'"
+        )
+
+    # Resolve callable from the tag's module
+    callable_val = _resolve_from_module(name, tag.module, frame)
+    if callable_val is None:
+        raise comp.CodeError(
+            f"dispatch: '{name}' not found in module for {tag.qualified}"
+        )
+
+    # Invoke with original piped input and forwarded args
+    forwarded_args = comp.Value(forwarded) if forwarded else comp.Value.from_python({})
+    return frame.invoke_block(callable_val, forwarded_args, piped=input_val)
+
+
+def _builtin_promote_root(input_val, args_val, frame):
+    """Make a struct field reference the struct itself (self-referential).
+
+    Used to create root entries where $.root points back to $.
+    The field name defaults to "root".
+
+    Example:
+      {name="C:/" root=nil vfs=disk} | promote-root
+      // $.root is now the same object as $
+    """
+    if not isinstance(input_val.data, dict):
+        raise comp.CodeError("promote-root: input must be a struct")
+    field = "root"
+    try:
+        name_val = args_val.positional(0) if args_val else None
+    except (IndexError, TypeError):
+        name_val = None
+    if name_val is not None and isinstance(name_val.data, str):
+        field = name_val.data
+    key = comp.Value.from_python(field)
+    input_val.data[key] = input_val
+    return input_val
 
 
 def _builtin_strip_unit(input_val, args_val, frame):
@@ -1434,4 +1597,171 @@ def get_internal_module(resource):
             callback(module)
         _internal_modules[resource] = module
     return module
+
+
+@register_internal_module("tag")
+def _create_tag_module(module):
+    """Tag inspection and hierarchy utilities.
+
+    Provides functions for working with tags: creating raw tags,
+    inspecting unit annotations, walking tag hierarchies, and
+    querying tag ownership.
+    """
+    module.add_callable("make-raw-tag", _builtin_make_raw_tag, pure=True)
+    module.add_callable("get-unit-tag", _builtin_get_unit_tag, pure=True)
+    module.add_callable("owner", _builtin_tag_owner, pure=True)
+    module.add_callable("parent", _builtin_tag_parent, pure=True)
+    module.add_callable("children", _builtin_tag_children, pure=True)
+    module.add_callable("ancestors", _builtin_tag_ancestors, pure=True)
+    module.add_callable("is-ancestor", _builtin_tag_is_ancestor, pure=True)
+
+
+def _builtin_tag_owner(input_val, args_val, frame):
+    """Return the module resource name that defined a tag, or nil.
+
+    Usage:
+      some-tag | tag.owner   // → "aa.comp"
+    """
+    data = input_val.data
+    if isinstance(data, comp.Tag) and data.module is not None:
+        resource = getattr(data.module.source, "resource", None)
+        if resource is not None:
+            return comp.Value.from_python(resource)
+    return comp.Value.from_python(None)
+
+
+def _builtin_tag_parent(input_val, args_val, frame):
+    """Return the parent tag in the current module's hierarchy, or nil.
+
+    Usage:
+      child-tag | tag.parent   // → parent-tag or nil
+    """
+    data = input_val.data
+    if not isinstance(data, comp.Tag):
+        return comp.Value.from_python(None)
+
+    hierarchy = _get_hierarchy_for_tag(data)
+    if hierarchy is None:
+        return comp.Value.from_python(None)
+
+    tag_slot = hierarchy._slot.get(data)
+    if tag_slot is None:
+        return comp.Value.from_python(None)
+
+    parent_slot = hierarchy._parent_slot.get(tag_slot)
+    if parent_slot is None:
+        return comp.Value.from_python(None)
+
+    # Find any tag in the parent slot
+    for tag, slot in hierarchy._slot.items():
+        if slot == parent_slot:
+            return comp.Value.from_python(tag)
+    return comp.Value.from_python(None)
+
+
+def _builtin_tag_children(input_val, args_val, frame):
+    """Return direct child tags in the current module's hierarchy.
+
+    Usage:
+      parent-tag | tag.children   // → {child1 child2 ...}
+    """
+    data = input_val.data
+    if not isinstance(data, comp.Tag):
+        return comp.Value.from_python({})
+
+    hierarchy = _get_hierarchy_for_tag(data)
+    if hierarchy is None:
+        return comp.Value.from_python({})
+
+    my_slot = hierarchy._slot.get(data)
+    if my_slot is None:
+        return comp.Value.from_python({})
+
+    # Find slots whose parent is my_slot
+    child_slots = {s for s, p in hierarchy._parent_slot.items() if p == my_slot}
+    if not child_slots:
+        return comp.Value.from_python({})
+
+    # Collect one representative tag per child slot
+    children = []
+    seen_slots = set()
+    for tag, slot in hierarchy._slot.items():
+        if slot in child_slots and slot not in seen_slots:
+            children.append(comp.Value.from_python(tag))
+            seen_slots.add(slot)
+
+    result = {}
+    for child in children:
+        result[comp.Unnamed()] = child
+    return comp.Value(result)
+
+
+def _builtin_tag_ancestors(input_val, args_val, frame):
+    """Return all ancestor tags from child to root, or empty struct.
+
+    Usage:
+      deep-tag | tag.ancestors   // → {parent grandparent ...}
+    """
+    data = input_val.data
+    if not isinstance(data, comp.Tag):
+        return comp.Value.from_python({})
+
+    hierarchy = _get_hierarchy_for_tag(data)
+    if hierarchy is None:
+        return comp.Value.from_python({})
+
+    tag_slot = hierarchy._slot.get(data)
+    if tag_slot is None:
+        return comp.Value.from_python({})
+
+    ancestors = []
+    current = tag_slot
+    while True:
+        parent_slot = hierarchy._parent_slot.get(current)
+        if parent_slot is None:
+            break
+        current = parent_slot
+        for tag, slot in hierarchy._slot.items():
+            if slot == current:
+                ancestors.append(comp.Value.from_python(tag))
+                break
+
+    result = {}
+    for anc in ancestors:
+        result[comp.Unnamed()] = anc
+    return comp.Value(result)
+
+
+def _builtin_tag_is_ancestor(input_val, args_val, frame):
+    """Check if the argument tag is an ancestor of the input tag.
+
+    Usage:
+      child-tag | tag.is-ancestor parent-tag   // → true or false
+    """
+    data = input_val.data
+    if not isinstance(data, comp.Tag):
+        return comp.Value.from_python(False)
+
+    ancestor_val = args_val.positional(0)
+    if ancestor_val is None or not isinstance(ancestor_val.data, comp.Tag):
+        return comp.Value.from_python(False)
+
+    hierarchy = _get_hierarchy_for_tag(data)
+    if hierarchy is None:
+        return comp.Value.from_python(False)
+
+    depth = hierarchy.ancestor_depth(data, ancestor_val.data)
+    return comp.Value.from_python(depth is not None)
+
+
+def _get_hierarchy_for_tag(tag):
+    """Get the tag hierarchy from the tag's own defining module.
+
+    Uses the tag's module (where it was defined) rather than the
+    calling module, so transitive imports are handled correctly.
+    """
+    module = getattr(tag, "module", None)
+    if module is None:
+        return None
+    return getattr(module, "tag_hierarchy", None)
 

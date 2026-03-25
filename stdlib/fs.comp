@@ -1,12 +1,28 @@
-/// Entry-centric filesystem access for Comp.
+/// Entry-centric filesystem access.
 ///
-/// All filesystem access flows through entry values. An entry represents
-/// a named thing in a filesystem — a file, directory, symlink, or a name
-/// that doesn't exist yet (missing).
+/// Comp works with filesystems through entries instead of traditional paths.
+/// Entries allow working with the file system more like a data structure and
+/// composable operations. An entry represents a named thing (or potential named
+/// thing) in a filesystem. File paths use a uri style string which can be used
+/// to access local system
 ///
-/// Entries carry opaque capability data that the filesystem backend uses
-/// to perform operations. The root field links every entry back to the
-/// filesystem root it came from.
+/// The entry shape comes with several overloaded constructors that generate
+/// an entry from other entries and file paths. The `file` and `dir` funtions
+/// are used to ensure specific paths of specific types exist and will create
+/// them if needed, or fail if not. A more generic `at` gets any type of entry
+/// from a parent path. This also allows looking up entries that do not exist,
+/// which have the `missing` `entity-type` field.
+///
+/// Information about entries is looked up on creation time and cached.
+/// Whatever the underlying file system provides will be custom attributes on
+/// the entry. The `meta` will fetch additional possible attributes for the
+/// entry. This is usually timestamps, sizes, and other information from system
+/// calls like stat or xattr. The entries can have their cached date reset with
+/// `refresh` which generates a duplicate entry that does not carry any known
+/// cached data for the file system.
+///
+/// Every file entry has a `root` attribute that is a reference to the root ///
+/// entry for the file system.
 ///
 /// Example:
 ///   !my root ["/home/user" | fs.open]
@@ -23,57 +39,61 @@
 ///   fs.dir   — ensures a directory (creates if missing, opens handle)
 ///   fs.at    — generic lookup (stats, returns whatever exists or missing)
 
-!import fsn comp "fs-native"
+!no-default
+!import py comp "py"
+!import nativefs comp "nativefs"
+!import uri comp "uri"
+!import loop comp "loop"
+!import text comp "text"
 
+/// VFS backend root tag — each backend extends this with a child tag.
+/// The tag on an entry's `vfs` field identifies which backend module
+/// handles operations dispatched through `dispatch $.root.vfs "vfs-*"`.
+!tag vfs
 
-// ---------------------------------------------------------------------------
-// Shapes
-// ---------------------------------------------------------------------------
+/// Entry type tags — classify what an fs entry represents.
+!tag entry-type {dir file link missing}
+
 
 /// An entry in a filesystem — file, directory, symlink, or missing.
 ///
 /// Core fields:
-///   entry-type — what kind of entry this is (fsn.entry-type.dir, .file, .link, .missing)
+///   entry-type — what kind of entry this is (fs.entry-type.dir, .file, .link, .missing)
 ///   name       — the final path component (basename)
+///   path       — the fully qualified path
 ///   root       — the root entry of this filesystem (nil for root entries)
 ///
 /// Additional metadata fields (size, modified, etc.) may be present
 /// depending on how the entry was obtained. Use fs.meta to enrich an
 /// entry with full stat metadata.
 !shape entry ~{
-    entry-type~any
-    name~text
-    root~any
+    entry-type~entry-type /// what kind of entry this is (fs.entry-type.dir, .file, .link, .missing)
+    name~text /// final path component (basename)
+    path~text ///fully qualified path (could use a future `#uri` unit?)
+    root~entry /// the root entry of this filesystem (nil for root entries)
 }
 
-
-// ---------------------------------------------------------------------------
-// Root / handle opening
-// ---------------------------------------------------------------------------
-
-/// Open an absolute path as a filesystem root entry.
+/// A root entry — the entry point to a filesystem with vfs backend info.
 ///
-/// Returns a directory entry with root=nil. This entry has an open
-/// directory handle and can be used for navigation and listing.
-///
-/// Example:
-///   !my root ["/home/user" | fs.open]
-!func open ~text (
-    [$ | fsn.open-root]
-)
+/// Root entries have root=nil and carry the vfs tag that identifies
+/// which backend handles operations on entries in this filesystem.
+!shape root-entry ~{
+    entry-type~entry-type
+    name~text
+    path~text
+    root~root-entry /// self-referencing
+    vfs~vfs /// tag identifying the vfs backend (dispatch target)
+}
+
 
 /// Open the current working directory as a filesystem root entry.
 ///
 /// Example:
 ///   !my here [nil | fs.cwd]
 !func cwd ~nil (
-    [nil | fsn.cwd]
+    [nil | py.call "comp.runtime.fs.getcwd" | nativefs.vfs-root-entry]
 )
 
-
-// ---------------------------------------------------------------------------
-// Navigation — type-ensuring functions
-// ---------------------------------------------------------------------------
 
 /// Look up a named child within a directory entry.
 ///
@@ -85,11 +105,16 @@
 /// intermediate directories.
 ///
 /// Example:
-///   !my e [root | fs.at "notes.txt"]
-///   !my e [root | fs.at "docs/readme.md"]
-!func at (
-    !param name~text
-    [$ | fsn.entry-at name]
+///   !my e [root | fs.entry "notes.txt"]
+///   !my e [root | fs.entry "docs/readme.md"]
+!func root.entry ~nil (
+    !param name~uri.uri-or-text
+    [name | uri.to-text | nativefs.vfs-root-entry]
+)
+
+!func down.entry ~entry (
+    !param name~uri.uri-or-text
+    [$ | dispatch $.root.vfs "vfs-child-entry" [name | uri.to-text]]
 )
 
 /// Ensure a file entry exists within a directory.
@@ -101,9 +126,13 @@
 /// Example:
 ///   !my f [root | fs.file "notes.txt"]
 ///   !my text [root | fs.file "notes.txt" | fs.read]
-!func file (
-    !param name~text
-    [$ | fsn.entry-file name]
+!func root.file ~nil (
+    !param name~uri.uri-or-text
+    [name | uri.to-text | nativefs.vfs-root-entry | only-file]
+)
+!func down.file ~entry<not-file> (
+    !param name~uri.uri-or-text
+    [$ | dispatch $.root.vfs "vfs-child-entry" [name | uri.to-text] | only-file]
 )
 
 /// Ensure a directory entry exists within a directory.
@@ -119,22 +148,22 @@
 ///   !my d [root | fs.dir "projects"]
 ///   !my deep [root | fs.dir "a/b/c"]
 ///   [root | fs.dir "output" | fs.file "result.txt" | fs.write "hello"]
-!func dir (
-    !param name~text
-    [$ | fsn.entry-dir name]
+!func root.dir ~nil (
+    !param name~uri.uri-or-text
+    [name | uri.to-text | nativefs.vfs-root-entry | only-dir]
+)
+!func down.dir ~entry<not-file> (
+    !param name~uri.uri-or-text
+    [$ | dispatch $.root.vfs "vfs-child-entry" [name | uri.to-text] | only-dir]
 )
 
-
-// ---------------------------------------------------------------------------
-// File I/O
-// ---------------------------------------------------------------------------
 
 /// Read a file entry's content as text (UTF-8).
 ///
 /// Example:
 ///   !my text [root | fs.file "config.txt" | fs.read]
-!func read (
-    [$ | fsn.entry-read]
+!func read ~entry<only-file> (
+    [$ | dispatch $.root.vfs "vfs-read"]
 )
 
 /// Write text content to a file entry.
@@ -142,15 +171,11 @@
 ///
 /// Example:
 ///   [root | fs.file "output.txt" | fs.write "hello"]
-!func write (
+!func write ~entry<only-file> (
     !param content~text
-    [$ | fsn.entry-write content]
+    [$ | dispatch $.root.vfs "vfs-write" content]
 )
 
-
-// ---------------------------------------------------------------------------
-// Directory listing
-// ---------------------------------------------------------------------------
 
 /// List all children of a directory entry, returning a struct of entries.
 ///
@@ -159,15 +184,10 @@
 ///
 /// Example:
 ///   !my entries [root | fs.dir "docs" | fs.list]
-///   !my files [entries | filter :{$ | fs.is-file?}]
-!func list (
-    [$ | fsn.entry-list]
+!func list ~entry<only-dir> (
+    [$ | dispatch $.root.vfs "vfs-list"]
 )
 
-
-// ---------------------------------------------------------------------------
-// Metadata and inspection
-// ---------------------------------------------------------------------------
 
 /// Return an enriched copy of an entry with full stat metadata.
 ///
@@ -177,54 +197,25 @@
 /// Example:
 ///   !my info [root | fs.file "data.bin" | fs.meta]
 ///   !my size [info.size]
-!func meta (
-    [$ | fsn.entry-meta]
+!func meta ~entry (
+    [$ | dispatch $.root.vfs "vfs-meta"]
 )
-
-/// Check if an entry is a directory.
-!func is-dir? (
-    [$ | fsn.is-dir?]
-)
-
-/// Check if an entry is a regular file.
-!func is-file? (
-    [$ | fsn.is-file?]
-)
-
-/// Check if an entry is missing (does not exist on the filesystem).
-!func is-missing? (
-    [$ | fsn.is-missing?]
-)
-
-/// Check if an entry is a symbolic link.
-!func is-link? (
-    [$ | fsn.is-link?]
-)
-
-
-// ---------------------------------------------------------------------------
-// Entry management
-// ---------------------------------------------------------------------------
 
 /// Remove a file or empty directory.
 ///
 /// Example:
 ///   [root | fs.at "old-file.txt" | fs.remove]
-!func remove (
-    [$ | fsn.entry-remove]
+!func remove ~entry (
+    [$ | dispatch $.root.vfs "vfs-remove"]
 )
 
-
-// ---------------------------------------------------------------------------
-// Navigation
-// ---------------------------------------------------------------------------
 
 /// Return the parent entry. Returns nil for root entries.
 ///
 /// Example:
 ///   !my parent [entry | fs.up]
-!func up (
-    [$ | fsn.entry-up]
+!func up ~entry (
+    [$ | dispatch $.root.vfs "vfs-up"]
 )
 
 /// Return a fresh entry with the same identity but no cached metadata.
@@ -233,14 +224,10 @@
 ///
 /// Example:
 ///   !my fresh [entry | fs.refresh]
-!func refresh (
-    [$ | fsn.entry-refresh]
+!func refresh ~entry (
+    [$ | dispatch $.root.vfs "vfs-refresh"]
 )
 
-
-// ---------------------------------------------------------------------------
-// Path helpers
-// ---------------------------------------------------------------------------
 
 /// Extract the last component (basename) of a path string.
 /// Works on both "/" and "\" separators.
@@ -248,5 +235,41 @@
 /// Example:
 ///   !my name ["/home/user/docs" | fs.basename]  // => "docs"
 !pure basename ~text [
-    [$ | fsn.basename-of]
+    !my parts [$ | text.split "/"]
+    [parts | loop.last]
 ]
+
+
+/// Check if an entry can be used for directory related calls
+/// This is often used as a limit for entry types
+///
+/// Example:
+///   ~entry<only-dir>
+!pure only-dir ~entry (
+    !on ($.entry-type == entry-type.dir !or $.entry-type == entry-type.link)
+    ~false !fail "Entry must be a directory"
+    ~true true
+)
+
+/// Check if an entry can be used for directory related calls
+/// This is often used as a limit for entry types
+///
+/// Example:
+///   ~entry<only-file>
+!pure only-file ~entry (
+    !on ($.entry-type == entry-type.file)
+    ~false !fail "Entry must be a file"
+    ~true true
+)
+
+/// Check if an entry known to not be a leaf level file
+/// This is often used as a limit for entry types
+///
+/// Example:
+///   ~entry<not-file>
+!pure not-file ~entry (
+    !on ($.entry-type != entry-type.file)
+    ~false !fail "Entry cannot be a file"
+    ~true true
+)
+

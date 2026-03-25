@@ -57,6 +57,24 @@ class Module:
         # to no_default property.
         self._no_default = None
 
+        # Per-module tag hierarchy for ancestry checks (built after namespace)
+        self._tag_hierarchy = None
+
+    @property
+    def tag_hierarchy(self):
+        """Tag ancestor map for morph dispatch.
+
+        Lazily built from imported + local tag definitions after
+        namespace() has been populated.  Returns _EMPTY_HIERARCHY if
+        this module has no tags or hasn't been built yet.
+        """
+        if self._tag_hierarchy is not None:
+            return self._tag_hierarchy
+        if self._namespace is None:
+            return comp._tag._EMPTY_HIERARCHY
+        self._tag_hierarchy = _build_tag_hierarchy(self)
+        return self._tag_hierarchy
+
     def __repr__(self):
         return f"Module<{self.token}>"
 
@@ -560,6 +578,25 @@ class Module:
             if not is_private:
                 self._exported_aliases.setdefault(def_name, set()).update(target_defs)
 
+            # Also include child definitions matching the reference prefix.
+            # e.g., aliasing "entry-type" from "fsn.entry-type" also captures
+            # "entry-type.dir" from "fsn.entry-type.dir", etc.
+            child_prefix = def_ref + "."
+            for ns_key, ns_entry in list(self._namespace.items()):
+                if not ns_key.startswith(child_prefix):
+                    continue
+                child_suffix = ns_key[len(def_ref):]
+                child_alias = def_name + child_suffix
+                if isinstance(ns_entry, comp.Callable):
+                    child_defs = set(ns_entry.entries)
+                elif isinstance(ns_entry, Ambiguous):
+                    child_defs = set(ns_entry.definitions)
+                else:
+                    continue
+                self._resolved_deferred.append((kind, child_alias, child_defs, is_private))
+                if not is_private:
+                    self._exported_aliases.setdefault(child_alias, set()).update(child_defs)
+
     def _apply_aliases(self, default_mod=None):
         """Inject resolved aliases into namespaces.
 
@@ -831,3 +868,129 @@ def _find_default_module(module):
         return None
 
     return _walk(module)
+
+
+def _build_tag_hierarchy(module):
+    """Build a TagHierarchy from a module's visible tag definitions.
+
+    Collects tag definitions from the system module, all imports, and
+    local definitions — without clobbering.  Tags that share any
+    namespace-key permutation are placed in the same equivalence slot
+    via union-find.  Parent slots are then determined by namespace-key
+    prefix matching.
+
+    Args:
+        module: (Module) The module to build a hierarchy for
+
+    Returns:
+        (TagHierarchy) Assembled tag hierarchy
+    """
+    # Phase 1: Collect all (namespace_key, Tag) pairs
+    # key_tags: {key: set of tag_id}
+    # tag_keys: {tag_id: set of keys}
+    # all_tags: {tag_id: Tag}
+    key_tags = {}
+    tag_keys = {}
+    all_tags = {}
+
+    def _add_tag(tag, prefix):
+        tid = id(tag)
+        all_tags[tid] = tag
+        qualified = tag.qualified
+        parts = qualified.split(".")
+        if prefix:
+            parts = [prefix] + parts
+        for i in range(len(parts)):
+            key = ".".join(parts[i:])
+            key_tags.setdefault(key, set()).add(tid)
+            tag_keys.setdefault(tid, set()).add(key)
+
+    def _collect_defs(defs, prefix):
+        for defn in defs.values():
+            if (defn.shape is comp.shape_tag and defn.value is not None
+                    and isinstance(defn.value.data, comp.Tag)
+                    and not (prefix and defn.private)):
+                _add_tag(defn.value.data, prefix)
+
+    # System module tags (no prefix)
+    if not isinstance(module, comp._internal.SystemModule):
+        sys = comp.get_internal_module("system")
+        if sys is not None:
+            sys_defs = sys.definitions()
+            _collect_defs(sys_defs, None)
+
+    # Import tag definitions
+    imports = getattr(module, "_imports", None) or {}
+    for import_name, (import_mod, import_err) in imports.items():
+        if import_err or import_mod is None:
+            continue
+        try:
+            _collect_defs(import_mod.definitions(), import_name)
+        except (comp.ParseError, comp.CodeError):
+            continue
+
+    # Local tag definitions (no prefix)
+    try:
+        _collect_defs(module.definitions(), None)
+    except (comp.ParseError, comp.CodeError):
+        pass
+
+    if not all_tags:
+        return comp._tag._EMPTY_HIERARCHY
+
+    # Phase 2: Union-Find to group tags sharing namespace keys
+    uf = {}
+
+    def _find(x):
+        path = []
+        while uf.get(x, x) != x:
+            path.append(x)
+            x = uf[x]
+        for p in path:
+            uf[p] = x
+        return x
+
+    def _union(a, b):
+        ra, rb = _find(a), _find(b)
+        if ra != rb:
+            uf[ra] = rb
+
+    for tids in key_tags.values():
+        tids_list = list(tids)
+        for i in range(1, len(tids_list)):
+            _union(tids_list[0], tids_list[i])
+
+    # Phase 3: Assign slot ids and collect per-slot keys
+    slot_of = {}
+    slot_keys = {}
+
+    for tid in all_tags:
+        rep = _find(tid)
+        slot_of[tid] = rep
+        slot_keys.setdefault(rep, set()).update(tag_keys.get(tid, set()))
+
+    # Phase 4: Map every namespace key to its slot
+    key_to_slot = {}
+    for rep, keys in slot_keys.items():
+        for key in keys:
+            key_to_slot[key] = rep
+
+    # Phase 5: Determine parent slot for each slot
+    # Use longest key, walk down its prefixes to find the first different slot
+    slot_parent = {}
+    for rep, keys in slot_keys.items():
+        longest = max(keys, key=len)
+        parts = longest.split(".")
+        for i in range(len(parts) - 1, 0, -1):
+            prefix = ".".join(parts[:i])
+            parent_rep = key_to_slot.get(prefix)
+            if parent_rep is not None and parent_rep != rep:
+                slot_parent[rep] = parent_rep
+                break
+
+    # Phase 6: Assemble TagHierarchy
+    hierarchy = comp.TagHierarchy()
+    for tid, tag in all_tags.items():
+        hierarchy._slot[tag] = slot_of[tid]
+    hierarchy._parent_slot = slot_parent
+    return hierarchy

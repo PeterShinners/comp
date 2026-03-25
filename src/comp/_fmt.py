@@ -55,29 +55,12 @@ class FmtToken:
     spec: str | None = None
 
 
-@dataclass
-class LocalsToken:
-    """A $(name) substitution token that looks up a name in the locals dict.
-
-    Used when a format string is applied via the wrapper mechanism (@fmt),
-    where the local variable bindings captured at the call site are available
-    as invoke-data.locals.
-
-    Attributes:
-        name: variable name to look up
-        spec: format specifier — reserved for future use
-    """
-    name: str
-    spec: str | None = None
-
-
 # ---------------------------------------------------------------------------
 # Parsing
 # ---------------------------------------------------------------------------
 
-# Matches %(inner) tokens and $(name) tokens.
-# Group 1: %(inner) content; Group 2: $(name) content.
-_TOKEN_RE = re.compile(r'%\(([^)]*)\)|\$\(([^)]+)\)')
+# Matches %(inner) tokens.
+_TOKEN_RE = re.compile(r'%\(([^)]*)\)')
 
 
 def _parse_ref(inner):
@@ -100,22 +83,16 @@ def parse_format_text(s: str) -> list:
     """Parse a format text into an ordered list of literals and tokens.
 
     Returns a list where each element is either:
-      str         — literal text to pass through unchanged
-      FmtToken    — a %(ref) substitution resolved from piped input
-      LocalsToken — a $(name) substitution resolved from locals dict
+      str      — literal text to pass through unchanged
+      FmtToken — a %(ref) substitution resolved from input
     """
     result = []
     pos = 0
     for m in _TOKEN_RE.finditer(s):
         if m.start() > pos:
             result.append(s[pos:m.start()])
-        if m.group(2) is not None:
-            # $(name) syntax — looks up in locals
-            result.append(LocalsToken(name=m.group(2)))
-        else:
-            # %(inner) syntax — looks up in piped input
-            ref = _parse_ref(m.group(1))
-            result.append(FmtToken(ref=ref))
+        ref = _parse_ref(m.group(1))
+        result.append(FmtToken(ref=ref))
         pos = m.end()
     if pos < len(s):
         result.append(s[pos:])
@@ -160,7 +137,11 @@ def resolve_fmt_ref(input_val, ref):
                 f"fmt: %(name) requires a struct input, got {input_val.shape.qualified}"
             )
         try:
-            return input_val.field(ref.name)
+            parts = ref.name.split(".")
+            result = input_val.field(parts[0])
+            for part in parts[1:]:
+                result = result.field(part)
+            return result
         except KeyError:
             raise comp.CodeError(f"fmt: field '{ref.name}' not found in value")
 
@@ -208,14 +189,13 @@ def _nth_field(struct_val, n):
             return v
 
 
-def apply_format(parsed: list, input_val, locals_val=None, substitute_fn=None) -> str:
+def apply_format(parsed, input_val, substitute_fn=None):
     """Apply a parsed format text to input_val, returning the result text.
 
     parsed:        result of parse_format_text
-    input_val:     the Value piped into fmt (used for %(ref) tokens)
-    locals_val:    optional Value struct of local bindings (used for $(name) tokens)
+    input_val:     the Value to draw substitutions from
     substitute_fn: optional callable(val, spec_str) -> str that overrides
-                   format_fmt_value for each %(ref) and $(name) substitution.
+                   format_fmt_value for each %(ref) substitution.
                    When None, format_fmt_value is used.
 
     When input_val is a struct, bare %() tokens auto-increment through all its
@@ -241,10 +221,4 @@ def apply_format(parsed: list, input_val, locals_val=None, substitute_fn=None) -
             else:
                 val = resolve_fmt_ref(input_val, segment.ref)
             parts.append(_render(val, segment.spec))
-        elif isinstance(segment, LocalsToken):
-            val = None
-            if locals_val is not None and isinstance(locals_val.data, dict):
-                key = comp.Value.from_python(segment.name)
-                val = locals_val.data.get(key)
-            parts.append(_render(val, segment.spec) if val is not None else "")
     return "".join(parts)

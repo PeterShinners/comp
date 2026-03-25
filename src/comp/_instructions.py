@@ -11,6 +11,7 @@ Performance optimizations can happen later - clarity first.
 """
 
 import comp
+import comp._fmt
 
 
 def _deep_set_value(base, path, new_value):
@@ -1092,6 +1093,9 @@ class BuildBlock(Instruction):
         If the shape.define contains a single value.namespace or value.identifier
         child (not shape.field children), it's a reference to a named shape —
         look it up and return it directly.
+
+        If the shape.define contains a single unnamed shape.field with limits
+        (e.g. ~entry<only-dir>), resolve the base shape and attach limits.
         """
         kids = list(comp.cop_kids(shape_cop))
 
@@ -1137,6 +1141,60 @@ class BuildBlock(Instruction):
                         pass
                     # Reference not resolved — return None so input_shape stays unset
                     return None
+
+        # Check for single unnamed shape.field with limits (e.g. ~entry<only-dir>):
+        # resolve the base shape and attach shape-level limits rather than creating
+        # an anonymous struct with a positional field.
+        if len(kids) == 1 and comp.cop_tag(kids[0]) == "shape.field":
+            field_cop = kids[0]
+            field_name = None
+            try:
+                field_name = field_cop.to_python("name")
+            except (KeyError, AttributeError):
+                pass
+            if field_name is None:
+                field_kids = list(comp.cop_kids(field_cop))
+                has_limits = any(comp.cop_tag(fk) == "value.limit" for fk in field_kids)
+                if has_limits:
+                    # Extract the base shape reference and limits
+                    base_shape = None
+                    limits = []
+                    for fk in field_kids:
+                        fk_tag = comp.cop_tag(fk)
+                        if fk_tag == "value.limit":
+                            lk = list(comp.cop_kids(fk))
+                            if lk:
+                                # Resolve the limit function by qualified name
+                                ref_name = None
+                                try:
+                                    ref_name = lk[0].to_python("qualified")
+                                    if isinstance(ref_name, list):
+                                        ref_name = ref_name[0]
+                                except (KeyError, AttributeError):
+                                    pass
+                                limit_func = None
+                                if ref_name:
+                                    try:
+                                        limit_func = _load_name(ref_name, frame)
+                                    except NameError:
+                                        pass
+                                limit_param = None
+                                if len(lk) >= 2:
+                                    limit_param = frame.eval(lk[1])
+                                if limit_func is not None:
+                                    limits.append((limit_func, limit_param))
+                        elif base_shape is None:
+                            resolved = self._resolve_shape_ref(fk, frame)
+                            if resolved is not None:
+                                base_shape = resolved
+                    if base_shape is not None and limits:
+                        if isinstance(base_shape, comp.Shape):
+                            limited = comp.Shape(base_shape.qualified, base_shape.private)
+                            limited.module = base_shape.module
+                            limited.fields = base_shape.fields
+                            limited.limits = limits
+                            return limited
+                        # For non-Shape types, fall through to default handling
 
         shape = comp.Shape("anonymous", private=False)
 
@@ -1209,6 +1267,114 @@ class BuildBlock(Instruction):
 
     def format(self, idx):
         return f"%{idx}  BuildBlock ({len(self.body_instructions)} body)"
+
+
+class BuildShapeWithLimits(Instruction):
+    """Resolve a shape reference and attach shape-level limits.
+
+    Used when a shape reference has limits applied to the whole shape
+    (e.g. ~entry<only-dir>). Creates a shallow copy of the resolved shape
+    with the limits attached, so the original shape definition is not mutated.
+    """
+
+    def __init__(self, cop, shape_ref, limit_refs):
+        super().__init__(cop)
+        self.shape_ref = shape_ref
+        self.limit_refs = limit_refs
+
+    def execute(self, frame):
+        # Resolve the base shape
+        if isinstance(self.shape_ref, str):
+            try:
+                shape_val = _load_name(self.shape_ref, frame)
+            except NameError:
+                shape_val = None
+            if shape_val and isinstance(shape_val.data, comp.Callable):
+                if shape_val.data.shape is not None:
+                    shape_val = comp.Value.from_python(shape_val.data.shape)
+        else:
+            shape_val = frame.get_value(self.shape_ref)
+
+        if shape_val is None:
+            return frame.set_result(comp.Value(None))
+
+        base_shape = shape_val.data
+        if not isinstance(base_shape, (comp.Shape, comp.ShapeUnion)):
+            return frame.set_result(shape_val)
+
+        # Resolve limit functions
+        limits = []
+        for lname, lparam_idx in self.limit_refs:
+            func_val = None
+            if isinstance(lname, str):
+                try:
+                    func_val = _load_name(lname, frame)
+                except NameError:
+                    pass
+            elif isinstance(lname, list):
+                callable = comp.Callable(lname[0] if lname else "?")
+                for oname in lname:
+                    try:
+                        defn = frame.lookup(oname)
+                    except (NameError, KeyError):
+                        defn = None
+                    if defn is not None:
+                        if isinstance(defn, comp.Callable):
+                            for d in defn.entries:
+                                _ensure_definition_value(d, frame)
+                                if d.value is not None:
+                                    data = d.value.data
+                                    if isinstance(data, comp.Callable):
+                                        for b in data.entries:
+                                            callable.add(b)
+                                    elif isinstance(data, comp.InternalCallable):
+                                        callable.add(data)
+                        elif isinstance(defn, comp.Definition):
+                            _ensure_definition_value(defn, frame)
+                            if defn.value is not None:
+                                data = defn.value.data
+                                if isinstance(data, comp.Callable):
+                                    for b in data.entries:
+                                        callable.add(b)
+                                elif isinstance(data, comp.InternalCallable):
+                                    callable.add(data)
+                if callable.entries:
+                    func_val = comp.Value(callable)
+            elif isinstance(lname, int):
+                func_val = frame.get_value(lname)
+            param_val = frame.get_value(lparam_idx) if lparam_idx is not None else None
+            if func_val is not None:
+                limits.append((func_val, param_val))
+
+        if not limits:
+            return frame.set_result(shape_val)
+
+        # Create a shallow copy of the shape with limits attached
+        if isinstance(base_shape, comp.Shape):
+            limited = comp.Shape(base_shape.qualified, base_shape.private)
+            limited.module = base_shape.module
+            limited.fields = base_shape.fields
+            limited.limits = limits
+        else:
+            # ShapeUnion — wrap in anonymous shape with limits
+            limited = comp.Shape("anonymous", private=False)
+            limited.limits = limits
+            return frame.set_result(comp.Value(base_shape))
+
+        return frame.set_result(comp.Value(limited))
+
+    def format(self, idx):
+        ref = self.shape_ref if isinstance(self.shape_ref, str) else f"%{self.shape_ref}"
+        lparts = []
+        for lname, lparam_idx in self.limit_refs:
+            if isinstance(lname, list):
+                ldisp = "|".join(lname)
+            elif isinstance(lname, int):
+                ldisp = f"%{lname}"
+            else:
+                ldisp = str(lname)
+            lparts.append(f"<{ldisp}>")
+        return f"%{idx}  BuildShapeWithLimits ({ref}{''.join(lparts)})"
 
 
 class BuildShape(Instruction):
@@ -1675,6 +1841,24 @@ class PushHandle(Instruction):
 # Failure / Control Flow
 # ---------------------------------------------------------------------------
 
+def _format_fail_message(msg, frame):
+    """Apply %(ref) interpolation to a fail message string.
+
+    Uses the same token syntax as @fmt.  If the message contains no
+    tokens it is returned unchanged (fast path).
+
+    %(name) resolves local variables from the frame, %($) resolves
+    the piped input.
+    """
+    parsed = comp._fmt.parse_format_text(msg)
+    if all(isinstance(seg, str) for seg in parsed):
+        return msg
+    _nil = comp.Value.from_python(comp.tag_nil)
+    scope = {comp.Value.from_python(k): v for k, v in frame.env.items() if "." not in k}
+    scope[comp.Value.from_python("$")] = frame._dollar_vars.get("$", _nil)
+    return comp._fmt.apply_format(parsed, comp.Value(scope))
+
+
 class RaiseFail(Instruction):
     """!fail expr — set frame.failure to the given value and fast-forward.
 
@@ -1691,7 +1875,8 @@ class RaiseFail(Instruction):
         val = frame.get_value(self.value_reg)
         # Auto-wrap bare strings and tags into a proper failure struct
         if isinstance(val.data, str):
-            val = comp._interp._make_fail_value(val.data, cop_val=self.cop)
+            msg = _format_fail_message(val.data, frame)
+            val = comp._interp._make_fail_value(msg, cop_val=self.cop)
         elif isinstance(val.data, comp.Tag) and val.data.qualified.startswith("fail"):
             val = comp._interp._make_fail_value("", tag=val.data, cop_val=self.cop)
         elif isinstance(val.data, dict):
@@ -1710,6 +1895,7 @@ class RaiseFail(Instruction):
                         tag = v.data if isinstance(v.data, comp.Tag) else None
                     elif k.data == "cause":
                         cause = v
+            msg = _format_fail_message(msg, frame)
             val = comp._interp._make_fail_value(
                 msg, tag=tag, cause=cause, cop_val=self.cop
             )

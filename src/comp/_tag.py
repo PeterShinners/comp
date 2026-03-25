@@ -5,6 +5,7 @@ import comp
 
 __all__ = [
     "Tag", "RawTag",
+    "TagHierarchy",
     "tag_nil", "tag_bool", "tag_true", "tag_false", "tag_fail",
     "tag_fail_value", "tag_fail_field", "tag_fail_math", "tag_fail_grab",
     "tag_fail_module", "tag_fail_module_missing", "tag_fail_module_syntax",
@@ -147,6 +148,53 @@ def create_tagdef(qualified_name, private, cop_node, parent_tag=None):
     value.cop = cop_node
 
     return value
+
+
+class TagHierarchy:
+    """Per-module tag ancestor map.
+
+    Built from a module's imported and local tag definitions (without
+    clobbering). Tags that share any namespace key permutation are placed
+    in the same equivalence slot.  Parent relationships are determined by
+    namespace-key prefix matching between slots.
+
+    The main namespace is not modified — this is a parallel structure used
+    only for ancestry checks in morph dispatch.
+    """
+
+    __slots__ = ("_slot", "_parent_slot")
+
+    def __init__(self):
+        self._slot = {}         # {Tag: slot_id}
+        self._parent_slot = {}  # {slot_id: parent_slot_id or None}
+
+    def ancestor_depth(self, tag, ancestor):
+        """Check if ancestor is an ancestor of tag.
+
+        Args:
+            tag: (Tag) The potential descendant
+            ancestor: (Tag) The potential ancestor
+
+        Returns:
+            (int) Depth >= 1 if ancestor, None otherwise
+        """
+        tag_slot = self._slot.get(tag)
+        anc_slot = self._slot.get(ancestor)
+        if tag_slot is None or anc_slot is None:
+            return None
+        if tag_slot == anc_slot:
+            return None  # same equivalence class, not a descendant
+        current = tag_slot
+        depth = 0
+        while current is not None:
+            current = self._parent_slot.get(current)
+            depth += 1
+            if current == anc_slot:
+                return depth
+        return None
+
+
+_EMPTY_HIERARCHY = TagHierarchy()
 
 
 class HandleInstance:

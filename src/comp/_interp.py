@@ -511,6 +511,13 @@ class Interp:
             if mod._definitions_error is not None:
                 continue
             mod.namespace()
+
+        # Pass 2b: Tag hierarchies — build per-module tag ancestry maps
+        for mod in all_modules:
+            if mod._definitions_error is not None:
+                continue
+            _ = mod.tag_hierarchy
+
         _t2 = _time.perf_counter()
 
         # Pass 3: Resolve aliases — resolve alias/export refs against namespace
@@ -1015,7 +1022,7 @@ class ExecutionFrame:
             as implicit named argument defaults (!ctx bindings)
     """
 
-    def __init__(self, env=None, interp=None, module=None, parent_frame=None, context=None):
+    def __init__(self, env=None, interp=None, module=None, parent_frame=None, context=None, definition_name=None):
         self.registers = []  # List indexed by instruction number
         self.env = env if env is not None else {}
         self._dollar_vars = {}  # "$", "$$", "$$$" — pipeline input context (per-invocation)
@@ -1028,6 +1035,7 @@ class ExecutionFrame:
         self.live_handles = None  # Set[HandleInstance] | None
         self.context = context if context is not None else {}
         self.failure = None  # comp.Value when a failure is propagating, else None
+        self.definition_name = definition_name
 
     def run(self, instructions):
         """Execute a list of instructions, return final result.
@@ -1294,14 +1302,15 @@ class ExecutionFrame:
             morph_result = comp.morph(input_val, block.input_shape, self)
             if morph_result.failure_reason:
                 block_name = block.qualified or "?"
-                cop_node = getattr(block_val, "cop", None) or source_cop
+                cop_node = source_cop or getattr(block_val, "cop", None)
                 err = comp.CodeError(
                     f"Input morph failed: {morph_result.failure_reason}"
                     f"\n  block: {block_name}, input_shape: {block.input_shape.qualified}"
                     f", input: {input_val.format()}"
                     f" ({input_val.shape.qualified if input_val.shape else '?'})",
                     cop_node)
-                err.module = block.module
+                err.module = self.module or block.module
+                err.definition_name = self.definition_name
                 raise err
 
         # Inject context values as implicit defaults for named arg-shape fields
@@ -1376,6 +1385,7 @@ class ExecutionFrame:
         # Execute the pre-compiled body instructions
         # Use the block's defining module for namespace lookups
         new_frame = self._make_child_frame(new_env, module=block.module)
+        new_frame.definition_name = block.qualified
         new_frame._dollar_vars = _dollar
 
         result = new_frame.run(block.body_instructions)

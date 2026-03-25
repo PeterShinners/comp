@@ -147,6 +147,10 @@ def _tag_matches_shape(tag, shape):
     Tags are shapes - a child tag matches its parent tag shape.
     For example, tag "http.status.ok" matches shape "http.status".
 
+    First tries the per-module tag hierarchy (handles cross-module
+    tag extension).  Falls back to qualified-name prefix matching
+    for same-module tags or when no hierarchy is available.
+
     Args:
         tag: (Tag) The tag to check
         shape: (Shape | Tag) The shape constraint
@@ -157,7 +161,16 @@ def _tag_matches_shape(tag, shape):
     if not isinstance(shape, comp.Tag):
         return None
 
-    # Check if tag qualified name starts with shape qualified name
+    # Try hierarchy-based check (handles cross-module tag extension)
+    tag_module = getattr(tag, "module", None)
+    if tag_module is not None:
+        hierarchy = getattr(tag_module, "tag_hierarchy", None)
+        if hierarchy is not None:
+            depth = hierarchy.ancestor_depth(tag, shape)
+            if depth is not None:
+                return depth
+
+    # Fallback: qualified-name prefix matching (same-module, no hierarchy)
     tag_parts = tag.qualified.split(".")
     shape_parts = shape.qualified.split(".")
 
@@ -264,8 +277,10 @@ def _invoke_limits(field, value, frame):
     Limit functions are pre-resolved at codegen time and stored on the ShapeField
     as (func_val, param_val_or_None) tuples — no runtime name lookup needed.
 
+    Also used for shape-level limits stored on Shape objects.
+
     Args:
-        field: (ShapeField) The field whose limits to check
+        field: (ShapeField | Shape) Object with a .limits list to check
         value: (Value) The matched value to validate
         frame: (ExecutionFrame) The current interpreter frame
 
@@ -483,6 +498,24 @@ def _morph_collection(value, shape, frame):
     return MorphResult(comp.Value(result_data), 0, 0, unit_score_total, count)
 
 
+def _apply_shape_limits(result, shape, frame):
+    """Apply shape-level limits to a successful morph result.
+
+    If the shape has limits, invokes them on the morphed value.
+    Returns the original result if no limits or all pass, or a
+    failed MorphResult if a limit fails.
+    """
+    limits = getattr(shape, "limits", None)
+    if not limits:
+        return result
+    if result.failure_reason:
+        return result
+    limit_fail = _invoke_limits(shape, result.value, frame)
+    if limit_fail is not None:
+        return MorphResult.failed(_extract_fail_message(limit_fail), failure_value=limit_fail)
+    return result
+
+
 def morph(value, shape, frame):
     """Morph a value to match a shape.
 
@@ -494,6 +527,9 @@ def morph(value, shape, frame):
 
     Scalar values are automatically promoted to single-element structs.
 
+    Shape-level limits (e.g. ~entry<only-dir>) are applied after the morph
+    succeeds, validating the whole morphed value.
+
     Args:
         value: (Value) The input value to morph
         shape: (Shape) The target shape
@@ -502,6 +538,11 @@ def morph(value, shape, frame):
     Returns:
         MorphResult: Result with morphed value and match score
     """
+    result = _morph_core(value, shape, frame)
+    return _apply_shape_limits(result, shape, frame)
+
+
+def _morph_core(value, shape, frame):
     # Handle collection shapes
     if isinstance(shape, comp.ShapeCollection):
         return _morph_collection(value, shape, frame)

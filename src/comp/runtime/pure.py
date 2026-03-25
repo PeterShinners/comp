@@ -206,3 +206,184 @@ def find_duplicates(items):
         else:
             seen[key] = item
     return dupes
+
+
+def parse_uri(text):
+    """Parse a URI string into a dict with fully decomposed fields.
+
+    Uses urllib.parse.urlparse for RFC-compliant parsing, unpacks the
+    authority into user/password/host/port, and splits the path into
+    directory/stem/extension using posixpath.
+
+    Args:
+        text: (str) URI or path string to parse.
+
+    Returns:
+        (dict) With keys: protocol, user, password, host, port, path,
+            stem, extension, query, fragment.
+            Empty strings become None.
+    """
+    import urllib.parse
+    import posixpath
+    text = text.replace("\\", "/")
+    parsed = urllib.parse.urlparse(text)
+    def _or_none(s):
+        return s if s else None
+    # Single-letter schemes are Windows drive letters, not protocols
+    if len(parsed.scheme) == 1:
+        # Re-parse as a bare path (no scheme)
+        parsed = urllib.parse.urlparse("", scheme="", allow_fragments=True)._replace(
+            path=text, query="", fragment="",
+        )
+    port = parsed.port
+    raw_path = parsed.path
+    has_protocol = bool(parsed.scheme)
+    is_dir = raw_path.endswith("/") and raw_path != "/"
+    if is_dir:
+        if has_protocol:
+            directory = raw_path
+        else:
+            directory = raw_path.rstrip("/")
+        stem = None
+        extension = None
+    else:
+        stripped = raw_path.rstrip("/") if raw_path != "/" else raw_path
+        directory, filename = posixpath.split(stripped)
+        if filename:
+            stem, extension = _split_filename(filename)
+        else:
+            stem = None
+            extension = None
+    return {
+        "protocol": _or_none(parsed.scheme),
+        "user": _or_none(parsed.username),
+        "password": _or_none(parsed.password),
+        "host": _or_none(parsed.hostname),
+        "port": str(port) if port is not None else None,
+        "path": directory,
+        "stem": stem,
+        "extension": extension,
+        "query": _or_none(parsed.query),
+        "fragment": _or_none(parsed.fragment),
+    }
+
+
+def parse_path(text):
+    """Parse a path string into directory, stem, and extension.
+
+    Args:
+        text: (str) A filesystem path or URI path component.
+
+    Returns:
+        (dict) With keys: path, stem, extension.
+    """
+    import posixpath
+    text = text.replace("\\", "/")
+    directory, filename = posixpath.split(text.rstrip("/") if text != "/" else text)
+    if filename:
+        stem, extension = _split_filename(filename)
+    else:
+        stem = None
+        extension = None
+    return {
+        "path": directory,
+        "stem": stem,
+        "extension": extension,
+    }
+
+
+def pack_uri(**fields):
+    """Reassemble a ~uri dict into a URI string.
+
+    Args:
+        **fields: Keyword args matching the ~uri shape fields.
+
+    Returns:
+        (str) The assembled URI or bare path string.
+    """
+    path_str = _join_path_fields(fields.get("path", ""),
+                                  fields.get("stem"),
+                                  fields.get("extension"))
+    protocol = fields.get("protocol")
+    if not protocol:
+        return path_str
+    authority = _build_authority(fields)
+    result = protocol + "://"
+    if authority:
+        result += authority
+    result += path_str
+    query = fields.get("query")
+    if query:
+        result += "?" + query
+    fragment = fields.get("fragment")
+    if fragment:
+        result += "#" + fragment
+    return result
+
+
+def pack_path(**fields):
+    """Reassemble a ~uri-path dict into a path string.
+
+    Args:
+        **fields: Keyword args with keys: path, stem, extension.
+
+    Returns:
+        (str) The assembled path string.
+    """
+    return _join_path_fields(fields.get("path", ""),
+                              fields.get("stem"),
+                              fields.get("extension"))
+
+
+def _split_filename(filename):
+    """Split a filename into (stem, extension), dotfile-aware.
+
+    Files like `.env` are stem-only with no extension.
+    Extension is returned without the leading dot, or None.
+
+    Returns:
+        (tuple) (stem, extension) where either may be None.
+    """
+    import posixpath
+    if filename.startswith(".") and "." not in filename[1:]:
+        return (filename, None)
+    stem, dot_ext = posixpath.splitext(filename)
+    if not stem:
+        return (filename, None)
+    return (stem, dot_ext[1:] if dot_ext else None)
+
+
+def _join_path_fields(path, stem, extension):
+    """Combine path + stem + extension into a single path string.
+
+    Ensures exactly one slash between path and stem when both present.
+    """
+    if not stem:
+        return path
+    if extension:
+        filename = stem + "." + extension
+    else:
+        filename = stem
+    if not path or path.endswith("/"):
+        return path + filename
+    return path + "/" + filename
+
+
+def _build_authority(fields):
+    """Build the authority portion (user:pass@host:port) from fields."""
+    host = fields.get("host")
+    if not host:
+        return ""
+    user = fields.get("user")
+    password = fields.get("password")
+    port = fields.get("port")
+    result = ""
+    if user:
+        result += user
+        if password:
+            result += ":" + password
+        result += "@"
+    result += host
+    if port:
+        result += ":" + str(port)
+    return result

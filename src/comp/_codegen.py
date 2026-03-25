@@ -964,6 +964,36 @@ class CodeGenContext:
                            "value.reference", "value.undefined"):
                 return self._build_value_ensure_register(kids[0])
 
+            # Single unnamed shape.field with limits (e.g. ~entry<only-dir>):
+            # compile as the base shape reference with shape-level limits,
+            # not as a struct with an unnamed positional field.
+            if kid_tag == "shape.field":
+                field_name = None
+                try:
+                    field_name = kids[0].to_python("name")
+                except (KeyError, AttributeError):
+                    pass
+                if field_name is None:
+                    field_kids = _cop_kids(kids[0])
+                    has_limits = any(comp.cop_tag(fk) == "value.limit" for fk in field_kids)
+                    if has_limits:
+                        # Extract the base shape ref and limit refs
+                        base_ref = None
+                        limit_refs = []
+                        for fk in field_kids:
+                            fk_tag = comp.cop_tag(fk)
+                            if fk_tag == "value.limit":
+                                lk = _cop_kids(fk)
+                                if lk:
+                                    limit_name = _shape_ref_or_reg(self, lk[0])
+                                    param_idx = self._build_value_ensure_register(lk[1]) if len(lk) >= 2 else None
+                                    limit_refs.append((limit_name, param_idx))
+                            elif base_ref is None:
+                                base_ref = _shape_ref_or_reg(self, fk)
+                        return self.emit(comp._instructions.BuildShapeWithLimits(
+                            cop=cop, shape_ref=base_ref, limit_refs=limit_refs,
+                        ))
+
         for kid in kids:
             tag = comp.cop_tag(kid)
 

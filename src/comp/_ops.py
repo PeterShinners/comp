@@ -123,9 +123,9 @@ def logic_binary(op, left, right):
     Returns:
         (Value) Result of operation
     """
-    if left.shape not in (comp.tag_true, comp.tag_false):
+    if left.data not in (comp.tag_true, comp.tag_false):
         raise TypeError(f"Left operand is not a boolean: {left.format()}")
-    if right.shape not in (comp.tag_true, comp.tag_false):
+    if right.data not in (comp.tag_true, comp.tag_false):
         raise TypeError(f"Right operand is not a boolean: {right.format()}")
 
     # This may not be possible here as the code is intended to short
@@ -160,7 +160,7 @@ def logic_unary(op, right):
     Returns:
         (Value) Result of operation
     """
-    if right.shape not in (comp.tag_true, comp.tag_false):
+    if right.data not in (comp.tag_true, comp.tag_false):
         raise TypeError(f"Unary operand is not a boolean: {right.format()}")
 
     rval = right.data is comp.tag_true
@@ -278,7 +278,7 @@ def _compare(left, right):
             return 1
         return 0
 
-    if lshape is comp.shape_tag:
+    if isinstance(lval, comp.Tag):
         # Tags compare by qualified name
         if lval.qualified < rval.qualified:
             return -1
@@ -313,11 +313,11 @@ def _type_priority(value):
 
     if isinstance(value.data, comp.RawTag):
         return 1  # Raw tags before booleans and regular tags
-    if shape is comp.tag_false:
+    if value.data is comp.tag_false:
         return 2
-    if shape is comp.tag_true:
+    if value.data is comp.tag_true:
         return 3
-    if shape is comp.shape_tag:
+    if isinstance(value.data, comp.Tag):
         return 4
     if shape is comp.shape_num:
         return 5

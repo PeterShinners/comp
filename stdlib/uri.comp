@@ -1,0 +1,327 @@
+/// URI parsing and assembly.
+///
+/// Parses URIs into a flat struct with non-overlapping atomic fields.
+/// Supports full URIs (https://...), file URIs (file:///...), and bare
+/// filesystem paths (/home/user/file.txt).
+///
+/// Bare paths with no protocol will normalize paths so they do not end
+/// in slashes. Trailing slashes are only preserved on protocol uris that
+/// do not have any file stem and extension.
+///
+/// The path and filename are fully separated: `path` holds the directory
+/// portion only, while `stem` and `extension` hold the filename parts.
+/// Use `file-name` to get the reassembled filename, `full-path` for the
+/// complete path including filename.
+///
+/// Pack/unpack pairs work at three levels:
+///   uri.unpack / uri.pack         — full URI with protocol, authority, query, etc.
+///   uri.path-unpack / uri.path-pack — just the path (directory + filename)
+///   uri.query-unpack / uri.query-pack — query string key=value pairs
+///
+/// The ~uri-path struct is a subset of ~uri, so a full ~uri is compatible
+/// anywhere ~uri-path is accepted. This means path-pack, name, and full-path
+/// all work on both shapes.
+///
+/// Example:
+///   !my u ["https://user:pass@host.com:8080/dir/file.txt?q=1#frag" | uri.unpack]
+///   // u.protocol = "https", u.host = "host.com", u.port = "8080"
+///   // u.path = "/dir", u.stem = "file", u.extension = "txt"
+///
+///   !my changed [u | $.extension = "json" | uri.pack]
+///   // => "https://user:pass@host.com:8080/dir/file.json?q=1#frag"
+///
+///   // Change filename via merge with a path-unpack result:
+///   !my renamed [{u ["report.pdf" | uri.path-unpack]} | merge | uri.pack]
+///   // => "https://user:pass@host.com:8080/dir/report.pdf?q=1#frag"
+
+!no-default
+!import py comp "py"
+!import text comp "text"
+!import branch comp "branch"
+
+
+// ---------------------------------------------------------------------------
+// Shape
+// ---------------------------------------------------------------------------
+
+/// A fully decomposed URI with non-overlapping atomic fields.
+///
+/// Fields are atomic — no field's value overlaps with or is derivable
+/// from another field. Use `name`, `full-path`, and `authority` helpers
+/// to get assembled views.
+/// The path portion of a URI: directory, stem, and extension.
+///
+/// This is a subset of ~uri — any ~uri struct is compatible with
+/// functions that accept ~uri-path. Use path-unpack to produce
+/// these, and merge to overlay onto a full ~uri.
+!shape uri-path ~{
+    path~text               /// directory portion only (forward slashes)
+    stem~(text|nil)    /// filename without extension (nil for directory URIs)
+    extension~(text|nil)    /// "yaml", "tar.gz" — no leading dot (nil if none)
+}
+
+/// A fully decomposed URI with non-overlapping atomic fields.
+///
+/// Fields are atomic — no field's value overlaps with or is derivable
+/// from another field. Use `name`, `full-path`, and `authority` helpers
+/// to get assembled views.
+!shape uri ~{
+    protocol~(text|nil)     /// "https", "file", "git+ssh", nil for bare paths
+    user~(text|nil)         /// username from authority
+    password~(text|nil)     /// password from authority
+    host~(text|nil)         /// hostname or IP
+    port~(text|nil)         /// port as text (nil if absent)
+    path~text               /// directory portion only (forward slashes)
+    stem~(text|nil)    /// filename without extension (nil for directory URIs)
+    extension~(text|nil)    /// "yaml", "tar.gz" — no leading dot (nil if none)
+    query~(text|nil)        /// raw query string (nil if absent)
+    fragment~(text|nil)     /// fragment/anchor (nil if absent)
+}
+
+/// A path that can be either a text string or a decomposed ~uri.
+///
+/// Used as a parameter type for functions that accept either form.
+/// Use `uri.to-text` to normalize to a text path string.
+!shape uri-or-text ~(text | uri)
+
+
+// ---------------------------------------------------------------------------
+// Core: pack and unpack
+// ---------------------------------------------------------------------------
+
+/// Parse a URI or path string into a ~uri struct.
+///
+/// Accepts full URIs, file URIs, and bare filesystem paths.
+/// Backslashes are normalized to forward slashes.
+///
+/// Examples:
+///   "https://user:pass@host.com:8080/dir/file.txt?q=1#frag" | uri.unpack
+///   "/home/pete/config.yaml" | uri.unpack
+///   "file:///C:/Users/pete/config.yaml" | uri.unpack
+///   "../relative/path.txt" | uri.unpack
+!pure unpack ~text [
+    $ | py.pure-call "comp.runtime.pure.parse_uri"
+]
+
+/// Reassemble a ~uri struct back into a URI string.
+///
+/// When protocol is nil, produces a bare path. When protocol is present,
+/// emits a full URI with authority, query, and fragment as appropriate.
+///
+/// Examples:
+///   my-uri | uri.pack
+///   my-uri | $.extension = "json" | uri.pack
+!pure pack ~uri [
+    $ | py.pure-call "comp.runtime.pure.pack_uri"
+]
+
+
+// ---------------------------------------------------------------------------
+// Path: pack and unpack
+// ---------------------------------------------------------------------------
+
+/// Parse a path string into a ~uri-path struct.
+///
+/// Splits the string into directory, stem, and extension.
+/// Backslashes are normalized to forward slashes.
+///
+/// Examples:
+///   "/home/pete/config.yaml" | uri.path-unpack
+///   // => {path="/home/pete" stem="config" extension="yaml"}
+///   "report.pdf" | uri.path-unpack
+///   // => {path="" stem="report" extension="pdf"}
+///   "/var/log/" | uri.path-unpack
+///   // => {path="/var/log" stem=nil extension=nil}
+!pure path-unpack ~text [
+    $ | py.pure-call "comp.runtime.pure.parse_path"
+]
+
+/// Reassemble a path from path + stem + extension fields.
+///
+/// Accepts ~uri-path or ~uri (which is a superset). Non-path
+/// fields on a ~uri are ignored.
+///
+/// Examples:
+///   [p | uri.path-pack]   // => "/home/pete/config.yaml"
+///   [u | uri.path-pack]   // => "/dir/file.txt" (ignores scheme, etc.)
+!pure path-pack ~uri-path [
+    $ | py.pure-call "comp.runtime.pure.pack_path"
+]
+
+
+// ---------------------------------------------------------------------------
+// Conversion
+// ---------------------------------------------------------------------------
+
+/// Convert a uri-or-text value to a text path string.
+///
+/// Text passes through unchanged. A ~uri is packed back into a string.
+///
+/// Examples:
+///   "/home/pete/file.txt" | uri.to-text   // => "/home/pete/file.txt"
+///   [u | uri.to-text]                      // => "https://host.com/dir/file.txt"
+!pure to-text ~text [ $ ]
+!pure to-text ~uri [ $ | pack ]
+
+
+// ---------------------------------------------------------------------------
+// Computed accessors — assembled views of atomic fields
+// ---------------------------------------------------------------------------
+
+/// Get the filename (stem + "." + extension).
+///
+/// Accepts ~uri-path or ~uri. Returns nil when stem is nil.
+///
+/// Examples:
+///   [u | uri.file-name]      // => "config.yaml"
+///   [dir-uri | uri.file-name] // => nil
+!pure file-name ~uri-path (
+    !on $.stem ~text [
+        $.stem | non-nil-joins "." $.extension
+    ]
+)
+
+/// Get the full path including filename.
+///
+/// Combines path + "/" + stem + "." + extension into one string.
+/// For directory-only URIs, returns just the path.
+/// Accepts ~uri-path or ~uri.
+///
+/// Examples:
+///   [u | uri.full-path]   // => "/home/pete/config.yaml"
+!pure full-path ~uri-path [
+    $.path 
+    | ensure-suffix "/"
+    | non-nil-joins [$ | file-name]
+]
+
+
+/* The first pass of full-path remains etched in this stone as a reminder
+to future generations. You are either fighting comp or composing with comp,
+choose which side you are on
+
+!pure full-path ~uri-path (
+    !on $.stem
+    ~nil $.path
+    ~any (
+        !my name !on $.extension
+            ~nil $.stem
+            ~any @fmt "%($.stem).%($.extension)"
+        !on [$.path | text.ends-with "/"]
+        ~true @fmt "%($.path)%(name)"
+        ~false !on [$.path | text.is-empty]
+            ~true name
+            ~false @fmt "%($.path)/%(name)"
+    )
+)
+*/
+
+
+/// Get the assembled authority string (user:pass@host:port).
+///
+/// Returns nil if host is nil.
+///
+/// Examples:
+///   [u | uri.authority]   // => "user:pass@host.com:8080"
+!pure authority ~uri (
+    !on $.host ~text (
+        !my credentials [$.user | non-nil-joins ":" $.password]
+        [$.host
+        | non-nil-joins ":" $.port
+        | if (credentials != nil) :[
+            credentials | non-nil-joins "@" $
+        ]]
+    )
+)
+
+
+// ---------------------------------------------------------------------------
+// Anchor
+// ---------------------------------------------------------------------------
+
+/// Anchor a URI against a base, similar to os.path.join.
+///
+/// If the second URI has an absolute path (or a protocol), the first URI
+/// is ignored entirely. Otherwise the second URI's path is appended to
+/// the first, and the second URI's filename fields take precedence.
+///
+/// Non-path fields (protocol, authority, query, fragment) from the second
+/// URI override the first when they are non-nil.
+///
+/// Examples:
+///   [base | uri.anchor relative]
+///   [base | uri.anchor absolute]   // base is discarded
+!pure anchor ~uri (
+    !param base ~uri
+    // TODO
+    nil
+)
+
+
+// ---------------------------------------------------------------------------
+// URL encoding
+// ---------------------------------------------------------------------------
+
+/// Percent-encode a text string for use in a URI.
+///
+/// Encodes spaces and special characters. Forward slashes are preserved.
+///
+/// Examples:
+///   "hello world/path" | uri.encode   // => "hello%20world/path"
+!pure encode ~text [
+    $ | py.pure-call "urllib.parse.quote"
+]
+
+/// Decode a percent-encoded URI string back to text.
+///
+/// Examples:
+///   "hello%20world" | uri.decode   // => "hello world"
+!pure decode ~text [
+    $ | py.pure-call "urllib.parse.unquote"
+]
+
+
+// ---------------------------------------------------------------------------
+// Query string helpers
+// ---------------------------------------------------------------------------
+
+/// Parse a query string into a struct of key=value pairs.
+///
+/// Duplicate keys produce the last value (not a list).
+///
+/// Examples:
+///   "a=1&b=hello&c=3" | uri.query-unpack   // => {a="1" b="hello" c="3"}
+!pure query-unpack ~text (
+    // TODO
+    nil
+)
+
+/// Assemble a struct of key=value pairs into a query string.
+///
+/// Examples:
+///   {a="1" b="hello"} | uri.query-pack   // => "a=1&b=hello"
+!pure query-pack ~struct (
+    // TODO
+    nil
+)
+
+
+
+/// Append non nil tokens (up to two) to a string
+!pure non-nil-joins& ~(text|nil) (
+    !param token1 ~(text|nil)
+    !param token2 ~(text|nil) = ""
+    !on $
+    ~text [$
+    | if (token1 != nil !and token2 != nil) :(
+        [{$ token1 token2} | join]
+    )]
+)
+
+/// Append suffix to text if it doesn't already end with it
+!pure ensure-suffix& ~text (
+    !param suffix ~text
+    [$ | if (!not [$ | text.ends-with suffix]) :(
+        [{$ suffix} | join]
+    )]
+)

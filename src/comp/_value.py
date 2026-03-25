@@ -100,12 +100,13 @@ class Value:
                 tuple: comp.shape_num,
                 str: comp.shape_text,
                 dict: comp.shape_struct,
+                comp.Tag: comp.shape_tag,
                 comp.Callable: comp.shape_block,
                 comp.HandleInstance: comp.shape_handle,
                 comp.Shape: comp.shape_shape,
                 comp.ShapeUnion: comp.shape_union,
             }
-            Value._shapetypes = (comp.Tag, comp.RawTag, comp.Shape, comp.ShapeUnion)
+            Value._shapetypes = (comp.RawTag,)
 
     @property
     def shape(self):
@@ -149,11 +150,11 @@ class Value:
             base = (
                 f'"""{escaped}"""' if "\n" in value else f'"{value}"'
             )
-        elif shape is comp.tag_nil:
+        elif self.data is comp.tag_nil:
             return "nil"
-        elif shape is comp.tag_true:
+        elif self.data is comp.tag_true:
             return "true"
-        elif shape is comp.tag_false:
+        elif self.data is comp.tag_false:
             return "false"
         elif isinstance(self.data, comp.Tag):
             return f"{self.data.qualified}"
@@ -182,13 +183,17 @@ class Value:
                             continue
                         # Check if key is a valid Comp identifier (TOKEN pattern: /[^\W\d][\w-]*[?]?/)
                         # Must start with letter/underscore, contain only alphanumeric/underscore/hyphen, optional trailing ?
+                        if v.shape is comp.shape_struct:
+                            val = f"{{/*{len(v.data)}*/}}"
+                        else:
+                            val = v.format()
                         if re.match(r"^[^\W\d][\w-]*\??$", key):
-                            fields.append(f"{key}={v.format()}")
+                            fields.append(f"{key}={val}")
                         else:
                             # Need to quote the key
-                            fields.append(f'"{key}"={v.format()}')
+                            fields.append(f'"{key}"={val}')
                     else:
-                        fields.append(f"'{k.format()}'={v.format()}")
+                        fields.append(f"'{k.format()}'={val}")
             return "{" + " ".join(fields) + "}"
         else:
             base = str(self.data)

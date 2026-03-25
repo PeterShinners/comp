@@ -27,6 +27,8 @@ import os
 import stat
 import sys
 
+import datetime as _datetime
+
 import comp
 import comp._internal
 import comp._interp
@@ -88,6 +90,13 @@ if sys.platform == "win32":
 
     _kernel32 = ctypes.windll.kernel32
     _ntdll = ctypes.windll.ntdll
+
+    # Ensure NTSTATUS returns as unsigned
+    _ntdll.NtCreateFile.restype = ctypes.c_uint32
+    _ntdll.NtQueryDirectoryFile.restype = ctypes.c_uint32
+    _ntdll.NtReadFile.restype = ctypes.c_uint32
+    _ntdll.NtWriteFile.restype = ctypes.c_uint32
+    _ntdll.NtClose.restype = ctypes.c_uint32
 
     # NT status
     _STATUS_SUCCESS = 0
@@ -246,12 +255,12 @@ if sys.platform == "win32":
         return handle.value
 
     def _nt_open_root(path):
-        """Open the root absolute path on Windows.
+        """Open a filesystem root on Windows.
 
-        Converts the Win32 path to an NT-style \\??\\-prefixed path.
+        Accepts a root path like 'C:/' and converts to NT-style.
 
         Args:
-            path: (str) Absolute Win32 path (e.g. "C:\\Users\\alice")
+            path: (str) Root path (e.g. "C:/")
 
         Returns:
             (HANDLE) NT file handle for the directory
@@ -289,7 +298,6 @@ if sys.platform == "win32":
                 restart,
             )
             restart = False
-            status = status & 0xFFFFFFFF  # unsigned for NTSTATUS comparison
 
             if status == _STATUS_NO_MORE_FILES:
                 break
@@ -628,7 +636,7 @@ if sys.platform == "win32":
     _backend_mkdir = _nt_mkdir
     _backend_remove = _nt_remove
     _backend_close = _nt_close
-    _path_separator = "\\"
+    _path_separator = "/"
 
 else:
     # -----------------------------------------------------------------------
@@ -870,11 +878,27 @@ def _create_fs_module(module):
     # ------------------------------------------------------------------
     _key_entry_type = comp.Value.from_python("entry-type")
     _key_name = comp.Value.from_python("name")
+    _key_path = comp.Value.from_python("path")
     _key_root = comp.Value.from_python("root")
-    _key_handle = comp.Value.from_python("_handle")
-    _key_parent = comp.Value.from_python("_parent")
+    _key_vfs = comp.Value.from_python("vfs")
+    _key_handle = comp.Value.from_python("handle")
+    _key_parent = comp.Value.from_python("parent")
     _key_size = comp.Value.from_python("size")
     _key_modified = comp.Value.from_python("modified")
+
+    # Datetime struct keys (matching time.comp date-time shape)
+    _key_year = comp.Value.from_python("year")
+    _key_month = comp.Value.from_python("month")
+    _key_day = comp.Value.from_python("day")
+    _key_hour = comp.Value.from_python("hour")
+    _key_minute = comp.Value.from_python("minute")
+    _key_second = comp.Value.from_python("second")
+    _key_zone = comp.Value.from_python("zone")
+    _key_offset_sec = comp.Value.from_python("offset-sec")
+    _utc_zone_val = comp.Value({
+        _key_name: comp.Value.from_python("UTC"),
+        _key_offset_sec: comp.Value.from_python(0),
+    })
 
     # ------------------------------------------------------------------
     # Handle helpers
@@ -913,19 +937,42 @@ def _create_fs_module(module):
     # ------------------------------------------------------------------
 
     def _get_entry_handle(entry_val, op_name):
-        """Extract _DirState from a dir entry's _handle field."""
+        """Extract _DirState from a dir entry's stashed handle."""
         if not isinstance(entry_val.data, dict):
             _make_fail(f"{op_name}: expected entry struct")
-        handle_val = entry_val.data.get(_key_handle)
+        if entry_val.stash is None:
+            _make_fail(f"{op_name}: entry has no directory handle (not a navigable directory)")
+        mod_stash = entry_val.stash.get(module.token)
+        if mod_stash is None or not isinstance(mod_stash.data, dict):
+            _make_fail(f"{op_name}: entry has no directory handle (not a navigable directory)")
+        handle_val = mod_stash.data.get(_key_handle)
         if handle_val is None:
             _make_fail(f"{op_name}: entry has no directory handle (not a navigable directory)")
         return _unwrap_dir_handle(handle_val, op_name)
+
+    def _get_parent_from_stash(entry_val):
+        """Get the parent entry Value from the stash."""
+        if entry_val.stash is None:
+            return None
+        mod_stash = entry_val.stash.get(module.token)
+        if mod_stash is None or not isinstance(mod_stash.data, dict):
+            return None
+        return mod_stash.data.get(_key_parent)
+
+    def _set_parent_stash(entry_val, parent_val, handle_val=None):
+        """Store the parent entry and optional handle in the stash."""
+        if entry_val.stash is None:
+            entry_val.stash = {}
+        stash_data = {_key_parent: parent_val}
+        if handle_val is not None:
+            stash_data[_key_handle] = handle_val
+        entry_val.stash[module.token] = comp.Value(stash_data)
 
     def _get_entry_parent_handle(entry_val, op_name):
         """Extract _DirState from an entry's parent's _handle field."""
         if not isinstance(entry_val.data, dict):
             _make_fail(f"{op_name}: expected entry struct")
-        parent_val = entry_val.data.get(_key_parent)
+        parent_val = _get_parent_from_stash(entry_val)
         if parent_val is None or not isinstance(parent_val.data, dict):
             _make_fail(f"{op_name}: entry has no parent (is this a root?)")
         return _get_entry_handle(parent_val, op_name)
@@ -941,45 +988,65 @@ def _create_fs_module(module):
 
     _nil_val = comp.Value(comp.tag_nil)
 
+    def _epoch_to_datetime(epoch_secs):
+        """Convert epoch seconds to a Comp date-time struct Value."""
+        dt = _datetime.datetime.fromtimestamp(epoch_secs, tz=_datetime.timezone.utc)
+        return comp.Value({
+            _key_year: comp.Value.from_python(dt.year),
+            _key_month: comp.Value.from_python(dt.month),
+            _key_day: comp.Value.from_python(dt.day),
+            _key_hour: comp.Value.from_python(dt.hour),
+            _key_minute: comp.Value.from_python(dt.minute),
+            _key_second: comp.Value.from_python(dt.second),
+            _key_zone: _utc_zone_val,
+        })
+
     def _make_root_entry(handle_val, path):
         """Create a root entry value.
 
-        Root entries have root=nil and _parent=nil to indicate they are
-        the top of the filesystem tree.
+        Root entries have root pointing to themselves and vfs=nil
+        (to be set by the backend). Handle is stored in stash.
         """
-        name = path.rstrip(_path_separator).rsplit(_path_separator, 1)[-1] or path
+        name = path.rstrip("/").rsplit("/", 1)[-1] or path
         entry = {
             _key_entry_type: comp.Value(_dir_etype_tag),
             _key_name: comp.Value.from_python(name),
-            _key_root: _nil_val,
-            _key_parent: _nil_val,
-            _key_handle: handle_val,
+            _key_path: comp.Value.from_python(path),
+            _key_root: _nil_val,  # placeholder, set to self below
+            _key_vfs: _nil_val,
         }
-        return comp.Value(entry)
+        result = comp.Value(entry)
+        result.data[_key_root] = result  # root references itself
+        _set_parent_stash(result, _nil_val, handle_val)
+        return result
 
     def _make_child_entry(parent_entry, etype_tag, name, handle_val=None, extra_meta=None):
         """Create a child entry value.
 
-        The root field is inherited from the parent. If the parent is a root
-        (root=nil), the parent itself becomes the root reference for children.
+        The root field is inherited from the parent (root entries point
+        to themselves, so $.root always reaches a root-entry).
+        Parent and handle are stored in stash, not in the visible struct.
         """
-        parent_root = parent_entry.data.get(_key_root)
-        if parent_root is not None and isinstance(parent_root.data, comp.Tag) and parent_root.data is comp.tag_nil:
-            root_val = parent_entry
+        root_val = parent_entry.data.get(_key_root, parent_entry)
+
+        # Compute path from parent
+        parent_path_val = parent_entry.data.get(_key_path)
+        if parent_path_val and isinstance(parent_path_val.data, str):
+            child_path = parent_path_val.data.rstrip("/") + "/" + name
         else:
-            root_val = parent_root if parent_root is not None else parent_entry
+            child_path = name
 
         entry = {
             _key_entry_type: comp.Value(etype_tag),
             _key_name: comp.Value.from_python(name),
+            _key_path: comp.Value.from_python(child_path),
             _key_root: root_val,
-            _key_parent: parent_entry,
         }
-        if handle_val is not None:
-            entry[_key_handle] = handle_val
         if extra_meta:
             entry.update(extra_meta)
-        return comp.Value(entry)
+        result = comp.Value(entry)
+        _set_parent_stash(result, parent_entry, handle_val)
+        return result
 
     def _entry_is_struct(val):
         """Check if a value looks like an entry struct."""
@@ -992,32 +1059,83 @@ def _create_fs_module(module):
     def _open_root(input_val, args_val, frame):
         """Open an absolute path as a root entry.
 
+        Resolves the path from the real filesystem root (/ or C:/).
+        Navigates down through segments, returning the final entry
+        with root pointing to the filesystem root.
+
         Input ($): text path
-        Returns: entry (dir, root=nil)
+        Args: optional :vfs=<tag> to set on the root entry
+        Returns: entry (dir)
         """
         if not isinstance(input_val.data, str):
             _make_fail("open: input must be a text path")
-        path = input_val.data
+        path = input_val.data.replace("\\", "/")
+
+        # Determine the filesystem root and remaining segments
+        if sys.platform == "win32":
+            # Handle various path forms: C:/..., /C/..., /Users/...
+            if len(path) >= 2 and path[1] == ":":
+                # C:/Users/... -> root="C:/", segments from rest
+                fs_root = path[0].upper() + ":/"
+                rest = path[3:] if len(path) > 3 else ""
+            elif len(path) >= 3 and path[0] == "/" and path[2] == "/":
+                # /c/Users/... (MSYS2 style) -> C:/
+                fs_root = path[1].upper() + ":/"
+                rest = path[3:] if len(path) > 3 else ""
+            elif path.startswith("/"):
+                # /Users/... -> use current drive
+                drive = os.path.splitdrive(os.getcwd())[0]
+                fs_root = drive + "/"
+                rest = path[1:]
+            else:
+                _make_fail(f"open: not an absolute path: {path!r}")
+        else:
+            if not path.startswith("/"):
+                _make_fail(f"open: not an absolute path: {path!r}")
+            fs_root = "/"
+            rest = path[1:]
+
+        # Open the filesystem root
         try:
-            raw = _backend_open_root(path)
+            raw = _backend_open_root(fs_root)
         except OSError as e:
             _make_fail(f"open: {e}")
-        handle_val = _make_dir_handle(raw, path, is_root=True)
-        return _make_root_entry(handle_val, path)
+        handle_val = _make_dir_handle(raw, fs_root, is_root=True)
+        root_entry = _make_root_entry(handle_val, fs_root)
+
+        # Set vfs tag from named arg if provided
+        if isinstance(args_val.data, dict):
+            vfs_val = args_val.data.get(comp.Value.from_python("vfs-tag"))
+            if vfs_val is not None:
+                root_entry.data[_key_vfs] = vfs_val
+
+        # Navigate down through path segments
+        segments = [s for s in rest.split("/") if s]
+        if not segments:
+            return root_entry
+
+        current_entry = root_entry
+        current_state = _unwrap_dir_handle(handle_val, "open")
+
+        for seg in segments:
+            try:
+                raw = _backend_open_at(seg, current_state.raw_handle)
+            except OSError as e:
+                _make_fail(f"open: cannot navigate through '{seg}': {e}")
+            child_path = current_state.path.rstrip("/") + "/" + seg
+            child_handle = _make_dir_handle(raw, child_path)
+            current_entry = _make_child_entry(current_entry, _dir_etype_tag, seg, child_handle)
+            current_state = _unwrap_dir_handle(child_handle, "open")
+
+        return current_entry
 
     def _cwd(input_val, args_val, frame):
-        """Open the current working directory as a root entry.
+        """Return the current working directory as a text path.
 
-        Input ($): ignored (pass nil)
-        Returns: entry (dir, root=nil)
+        Input ($): ignored
+        Returns: text path (forward slashes)
         """
-        path = os.getcwd()
-        try:
-            raw = _backend_open_root(path)
-        except OSError as e:
-            _make_fail(f"cwd: {e}")
-        handle_val = _make_dir_handle(raw, path, is_root=True)
-        return _make_root_entry(handle_val, path)
+        return comp.Value.from_python(os.getcwd().replace("\\", "/"))
 
     def _entry_at(input_val, args_val, frame):
         """Look up a named child of a directory entry.
@@ -1056,7 +1174,7 @@ def _create_fs_module(module):
                 raw = _backend_open_at(seg, current_state.raw_handle)
             except OSError as e:
                 _make_fail(f"at: cannot open directory '{seg}': {e}")
-            child_path = current_state.path.rstrip(_path_separator) + _path_separator + seg
+            child_path = current_state.path.rstrip("/") + "/" + seg
             handle_val = _make_dir_handle(raw, child_path)
             current_entry = _make_child_entry(current_entry, _dir_etype_tag, seg, handle_val)
             current_state = _unwrap_dir_handle(handle_val, "at")
@@ -1073,14 +1191,14 @@ def _create_fs_module(module):
         if "size" in info:
             extra[_key_size] = comp.Value.from_python(info["size"])
         if "modified" in info:
-            extra[_key_modified] = comp.Value.from_python(info["modified"])
+            extra[_key_modified] = _epoch_to_datetime(info["modified"])
 
         # For dirs, open a handle so the entry is navigable
         handle_val = None
         if etype_tag is _dir_etype_tag:
             try:
                 raw = _backend_open_at(final_name, current_state.raw_handle)
-                child_path = current_state.path.rstrip(_path_separator) + _path_separator + final_name
+                child_path = current_state.path.rstrip("/") + "/" + final_name
                 handle_val = _make_dir_handle(raw, child_path)
             except OSError:
                 pass
@@ -1108,7 +1226,7 @@ def _create_fs_module(module):
             if "size" in info:
                 extra[_key_size] = comp.Value.from_python(info["size"])
             if "modified" in info:
-                extra[_key_modified] = comp.Value.from_python(info["modified"])
+                extra[_key_modified] = _epoch_to_datetime(info["modified"])
             return _make_child_entry(input_val, _file_etype_tag, name, extra_meta=extra)
         except OSError:
             pass
@@ -1164,7 +1282,7 @@ def _create_fs_module(module):
                 raw = _backend_open_at(seg, current_state.raw_handle)
             except OSError as e:
                 _make_fail(f"dir: cannot open '{seg}': {e}")
-            child_path = current_state.path.rstrip(_path_separator) + _path_separator + seg
+            child_path = current_state.path.rstrip("/") + "/" + seg
             handle_val = _make_dir_handle(raw, child_path)
             current_entry = _make_child_entry(current_entry, _dir_etype_tag, seg, handle_val)
             current_state = _unwrap_dir_handle(handle_val, "dir")
@@ -1238,7 +1356,7 @@ def _create_fs_module(module):
             if "size" in e:
                 extra[_key_size] = comp.Value.from_python(e["size"])
             if "modified" in e:
-                extra[_key_modified] = comp.Value.from_python(e["modified"])
+                extra[_key_modified] = _epoch_to_datetime(e["modified"])
             items[key] = _make_child_entry(input_val, etype_tag, e["name"], extra_meta=extra)
         return comp.Value(items)
 
@@ -1262,7 +1380,7 @@ def _create_fs_module(module):
         Re-stats the entry and returns a new entry value with size,
         modified, and any other metadata the backend provides.
 
-        Input ($): entry (with parent that has a handle)
+        Input ($): entry (with parent in stash)
         Returns: entry (enriched with metadata fields)
         """
         parent_state = _get_entry_parent_handle(input_val, "meta")
@@ -1277,11 +1395,17 @@ def _create_fs_module(module):
         if "size" in info:
             extra[_key_size] = comp.Value.from_python(info["size"])
         if "modified" in info:
-            extra[_key_modified] = comp.Value.from_python(info["modified"])
+            extra[_key_modified] = _epoch_to_datetime(info["modified"])
 
-        handle_val = input_val.data.get(_key_handle) if isinstance(input_val.data, dict) else None
+        parent_val = _get_parent_from_stash(input_val)
+        # Get handle from stash for dir entries
+        handle_val = None
+        if input_val.stash:
+            mod_stash = input_val.stash.get(module.token)
+            if mod_stash and isinstance(mod_stash.data, dict):
+                handle_val = mod_stash.data.get(_key_handle)
         return _make_child_entry(
-            input_val.data.get(_key_parent, input_val),
+            parent_val,
             etype_tag, name, handle_val, extra,
         )
 
@@ -1295,7 +1419,7 @@ def _create_fs_module(module):
         """
         if not isinstance(input_val.data, dict):
             _make_fail("up: expected entry struct")
-        parent_val = input_val.data.get(_key_parent)
+        parent_val = _get_parent_from_stash(input_val)
         if parent_val is None:
             return _nil_val
         return parent_val
@@ -1312,63 +1436,14 @@ def _create_fs_module(module):
         if not isinstance(input_val.data, dict):
             _make_fail("refresh: expected entry struct")
         entry = {}
-        for key in (_key_entry_type, _key_name, _key_root, _key_parent, _key_handle):
+        for key in (_key_entry_type, _key_name, _key_path, _key_root, _key_vfs):
             val = input_val.data.get(key)
             if val is not None:
                 entry[key] = val
-        return comp.Value(entry)
-
-    def _is_dir(input_val, args_val, frame):
-        """Check if an entry is a directory.
-
-        Input ($): entry
-        Returns: bool
-        """
-        if not _entry_is_struct(input_val):
-            return comp.Value(comp.tag_false)
-        etype = input_val.data.get(_key_entry_type)
-        if etype is not None and isinstance(etype.data, comp.Tag) and etype.data is _dir_etype_tag:
-            return comp.Value(comp.tag_true)
-        return comp.Value(comp.tag_false)
-
-    def _is_file(input_val, args_val, frame):
-        """Check if an entry is a file.
-
-        Input ($): entry
-        Returns: bool
-        """
-        if not _entry_is_struct(input_val):
-            return comp.Value(comp.tag_false)
-        etype = input_val.data.get(_key_entry_type)
-        if etype is not None and isinstance(etype.data, comp.Tag) and etype.data is _file_etype_tag:
-            return comp.Value(comp.tag_true)
-        return comp.Value(comp.tag_false)
-
-    def _is_missing(input_val, args_val, frame):
-        """Check if an entry is missing (does not exist on the filesystem).
-
-        Input ($): entry
-        Returns: bool
-        """
-        if not _entry_is_struct(input_val):
-            return comp.Value(comp.tag_false)
-        etype = input_val.data.get(_key_entry_type)
-        if etype is not None and isinstance(etype.data, comp.Tag) and etype.data is _missing_etype_tag:
-            return comp.Value(comp.tag_true)
-        return comp.Value(comp.tag_false)
-
-    def _is_link(input_val, args_val, frame):
-        """Check if an entry is a symbolic link.
-
-        Input ($): entry
-        Returns: bool
-        """
-        if not _entry_is_struct(input_val):
-            return comp.Value(comp.tag_false)
-        etype = input_val.data.get(_key_entry_type)
-        if etype is not None and isinstance(etype.data, comp.Tag) and etype.data is _link_etype_tag:
-            return comp.Value(comp.tag_true)
-        return comp.Value(comp.tag_false)
+        result = comp.Value(entry)
+        if input_val.stash:
+            result.stash = dict(input_val.stash)
+        return result
 
     def _close_dir(input_val, args_val, frame):
         """Explicitly close a handle#dir, releasing the OS resource."""
@@ -1419,10 +1494,6 @@ def _create_fs_module(module):
     module.add_callable("entry-meta", _entry_meta)
     module.add_callable("entry-up", _entry_up)
     module.add_callable("entry-refresh", _entry_refresh)
-    module.add_callable("is-dir?", _is_dir)
-    module.add_callable("is-file?", _is_file)
-    module.add_callable("is-missing?", _is_missing)
-    module.add_callable("is-link?", _is_link)
     module.add_callable("basename-of", _basename_of, input_shape=comp.shape_text, pure=True)
     module.add_callable("close-dir", _close_dir)
     module.add_callable("drop-dir&", _drop_handle)

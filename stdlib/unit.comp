@@ -1,5 +1,6 @@
 /// Unit tag definitions for the Comp standard library.
 !no-default
+!import tag comp "tag"
 ///
 /// Numeric unit families live under `measure.*`. Each sub-family groups
 /// related units; all units within a sub-family are mutually convertible
@@ -47,6 +48,6 @@
 ///       $ | py.pure-call :"str.upper"
 ///   )
 !pure preserve-unit ~invoke-data (
-    !my unit [$.input | get-unit-tag]
+    !my unit [$.input | tag.get-unit-tag]
     [$ | invoke]#unit
 )

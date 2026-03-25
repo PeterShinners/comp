@@ -38,15 +38,17 @@ class Shape:
         private: (bool) Shape is private to its module
         module: (Module | None) The module that defined this shape
         fields: (list[ShapeField]) Field definitions for structure shapes
+        limits: (list) Shape-level limit functions [(func_val, param_val_or_None)]
     """
 
-    __slots__ = ("qualified", "private", "module", "fields")
+    __slots__ = ("qualified", "private", "module", "fields", "limits")
 
     def __init__(self, qualified, private):
         self.qualified = qualified
         self.module = None
         self.private = private
         self.fields = []
+        self.limits = []
 
     def __repr__(self):
         return f"Shape<{self.qualified}>"

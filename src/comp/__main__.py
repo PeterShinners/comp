@@ -57,7 +57,7 @@ def prettycop(cop, field=None, indent=0, show_pos=False):
     if field:
         ind += f"{field}="
     if cop.shape is not comp.shape_struct or (
-                cop.data and not isinstance(cop.positional(0).shape, comp.Tag)):
+                cop.data and not isinstance(cop.positional(0).data, comp.Tag)):
         valcop = cop.cop.format() if cop.cop else ""
         print(f"{ind}{cop.format()} <{cop.shape.qualified}> {valcop}")
         return
@@ -568,7 +568,7 @@ def main():
         import debugpy
         if debugpy.is_client_connected():
             print("Debugger attached.")
-            argv = ['minimal.comp', '--callouts', '--pure']
+            argv = ['minimal.comp', '--eval', '--main', 'console']
     except ImportError:
         pass
 
@@ -684,7 +684,6 @@ def main():
                     frame = TracingFrame(env, interp=interp, module=None, depth=0)
                 else:
                     frame = comp.ExecutionFrame(env, interp=interp, module=None)
-
                 result = frame.run(instructions)
                 if frame.failure is not None:
                     print(_format_failure_cli(frame.failure), file=sys.stderr)
@@ -711,7 +710,6 @@ def main():
         _t_load = _time.perf_counter()
 
     # --- Module-based modes ---
-
     if args.scan:
         tree = comp._parse.lark_parse(mod.source.content, "scan")
         prettylark(tree, show_positions=args.pos)
@@ -1026,19 +1024,26 @@ def main():
                         if args.trace:
                             print(f"\n-- main {main_name} --")
                             frame = TracingFrame(env, interp=interp, module=mod, depth=0, context=ctx_dict)
+                            frame.definition_name = f"!main.{main_name}"
                             try:
                                 result = frame.invoke_block(main_block, context, piped=None)
                             except comp.CompFail as e:
                                 print(_format_failure_cli(e.value, source_file=args.source), file=sys.stderr)
                                 sys.exit(1)
+                            except comp.CodeError as e:
+                                print(_format_code_error(e, label="Failure"), file=sys.stderr)
+                                sys.exit(1)
                             if result is not None:
                                 print(result.format())
                         else:
-                            main_frame = comp.ExecutionFrame(env, interp=interp, module=mod, context=ctx_dict)
+                            main_frame = comp.ExecutionFrame(env, interp=interp, module=mod, context=ctx_dict, definition_name=f"!main.{main_name}")
                             try:
                                 result = main_frame.invoke_block(main_block, context, piped=None)
                             except comp.CompFail as e:
                                 print(_format_failure_cli(e.value, source_file=args.source), file=sys.stderr)
+                                sys.exit(1)
+                            except comp.CodeError as e:
+                                print(_format_code_error(e, label="Failure"), file=sys.stderr)
                                 sys.exit(1)
                             _t_eval = _time.perf_counter()
                             if result is not None:
