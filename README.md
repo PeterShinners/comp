@@ -5,24 +5,25 @@ title: Comp Language
 
 Comp is an experimental project to build a general purpose, high level
 programming language that works inside and alongside Python. It is definitely
-inspired by Python with substantial new concepts. The goal is a developer
-focused language that makes development better.
+inspired by Python but contains substantial new concepts. The goal is a
+developer focused language that makes development better.
 
-- **Lightweight syntax** Flexible syntax that with no delimiters, not line or
+- **Lightweight syntax** Flexible syntax that with no delimiters, is not line or
   indentation based, and avoids nesting.
 - **Declarative** Defined namespaces avoid circular puzzles and moves problems
   to build-time, not run-time.
-- **Builtin Schemas** Define your own shapes and data types, then use them to
-  validate and transform your data.
+- **Builtin Schemas** Define your own shapes and data types with extensible
+  validations. Then use    them to validate and transform your data.
 - **Data Driven** Functions run on any compatible data; like having methods
   without the classes or casting hurdles.
 - **Flow Control Functions** The standard library provides conditionals loops,
-  and more. Or define and or extend your own.
-- **Immutable values** Nothing is modified once it exists. The language has
-  the tools to define modifications the easy and safe way.
+  and more; or define and or extend your own.
+- **Immutable values** Nothing is modified once it exists. The language has the
+  tools to define modifications the easy and safe way.
 
-One measure of a great developer language is how well the standard libraries
-represent idiomatic and clean code. Comp aims for this excellence.
+Hopefully Comp's strengths and abilities are clear when reading through the
+standard libraries, which are clean and idiomatic. How do your own favorite
+language libraries compare?
 
 ## Example
 
@@ -58,7 +59,7 @@ minimizes developer friction and maximizes composability.
 - **Failures** Easier to handle than traditional exceptions.
 - **Contexts** Tracked data that work like typed environment variables at any level of the language.
 - **Documentation** Comments follow Rust rules for identifying documentation.
-- **Overloadeds** Alternative implementations avoid conditional nests.
+- **Overloads** Alternative implementations avoid conditional nests.
 - **Wrappers** Like decorators but for statements, not just functions.
 - **Blocks** Any statement is a deferred block and passed to functions for evaluation.
 - **Imports** Powerful import system integrates with downloads, caching, and more.
