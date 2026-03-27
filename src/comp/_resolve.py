@@ -135,7 +135,7 @@ def _resolve_identifier(cop, namespace, locals):
 
     Resolution order:
     1. If the first name part is in locals → value.local
-    2. If the name (or prefix) is in the namespace → value.namespace
+    2. If the full dotted name is in the namespace → value.namespace
     3. Otherwise → value.undefined (grenade)
 
     Args:
@@ -179,40 +179,32 @@ def _resolve_identifier(cop, namespace, locals):
         remaining = [_resolve_walk(k, namespace, locals) for k in remaining]
         return _make_local(cop, first_name, remaining)
 
-    # Try namespace resolution (full name first, then shorter prefixes)
+    # Try namespace resolution — full name only, no prefix fallback.
+    # The namespace already contains all valid qualified names.
     if namespace is not None:
-        for prefix_len in range(len(resolvable_parts), 0, -1):
-            name = ".".join(p[0] for p in resolvable_parts[:prefix_len])
+        full_name = ".".join(p[0] for p in resolvable_parts)
+        definition_set = namespace.get(full_name)
 
-            definition_set = namespace.get(name)
-            if definition_set is None:
-                continue
-
+        if definition_set is not None:
             scalar = definition_set.scalar()
             invokables = definition_set.invokables() if scalar is None else None
 
             if scalar is not None:
-                ref = _make_namespace(cop, name, scalar.module_id)
+                ref = _make_namespace(cop, full_name, scalar.module_id)
             elif invokables is not None and len(invokables) > 0:
                 module_id = invokables[0].module_id
-                ref = _make_namespace(cop, name, module_id)
+                ref = _make_namespace(cop, full_name, module_id)
             elif hasattr(definition_set, "entries") and definition_set.entries:
-                # Non-invokable, non-scalar set (e.g. tag with alias).
-                # Pick the shortest qualified name as the canonical reference.
                 defs_list = sorted(definition_set.entries,
                                    key=lambda d: len(d.qualified))
-                ref = _make_namespace(cop, name,
+                ref = _make_namespace(cop, full_name,
                                       defs_list[0].module_id)
             else:
-                continue
+                return _make_undefined(cop, full_name)
 
-            # Collect remaining kids that become field access
-            remaining_kids = [p[1] for p in resolvable_parts[prefix_len:]]
+            # Attach non-resolvable suffix (e.g. index expressions) as field access
             if first_non_resolvable_idx is not None:
-                remaining_kids.extend(kids[first_non_resolvable_idx:])
-
-            if remaining_kids:
-                # Resolve expressions inside remaining kids (e.g. ident.indexpr)
+                remaining_kids = list(kids[first_non_resolvable_idx:])
                 remaining_kids = [_resolve_walk(k, namespace, locals) for k in remaining_kids]
                 field_ident = comp.create_cop("value.identifier", remaining_kids)
                 return comp.create_cop("value.field", [ref, field_ident])

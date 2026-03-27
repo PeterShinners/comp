@@ -721,6 +721,30 @@ class CodeGenContext:
                     index_reg=index_reg
                 ))
             else:
+                # Produce a helpful message for namespace references in field position
+                if field_tag == "value.namespace":
+                    try:
+                        field_qualified = field_token.field("qualified").data
+                    except (KeyError, AttributeError):
+                        field_qualified = None
+                    left_name = None
+                    left_tag_check = comp.cop_tag(left_cop)
+                    try:
+                        if left_tag_check == "value.namespace":
+                            left_name = left_cop.field("qualified").data
+                        elif left_tag_check == "value.constant":
+                            left_name = left_cop.field("qualified").data
+                    except (KeyError, AttributeError):
+                        pass
+                    if left_name and field_qualified:
+                        raise comp.CodeError(
+                            f"`{left_name}.{field_qualified}` resolved to separate definitions "
+                            f"instead of a single name; `{field_qualified}` is defined locally, "
+                            f"not in module `{left_name}`",
+                            cop)
+                    raise comp.CodeError(
+                        f"Unexpected namespace reference `{field_qualified or '?'}` in field position",
+                        cop)
                 raise comp.CodeError(f"Unsupported postfix field type: {field_tag}", cop)
         
         return result

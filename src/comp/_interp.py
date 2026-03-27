@@ -614,6 +614,7 @@ class Interp:
                                 err.col = s.col
                                 err.end_col = s.col + s.length
                             err.module = mod
+                            err.callout_code = c.code
                             errors.append((mod, err))
                             break
         _t1 = _time.perf_counter()
@@ -670,6 +671,20 @@ class Interp:
                     )
                 except (comp.CodeError, Exception) as e:
                     if isinstance(e, comp.CodeError):
+                        e.module = mod
+                        e.definition_name = defn.qualified
+                        # If error has no position, use definition's position
+                        if getattr(e, "row", None) is None:
+                            src_cop = defn.original_cop
+                            if src_cop is not None:
+                                try:
+                                    pos = src_cop.field("pos")
+                                    if pos is not None:
+                                        e.row = pos.to_python(0)
+                                        e.col = pos.to_python(1)
+                                        e.end_col = pos.to_python(3)
+                                except (KeyError, AttributeError, IndexError):
+                                    pass
                         errors.append((mod, e))
                     else:
                         errors.append((mod, comp.CodeError(
@@ -1178,8 +1193,19 @@ class ExecutionFrame:
                 result = self._dispatch_overload(callable_obj, args, piped)
                 if result is None:
                     names = [getattr(b, "qualified", "?") for b in callable_obj.entries]
+                    # Compose a detailed error message
+                    input_val = piped if piped is not None else args
+                    input_shape = getattr(input_val, "shape", None)
+                    input_shape_str = input_shape.qualified if input_shape and hasattr(input_shape, "qualified") else str(type(input_val))
+                    cop_info = f" at {source_cop}" if source_cop is not None else ""
+                    msg = (
+                        f"No matching overload found for dispatch{cop_info}:\n"
+                        f"  Candidates: {', '.join(names)}\n"
+                        f"  Input value: {input_val.format() if hasattr(input_val, 'format') else repr(input_val)}\n"
+                        f"  Input shape: {input_shape_str}"
+                    )
                     raise CompFail(_make_fail_value(
-                        f"No matching overload found: {', '.join(names)}",
+                        msg,
                         tag=comp.tag_fail_invoke,
                         cop_val=source_cop,
                     ))

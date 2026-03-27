@@ -115,13 +115,13 @@
 ///   !my e [root | fs.at "notes.txt"]
 ///   !my e [root | fs.at "docs/readme.md"]
 !func root.at ~nil (
-    !param name~uri.uri-or-text
-    [name | uri.to-text | nativefs.vfs-root-entry]
+    !param name~uri-or-text
+    [name | to-text | nativefs.vfs-root-entry]
 )
 
 !func down.at ~entry (
-    !param name~uri.uri-or-text
-    [$ | dispatch $.root.vfs "vfs-child-entry" [name | uri.to-text]]
+    !param name~uri-or-text
+    [$ | dispatch $.root.vfs "vfs-child-entry" [name | to-text]]
 )
 
 /// Ensure a file entry exists.
@@ -134,8 +134,8 @@
 ///   !my f [root | fs.file "notes.txt"]
 ///   !my text [root | fs.file "notes.txt" | fs.read]
 !func down.file ~entry<not-file> (
-    !param name~uri.uri-or-text
-    [$ | dispatch $.root.vfs "vfs-create-file" [name | uri.to-text]]
+    !param name~uri-or-text
+    [$ | dispatch $.root.vfs "vfs-create-file" [name | to-text]]
 )
 
 /// Ensure a directory entry exists.
@@ -152,8 +152,8 @@
 ///   !my deep [root | fs.dir "a/b/c"]
 ///   [root | fs.dir "output" | fs.file "result.txt" | fs.write "hello"]
 !func down.dir ~entry<not-file> (
-    !param name~uri.uri-or-text
-    [$ | dispatch $.root.vfs "vfs-create-dir" [name | uri.to-text]]
+    !param name~uri-or-text
+    [$ | dispatch $.root.vfs "vfs-create-dir" [name | to-text]]
 )
 
 

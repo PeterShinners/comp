@@ -432,12 +432,9 @@ def _resolve_identifier(cop, namespace, locals, references):
     Resolution order:
     1. If the first name part is in `locals`, create a value.local node.
        Remaining parts (field access) are kept as kids on the local node.
-    2. If the full (or prefix) name is in the namespace, create a value.namespace
+    2. If the full dotted name is in the namespace, create a value.namespace
        node and record the qualified name in `references`.
     3. Otherwise return cop unchanged (stays as value.identifier).
-
-    For namespace lookup, progressively shorter prefixes are tried so that
-    "pair.b" resolves to a value.namespace for "pair" plus a field access on "b".
 
     Args:
         cop: (Value) Identifier COP node
@@ -487,15 +484,12 @@ def _resolve_identifier(cop, namespace, locals, references):
     if namespace is None:
         return cop
 
-    # Try full resolvable name first, then progressively shorter prefixes
-    for prefix_len in range(len(resolvable_parts), 0, -1):
-        name = ".".join(p[0] for p in resolvable_parts[:prefix_len])
+    # Try namespace resolution — full name only, no prefix fallback.
+    # The namespace already contains all valid qualified names.
+    full_name = ".".join(p[0] for p in resolvable_parts)
+    definition_set = namespace.get(full_name)
 
-        definition_set = namespace.get(name)
-        if definition_set is None:
-            continue
-
-        # Found a match - create namespace reference
+    if definition_set is not None:
         scalar = definition_set.scalar()
         invokables = definition_set.invokables() if scalar is None else None
 
@@ -508,15 +502,11 @@ def _resolve_identifier(cop, namespace, locals, references):
             ref = _make_namespace(cop, qualified_names, module_id)
             _record_reference(ref, references)
         else:
-            continue  # Ambiguous, try shorter prefix
+            return cop  # Ambiguous — leave as value.identifier
 
-        # Collect remaining kids that need to become field access
-        remaining_kids = [p[1] for p in resolvable_parts[prefix_len:]]
+        # Attach non-resolvable suffix (e.g. index expressions) as field access
         if first_non_resolvable_idx is not None:
-            remaining_kids.extend(kids[first_non_resolvable_idx:])
-
-        # If there are remaining parts, wrap in access node
-        if remaining_kids:
+            remaining_kids = list(kids[first_non_resolvable_idx:])
             field_ident = comp.create_cop("value.identifier", remaining_kids)
             return comp.create_cop("value.field", [ref, field_ident])
 
@@ -738,6 +728,12 @@ def _make_constant(original, value):
             pos = original.field("pos")
             if pos is not None:
                 fields["pos"] = pos
+        except (KeyError, AttributeError):
+            pass
+        try:
+            qualified = original.field("qualified")
+            if qualified is not None:
+                fields["qualified"] = qualified
         except (KeyError, AttributeError):
             pass
     return comp.create_cop("value.constant", [], **fields)

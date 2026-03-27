@@ -350,6 +350,14 @@ def _format_code_error(e, label="Build failure"):
         except (AttributeError, TypeError):
             pass
 
+    # Fallback: read source from disk if module didn't provide content
+    if source_lines is None and source_file:
+        try:
+            with open(source_file, encoding="utf-8") as f:
+                source_lines = f.read().splitlines()
+        except OSError:
+            pass
+
     if msg:
         parts.append(msg)
 
@@ -876,7 +884,12 @@ def main():
                 raise err_exc
         except (comp.ParseError, comp.CodeError) as e:
             if isinstance(e, comp.CodeError):
-                print(_format_code_error(e, "Build failure"), file=sys.stderr)
+                callout_code = getattr(e, "callout_code", None)
+                if callout_code in ("validator-exception", "validator-failure"):
+                    label = "Internal callout failure"
+                else:
+                    label = "Build failure"
+                print(_format_code_error(e, label), file=sys.stderr)
             else:
                 msg = e.message if hasattr(e, "message") else str(e)
                 err_mod = getattr(e, "module", None)

@@ -274,6 +274,23 @@ class Collector:
 # so INFO/HINT validators are never invoked.
 # ---------------------------------------------------------------------------
 
+def _location_from_cop(cop):
+    """Extract a Location from a COP node's pos field, if available."""
+    if cop is None:
+        return None
+    try:
+        pos = cop.field("pos")
+        if pos is not None:
+            row = pos.to_python(0)
+            col = pos.to_python(1)
+            end_col = pos.to_python(3)
+            length = max(1, end_col - col) if end_col and end_col > col else 1
+            return Location(Span(None, row, col, length))
+    except (KeyError, AttributeError, IndexError, TypeError):
+        pass
+    return None
+
+
 def cop_callouts(definition, min_severity=ERROR, interp=None, namespace=None):
     """Run comp-side validators on a Definition's COP tree.
 
@@ -370,7 +387,6 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, namespace=None):
         frame = ExecutionFrame(env, interp=interp, module=callout_mod)
         result = frame.invoke_block(validator_def.value, args, piped=cop)
     except CompFail as e:
-        import sys
         fail_val = e.value
         msg = "(unknown)"
         if isinstance(fail_val.data, dict):
@@ -380,19 +396,40 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, namespace=None):
             if msg_val is not None and isinstance(msg_val.data, str):
                 msg = msg_val.data
         defn_name = getattr(definition, "token", None) or "?"
-        print(
-            f"Callout validator failure in `{defn_name}`: {msg}",
-            file=sys.stderr,
-        )
-        return []
+        primary = _location_from_cop(definition.resolved_cop or definition.original_cop)
+        return [Callout(ERROR, "validator-failure",
+                        f"Callout validator failure in `{defn_name}`: {msg}",
+                        phase="validate", primary=primary)]
     except Exception as e:
-        import sys
         defn_name = getattr(definition, "token", None) or "?"
-        print(
-            f"Callout validator error in `{defn_name}`: {type(e).__name__}: {e}",
-            file=sys.stderr,
-        )
-        return []
+        primary = _location_from_cop(definition.resolved_cop or definition.original_cop)
+        # Extract validator-side crash location from the exception's cop_node
+        validator_info = ""
+        cop_node = getattr(e, "cop_node", None)
+        if cop_node is not None:
+            try:
+                pos = cop_node.field("pos")
+                if pos is not None:
+                    vrow = pos.to_python(0)
+                    vcol = pos.to_python(1)
+                    vend_col = pos.to_python(3)
+                    validator_info = f"\n  validator crash at callout.comp:{vrow}:{vcol}"
+                    # Try to show the callout.comp source line
+                    try:
+                        csrc = callout_mod.source.content.splitlines()
+                        if 1 <= vrow <= len(csrc):
+                            src_line = csrc[vrow - 1].rstrip("\n")
+                            validator_info += f"\n   | {src_line}"
+                            span = max(1, vend_col - vcol) if vend_col and vend_col > vcol else 1
+                            caret = " " * (vcol - 1) + "^" * span
+                            validator_info += f"\n   | {caret}"
+                    except (AttributeError, TypeError):
+                        pass
+            except (KeyError, AttributeError, IndexError, TypeError):
+                pass
+        return [Callout(ERROR, "validator-exception",
+                        f"{type(e).__name__}: {e}{validator_info}",
+                        phase="validate", primary=primary)]
     finally:
         interp._disable_build_validations = max(getattr(interp, "_disable_build_validations", 1) - 1, 0)
 

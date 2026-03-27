@@ -1,32 +1,29 @@
 /// In-memory (RAM) filesystem VFS backend.
 ///
-/// Provides a fully functional filesystem backed entirely by Python
-/// dicts and byte strings — no disk access, no persistence across
-/// process restarts.  Every operation that works on a native path
-/// works identically here.
+/// Provides a fully functional filesystem backed entirely by a mutable
+/// shelf — no disk access, no persistence across process restarts.
+/// Every operation that works on a native path works identically here.
 ///
-/// Each unique virtual mount path is an isolated filesystem.  Opening
-/// the same path twice returns entries that share the same underlying
-/// RamNode tree, so writes from one entry are immediately visible from
-/// another:
+/// The backing shelf maps absolute path strings to their contents:
+///   directories map to an empty struct  `{}`
+///   files map to their text content
 ///
-///   !my a ["/" | ramfs.open]
-///   !my b ["/" | ramfs.open]
-///   [a | fs.file "note.txt" | fs.write "hello"]
-///   // [b | fs.file "note.txt" | fs.read] == "hello"
+/// Each call to `ramfs.mount` creates a new, isolated in-memory
+/// filesystem.  The shelf is stashed on the root entry and inherited
+/// by all child entries via `$.root&store`.
 ///
-/// The vfs tag on root entries is `vfs.ramfs`.  The fs module dispatches
+/// The vfs tag on root entries is `vfs.ramfs`. The fs module dispatches
 /// all vfs-* operations here via `dispatch $.root.vfs "vfs-*"`.
 ///
 /// Example:
 ///   !import ramfs comp "ramfs"
 ///   !import fs comp "fs"
-///   !my root ["/" | ramfs.open]
+///   !my root [nil | ramfs.mount]
 ///   [root | fs.dir "output" | fs.file "result.txt" | fs.write "done"]
 ///   !my text [root | fs.file "result.txt" | fs.read]
 
 !no-default
-!import py comp "py"
+!import shelf comp "shelf"
 !import fs comp "fs"
 !import loop comp "loop"
 !import s comp "struct"
@@ -37,143 +34,225 @@
 !tag fs.vfs {ramfs}
 
 
-
-/// Mount (create) a new in-memory filesystem to work with.
-// In the future this could do things like enforce size limits? dunno,
-// it's more of simple representation.
+/// Mount a new in-memory filesystem, returning its root entry.
+///
+/// The root directory `"/"` is pre-seeded. Pass the result to
+/// fs.dir, fs.file, fs.read, fs.write, fs.list, etc.
+///
+/// Example:
+///   !my root [nil | ramfs.mount]
+///   [root | fs.file "hello.txt" | fs.write "world"]
 !func mount ~nil (
-    !my vfs [{readme="Hello world"} | py.dump]
-    [d | py.method "__setitem__" path py]
-
+    !my store [shelf.new | shelf.set "/" {}]
     !my result {
-        entry-type = fs.entry-type.dir 
-        name = actual-name 
-        path = "ram://"
+        entry-type = fs.entry-type.dir
+        name = "/"
+        path = "/"
         vfs = vfs.ramfs
     }
     !my root [result | promote-root]
-    !stash root&vfs vfs
+    !stash root&store store
     root
 )
 
 
 /// Look up a named child within a directory entry.
 ///
-/// Stats the child and returns a typed entry (dir, file, or missing).
-/// For directory children a RamHandle is opened so the entry is
-/// navigable.  Supports multi-segment paths: "a/b/c" navigates through
-/// intermediate directories.
+/// Returns a file, directory, or missing entry depending on what
+/// exists at that path in the shelf.  Supports multi-segment paths
+/// like "a/b/c" by building on the parent path.
 !func vfs-child-entry ~fs.entry (
     !param name ~text
-
-    // Generate new absolute uri
-    !my entry-uri [$.path | uri.unpack]
-    !my anchor [entry-uri | full-path]
-    !my anchored [{anchor name} | py.call "posixpath.join" | py.call "posixpath.normpath"]
-    !my path-uri [{entry-uri [anchored | path-pack]} | merge]
-    !my path-name [path-uri | file-name]
-    !my path [path-uri | pack]
-
-    // Lookup data
-    !my vfs entry.root&vfs
-    !my data [vfs | py.method "get" path | py.load]
-
-    // Create entry
-    !on data
-    ~text {entry-type=bfd.entry-type.file name=path-name path=path root=entry.root size=[data | length]}
-    ~struct {entry-type=bfd.entry-type.dir name=path-name path=path root=entry.root}
-    ~nil {entry-type=bfd.entry-type.missing name=path-name path=path root=entry.root}
-    ~any !fail.value "Invalid entry in vfs structure %(data)"
+    !my cpath [$ | child-path name]
+    !my cname [cpath | path-name]
+    !my data [$.root&store | shelf.get cpath]
+    !my child !on data
+        ~text   {entry-type=fs.entry-type.file    name=cname path=cpath root=$.root}
+        ~struct {entry-type=fs.entry-type.dir     name=cname path=cpath root=$.root}
+        ~nil    {entry-type=fs.entry-type.missing name=cname path=cpath root=$.root}
+    // ...existing code...
+    child
 )
 
 
 /// Read file content as UTF-8 text.
-!func vfs-read ~fs.entry [
-    !my data [entry.root&vfs | py.method "get" $.path | py.load]
+///
+/// Fails if the path is a directory or does not exist.
+!func vfs-read ~fs.entry (
+    !my data [$.root&store | shelf.get $.path]
     !on data
     ~text data
     ~any !fail.value "File not found %($.path)"
-]
-
-
-/// Write text content to a file (creates the node if missing, overwrites otherwise).
-!func vfs-write ~fs.entry (
-    !param content ~text
-
-    !my data [entry.root&vfs | py.method "get" $.path | py.load]
-    !on data
-    ~struct !fail.value "Cannot write to directory %($.path)"
-    [entry.root&vfs | py.method "__setitem__" $.path content]
-    nil
-    //does this return the updated entry stats? Seems good
 )
 
 
-/// List all children of a directory, returning a struct of entries.
-!func vfs-list ~fs.entry (
-    !my data [entry.root&vfs | py.method "get" $.path | py.load]
+/// Write text content to a file.
+///
+/// Creates the file if it does not exist; overwrites if it does.
+/// Fails if the path is a directory.
+!func vfs-write ~fs.entry (
+    !param content ~text
+    !my data [$.root&store | shelf.get $.path]
     !on data
-    ~text !fail.value "Cannot list file %($.name)"
-    ~nil !fail.value "Cannot list missing %($.name)"
+    ~struct !fail.value "Cannot write to directory %($.path)"
+    [$.root&store | shelf.set $.path content]
+    nil
+)
 
-    !my names [data | py.method "keys" | py.call "list"]
-    [names | ]
 
-
-    !my parent $
-    !my raw-entries [$&handle | py.call "comp.runtime.ramfs.list_dir"]
-    [raw-entries | loop.map :(
-        !my info $
-        [parent | make-child info.name info]
+/// List all direct children of a directory entry.
+///
+/// Returns a positional struct of typed entries (file or dir).
+/// Only immediate children are listed — no recursion.
+!func vfs-list ~fs.entry (
+    !my my-path $.path
+    !my store $.root&store
+    // ...existing code...
+    [store | shelf.keys
+    | loop.where :([$ | path-parent] == my-path)
+    | loop.map :(
+        !my cpath $
+        !my cname [cpath | path-name]
+        !my data [store | shelf.get cpath]
+        !my child !on data
+            ~text   {entry-type=fs.entry-type.file name=cname path=cpath root=$.root}
+            ~struct {entry-type=fs.entry-type.dir  name=cname path=cpath root=$.root}
+        // ...existing code...
+        child
     )]
 )
 
 
 /// Return an enriched copy of an entry with full stat metadata.
+///
+/// RAM entries carry no extra metadata beyond what is already present.
 !func vfs-meta ~fs.entry (
     $
 )
 
 
 /// Remove a file or empty directory.
+///
+/// Fails if the entry is missing or if it is a non-empty directory.
 !func vfs-remove ~fs.entry (
-    !my data [entry.root&vfs | py.method "get" $.path | py.load]
+    !my data [$.root&store | shelf.get $.path]
     !on data
     ~nil !fail.value "Cannot delete missing %($.name)"
     ~struct (
-        if ([data | length] > 0) :(!fail.value "Cannot delete full directory %($.name)")
+        !my children [$.root&store | shelf.keys | loop.where :([$ | path-parent] == $.path)]
+        !on ([children | s.length] > 0)
+        ~true !fail.value "Cannot delete non-empty directory %($.name)"
     )
-
-    [entry.root&vfs | py.method "pop" $.path nil]
+    [$.root&store | shelf.remove $.path]
     nil
 )
 
 
 /// Return the parent entry, or nil for the root.
 !func vfs-up ~fs.entry (
-    $&parent
+    !on ($.path == "/")
+    ~true nil
+    ~false (
+        !my parent_path [$.path | path-parent]
+        !my data [$.root&store | shelf.get parent_path]
+        !on data
+        ~text   {entry-type=fs.entry-type.file name=[parent_path | path-name] path=parent_path root=$.root}
+        ~struct {entry-type=fs.entry-type.dir  name=[parent_path | path-name] path=parent_path root=$.root}
+        ~nil    {entry-type=fs.entry-type.missing name=[parent_path | path-name] path=parent_path root=$.root}
+    )
 )
 
 
-/// Return a fresh copy of the entry with no cached metadata.
+/// Return a fresh copy of the entry reflecting current shelf state.
 !func vfs-refresh ~fs.entry (
-    [$.root | entry $.path]
+    !my cpath $.path
+    !my data [$.root&store | shelf.get cpath]
+    !my etype !on data
+        ~text   fs.entry-type.file
+        ~struct fs.entry-type.dir
+        ~nil    fs.entry-type.missing
+    !my fresh {entry-type=etype name=$.name path=cpath root=$.root}
+    // ...existing code...
+    fresh
 )
 
 
-/// Ensure a file exists, creating an empty one if missing.
+/// Ensure a file exists at *name* relative to this directory.
 ///
-/// Fails if something at *name* already exists but is not a file.
+/// Creates an empty file if nothing exists there.
+/// Fails if a directory already exists at that name.
 !func vfs-create-file ~fs.entry (
-    // todo
+    !param name ~text
+    !my cpath [$ | child-path name]
+    !my cname [cpath | path-name]
+    !my data [$.root&store | shelf.get cpath]
+    !on data
+    ~struct !fail.value "Path exists as a directory %(cname)"
+    ~nil [$.root&store | shelf.set cpath ""]
+    !my child {entry-type=fs.entry-type.file name=cname path=cpath root=$.root}
+    // ...existing code...
+    child
 )
 
 
-/// Ensure a directory exists.  Supports multi-segment paths (makedirs).
+/// Ensure a directory exists at *name* relative to this directory.
 ///
-/// Intermediate directories are created as needed.
+/// Creates intermediate directories as needed (makedirs behaviour).
 /// Fails if any segment already exists as a file.
 !func vfs-create-dir ~fs.entry (
-    //todo
+    !param name ~text
+    !my parts [name | text.split "/"]
+    !my current $
+    [parts | loop.map :(
+        !my seg $
+        !my cpath [current | child-path seg]
+        !my data [current.root&store | shelf.get cpath]
+        !on data
+        ~struct nil
+        ~text !fail.value "Path exists as a file %(seg)"
+        ~nil [current.root&store | shelf.set cpath {}]
+        !my child {entry-type=fs.entry-type.dir name=seg path=cpath root=current.root}
+        // ...existing code...
+        !my current child
+        current
+    )]
+    current
 )
 
+
+// --- Private helpers ---
+
+/// Build a child path from a parent entry and a child name segment.
+///
+/// Root is handled specially to avoid producing "//name".
+!pure child-path& ~fs.entry (
+    !param name ~text
+    !on ($.path == "/")
+    ~true [{"/" name} | text.join]
+    ~false [{$.path name} | text.join "/"]
+)
+
+/// Extract the basename (last component) from an absolute path.
+!pure path-name& ~text (
+    !on ($ == "/")
+    ~true "/"
+    ~false [$ | text.split "/" | loop.last]
+)
+
+/// Return the parent of an absolute path, or nil for the root.
+///
+/// "/foo"     => "/"
+/// "/foo/bar" => "/foo"
+/// "/"        => nil
+!pure path-parent& ~text (
+    !on ($ == "/")
+    ~true nil
+    ~false (
+        !my parts [$ | text.split "/"]
+        !my count [parts | s.length]
+        !my parent [parts | loop.slice 0 (count - 1) | text.join "/"]
+        !on (parent == "")
+        ~true "/"
+        ~false parent
+    )
+)

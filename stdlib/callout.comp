@@ -105,12 +105,18 @@
     !param severity ~callout
     !param code ~text
     !param message ~text
+    !my fields [$ | cop-fields]
+    !my pos-val (
+        !on [fields | contains-field "pos"]
+        ~true (fields.pos)
+        ~false nil
+    )
     {callouts={{
         severity=severity
         code=code
         message=message
         phase=callout.phase.cop
-        pos=[$ | ($.pos)]
+        pos=pos-val
     }} accum={}}
 )
 
@@ -313,16 +319,22 @@
         !on base-tag == "value.constant"
         ~false cop-pass
         ~true (
-            !my field-name [node | cop-fields | ($.field)]
-            !my struct-val [base | cop-fields | ($.value)]
-            !my has-field [struct-val | contains-field field-name]
-            !on has-field
-            ~true cop-pass
-            ~false [node | cop-callout
-                severity=callout.error
-                code="undefined-field"
-                message=[@fmt"Field `%(field-name)` not found on constant struct"]
-            ]
+            !my field-kid [node | cop-kids | loop.last]
+            !my field-tag [field-kid | cop-tag]
+            !on field-tag == "ident.token"
+            ~false cop-pass
+            ~true (
+                !my field-name [field-kid | cop-fields | ($.value)]
+                !my struct-val [base | cop-fields | ($.value)]
+                !my has-field [struct-val | contains-field field-name]
+                !on has-field
+                ~true cop-pass
+                ~false [node | cop-callout
+                    severity=callout.error
+                    code="undefined-field"
+                    message=[@fmt"Field `%(field-name)` not found on constant struct"]
+                ]
+            )
         )
     )]
 )
