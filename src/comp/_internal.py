@@ -234,9 +234,13 @@ class SystemModule(comp.Module):
         self._add_tag("greater", comp.tag_greater)  
         self._add_tag("ord.less", comp.tag_less)
         self._add_tag("ord.equal", comp.tag_equal)
-        self._add_tag("ord.greater", comp.tag_greater)
+        self._add_tag("ord.greater", comp.tag_greater)  
 
-        # Builtin shapes
+        # Shelf handle tag
+        self._shelf_tag = comp.Tag("shelf", private=False)
+        self._shelf_tag.module = self
+        self._add_tag("shelf", self._shelf_tag)
+
         self._add_shape("num", comp.shape_num)
         self._add_shape("text", comp.shape_text)
         self._add_shape("struct", comp.shape_struct)
@@ -292,6 +296,18 @@ class SystemModule(comp.Module):
         self._add_callable("contains-field", _builtin_contains_field, pure=True)
         self._add_callable("find-duplicates", _builtin_find_duplicates, pure=True)
         self._add_callable("cop-pattern-key", _builtin_cop_pattern_key, pure=True)
+        self._add_callable("apply", _builtin_apply, pure=True)
+        self._add_callable("collect", _builtin_collect, pure=True, input_shape=comp.shape_struct)
+        self._add_callable("shelf-new", _builtin_shelf_new, pure=True)
+        self._add_callable("shelf-get", _builtin_shelf_get)
+        self._add_callable("shelf-set", _builtin_shelf_set)
+        self._add_callable("shelf-has", _builtin_shelf_has)
+        self._add_callable("shelf-remove", _builtin_shelf_remove)
+        self._add_callable("shelf-keys", _builtin_shelf_keys, pure=False)
+        self._add_callable("shelf-to-struct", _builtin_shelf_to_struct, pure=False)
+        self._add_callable("shelf-setdefault", _builtin_shelf_setdefault)
+        self._add_callable("shelf-from-struct", _builtin_shelf_from_struct, pure=True, input_shape=comp.shape_struct)
+        self._add_callable("shelf-update", _builtin_shelf_update)
 
     def _add_definition(self, name, value, shape):
         """Add a builtin definition with proper value and COP setup.
@@ -1571,6 +1587,251 @@ def _builtin_cop_pattern_key(input_val, args_val, frame):
         if parts:
             return comp.Value.from_python(".".join(parts))
     return comp.Value.from_python(comp.tag_nil)
+
+
+def _builtin_apply(input_val, args_val, frame):
+    """Apply a struct of arguments to a callable.
+
+    Spreads the piped input struct as arguments to the callable given as
+    the first positional argument.  An optional second positional argument
+    is used as the piped input ($) for the callable.
+
+    Usage:  params | apply myfunc           — call myfunc with params spread as args
+            params | apply myfunc myinput   — call myfunc with params as args, myinput as $
+    """
+    args_data = args_val.data if isinstance(args_val.data, dict) else {}
+
+    # Extract positional args: callable (required), input (optional)
+    positional = []
+    for k, v in args_data.items():
+        if isinstance(k, comp.Unnamed):
+            positional.append(v)
+
+    if not positional:
+        raise comp.CodeError("apply requires a callable as the first argument")
+
+    callable_val = positional[0]
+    piped = positional[1] if len(positional) > 1 else None
+
+    # The piped input to apply is the struct of args to spread
+    spread_args = input_val
+    if not isinstance(spread_args.data, dict):
+        # Wrap non-struct values as a single positional arg
+        spread_args = comp.Value({comp.Unnamed(): spread_args})
+
+    return frame.invoke_block(callable_val, spread_args, piped=piped)
+
+
+def _builtin_collect(input_val, args_val, frame):
+    """Flatten a nested ladder struct into a single flat struct.
+
+    Recursively descends into struct-valued fields depth-first.
+    Non-struct leaf values are collected in order.  For conflicting
+    named keys, outer (later-added) values override inner ones.
+
+    Usage:  {{{1} 2} 3} | collect   =>  {1 2 3}
+            {{{a=1} a=2} a=3} | collect  =>  {a=3}
+    """
+    result = {}
+
+    def _walk(struct_val):
+        for key, value in struct_val.data.items():
+            if value.shape is comp.shape_struct:
+                _walk(value)
+            else:
+                if isinstance(key, comp.Unnamed):
+                    key = comp.Unnamed()
+                result[key] = value
+
+    _walk(input_val)
+    return comp.Value(result)
+
+
+# ---------------------------------------------------------------------------
+# Shelf — mutable key/value store
+# ---------------------------------------------------------------------------
+
+class _Shelf:
+    """Mutable key-value store backed by a Python dict.
+
+    Keys are text strings, values are arbitrary comp Values.
+    """
+    __slots__ = ("_data",)
+
+    def __init__(self):
+        self._data = {}
+
+    def __repr__(self):
+        return f"shelf({len(self._data)})"
+
+
+def _get_system_module():
+    """Get the SystemModule singleton (lazy)."""
+    return get_internal_module("system")
+
+
+def _wrap_shelf(shelf):
+    """Wrap a _Shelf in a HandleInstance for purity enforcement."""
+    sys_mod = _get_system_module()
+    handle = comp.HandleInstance(
+        tag=sys_mod._shelf_tag,
+        module_id=sys_mod.token,
+        private_data=comp.Value(shelf),
+    )
+    return comp.Value(handle)
+
+
+def _check_shelf(input_val):
+    """Validate that input is a shelf handle, returning the _Shelf."""
+    inst = input_val.data
+    if not isinstance(inst, comp.HandleInstance):
+        raise comp.CodeError("expected a shelf as piped input")
+    if inst.private_data is None or not isinstance(inst.private_data.data, _Shelf):
+        raise comp.CodeError("expected a shelf as piped input")
+    return inst.private_data.data
+
+
+def _builtin_shelf_new(input_val, args_val, frame):
+    """Create a new empty shelf."""
+    return _wrap_shelf(_Shelf())
+
+
+def _builtin_shelf_get(input_val, args_val, frame):
+    """Get a value by key.  Returns nil if the key is absent.
+
+    Usage:  shelf | shelf-get "key"
+    """
+    shelf = _check_shelf(input_val)
+    key = args_val.positional(0).data
+    if not isinstance(key, str):
+        raise comp.CodeError("shelf-get key must be text")
+    val = shelf._data.get(key)
+    if val is None:
+        return comp.Value.from_python(comp.tag_nil)
+    return val
+
+
+def _builtin_shelf_set(input_val, args_val, frame):
+    """Set a key to a value.  Returns the shelf for chaining.
+
+    Usage:  shelf | shelf-set "key" value
+    """
+    shelf = _check_shelf(input_val)
+    key = args_val.positional(0).data
+    if not isinstance(key, str):
+        raise comp.CodeError("shelf-set key must be text")
+    value = args_val.positional(1)
+    shelf._data[key] = value
+    return input_val
+
+
+def _builtin_shelf_has(input_val, args_val, frame):
+    """Check whether a key exists.  Returns true or false.
+
+    Usage:  shelf | shelf-has "key"
+    """
+    shelf = _check_shelf(input_val)
+    key = args_val.positional(0).data
+    if not isinstance(key, str):
+        raise comp.CodeError("shelf-has key must be text")
+    return comp.Value.from_python(key in shelf._data)
+
+
+def _builtin_shelf_remove(input_val, args_val, frame):
+    """Remove a key.  Returns the shelf for chaining.  No-op if absent.
+
+    Usage:  shelf | shelf-remove "key"
+    """
+    shelf = _check_shelf(input_val)
+    key = args_val.positional(0).data
+    if not isinstance(key, str):
+        raise comp.CodeError("shelf-remove key must be text")
+    shelf._data.pop(key, None)
+    return input_val
+
+
+def _builtin_shelf_keys(input_val, args_val, frame):
+    """Return all keys as a positional struct of text values.
+
+    Usage:  shelf | shelf-keys
+    """
+    shelf = _check_shelf(input_val)
+    result = {}
+    for key in shelf._data:
+        result[comp.Unnamed()] = comp.Value.from_python(key)
+    return comp.Value(result)
+
+
+def _builtin_shelf_to_struct(input_val, args_val, frame):
+    """Snapshot the shelf as an immutable named struct.
+
+    Each shelf key becomes a named field.
+
+    Usage:  shelf | shelf-to-struct
+    """
+    shelf = _check_shelf(input_val)
+    result = {}
+    for key, value in shelf._data.items():
+        result[comp.Value.from_python(key)] = value
+    return comp.Value(result)
+
+
+def _builtin_shelf_setdefault(input_val, args_val, frame):
+    """Get a value by key, setting it to a default if absent.
+
+    Returns the existing value if the key is present, otherwise
+    sets the key to the default value and returns it.
+
+    Usage:  shelf | shelf-setdefault "key" default-value
+    """
+    shelf = _check_shelf(input_val)
+    key = args_val.positional(0).data
+    if not isinstance(key, str):
+        raise comp.CodeError("shelf-setdefault key must be text")
+    default = args_val.positional(1)
+    if key in shelf._data:
+        return shelf._data[key]
+    shelf._data[key] = default
+    return default
+
+
+def _struct_to_shelf_data(struct_val):
+    """Extract text-keyed entries from a struct into a dict."""
+    data = {}
+    for k, v in struct_val.data.items():
+        if isinstance(k, comp.Unnamed):
+            continue
+        if isinstance(k, comp.Value) and k.shape == comp.shape_text:
+            data[k.data] = v
+    return data
+
+
+def _builtin_shelf_from_struct(input_val, args_val, frame):
+    """Create a new shelf pre-populated from a named struct.
+
+    Named fields become key/value entries; positional fields are ignored.
+
+    Usage:  {x=10 y=20} | shelf-from-struct
+    """
+    shelf = _Shelf()
+    shelf._data = _struct_to_shelf_data(input_val)
+    return _wrap_shelf(shelf)
+
+
+def _builtin_shelf_update(input_val, args_val, frame):
+    """Merge named fields from a struct into an existing shelf.
+
+    Named fields are set (overwriting existing keys); positional fields
+    are ignored.  Returns the shelf for chaining.
+
+    Usage:  shelf | shelf-update {a=1 b=2}
+    """
+    shelf = _check_shelf(input_val)
+    struct_val = args_val.positional(0)
+    if struct_val.shape is not comp.shape_struct:
+        raise comp.CodeError("shelf-update argument must be a struct")
+    shelf._data.update(_struct_to_shelf_data(struct_val))
+    return input_val
 
 
 def get_internal_module(resource):

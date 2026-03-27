@@ -296,9 +296,6 @@
 )
 
 
-
-
-
 /// Extract a contiguous sub-range of fields by position.
 ///
 /// Supports flexible calling patterns for common slicing needs:
@@ -379,6 +376,11 @@
     )]
 )
 
+
+
+// apply is now a builtin — spreads a struct as arguments onto a callable.
+// Usage: params | apply myfunc          — call myfunc with params spread as args
+//        params | apply myfunc input    — also pipe input as $ to myfunc
 
 // Future:
 //   group-by  — classify values into named sub-structs (needs dynamic field naming)

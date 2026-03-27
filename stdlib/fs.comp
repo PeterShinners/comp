@@ -86,6 +86,13 @@
 }
 
 
+/// A path that can be either a text string or a decomposed ~uri.
+///
+/// Used as a parameter type for functions that accept either form.
+/// Use `uri.to-text` to normalize to a text path string.
+!shape uri-or-text ~(text | uri)
+
+
 /// Open the current working directory as a filesystem root entry.
 ///
 /// Example:
@@ -95,7 +102,7 @@
 )
 
 
-/// Look up a named child within a directory entry.
+/// Look up a named child without creating — returns a missing entry if absent.
 ///
 /// Stats the child to determine its type. Returns a missing entry if
 /// the child does not exist. For directory children, automatically opens
@@ -105,19 +112,19 @@
 /// intermediate directories.
 ///
 /// Example:
-///   !my e [root | fs.entry "notes.txt"]
-///   !my e [root | fs.entry "docs/readme.md"]
-!func root.entry ~nil (
+///   !my e [root | fs.at "notes.txt"]
+///   !my e [root | fs.at "docs/readme.md"]
+!func root.at ~nil (
     !param name~uri.uri-or-text
     [name | uri.to-text | nativefs.vfs-root-entry]
 )
 
-!func down.entry ~entry (
+!func down.at ~entry (
     !param name~uri.uri-or-text
     [$ | dispatch $.root.vfs "vfs-child-entry" [name | uri.to-text]]
 )
 
-/// Ensure a file entry exists within a directory.
+/// Ensure a file entry exists.
 ///
 /// If the name already exists as a file, returns the entry.
 /// If nothing exists at the name, creates an empty file.
@@ -126,16 +133,12 @@
 /// Example:
 ///   !my f [root | fs.file "notes.txt"]
 ///   !my text [root | fs.file "notes.txt" | fs.read]
-!func root.file ~nil (
-    !param name~uri.uri-or-text
-    [name | uri.to-text | nativefs.vfs-root-entry | only-file]
-)
 !func down.file ~entry<not-file> (
     !param name~uri.uri-or-text
-    [$ | dispatch $.root.vfs "vfs-child-entry" [name | uri.to-text] | only-file]
+    [$ | dispatch $.root.vfs "vfs-create-file" [name | uri.to-text]]
 )
 
-/// Ensure a directory entry exists within a directory.
+/// Ensure a directory entry exists.
 ///
 /// If the name already exists as a directory, opens and returns it.
 /// If nothing exists, creates the directory.
@@ -148,13 +151,9 @@
 ///   !my d [root | fs.dir "projects"]
 ///   !my deep [root | fs.dir "a/b/c"]
 ///   [root | fs.dir "output" | fs.file "result.txt" | fs.write "hello"]
-!func root.dir ~nil (
-    !param name~uri.uri-or-text
-    [name | uri.to-text | nativefs.vfs-root-entry | only-dir]
-)
 !func down.dir ~entry<not-file> (
     !param name~uri.uri-or-text
-    [$ | dispatch $.root.vfs "vfs-child-entry" [name | uri.to-text] | only-dir]
+    [$ | dispatch $.root.vfs "vfs-create-dir" [name | uri.to-text]]
 )
 
 
@@ -273,3 +272,13 @@
     ~true true
 )
 
+
+/// Convert a uri-or-text value to a text path string.
+///
+/// Text passes through unchanged. A ~uri is packed back into a string.
+///
+/// Examples:
+///   "/home/pete/file.txt" | uri.to-text   // => "/home/pete/file.txt"
+///   [u | uri.to-text]                      // => "https://host.com/dir/file.txt"
+!pure to-text& ~text ($)
+!pure to-text& ~uri [$ | pack]

@@ -1,0 +1,78 @@
+/// Mutable key/value store backed by a Python dictionary.
+!no-default
+///
+/// A shelf is an opaque mutable container: text keys map to arbitrary
+/// values.  All mutating operations (`set`, `remove`, `setdefault`)
+/// return the shelf for chaining.
+///
+/// Example:
+///   !import shelf comp "shelf"
+///   !my s [shelf.new]
+///   [s | shelf.set "x" 10 | shelf.set "y" 20]
+///   [s | shelf.get "x"]          // 10
+///   [s | shelf.keys]             // {"x" "y"}
+///   [s | shelf.to-struct]        // {x=10 y=20}
+
+/// Create a new empty shelf.
+!func new ~nil [shelf-new]
+
+/// Get a value by key.  Returns nil if absent.
+!func get ~any (
+    !param key ~text
+    [$ | shelf-get key]
+)
+
+/// Set a key to a value.  Returns the shelf for chaining.
+!func set ~any (
+    !param key ~text
+    !param value ~any
+    [$ | shelf-set key value]
+)
+
+/// Check whether a key exists.  Returns true or false.
+!func has ~any (
+    !param key ~text
+    [$ | shelf-has key]
+)
+
+/// Remove a key.  No-op if absent.  Returns the shelf for chaining.
+!func remove ~any (
+    !param key ~text
+    [$ | shelf-remove key]
+)
+
+/// Return all keys as a struct of text values.
+!func keys ~any [$ | shelf-keys]
+
+/// Snapshot the shelf as an immutable named struct.
+!func to-struct ~any [$ | shelf-to-struct]
+
+/// Get a value by key, setting it to a default if absent.
+///
+/// Returns the existing value if the key is present, otherwise
+/// stores the default and returns it.
+!func setdefault ~any (
+    !param key ~text
+    !param value ~any
+    [$ | shelf-setdefault key value]
+)
+
+/// Create a shelf pre-populated from a named struct.
+///
+/// Named fields become key/value entries; positional fields are ignored.
+///
+/// Example:
+///   {x=10 y=20} -> from-struct   // shelf(2) with x=10, y=20
+!pure from-struct ~struct [$ | shelf-from-struct]
+
+/// Merge named fields from a struct into the shelf.
+///
+/// Existing keys are overwritten.  Positional fields are ignored.
+/// Returns the shelf for chaining.
+///
+/// Example:
+///   [s | shelf.update {a=1 b=2}]
+!func update ~any (
+    !param data ~struct
+    [$ | shelf-update data]
+)

@@ -78,12 +78,6 @@
     fragment~(text|nil)     /// fragment/anchor (nil if absent)
 }
 
-/// A path that can be either a text string or a decomposed ~uri.
-///
-/// Used as a parameter type for functions that accept either form.
-/// Use `uri.to-text` to normalize to a text path string.
-!shape uri-or-text ~(text | uri)
-
 
 // ---------------------------------------------------------------------------
 // Core: pack and unpack
@@ -147,22 +141,6 @@
 !pure path-pack ~uri-path [
     $ | py.pure-call "comp.runtime.pure.pack_path"
 ]
-
-
-// ---------------------------------------------------------------------------
-// Conversion
-// ---------------------------------------------------------------------------
-
-/// Convert a uri-or-text value to a text path string.
-///
-/// Text passes through unchanged. A ~uri is packed back into a string.
-///
-/// Examples:
-///   "/home/pete/file.txt" | uri.to-text   // => "/home/pete/file.txt"
-///   [u | uri.to-text]                      // => "https://host.com/dir/file.txt"
-!pure to-text ~text [ $ ]
-!pure to-text ~uri [ $ | pack ]
-
 
 // ---------------------------------------------------------------------------
 // Computed accessors — assembled views of atomic fields
