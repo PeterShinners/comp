@@ -291,7 +291,23 @@ def grab_handle(tag_value, frame):
     Raises:
         comp.EvalError: If tag_value is not a Tag, or module ownership fails
     """
-    if not isinstance(tag_value.data, Tag):
+    tag_data = tag_value.data
+    # If the value is a Callable (name shared between tag + funcs), extract the tag.
+    # The tag may be on .shape (from namespace assembly) or we may need to look
+    # it up from the namespace when the Callable came from the env dict.
+    if isinstance(tag_data, comp.Callable):
+        if isinstance(tag_data.shape, Tag):
+            tag_data = tag_data.shape
+            tag_value = comp.Value(tag_data)
+        elif frame.module:
+            ns_entry = frame.module.namespace().get(tag_data.qualified)
+            if ns_entry is not None:
+                for d in ns_entry.entries:
+                    if hasattr(d, 'value') and d.value is not None and isinstance(d.value.data, Tag):
+                        tag_data = d.value.data
+                        tag_value = comp.Value(tag_data)
+                        break
+    if not isinstance(tag_data, Tag):
         raise comp.EvalError(f"!grab requires a tag value, got {tag_value.format()}")
 
     tag = tag_value.data

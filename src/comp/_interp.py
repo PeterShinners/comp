@@ -590,9 +590,9 @@ class Interp:
         for mod in all_modules:
             if mod._definitions_error is not None:
                 continue
-            mod_defs = mod.definitions()
+            mod_all_defs = mod.all_definitions()
             mod_ns = mod.namespace()
-            for defn in mod_defs.values():
+            for _name, defn in mod_all_defs:
                 # Resolve and fold even when skipping validation
                 if defn.original_cop is None:
                     continue
@@ -628,9 +628,9 @@ class Interp:
         for mod in all_modules:
             if mod._definitions_error is not None:
                 continue
-            mod_defs = mod.definitions()
+            mod_all_defs = mod.all_definitions()
             mod_env = {}
-            for name, defn in mod_defs.items():
+            for name, defn in mod_all_defs:
                 if id(defn) in failed_defs:
                     continue
                 if defn.pure and defn.resolved_cop is not None and defn.value is None:
@@ -653,8 +653,8 @@ class Interp:
         for mod in all_modules:
             if mod._definitions_error is not None:
                 continue
-            mod_defs = mod.definitions()
-            for name, defn in mod_defs.items():
+            mod_all_defs = mod.all_definitions()
+            for name, defn in mod_all_defs:
                 if id(defn) in failed_defs:
                     continue
                 if defn.instructions is not None:
@@ -696,10 +696,10 @@ class Interp:
         for mod in all_modules:
             if mod._definitions_error is not None:
                 continue
-            mod_defs = mod.definitions()
+            mod_all_defs = mod.all_definitions()
             mod_env = {}
             # Shapes first (they don't depend on blocks)
-            for name, defn in mod_defs.items():
+            for name, defn in mod_all_defs:
                 if defn.instructions and defn.value is None:
                     if defn.shape.qualified == "shape":
                         try:
@@ -710,7 +710,7 @@ class Interp:
                         defn.value = result
                         mod_env[name] = result
             # Everything else
-            for name, defn in mod_defs.items():
+            for name, defn in mod_all_defs:
                 if defn.instructions and defn.value is None:
                     try:
                         result = self._execute(defn.instructions, mod_env, module=mod)
@@ -1169,6 +1169,14 @@ class ExecutionFrame:
                 return callable_obj.func(input_val, args, self)
             except CompFail:
                 raise  # Let the caller decide how to handle the failure
+            except comp.CodeError as e:
+                # Convert CodeError from builtins into CompFail so that
+                # fallback syntax (|? and ??) can catch it.
+                raise CompFail(_make_fail_value(
+                    e.message,
+                    tag=comp.tag_fail_value,
+                    cop_val=source_cop,
+                ))
         
         # Handle Shape, ShapeUnion, ShapeCollection, or Tag (morph input to shape, return result only)
         if isinstance(callable_obj, (comp.Shape, comp.ShapeUnion, comp.ShapeCollection, comp.Tag)):
@@ -1253,7 +1261,16 @@ class ExecutionFrame:
                         cop_val=source_cop,
                     ))
                 input_val = morph_result.value
-            return block.func(input_val, args, self)
+            try:
+                return block.func(input_val, args, self)
+            except CompFail:
+                raise
+            except comp.CodeError as e:
+                raise CompFail(_make_fail_value(
+                    e.message,
+                    tag=comp.tag_fail_value,
+                    cop_val=source_cop,
+                ))
 
         # If the block has a runtime wrapper, build invoke-data on the fly and
         # call the wrapper instead of executing the block directly.

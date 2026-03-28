@@ -558,8 +558,15 @@ def _fold_namespace(cop, namespace):
         if definition_set is not None:
             defn = definition_set.scalar()
             if defn is None:
-                # Callable may have multiple entries (e.g. less + ord.less alias).
-                # Try to find the definition whose qualified name matches the ref.
+                # Multiple entries — check if any are blocks (dispatch overloads).
+                # If so, leave as a reference so runtime gets the full Callable.
+                has_blocks = any(
+                    d.shape is comp.shape_block for d in definition_set.entries
+                )
+                if has_blocks:
+                    return cop
+                # No blocks — find the definition matching this qualified name
+                # (e.g. alias permutations like less + ord.less)
                 for d in definition_set.entries:
                     if d.qualified == qualified:
                         defn = d

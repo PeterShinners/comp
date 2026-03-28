@@ -233,7 +233,7 @@
             // Propagate skip/stop — skip means don't accumulate, stop means break
             ~flow-control result
             // Normal value — append to the output
-            ~any (!my acc [{acc {result}} | merge])
+            ~(any|nil) (!my acc [{acc {result}} | merge])
             // Advance position or continue
             {position=(pos + 1) accum=result}
         )

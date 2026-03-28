@@ -564,7 +564,7 @@ def main():
     modes.add_argument("--context", action="store_true",
                         help="Show assembled startup context for the given --main entry point")
 
-    parser.add_argument("--main", metavar="NAME", default=None,
+    parser.add_argument("--main", metavar="NAME", default="console",
                         help="Entry point to run (e.g. console, serve, test)")
     parser.add_argument("--time", action="store_true",
                         help="Print phase timings to stderr (load/build/eval)")

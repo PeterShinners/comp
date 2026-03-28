@@ -1,9 +1,12 @@
 /// Struct operations for finite collections
-!no-default
 /// Functions for field access, membership, slicing, and structural transforms.
 /// No imports — uses only system builtins (length, at, append, reduce).
 
+!no-default
 !import py comp "py"
+!import loop comp "loop"
+
+!tag undefined&
 
 
 /// Get number of fields in struct
@@ -17,11 +20,63 @@
 )
 
 
-// named
-// unnamed
-// values (remove all names)
+/// Generate struct with only fields that have names
+///
+/// Examples:
+///   [{one=1 2 three=3 4} | where-named]  // {2 4}
+!pure where-unnamed ~struct (
+    [$ | iterate :(
+        !on ([$.item | field-name] ?? undefined) == undefined
+        ~true skip
+        ~false $.item.#0
+    )]
+)
+
+/// Generate struct with only fields that have names
+///
+/// Examples:
+///   [{one=1 2 three=3 4} | where-named]  // {one=1 three=3}
+!pure where-named ~struct (
+    [$ | iterate :(
+        !on ([$.item | field-name] ?? undefined) == undefined
+        ~false $.item
+        ~true skip
+    )
+    | merge
+    ]
+)
+
+/// Generate struct without any field names
+///
+/// The resulting struct will contain the same ordered values. None of
+/// the fields will have names.
+///
+/// Examples:
+///   [{one=1 2 three=3 4} | drop-field-names]  // {1 2 3 4}
+!pure drop-field-names ~struct [
+    $ | iterate :($.item.#0)
+]
+
+/// Get the ordered names of named fields
+///
+/// By default this only includes fields that have names. A
+/// fallback parameter can be defined to populate the result with
+/// placeholder names.
+///
+/// Examples:
+///   [{one=1 2 three=3 4} | field-names]  // {"one" "two"}
+///   [{one=1 2 three=3 4} | field-names nil]  // {"one" nil "two" nil}
+!pure field-names ~struct (
+    !param fallback ~(any|nil) = skip
+    [$ | iterate :(
+        [$.item | field-name] ?? fallback
+    )]
+)
+
+
+// todo?
 // apply names (positionally)
-// select fields (specific fields)
-// remove fields
-// reorder fields
+// select fields (keep specific fields)
+// remove fields?
+// reorder fields?
 

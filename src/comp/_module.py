@@ -34,6 +34,7 @@ class Module:
         self._scan = None
         self._imports = None
         self._definitions = None
+        self._all_definitions_list = None
         self._namespace = None
         self._interp_phase = 0          # Set by Interp during build phases
         self._scan_error = None         # Cached exception from failed scan()
@@ -267,6 +268,23 @@ class Module:
         self._deferred_defs = deferred
         return self._definitions
 
+    def all_definitions(self):
+        """Return all (name, Definition) pairs including same-name overloads.
+
+        Unlike definitions() which keeps only the last definition per name,
+        this returns every definition pair produced by the module's statements.
+        Used by create_namespace to build Callables with all overloaded entries.
+
+        Falls back to definitions().items() for modules that don't use
+        _build_definitions (e.g. InternalModule, SystemModule).
+        """
+        if self._all_definitions_list is None:
+            defs = self.definitions()  # ensure _build_definitions has run
+            if self._all_definitions_list is None:
+                # Module doesn't use _build_definitions; fall back to dict
+                return list(defs.items())
+        return self._all_definitions_list
+
     def _build_definitions(self):
         """Build definitions from module statements.
 
@@ -283,6 +301,7 @@ class Module:
         """
         statements = self.statements()
         defs = {}
+        all_pairs = []
         mod_values = {}
         deferred = []
 
@@ -298,6 +317,7 @@ class Module:
                             defs[name] = defn
                     else:
                         defs[name] = defn
+                    all_pairs.append((name, defn))
                     # Adopt tag definitions — bind Tag.module to this module
                     if defn.shape is comp.shape_tag and defn.value is not None:
                         tag_obj = defn.value.data
@@ -313,6 +333,7 @@ class Module:
                 if entry is not None:
                     deferred.append(entry)
 
+        self._all_definitions_list = all_pairs
         return defs, mod_values, deferred
 
     def startup(self, name):
@@ -420,14 +441,14 @@ class Module:
             if import_err or import_module is None:
                 continue
             try:
-                import_definitions = import_module.definitions()
+                import_definitions = import_module.all_definitions()
             except (comp.ParseError, comp.CodeError):
                 continue
             import_namespace = create_namespace(import_definitions, import_name)
             self._namespace = merge_namespace(self._namespace, import_namespace, clobber=False)
 
-        defs = self.definitions()
-        namespace = create_namespace(defs, None)
+        all_defs = self.all_definitions()
+        namespace = create_namespace(all_defs, None)
         self._namespace = merge_namespace(self._namespace, namespace, clobber=True)
 
         return self._namespace
@@ -718,19 +739,22 @@ def _inject_ns(namespace, name, defs):
 
 
 def create_namespace(definitions, prefix):
-    """Create namespace from definitions dict.
+    """Create namespace from definitions.
 
     Create a lookup namespace from definitions.
     If no namespace is given then this will include private definitions.
 
     Args:
-        definitions: (dict) Mapping of qualified names to Definition objects
+        definitions: (dict | list) Mapping of qualified names to Definition
+            objects, or a list of (qualified_name, Definition) pairs.
+            The list form preserves same-name overloads.
         prefix: (str | None) Optional namespace to prefix to definitions
     Returns:
         dict: Mapping of names to Callable or Ambiguous
     """
     namespace = {}
-    for qualified, definition in definitions.items():
+    items = definitions if isinstance(definitions, list) else definitions.items()
+    for qualified, definition in items:
         if definition.startup or definition.main:
             continue
         for name in _identifier_permutations(definition, prefix):

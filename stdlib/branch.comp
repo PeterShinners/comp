@@ -13,7 +13,7 @@
 ///
 /// If the effective condition is true, evaluates then with the current
 /// piped input. Otherwise passes the input through unchanged.
-!pure if ~any (
+!pure if ~any|nil (
     !param cond ~any  /// bool value that determines branching
     !param then ~(any|block) = nil  /// block or value invoked with piped input when condition is true
     !delivers if ~bool  /// true when branch executes, otherwise false
@@ -43,7 +43,7 @@
 ///
 /// If a previous branch was taken, this stage is a pass-through.
 /// Otherwise it behaves like if.
-!pure elif ~any (
+!pure elif ~any|nil (
     !param cond ~any  /// bool value that determines branching
     !param then ~(any|block)  /// block or value invoked with piped input when condition is true
     !depend if ~any = false  /// previous branch state
@@ -68,7 +68,7 @@
 ///
 /// Requires if from the previous stage (defaults to false when used
 /// standalone). Executes then only if no prior branch ran.
-!pure else ~any (
+!pure else ~any|nil (
     !param then ~(any|block)  /// block or value invoked with piped input when no prior branch executed
     !depend if ~any = false  /// previous branch state
     !on if
@@ -94,7 +94,7 @@
 ///
 /// Branches still receive the original piped input; comparison uses the
 /// target value.
-!pure match ~any (
+!pure match ~any|nil (
     !param target ~any = nil  /// value for matching (defaults to piped input)
     !delivers match ~match-dependency  /// match state for chaining
     !my actual-target (
@@ -111,7 +111,7 @@
 ///
 /// Executes then when target matches the case value, and no prior case
 /// has matched.
-!pure case ~any (
+!pure case ~any|nil (
     !param when ~any  /// value to match against (can be block for computed matching)
     !param then ~any  /// block or value invoked with original piped input when case matches
     !depend match ~match-dependency  /// match state from previous case
@@ -136,7 +136,7 @@
 
 /// Final branch in a match/case chain.
 /// Executes then only when no prior case matched.
-!pure default ~any (
+!pure default ~any|nil (
     !param then ~any  /// block or value invoked with original piped input when no case matches
     !depend match ~match-dependency  /// match state from previous case
     !on match.matched
@@ -151,8 +151,8 @@
 /// If the value cannot be invoked on the given input this 
 /// returns the value, otherwise it is the invoked result
 /// [value | try might-call]
-!pure try ~any (
-    !param maybe-callable ~any
+!pure try ~any|nil (
+    !param maybe-callable ~any|nil
     ([$ | maybe-callable] ?? maybe-callable)
 )
 
@@ -167,10 +167,10 @@
 ///
 /// [pick (value < max) value max]
 /// [pick :($.administrator) :[$.credentials | authorize] :[$ | reject]]
-!pure pick ~any (
-    !param cond ~any  /// bool value that determines branching
-    !param then ~(any|block)  /// block or value invoked with piped input when condition is true
-    !param else ~(any|block)  /// block or value invoked with piped input when condition is false
+!pure pick ~any|nil (
+    !param cond ~bool|invokable  /// bool value that determines branching
+    !param then ~(any|invokable)  /// block or value invoked with piped input when condition is true
+    !param else ~(any|invokable)  /// block or value invoked with piped input when condition is false
     !on [$ | try cond]
     ~true [$ | try then]
     ~false [$ | try else]

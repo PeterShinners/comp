@@ -41,13 +41,8 @@ Based on https://github.com/TrevisanGMW/gt-tools
 			| maya.parent parent
 		]
 
-        !my target !on parent-type == parent
-        ~true parent
-        ~false $
-
-        !on [target | maya.exists]
-        ~true [target | maya.constrain transform]
-
+        !my target [pick parent-type == parent parent $]
+        [if [target | maya.exists] [target | maya.constrain transform]]
         [$ | maya.parent transform]
 	)]
 )

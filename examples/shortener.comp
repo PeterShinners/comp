@@ -44,7 +44,7 @@ Highlights:
 }
 
 
-!startup web [
+!main web [
 	$
 	| dispatch
 	| post "/" :(link-create)

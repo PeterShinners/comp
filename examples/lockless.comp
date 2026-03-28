@@ -19,7 +19,7 @@ Highlights:
 !shape stack ~{head~(node|nil)  version~num}
 
 
-!startup main [
+!main console [
     {nil 0}
     | push "first"
     | push "second"

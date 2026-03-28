@@ -52,15 +52,14 @@ using shape-based function overloading.
 /// Handle mouse down: punch and check for hit
 !func down.handle ~pg.event<type=mouse.up> @update (
     !param state ~state
-    !on [state.fist state.chimp | intersect overlap=5]
-    ~true {
+    [if [state.fist state.chimp | intersect overlap=5] :{
         chimp.rotate = [state.chimp.rotate | spin 360 0.5 ease-out]
         chimp.translate.x = [state.chimp.translate.x | update after=chimp.rotate]
         commands = [audio.play res.punch]
-    }
-    ~false {
+    } 
+    | else :{
         commands = [audio.play res.whiff]
-    }
+    }]
 )
 
 

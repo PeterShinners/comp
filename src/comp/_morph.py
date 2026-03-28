@@ -407,6 +407,9 @@ def _check_type(value, shape_constraint, frame):
 
     # Check builtin shapes
     if shape_constraint is comp.shape_any:
+        # ~any matches everything except nil; use ~(any|nil) to include nil
+        if isinstance(value.data, comp.Tag) and value.data is comp.tag_nil:
+            return False
         return True
     if shape_constraint is comp.shape_num:
         return value_shape is comp.shape_num
@@ -562,6 +565,15 @@ def _morph_core(value, shape, frame):
             # because the value might have been valid for a different member.
             return MorphResult.failed(f"Value does not match any member of {_shape_name(shape)}")
         return best_result
+
+    # ~nil is a universal sink: any value morphed to ~nil produces nil
+    # Score is as low as possible so any specific shape match wins.
+    if isinstance(shape, comp.Tag) and shape is comp.tag_nil:
+        nil_val = comp.Value(comp.tag_nil)
+        # If the value is already nil, it's an exact match — normal score
+        if isinstance(value.data, comp.Tag) and value.data is comp.tag_nil:
+            return MorphResult(nil_val, 0, 0, 4, 1)
+        return MorphResult(nil_val, -1, 0, 0, 0)
 
     # Get shape fields (Tags have no fields, they just act as type constraints)
     shape_fields = getattr(shape, "fields", None) or []
@@ -868,6 +880,10 @@ def mask(value, shape, frame):
             if error is None:
                 return result_val, None
         return None, f"Value does not match any member of {_shape_name(shape)}"
+
+    # ~nil is a universal sink: any value masked to ~nil produces nil
+    if isinstance(shape, comp.Tag) and shape is comp.tag_nil:
+        return comp.Value(comp.tag_nil), None
 
     # Get shape fields (Tags have no fields, they just act as type constraints)
     shape_fields = getattr(shape, "fields", None) or []

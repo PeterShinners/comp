@@ -183,10 +183,9 @@ class Value:
                             continue
                         # Check if key is a valid Comp identifier (TOKEN pattern: /[^\W\d][\w-]*[?]?/)
                         # Must start with letter/underscore, contain only alphanumeric/underscore/hyphen, optional trailing ?
-                        if v.shape is comp.shape_struct:
-                            val = f"{{/*{len(v.data)}*/}}"
-                        else:
-                            val = v.format()
+                        val = v.format()
+                        if len(val) > 20:
+                            val = val[:17] + "..."
                         if re.match(r"^[^\W\d][\w-]*\??$", key):
                             fields.append(f"{key}={val}")
                         else:

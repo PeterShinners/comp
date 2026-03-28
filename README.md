@@ -34,7 +34,7 @@ language libraries compare?
 !import gh comp "github-comp@1.0.2"
 !import table comp "table-formatter"
 
-!startup main (
+!main console (
     !ctx repo "nushell/nushell"
     !my cutoff [datetime.now] - 1#week
 
