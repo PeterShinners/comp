@@ -23,15 +23,15 @@
 /// all work on both shapes.
 ///
 /// Example:
-///   !my u ["https://user:pass@host.com:8080/dir/file.txt?q=1#frag" | uri.unpack]
+///   !my u = ("https://user:pass@host.com:8080/dir/file.txt?q=1#frag" | uri.unpack)
 ///   // u.protocol = "https", u.host = "host.com", u.port = "8080"
 ///   // u.path = "/dir", u.stem = "file", u.extension = "txt"
 ///
-///   !my changed [u | $.extension = "json" | uri.pack]
+///   !my changed = (u | $.extension = "json" | uri.pack)
 ///   // => "https://user:pass@host.com:8080/dir/file.json?q=1#frag"
 ///
 ///   // Change filename via merge with a path-unpack result:
-///   !my renamed [{u ["report.pdf" | uri.path-unpack]} | merge | uri.pack]
+///   !my renamed = ({u ("report.pdf" | uri.path-unpack)} | merge | uri.pack)
 ///   // => "https://user:pass@host.com:8080/dir/report.pdf?q=1#frag"
 
 !no-default
@@ -93,9 +93,9 @@
 ///   "/home/pete/config.yaml" | uri.unpack
 ///   "file:///C:/Users/pete/config.yaml" | uri.unpack
 ///   "../relative/path.txt" | uri.unpack
-!pure unpack ~text [
+!pure unpack ~text (
     $ | py.pure-call "comp.runtime.pure.parse_uri"
-]
+)
 
 /// Reassemble a ~uri struct back into a URI string.
 ///
@@ -105,9 +105,9 @@
 /// Examples:
 ///   my-uri | uri.pack
 ///   my-uri | $.extension = "json" | uri.pack
-!pure pack ~uri [
+!pure pack ~uri (
     $ | py.pure-call "comp.runtime.pure.pack_uri"
-]
+)
 
 
 // ---------------------------------------------------------------------------
@@ -126,9 +126,9 @@
 ///   // => {path="" stem="report" extension="pdf"}
 ///   "/var/log/" | uri.path-unpack
 ///   // => {path="/var/log" stem=nil extension=nil}
-!pure path-unpack ~text [
+!pure path-unpack ~text (
     $ | py.pure-call "comp.runtime.pure.parse_path"
-]
+)
 
 /// Reassemble a path from path + stem + extension fields.
 ///
@@ -136,11 +136,11 @@
 /// fields on a ~uri are ignored.
 ///
 /// Examples:
-///   [p | uri.path-pack]   // => "/home/pete/config.yaml"
-///   [u | uri.path-pack]   // => "/dir/file.txt" (ignores scheme, etc.)
-!pure path-pack ~uri-path [
+///   (p | uri.path-pack)   // => "/home/pete/config.yaml"
+///   (u | uri.path-pack)   // => "/dir/file.txt" (ignores scheme, etc.)
+!pure path-pack ~uri-path (
     $ | py.pure-call "comp.runtime.pure.pack_path"
-]
+)
 
 // ---------------------------------------------------------------------------
 // Computed accessors — assembled views of atomic fields
@@ -151,12 +151,12 @@
 /// Accepts ~uri-path or ~uri. Returns nil when stem is nil.
 ///
 /// Examples:
-///   [u | uri.file-name]      // => "config.yaml"
-///   [dir-uri | uri.file-name] // => nil
+///   (u | uri.file-name)      // => "config.yaml"
+///   (dir-uri | uri.file-name) // => nil
 !pure file-name ~uri-path (
-    !on $.stem ~text [
+    !on $.stem ~text (
         $.stem | non-nil-joins "." $.extension
-    ]
+    )
 )
 
 /// Get the full path including filename.
@@ -166,12 +166,12 @@
 /// Accepts ~uri-path or ~uri.
 ///
 /// Examples:
-///   [u | uri.full-path]   // => "/home/pete/config.yaml"
-!pure full-path ~uri-path [
+///   (u | uri.full-path)   // => "/home/pete/config.yaml"
+!pure full-path ~uri-path (
     $.path 
     | ensure-suffix "/"
-    | non-nil-joins [$ | file-name]
-]
+    | non-nil-joins ($ | file-name)
+)
 
 
 /* The first pass of full-path remains etched in this stone as a reminder
@@ -182,12 +182,12 @@ choose which side you are on
     !on $.stem
     ~nil $.path
     ~any (
-        !my name !on $.extension
+        !my name = !on $.extension
             ~nil $.stem
             ~any @fmt "%($.stem).%($.extension)"
-        !on [$.path | text.ends-with "/"]
+        !on ($.path | text.ends-with "/")
         ~true @fmt "%($.path)%(name)"
-        ~false !on [$.path | text.is-empty]
+        ~false !on ($.path | text.is-empty)
             ~true name
             ~false @fmt "%($.path)/%(name)"
     )
@@ -200,15 +200,15 @@ choose which side you are on
 /// Returns nil if host is nil.
 ///
 /// Examples:
-///   [u | uri.authority]   // => "user:pass@host.com:8080"
+///   (u | uri.authority)   // => "user:pass@host.com:8080"
 !pure authority ~uri (
     !on $.host ~text (
-        !my credentials [$.user | non-nil-joins ":" $.password]
-        [$.host
+        !my credentials = ($.user | non-nil-joins ":" $.password)
+        $.host
         | non-nil-joins ":" $.port
-        | if (credentials != nil) :[
+        | if (credentials != nil) :(
             credentials | non-nil-joins "@" $
-        ]]
+        )
     )
 )
 
@@ -227,8 +227,8 @@ choose which side you are on
 /// URI override the first when they are non-nil.
 ///
 /// Examples:
-///   [base | uri.anchor relative]
-///   [base | uri.anchor absolute]   // base is discarded
+///   (base | uri.anchor relative)
+///   (base | uri.anchor absolute)   // base is discarded
 !pure anchor ~uri (
     !param base ~uri
     // TODO
@@ -246,17 +246,17 @@ choose which side you are on
 ///
 /// Examples:
 ///   "hello world/path" | uri.encode   // => "hello%20world/path"
-!pure encode ~text [
+!pure encode ~text (
     $ | py.pure-call "urllib.parse.quote"
-]
+)
 
 /// Decode a percent-encoded URI string back to text.
 ///
 /// Examples:
 ///   "hello%20world" | uri.decode   // => "hello world"
-!pure decode ~text [
+!pure decode ~text (
     $ | py.pure-call "urllib.parse.unquote"
-]
+)
 
 
 // ---------------------------------------------------------------------------
@@ -290,16 +290,16 @@ choose which side you are on
     !param token1 ~(text|nil)
     !param token2 ~(text|nil) = ""
     !on $
-    ~text [$
+    ~text ($
     | if (token1 != nil !and token2 != nil) :(
-        [{$ token1 token2} | join]
-    )]
+        ({$ token1 token2} | join)
+    ))
 )
 
 /// Append suffix to text if it doesn't already end with it
 !pure ensure-suffix& ~text (
     !param suffix ~text
-    [$ | if (!not [$ | text.ends-with suffix]) :(
-        [{$ suffix} | join]
-    )]
+    $ | if !not ($ | text.ends-with suffix) :(
+        ({$ suffix} | join)
+    )
 )

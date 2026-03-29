@@ -10,40 +10,40 @@
 
 
 /// Get number of fields in struct
-!pure length ~struct [
+!pure length ~struct (
     {$} | py.pure-call "len"
-]
+)
 
 /// Test if struct has no fields
 !pure is-empty ~struct (
-    !not [{$} | py.pure-call "bool"]
+    !not ({$} | py.pure-call "bool")
 )
 
 
 /// Generate struct with only fields that have names
 ///
 /// Examples:
-///   [{one=1 2 three=3 4} | where-named]  // {2 4}
+///   ({one=1 2 three=3 4} | where-named)  // {2 4}
 !pure where-unnamed ~struct (
-    [$ | iterate :(
-        !on ([$.item | field-name] ?? undefined) == undefined
+    ($ | iterate :(
+        !on (($.item | field-name) ?? undefined) == undefined
         ~true skip
         ~false $.item.#0
-    )]
+    ))
 )
 
 /// Generate struct with only fields that have names
 ///
 /// Examples:
-///   [{one=1 2 three=3 4} | where-named]  // {one=1 three=3}
+///   ({one=1 2 three=3 4} | where-named)  // {one=1 three=3}
 !pure where-named ~struct (
-    [$ | iterate :(
-        !on ([$.item | field-name] ?? undefined) == undefined
+    ($ | iterate :(
+        !on (($.item | field-name) ?? undefined) == undefined
         ~false $.item
         ~true skip
     )
     | merge
-    ]
+    )
 )
 
 /// Generate struct without any field names
@@ -52,10 +52,10 @@
 /// the fields will have names.
 ///
 /// Examples:
-///   [{one=1 2 three=3 4} | drop-field-names]  // {1 2 3 4}
-!pure drop-field-names ~struct [
+///   ({one=1 2 three=3 4} | drop-field-names)  // {1 2 3 4}
+!pure drop-field-names ~struct (
     $ | iterate :($.item.#0)
-]
+)
 
 /// Get the ordered names of named fields
 ///
@@ -64,13 +64,13 @@
 /// placeholder names.
 ///
 /// Examples:
-///   [{one=1 2 three=3 4} | field-names]  // {"one" "two"}
-///   [{one=1 2 three=3 4} | field-names nil]  // {"one" nil "two" nil}
+///   ({one=1 2 three=3 4} | field-names)  // {"one" "two"}
+///   ({one=1 2 three=3 4} | field-names nil)  // {"one" nil "two" nil}
 !pure field-names ~struct (
     !param fallback ~(any|nil) = skip
-    [$ | iterate :(
-        [$.item | field-name] ?? fallback
-    )]
+    ($ | iterate :(
+        ($.item | field-name) ?? fallback
+    ))
 )
 
 

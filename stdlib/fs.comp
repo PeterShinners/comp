@@ -25,14 +25,14 @@
 /// entry for the file system.
 ///
 /// Example:
-///   !my root ["/home/user" | fs.open]
-///   !my text [root | fs.file "notes.txt" | fs.read]
-///   [root | fs.dir "output" | fs.file "result.txt" | fs.write "hello"]
+///   !my root = ("/home/user" | fs.open)
+///   !my text = (root | fs.file "notes.txt" | fs.read)
+///   (root | fs.dir "output" | fs.file "result.txt" | fs.write "hello")
 ///
 /// Navigation:
-///   !my sub [root | fs.dir "projects" | fs.dir "comp"]
-///   !my entries [sub | fs.list]
-///   !my parent [sub | fs.up]
+///   !my sub = (root | fs.dir "projects" | fs.dir "comp")
+///   !my entries = (sub | fs.list)
+///   !my parent = (sub | fs.up)
 ///
 /// Type functions ensure the entry is the right type, creating if needed:
 ///   fs.file  — ensures a file (creates empty file if missing)
@@ -89,16 +89,16 @@
 /// A path that can be either a text string or a decomposed ~uri.
 ///
 /// Used as a parameter type for functions that accept either form.
-/// Use `uri.to-text` to normalize to a text path string.
+/// Use `uri.uri-text` to normalize to a text path string.
 !shape uri-or-text ~(text | uri)
 
 
 /// Open the current working directory as a filesystem root entry.
 ///
 /// Example:
-///   !my here [nil | fs.cwd]
+///   !my here = (| fs.cwd)
 !func cwd ~nil (
-    [nil | py.call "comp.runtime.fs.getcwd" | nativefs.vfs-root-entry]
+    (| py.call "comp.runtime.fs.getcwd" | nativefs.vfs-root-entry)
 )
 
 
@@ -112,16 +112,16 @@
 /// intermediate directories.
 ///
 /// Example:
-///   !my e [root | fs.at "notes.txt"]
-///   !my e [root | fs.at "docs/readme.md"]
+///   !my e = (root | fs.at "notes.txt")
+///   !my e = (root | fs.at "docs/readme.md")
 !func root.at ~nil (
     !param name~uri-or-text
-    [name | to-text | nativefs.vfs-root-entry]
+    (name | uri-text | nativefs.vfs-root-entry)
 )
 
 !func down.at ~entry (
     !param name~uri-or-text
-    [$ | dispatch $.root.vfs "vfs-child-entry" [name | to-text]]
+    $ | dispatch $.root.vfs "vfs-child-entry" (name | uri-text)
 )
 
 /// Ensure a file entry exists.
@@ -131,11 +131,11 @@
 /// Fails if something exists with a different type (e.g. directory).
 ///
 /// Example:
-///   !my f [root | fs.file "notes.txt"]
-///   !my text [root | fs.file "notes.txt" | fs.read]
+///   !my f = (root | fs.file "notes.txt")
+///   !my text = (root | fs.file "notes.txt" | fs.read)
 !func down.file ~entry<not-file> (
     !param name~uri-or-text
-    [$ | dispatch $.root.vfs "vfs-create-file" [name | to-text]]
+    $ | dispatch $.root.vfs "vfs-create-file" (name | uri-text)
 )
 
 /// Ensure a directory entry exists.
@@ -148,31 +148,31 @@
 /// as a directory (makedirs for free).
 ///
 /// Example:
-///   !my d [root | fs.dir "projects"]
-///   !my deep [root | fs.dir "a/b/c"]
-///   [root | fs.dir "output" | fs.file "result.txt" | fs.write "hello"]
+///   !my d = (root | fs.dir "projects")
+///   !my deep = (root | fs.dir "a/b/c")
+///   (root | fs.dir "output" | fs.file "result.txt" | fs.write "hello")
 !func down.dir ~entry<not-file> (
     !param name~uri-or-text
-    [$ | dispatch $.root.vfs "vfs-create-dir" [name | to-text]]
+    $ | dispatch $.root.vfs "vfs-create-dir" (name | uri-text)
 )
 
 
 /// Read a file entry's content as text (UTF-8).
 ///
 /// Example:
-///   !my text [root | fs.file "config.txt" | fs.read]
+///   !my text = (root | fs.file "config.txt" | fs.read)
 !func read ~entry<only-file> (
-    [$ | dispatch $.root.vfs "vfs-read"]
+    $ | dispatch $.root.vfs "vfs-read"
 )
 
 /// Write text content to a file entry.
 /// Creates the file if it does not exist; overwrites if it does.
 ///
 /// Example:
-///   [root | fs.file "output.txt" | fs.write "hello"]
+///   (root | fs.file "output.txt" | fs.write "hello")
 !func write ~entry<only-file> (
     !param content~text
-    [$ | dispatch $.root.vfs "vfs-write" content]
+    $ | dispatch $.root.vfs "vfs-write" content
 )
 
 
@@ -182,9 +182,9 @@
 /// Listed entries can be used directly for read/write/remove.
 ///
 /// Example:
-///   !my entries [root | fs.dir "docs" | fs.list]
+///   !my entries = (root | fs.dir "docs" | fs.list)
 !func list ~entry<only-dir> (
-    [$ | dispatch $.root.vfs "vfs-list"]
+    $ | dispatch $.root.vfs "vfs-list"
 )
 
 
@@ -194,27 +194,27 @@
 /// size and modified, depending on what the filesystem backend provides.
 ///
 /// Example:
-///   !my info [root | fs.file "data.bin" | fs.meta]
-///   !my size [info.size]
+///   !my info = (root | fs.file "data.bin" | fs.meta)
+///   !my size = (info.size)
 !func meta ~entry (
-    [$ | dispatch $.root.vfs "vfs-meta"]
+    $ | dispatch $.root.vfs "vfs-meta"
 )
 
 /// Remove a file or empty directory.
 ///
 /// Example:
-///   [root | fs.at "old-file.txt" | fs.remove]
+///   (root | fs.at "old-file.txt" | fs.remove)
 !func remove ~entry (
-    [$ | dispatch $.root.vfs "vfs-remove"]
+    $ | dispatch $.root.vfs "vfs-remove"
 )
 
 
 /// Return the parent entry. Returns nil for root entries.
 ///
 /// Example:
-///   !my parent [entry | fs.up]
+///   !my parent = (entry | fs.up)
 !func up ~entry (
-    [$ | dispatch $.root.vfs "vfs-up"]
+    $ | dispatch $.root.vfs "vfs-up"
 )
 
 /// Return a fresh entry with the same identity but no cached metadata.
@@ -222,21 +222,21 @@
 /// Other holders of the old entry are unaffected (snapshot semantics).
 ///
 /// Example:
-///   !my fresh [entry | fs.refresh]
+///   !my fresh = (entry | fs.refresh)
 !func refresh ~entry (
-    [$ | dispatch $.root.vfs "vfs-refresh"]
+    $ | dispatch $.root.vfs "vfs-refresh"
 )
 
 
 /// Extract the last component (basename) of a path string.
-/// Works on both "/" and "\" separators.
+/// Works on both `/` and `\` separators.
 ///
 /// Example:
-///   !my name ["/home/user/docs" | fs.basename]  // => "docs"
-!pure basename ~text [
-    !my parts [$ | text.split "/"]
-    [parts | loop.last]
-]
+///   !my name = ("/home/user/docs" | fs.basename)  // => "docs"
+!pure basename ~text (
+    !my parts = ($ | text.split "/")
+    parts | loop.last
+)
 
 
 /// Check if an entry can be used for directory related calls
@@ -278,7 +278,7 @@
 /// Text passes through unchanged. A ~uri is packed back into a string.
 ///
 /// Examples:
-///   "/home/pete/file.txt" | uri.to-text   // => "/home/pete/file.txt"
-///   [u | uri.to-text]                      // => "https://host.com/dir/file.txt"
-!pure to-text& ~text ($)
-!pure to-text& ~uri [$ | pack]
+///   "/home/pete/file.txt" | uri.uri-text   // => "/home/pete/file.txt"
+///   (u | uri.uri-text)                      // => "https://host.com/dir/file.txt"
+!pure uri-text& ~text ($)
+!pure uri-text& ~uri ($ | pack)

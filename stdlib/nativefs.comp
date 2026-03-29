@@ -26,17 +26,17 @@
 ///
 /// This is the bootstrap operation — called directly by fs.entry,
 !func vfs-root-entry ~text (
-    !my handle [$ | py.call "comp.runtime.fs.open_root"]
-    !my path [handle | py.call "comp.runtime.fs.handle_path"]
-    !my name [path | text.split "/" | loop.last]
-    !my actual-name (
+    !my handle = ($ | py.call "comp.runtime.fs.open_root")
+    !my path = (handle | py.call "comp.runtime.fs.handle_path")
+    !my name = (path | text.split "/" | loop.last)
+    !my actual-name = (
         !on (name == "") ~true path
         ~false name
     )
-    !my result {entry-type=fs.entry-type.dir name=actual-name path=path root=nil vfs=vfs.native}
+    !my result = {entry-type=fs.entry-type.dir name=actual-name path=path root=nil vfs=vfs.native}
     !stash result&handle handle
     !stash result&parent nil
-    [result | promote-root]
+    result | promote-root
 )
 
 
@@ -48,72 +48,72 @@
 /// intermediate directories.
 !func vfs-child-entry ~fs.entry (
     !param name ~text
-    !my parts [name | text.split "/"]
-    !my count [parts | s.length]
+    !my parts = (name | text.split "/")
+    !my count = (parts | s.length)
     !on (count > 1)
     ~true (
         /// navigate intermediate dirs, then stat the last segment
-        !my dir-path [parts | loop.slice 0 (count - 2) | text.join "/"]
-        !my final-name [parts | loop.last]
-        !my dir-handle [{$&handle dir-path} | py.call "comp.runtime.fs.open_child"]
-        !my dir-path-full [dir-handle | py.call "comp.runtime.fs.handle_path"]
-        !my dir-entry {entry-type=fs.entry-type.dir name=dir-path path=dir-path-full root=$.root}
+        !my dir =-path (parts | loop.slice 0 (count - 2) | text.join "/")
+        !my final =-name (parts | loop.last)
+        !my dir =-handle ({$&handle dir-path} | py.call "comp.runtime.fs.open_child")
+        !my dir =-path-full (dir-handle | py.call "comp.runtime.fs.handle_path")
+        !my dir =-entry {entry-type=fs.entry-type.dir name=dir-path path=dir-path-full root=$.root}
         !stash dir-entry&handle dir-handle
         !stash dir-entry&parent $
-        !my info [{dir-handle final-name} | py.call "comp.runtime.fs.stat_entry"]
-        [dir-entry | make-child final-name info]
+        !my info = ({dir-handle final-name} | py.call "comp.runtime.fs.stat_entry")
+        dir-entry | make-child final-name info
     )
     ~false (
-        !my info [{$&handle name} | py.call "comp.runtime.fs.stat_entry"]
-        [$ | make-child name info]
+        !my info = ({$&handle name} | py.call "comp.runtime.fs.stat_entry")
+        $ | make-child name info
     )
 )
 
 
 /// Read file content as UTF-8 text.
 !func vfs-read ~fs.entry (
-    !my parent-handle $&parent&handle
-    [{parent-handle $.name} | py.call "comp.runtime.fs.read_file"]
+    !my parent-handle = $&parent&handle
+    {parent-handle $.name} | py.call "comp.runtime.fs.read_file"
 )
 
 
 /// Write text content to a file (creates or overwrites).
 !func vfs-write ~fs.entry (
     !param content ~text
-    !my parent-handle $&parent&handle
-    [{parent-handle $.name content} | py.call "comp.runtime.fs.write_file"]
+    !my parent-handle = $&parent&handle
+    ({parent-handle $.name content} | py.call "comp.runtime.fs.write_file")
     nil
 )
 
 
 /// List all children of a directory entry.
 !func vfs-list ~fs.entry (
-    !my parent $
-    !my raw-entries [$&handle | py.call "comp.runtime.fs.list_dir"]
-    [raw-entries | loop.map :(
-        !my info $
-        [parent | make-child info.name info]
-    )]
+    !my parent = $
+    !my raw-entries = ($&handle | py.call "comp.runtime.fs.list_dir")
+    raw-entries | loop.map :(
+        !my info = $
+        (parent | make-child info.name info)
+    )
 )
 
 
 /// Get full stat metadata for an entry.
 !func vfs-meta ~fs.entry (
-    !my parent-handle $&parent&handle
-    !my info [{parent-handle $.name} | py.call "comp.runtime.fs.stat_entry"]
+    !my parent-handle = $&parent&handle
+    !my info = ({parent-handle $.name} | py.call "comp.runtime.fs.stat_entry")
     !on (info == nil) ~true $
     ~false (
-        !my etype [info.entry-type | entry-type-from-text]
-        !my cpath $.path
+        !my etype = (info.entry-type | entry-type-from-text)
+        !my cpath = $.path
         !on (etype == fs.entry-type.dir)
         ~true (
-            !my child {entry-type=etype name=$.name path=cpath root=$.root size=info.size}
+            !my child = {entry-type=etype name=$.name path=cpath root=$.root size=info.size}
             !stash child&handle $&handle
             !stash child&parent $&parent
             child
         )
         ~false (
-            !my child {entry-type=etype name=$.name path=cpath root=$.root size=info.size}
+            !my child = {entry-type=etype name=$.name path=cpath root=$.root size=info.size}
             !stash child&parent $&parent
             child
         )
@@ -123,8 +123,8 @@
 
 /// Remove a file or empty directory.
 !func vfs-remove ~fs.entry (
-    !my parent-handle $&parent&handle
-    [{parent-handle $.name} | py.call "comp.runtime.fs.remove"]
+    !my parent-handle = $&parent&handle
+    ({parent-handle $.name} | py.call "comp.runtime.fs.remove")
     nil
 )
 
@@ -136,7 +136,7 @@
 
 /// Return a fresh copy with no cached metadata.
 !func vfs-refresh ~fs.entry (
-    !my fresh {entry-type=$.entry-type name=$.name path=$.path root=$.root}
+    !my fresh = {entry-type=$.entry-type name=$.name path=$.path root=$.root}
     !stash fresh&handle $&handle
     !stash fresh&parent $&parent
     fresh
@@ -146,19 +146,19 @@
 /// Ensure a file exists (create empty if missing).
 !func vfs-create-file ~fs.entry (
     !param name ~text
-    !my info [{$&handle name} | py.call "comp.runtime.fs.stat_entry"]
-    !my cpath [{$.path "/" name} | text.join]
+    !my info = ({$&handle name} | py.call "comp.runtime.fs.stat_entry")
+    !my cpath = ({$.path "/" name} | text.join)
     !on (info != nil)
     ~true (
         !on (info.entry-type != "file") ~true !fail "exists but is not a file"
         ~false nil
-        !my child {entry-type=fs.entry-type.file name=name path=cpath root=$.root size=info.size}
+        !my child = {entry-type=fs.entry-type.file name=name path=cpath root=$.root size=info.size}
         !stash child&parent $
         child
     )
     ~false (
-        [{$&handle name ""} | py.call "comp.runtime.fs.write_file"]
-        !my child {entry-type=fs.entry-type.file name=name path=cpath root=$.root}
+        ({$&handle name ""} | py.call "comp.runtime.fs.write_file")
+        !my child = {entry-type=fs.entry-type.file name=name path=cpath root=$.root}
         !stash child&parent $
         child
     )
@@ -168,28 +168,28 @@
 /// Ensure a directory exists (create if missing). Supports multi-segment paths.
 !func vfs-create-dir ~fs.entry (
     !param name ~text
-    !my parts [name | text.split "/"]
-    !my count [parts | s.length]
+    !my parts = (name | text.split "/")
+    !my count = (parts | s.length)
     /// Use reduce to thread the current entry through each segment
-    [$ | loop.reduce initial=$ :(
-        !my current $
-        !my seg $$.#1
-        !my info [{current&handle seg} | py.call "comp.runtime.fs.stat_entry"]
+    ($ | loop.reduce initial=$ :(
+        !my current = $
+        !my seg = $$.#1
+        !my info = ({current&handle seg} | py.call "comp.runtime.fs.stat_entry")
         !on (info != nil)
         ~true (
             !on (info.entry-type != "dir") ~true !fail "exists but is not a directory"
             ~false nil
         )
         ~false (
-            [{current&handle seg} | py.call "comp.runtime.fs.mkdir"]
+            ({current&handle seg} | py.call "comp.runtime.fs.mkdir")
         )
-        !my handle [{current&handle seg} | py.call "comp.runtime.fs.open_child"]
-        !my cpath [{current.path "/" seg} | text.join]
-        !my child {entry-type=fs.entry-type.dir name=seg path=cpath root=$.root}
+        !my handle = ({current&handle seg} | py.call "comp.runtime.fs.open_child")
+        !my cpath = ({current.path "/" seg} | text.join)
+        !my child = {entry-type=fs.entry-type.dir name=seg path=cpath root=$.root}
         !stash child&handle handle
         !stash child&parent current
         child
-    )]
+    ))
 )
 
 
@@ -210,25 +210,25 @@
 !func make-child& ~fs.entry (
     !param name ~text
     !param info ~any
-    !my cpath [{$.path "/" name} | text.join]
+    !my cpath = ({$.path "/" name} | text.join)
     !on (info == nil)
     ~true (
-        !my child {entry-type=fs.entry-type.missing name=name path=cpath root=$.root}
+        !my child = {entry-type=fs.entry-type.missing name=name path=cpath root=$.root}
         !stash child&parent $
         child
     )
     ~false (
-        !my etype [info.entry-type | entry-type-from-text]
+        !my etype = (info.entry-type | entry-type-from-text)
         !on (etype == fs.entry-type.dir)
         ~true (
-            !my handle [{$&handle name} | py.call "comp.runtime.fs.open_child"]
-            !my child {entry-type=etype name=name path=cpath root=$.root size=info.size}
+            !my handle = ({$&handle name} | py.call "comp.runtime.fs.open_child")
+            !my child = {entry-type=etype name=name path=cpath root=$.root size=info.size}
             !stash child&handle handle
             !stash child&parent $
             child
         )
         ~false (
-            !my child {entry-type=etype name=name path=cpath root=$.root size=info.size}
+            !my child = {entry-type=etype name=name path=cpath root=$.root size=info.size}
             !stash child&parent $
             child
         )

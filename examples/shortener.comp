@@ -28,65 +28,67 @@ Highlights:
 
 
 /// Module configuration, overridable at startup
-!mod server.static "./static"
-!mod server.templates "./templates"
-!mod redis {host="localhost" port=6379}
-!mod keys {
-    target = "url-target:%()"
-    counter = "click-count:%()"
-    reverse = "reverse-url:%()"
-    total = "last-url-id"
+!startup web {
+	server.static = "./static"
+	server.templates = "./templates"
+	redis = {host="localhost" port=6379}
+	keys = {
+		target = "url-target:%()"
+		counter = "click-count:%()"
+		reverse = "reverse-url:%()"
+		total = "last-url-id"
+	}
 }
-
 
 !context web {
     redis-db = redis.connection
 }
 
 
-!main web [
+!main web (
 	$
 	| dispatch
 	| post "/" :(link-create)
-	| get "/" :[response-template "newurl.html"]
+	| get "/" :(response-template "newurl.html")
 	| get "/{id}" :(link-redirect)
 	| get "/{id}.json" :(link-details)
-	| missing :[response-template "404.html" status=404]
+	| missing :(response-template "404.html" status=404)
 	//x or perhaps something with an `!on` here?
-]
+)
 
 
 /// Accept a URL submission and redirect to its detail page
-!func link-create ~http.request [
+!func link-create ~http.request (
 	$.form.url
-	| unless [$ | url.parse | $.scheme | in {"http" "https"}] :[
+	| unless :($ | url.parse | $.scheme | in {"http" "https"}) :(
 		{error="Please enter a valid URL" url=$$.form.url}
 		| response-template "newurl.html"
-	]
+	)
 	| insert-url
 	| http.redirect "/%($.id).json"
-]
+)
 
 
 /// Redirect short URL to its target, incrementing click count
 !func link-redirect ~http.request (
-	[$.params.id | fetch-details | increment]
-	[http.redirect $.target]
+	($.params.id | fetch-details | increment)
+	(| http.redirect $.target)
 )
 
 
 /// Render detail page for a short URL
-!func link-details ~http.request [
+!func link-details ~http.request (
 	$.params.id | fetch-details | response-json
-]
+)
 
 
 /// Look up or create a short URL entry
-!func insert-url ~text [
-	$ | fmt mod.keys.reverse
+!func insert-url ~text (
+	$ 
+	| fmt mod.keys.reverse
 	| redis.get
-	| if-nil :[
-		!my id [mod.keys.total | redis.incr | base36-encode]
+	| if-nil :(
+		!my id = (mod.keys.total | redis.incr | base36-encode)
 		{
 			'[id | fmt mod.keys.target]' = $$
 			'[id | fmt mod.keys.counter]' = 1
@@ -94,40 +96,39 @@ Highlights:
 			//x the single quote field expression needs to be ok for pipelines
 		}
 		| redis.mset
-	]
+	)
 	| response-redirect @fmt"/%().json"
-]
+)
 
 
 /// Fetch details for a short URL id
-!func fetch-details ~text [
+!func fetch-details ~text (
     {
-        target = [$ | fmt mod.keys.target]
-        clicks = [$ | fmt mod.keys.counter]
+        target = ($ | fmt mod.keys.target)
+        clicks = ($ | fmt mod.keys.counter)
     }
     | redis.mget
     | defaults clicks=0
-]
+)
 
 
 /// Increment the click counter for a URL
-!func increment ~detail* [
+!func increment ~detail* (
     $.id 
     | fmt mod.keys.counter
     | redis.incr
-]
+)
 
 
 /// Encode a number in base36
 !pure base36-encode ~num (
-    !my charset "0123456789abcdefghijklmnopqrstuvwxyz"
-    !my result ""
+    !my charset = "0123456789abcdefghijklmnopqrstuvwxyz"
+    !my result = ""
 
-    [$ | while :($ > 0
-        !my div [$ | divmod [charset | length]]
-        !my result [charset | char-at-index div.remainder | join result]
+    ($ | while :($ > 0
+        !my div ($ | divmod (charset | length))
+        !my result (charset | char-at-index div.remainder | join result)
         div.quotient
-    )]
-
-    [$.result | if-empty :[charset | first]]
+    ))
+    ($.result | if-empty :(charset | first))
 )

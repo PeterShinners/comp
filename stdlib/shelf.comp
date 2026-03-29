@@ -16,12 +16,12 @@
 ///
 /// Example:
 ///   !import shelf comp "shelf"
-///   !my s [shelf]
-///   [s | set "x" 10 | set "y" 10]
-///   !my s2 [s | shelf | set "z" 30]
-///   [s2 | get "z"]
-///   [s2 | struct]
-///   [s | get "z"]  // !fail.value
+///   !my s = (shelf)
+///   (s | set "x" 10 | set "y" 10)
+///   !my s2 = (s | shelf | set "z" 30)
+///   (s2 | get "z")
+///   (s2 | struct)
+///   (s | get "z")  // !fail.value
 
 !no-default
 !import py comp "py"
@@ -38,17 +38,17 @@
 /// When copying another shelf this will only make a shallow copy,
 /// which could cause surprises when a deep copy is made.
 !func shelf ~nil (
-    !grab shelf [{} | dump]
+    !grab shelf ({} | dump)
 )
 !func shelf ~struct (
     // todo this isn't running right, something about where-unnamed not liking struct input?
-    // [if ([$ | where-unnamed | length] > 0) :(
+    // (if (($ | where-unnamed | length) > 0) :(
     //     !fail "Struct for shelf contains unnamed (positional) fields"
-    // )]
-    !grab shelf [$ | dump]
+    // ))
+    !grab shelf ($ | dump)
 )
 !func shelf ~handle#shelf (
-    !grab shelf [!pull $ | method "copy"]
+    !grab shelf (!pull $ | method "copy")
 )
 
 
@@ -56,7 +56,7 @@
 ///
 /// The struct is an immutable snapshot of the state of the shelf.
 !func struct ~handle#shelf (
-    [!pull $ | load]
+    (!pull $ | load)
 )
 
 /// Get a value by key or fail.
@@ -64,25 +64,25 @@
 /// This will fail when the given key does not exist in the shelf.
 !func get ~handle#shelf (
     !param key ~any|nil
-    !my missing [lookup "NotImplemented"]
-    !my value [!pull $ | method "get" key missing]
-    [if (value == missing) :(!fail.value "Undefined shelf key %(key)")]
+    !my missing = (lookup "NotImplemented")
+    !my value = (!pull $ | method "get" key missing)
+    (if (value == missing) :(!fail.value "Undefined shelf key %(key)"))
     value
 )
 
 /// Check if a key is defined in the shelf.
 !func contains ~handle#shelf (
     !param key ~any|nil
-    [!pull $ | method "__contains__" key value]
+    (!pull $ | method "__contains__" key value)
 )
 
 // Check if the shelf is empty
 !func is-empty ~handle#shelf (
-    !not [!pull $ | call "bool"]
+    !not (!pull $ | call "bool")
 )
 
 !func length ~handle#shelf (
-    [!pull $ | method "__len__"]
+    (!pull $ | method "__len__")
 )
 
 // todo, there is no way to do kwargs at the moment, which would be super
@@ -101,8 +101,8 @@
     !param key ~any|nil
     !param value ~any|nil
     !param assignment ~assignment = overwrite
-    !my name !on assignment ~overwrite "__setitem__" ~preserve "setdefault"
-    [!pull $ | method name key value]
+    !my name = !on assignment ~overwrite "__setitem__" ~preserve "setdefault"
+    (!pull $ | method name key value)
     $
 )
 
@@ -111,7 +111,7 @@
 /// Returns the shelf for chaining.
 !func remove ~handle#shelf (
     !param key ~any|nil
-    [!pull $ | method "__delitem__" key value]
+    (!pull $ | method "__delitem__" key value)
     $
 )
 

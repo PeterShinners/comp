@@ -19,98 +19,98 @@
 
 
 /// Get text length in characters
-!pure length ~text [
+!pure length ~text (
     $ | py.pure-call "len"
-]
+)
 
 /// Test if text is empty
 !pure is-empty ~text (
-    !not [$ | py.pure-call "bool"]
+    !not ($ | py.pure-call "bool")
 )
 
 /// Transform text to uppercase
-!pure uppercase ~text @preserve-unit [
+!pure uppercase ~text @preserve-unit (
     $ | py.pure-call "str.upper"
-]
+)
 
 /// Transform text to lowercase
-!pure lowercase ~text @preserve-unit [
+!pure lowercase ~text @preserve-unit (
     $ | py.pure-call "str.lower"
-]
+)
 
 /// Remove whitespace from text ends
 !pure trim ~text @preserve-unit (
     !param what ~trim-mode = trim-mode.whitespace
     !param target ~target = target.both
     !on target
-    ~start [$ | py.pure-call "str.lstrip"]
-    ~end [$ | py.pure-call "str.rstrip"]
-    ~both [$ | py.pure-call "str.strip"]
+    ~start ($ | py.pure-call "str.lstrip")
+    ~end ($ | py.pure-call "str.rstrip")
+    ~both ($ | py.pure-call "str.strip")
 )
 
 /// Test if text contains only whitespace or is empty
-!pure is-blank ~text [
+!pure is-blank ~text (
     $ | trim | is-empty
-]
+)
 
 /// Test if text contains only numeric characters
-!pure is-numeric ~text [
+!pure is-numeric ~text (
     $ | py.pure-call "str.isnumeric"
-]
+)
 
 /// Test if text contains only alphabetic characters
-!pure is-alpha ~text [
+!pure is-alpha ~text (
     $ | py.pure-call "str.isalpha"
-]
+)
 
 /// Test if text contains only alphanumeric characters
-!pure is-alphanumeric ~text [
+!pure is-alphanumeric ~text (
     $ | py.pure-call "str.isalnum"
-]
+)
 
 /// Test if text contains only lowercase characters
-!pure is-lowercase ~text [
+!pure is-lowercase ~text (
     $ | py.pure-call "str.islower"
-]
+)
 
 /// Test if text contains only uppercase characters
-!pure is-uppercase ~text [
+!pure is-uppercase ~text (
     $ | py.pure-call "str.isupper"
-]
+)
 
 /// Test if text contains a substring
 !pure contains ~text (
     !param substring ~text<non-empty>
     !param case ~case = case.sensitive
-    !my text (
+    !my text = (
         !on case
-        ~insensitive [$ | lowercase]
+        ~insensitive ($ | lowercase)
         ~sensitive $
     )
-    !my key (
+    !my key = (
         !on case
-        ~insensitive [substring | lowercase]
+        ~insensitive (substring | lowercase)
         ~sensitive substring
     )
-    [{text key} | py.pure-call "str.__contains__"]
+    ({text key} | py.pure-call "str.__contains__")
 )
 
 /// Test if text starts with a prefix
 !pure starts-with ~text (
     !param prefix ~text<non-empty>
-    [{$ prefix} | py.pure-call "str.startswith"]
+    ({$ prefix} | py.pure-call "str.startswith")
 )
 
 /// Test if text ends with a suffix
 !pure ends-with ~text (
     !param suffix ~text<non-empty>
-    [{$ suffix} | py.pure-call "str.endswith"]
+    ({$ suffix} | py.pure-call "str.endswith")
 )
 
 /// Find first occurrence of substring, return index or nil
 !pure find ~text (
     !param substring ~text<non-empty>
-    !my result [{$ substring} | py.pure-call "str.find"]
+    !my result = ({$ substring} | py.pure-call "str.find")
     !on (result == -1)
     ~true nil
     ~false result
@@ -119,72 +119,72 @@
 /// Count occurrences of substring
 !pure count ~text (
     !param substring ~text<non-empty>
-    [{$ substring} | py.pure-call "str.count"]
+    ({$ substring} | py.pure-call "str.count")
 )
 
 /// Replace all occurrences of old with new
 !pure replace ~text @preserve-unit (
     !param old ~text<non-empty>
     !param new ~text
-    [{$ old new} | py.pure-call "str.replace"]
+    ({$ old new} | py.pure-call "str.replace")
 )
 
 /// Split text by separator
 !pure split ~text (
     !param separator ~text<non-empty> = " "
-    [{$ separator} | py.pure-call "str.split"]
+    ({$ separator} | py.pure-call "str.split")
 )
 
 /// Split text into lines
-!pure lines ~text [
+!pure lines ~text (
     $ | py.pure-call "str.splitlines"
-]
+)
 
 /// Join a positional collection of strings with a separator
 /// Input must be a positional struct of strings: {"Apple" "Banana" "Cherry"}
 !pure join ~text* (
     !param separator ~text = ""
-    [{separator $} | py.pure-call "str.join"]
+    ({separator $} | py.pure-call "str.join")
 )
 
 /// Repeat text n times
 !pure repeat ~text @preserve-unit (
     !param times ~index
-    [{$ times} | py.pure-call "operator.mul"]
+    ({$ times} | py.pure-call "operator.mul")
 )
 
 /// Pad text on left
 !pure pad-left ~text @preserve-unit (
     !param width ~index
     !param fill ~letter = " "
-    [{$ width fill} | py.pure-call "str.rjust"]
+    ({$ width fill} | py.pure-call "str.rjust")
 )
 
 /// Pad text on right
 !pure pad-right ~text @preserve-unit (
     !param width ~index
     !param fill ~letter = " "
-    [{$ width fill} | py.pure-call "str.ljust"]
+    ({$ width fill} | py.pure-call "str.ljust")
 )
 
 /// Center text within width
 !pure pad-center ~text @preserve-unit (
     !param width ~index
     !param fill ~letter = " "
-    [{$ width fill} | py.pure-call "str.center"]
+    ({$ width fill} | py.pure-call "str.center")
 )
 
 /// Capitalize first character
-!pure capitalize ~text @preserve-unit [
+!pure capitalize ~text @preserve-unit (
     $ | py.pure-call "str.capitalize"
-]
+)
 
 /// Convert to title case
-!pure title ~text @preserve-unit [
+!pure title ~text @preserve-unit (
     $ | py.pure-call "str.title"
-]
+)
 
 /// Parse text as a number — fails if the text is not a valid numeric literal
-!pure to-num ~text [
+!pure to-num ~text (
     $ | py.pure-call "decimal.Decimal"
-]
+)

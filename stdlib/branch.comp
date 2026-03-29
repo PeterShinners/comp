@@ -15,22 +15,22 @@
 /// piped input. Otherwise passes the input through unchanged.
 !pure if ~any|nil (
     !param cond ~any  /// bool value that determines branching
-    !param then ~(any|block) = nil  /// block or value invoked with piped input when condition is true
+    !param then ~any|block = nil  /// block or value invoked with piped input when condition is true
     !delivers if ~bool  /// true when branch executes, otherwise false
-    !my has-then then != nil
-    !my branch-then (
+    !my has-then = then != nil
+    !my branch-then = (
         !on has-then
         ~true then
         ~false cond
     )
-    !my when (
+    !my when = (
         !on has-then
         ~true [$ | try cond]
         ~false $
     )
     !deliver if when
     !on when
-    ~true [$ | try branch-then]
+    ~true ($ | try branch-then)
     ~false $
     ~any !fail.value "if condition must be boolean"
 )
@@ -54,7 +54,7 @@
         $
     )
     ~false (
-        !my when [$ | try cond]
+        !my when = [$ | try cond]
         !deliver if when
         !on when
         ~true [$ | try then]
@@ -69,12 +69,12 @@
 /// Requires if from the previous stage (defaults to false when used
 /// standalone). Executes then only if no prior branch ran.
 !pure else ~any|nil (
-    !param then ~(any|block)  /// block or value invoked with piped input when no prior branch executed
+    !param then ~any|block  /// block or value invoked with piped input when no prior branch executed
     !depend if ~any = false  /// previous branch state
     !on if
     ~true $
     ~false (
-        [$ | try then]
+        ($ | try then)
     )
 )
 
@@ -128,7 +128,7 @@
     ~true $
     ~false (
         !on is-match
-        ~true [$ | try then]
+        ~true ($ | try then)
         ~false $
     )
 )
@@ -141,7 +141,7 @@
     !depend match ~match-dependency  /// match state from previous case
     !on match.matched
     ~true $
-    ~false [$ | try then]
+    ~false ($ | try then)
 )
 
 
@@ -169,10 +169,10 @@
 /// [pick :($.administrator) :[$.credentials | authorize] :[$ | reject]]
 !pure pick ~any|nil (
     !param cond ~bool|invokable  /// bool value that determines branching
-    !param then ~(any|invokable)  /// block or value invoked with piped input when condition is true
-    !param else ~(any|invokable)  /// block or value invoked with piped input when condition is false
-    !on [$ | try cond]
-    ~true [$ | try then]
-    ~false [$ | try else]
+    !param then ~any|invokable  /// block or value invoked with piped input when condition is true
+    !param else ~any|invokable  /// block or value invoked with piped input when condition is false
+    !on ($ | try cond)
+    ~true ($ | try then)
+    ~false ($ | try else)
     ~any !fail.value "pick condition must be boolean"
 )

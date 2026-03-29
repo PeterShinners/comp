@@ -16,29 +16,26 @@ Highlights
 !shape branch ~(tree | nil) = nil
 
 
-!main console [
+!main console (
 	{5 3 8 1 7 9}
 	| reduce initial=nil tree-insert
 	| tree-values
 	| output
-]
+)
 
 
 /// Add new value into tree, dispatched on nil vs tree
-!pure empty.tree-insert ~nil [
+!pure empty.tree-insert ~nil (
 	!param value ~num
-
 	{value} | tree
-]
+)
 
 !pure tree-insert ~tree @update(
 	!param value ~num
-
 	!on value <> $.value
-	~less {left = [$.left | tree-insert value]}
-	~any {right = [$.right | tree-insert value]}
+	~less {left = ($.left | tree-insert value)}
+	~any {right = ($.right | tree-insert value)}
 )
-
 
 /// Check if tree contains value
 !pure empty.tree-contains ~nil (
@@ -48,10 +45,9 @@ Highlights
 
 !pure tree-contains ~tree (
 	!param value ~num
-
 	!on value <> $.value
-	~less [$.left | tree-contains value]
-	~greater [$.right | tree-contains value]
+	~less ($.left | tree-contains value)
+	~greater ($.right | tree-contains value)
 	~equal true
 )
 
