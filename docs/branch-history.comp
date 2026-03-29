@@ -1,8 +1,5 @@
 ## EARLY
 
-!import github/ = comp "@gh/github-comp@1.0/lib"
-!alias #{..} = #unit/time
-
 !main = {
     $after = :datetime/now ..> -1#week -> :datetime/offset
 
@@ -22,13 +19,6 @@
 
 ## PIONEER
 
-!doc module """Get top weekly thumbed issues from github
-https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
-"""
-
-!import .gh = comp "github-api"
-!import .time = std "core/time"
-
 !main = {
 	@after = (|now/time) - 1#week
 	@fields = ("title url created-at reactions" |tokenize/str)
@@ -47,12 +37,6 @@ https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
 
 
 ## ENGINE
-
-!doc module """Get top weekly thumbed issues from github
-https://julianhofer.eu/blog/2025/nushell/#format-table-in-markdown-format
-"""
-!import /gh = comp "github-api"
-!import /time = std "core/time"
 
 !main = {
 	$var.after = [|now] - 1#week
@@ -102,24 +86,6 @@ main = :(
         | sprite(state.fist)
     )
 )
-
-
-## IGNITION
-
-main = :(
-    !let inital-state = game-startup(media="./media")
-    !let window = pg.display()
-    | window(1280 480 scaled=true)
-    | caption("Monkey Fever")
-
-    game-loop(initial-state window handle-event) :~frame (
-        frame.draw
-        | clear(.7 .9 .7)
-        | sprite(state.chimp)
-        | sprite(state.fist)
-    )
-)
-
 
 
 ## SPROUT
@@ -191,12 +157,16 @@ main = :(
 ## PETAL
 
 !main console (
-    !ctx repo "nushell/nushell"
-    !my cutoff (|datetime.now) - 1#week
+    !my cutoff = (|datetime.now) - 1#week
+    !ctx repo = "nushell/nushell"
 
-    gh.issue-list fields=@w"created-at reaction-groups title url"
+    | gh.issue-list fields=@w"created-at reaction-groups title url"
     | where :($.created-at >= cutoff)
-    | map :($.thumbs = $.reaction-groups | count :($.content == "thumbs-up"))
+    | map :(
+        $.thumbs = ($.reaction-groups | count :(
+            $.content == "thumbs-up")
+        )
+    )
     | sort reverse :($.thumbs)
     | first 5
     | select "thumbs"="👍" "title" "url"

@@ -66,11 +66,11 @@ multiline = """
 String operations come from the standard library and work through pipelines:
 
 ```comp
-["hello world" | uppercase]       // "HELLO WORLD"
-["  padded  " | trim]             // "padded"
-["a b c" | split | join "-"]      // "a-b-c"
-[email | match "^[^@]+@[^@]+$"]   // regex matching
-["Camp" | replace "amp" "omp"]    // "Comp"
+("hello world" | uppercase)         // "HELLO WORLD"
+("  padded  " | trim)               // "padded"
+("a b c" | split | join "-")        // "a-b-c"
+(email | match "^[^@]+@[^@]+$")     // regex matching
+("Camp" | replace "amp" "omp")      // "Comp"
 ```
 
 ### Template Formatting
@@ -83,7 +83,7 @@ that's needed.
 ```comp
 "hello %(name)"                      // interpolate from scope
 "%(count)[04d] items at 100% off"    // formatted number, literal %
-"price: %($ * 1.08)[.2f]"            // expression with format spec
+"price: %($ * 1.08)[.2f]"           // expression with format spec
 ```
 
 Two invocation styles provide interpolation from different data sources. The
@@ -91,8 +91,8 @@ Two invocation styles provide interpolation from different data sources. The
 function resolves references from the piped data's fields.
 
 ```comp
-@fmt"welcome back, %(username)"       // username from local scope
-data | fmt["row %(id): %(title)"]     // id and title from data fields
+@fmt"welcome back, %(username)"          // username from local scope
+(data | fmt "row %(id): %(title)")       // id and title from data fields
 ```
 
 The format specifiers inside `[]` follow Python-style conventions for numeric
@@ -108,8 +108,8 @@ output stream (usually standard out).
 The output function can also apply simple coloring to the output when
 appropriate, and avoid it when not desired.
 
-Colors are applied to a string using a backlash followed by letters surrounded
-be dashes. Each letter applies a color or font style.
+Colors are applied to a string using a backslash followed by letters surrounded
+by dashes. Each letter applies a color or font style.
 
 Syntax:
     \\-r-  red        \\-g-  green      \\-b-  blue       \\-y-  yellow
@@ -117,7 +117,7 @@ Syntax:
     \\-s-  strong (bold/bright)         \\-d-  dim
     \\-n-  normal (reset all)
 
-Multiple letters can be combined into one expression like `\-gb- for bold green
+Multiple letters can be combined into one expression like `\-gb-` for bold green
 text. Each format code completely resets the color and style for the following
 text.
 
@@ -125,11 +125,11 @@ This colorization is used by default for terminal outputs, and can be
 controlled with the standard `$NO_COLOR` environment variable.
 
 ```comp
-"Hello, \-s-World" | output
+("Hello, \-s-World" | output)
 
 "\-s-Bold text\-n- normal"         // strong (bold)
 "\-r-Red error\-n-"                // red color
-"\-rs-Bold red alert\-n-"          // combined: red + strong
+"\-rs-Bold red alert\-n-"         // combined: red + strong
 "\-g-Success\-n- \-d-details\-n-"  // multiple regions
 ```
 
@@ -141,20 +141,20 @@ operators and consumed by logical operators, nothing more.
 
 ```comp
 {
-  is-big = x > 5
-  is-alice = name == "Alice"
-  validated = true
+    is-big = x > 5
+    is-alice = name == "Alice"
+    validated = true
 }
 ```
 
-Logical operators (`:and`, `:or`, `:not`) work exclusively with booleans and
+Logical operators (`!and`, `!or`, `!not`) work exclusively with booleans and
 short-circuit evaluation. Non-boolean values cannot be used in logical
 expressions, there is no concept of "truthy" or "falsy."
 
 ```comp
-a :and b :or :not c
-false :and (expensive-check)   // never calls expensive-check
-true :or (expensive-check)     // never calls expensive-check
+a !and b !or !not c
+false !and (|expensive-check)    // never calls expensive-check
+true !or (|expensive-check)     // never calls expensive-check
 ```
 
 ## Tags
@@ -203,7 +203,7 @@ leaking through untyped paths.
 
 !pure tree-insert ~nil (
     !param value~num
-    tree :value
+    (|tree :value)
 )
 ```
 
@@ -218,10 +218,10 @@ conversion functions that return failures for invalid input rather than
 producing garbage values.
 
 ```comp
-number = "42" | parse-num       // 42
-invalid = "abc" | parse-num     // failure
-text = 42 | fmt                 // "42"
-formatted = pi | fmt :"%()[.2f]"  // "3.14"
+number = ("42" | parse-num)         // 42
+invalid = ("abc" | parse-num)       // failure
+text = (42 | fmt)                   // "42"
+formatted = (pi | fmt :"%()[.2f]")  // "3.14"
 ```
 
 ## Comparison and Ordering
@@ -233,8 +233,9 @@ nil, empty struct, false, true, number, text, tag, struct. Within each type,
 values use their natural ordering.
 
 The three-way comparison operator `<>` returns a tag (`~less`, `~equal`,
-`~greater`) enabling dispatch over all three cases in a single `!on` expression.
-This is especially useful for binary tree operations and sorted data structures.
+`~greater`) rather than a boolean, enabling dispatch over all three cases in a
+single `!on` expression. This is especially useful for binary tree operations
+and sorted data structures.
 
 ```comp
 !on (value <> $.value)
@@ -283,15 +284,15 @@ units in the same family requires a defined converter function. Converting
 between different families fails.
 
 ```comp
-load-json-number | num[seconds]   // bare to unit, always works
-elapsed[seconds] | num            // unit to bare, always works
-elapsed[seconds] | num[minutes]   // same family, converter exists
-elapsed[seconds] | num[celsius]   // different family, fails
-raw-num | num[celsius]            // bare to unit, always works
+(load-json-number | num seconds)   // bare to unit, always works
+(elapsed.seconds | num)            // unit to bare, always works
+(elapsed.seconds | num minutes)    // same family, converter exists
+(elapsed.seconds | num celsius)    // different family, fails
+(raw-num | num celsius)            // bare to unit, always works
 ```
 
 The escape hatch for unusual situations is always to strip the unit and reapply:
-`value | num | num#celsius`. Two explicit steps, visible in the code.
+`(value | num | num#celsius)`. Two explicit steps, visible in the code.
 
 Conversion functions are defined as pure functions that take a value and a target
 unit tag. The dispatch system chains converters within a family automatically.
@@ -353,8 +354,8 @@ the limits specify what range is acceptable.
 
 ```comp
 !shape index ~num<ge=0 integer>
-!shape timeout ~num[second]<ge=0>
-!shape temperature ~num[celsius]<gt=-273.15>
+!shape timeout ~num#second<ge=0>
+!shape temperature ~num#celsius<gt=-273.15>
 ```
 
 ## Collections

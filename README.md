@@ -35,12 +35,16 @@ language libraries compare?
 !import table comp "table-formatter"
 
 !main console (
-    !ctx repo "nushell/nushell"
-    !my cutoff (|datetime.now) - 1#week
+    !my cutoff = (|datetime.now) - 1#week
+    !ctx repo = "nushell/nushell"
 
-    gh.issue-list fields=@w"created-at reaction-groups title url"
+    | gh.issue-list fields=@w"created-at reaction-groups title url"
     | where :($.created-at >= cutoff)
-    | map :($.thumbs = $.reaction-groups | count :($.content == "thumbs-up"))
+    | map :(
+        $.thumbs = ($.reaction-groups | count :(
+            $.content == "thumbs-up")
+        )
+    )
     | sort reverse :($.thumbs)
     | first 5
     | select "thumbs"="👍" "title" "url"
@@ -75,13 +79,13 @@ minimizes developer friction and maximizes composability.
 
 There [examples](examples/) provide a variety of lightweight, real-world concepts.
 
-The [design](design/) documents go into all these concepts in further detail.
+The [docs](docs/) go into the concepts in further detail.
 
-- [**Syntax and Style**](design/syntax.md) brackets, operators, formatting, the grammar rules
-- [**Structures and Shapes**](design/struct.md) immutable data, type system, tags, decorators
-- [**Functions and Blocks**](design/function.md) pipelines, dispatch, streams, invocation
-- [**Modules and Imports**](design/module.md) namespaces, dependencies, schema imports
-- [**Core Types**](design/type.md) numbers, text, booleans, comparison, units
+- [**Syntax and Style**](docs/syntax.md) brackets, operators, formatting, the grammar rules
+- [**Core Types**](docs/type.md) numbers, text, booleans, comparison, units
+- [**Structures and Shapes**](docs/struct.md) immutable data, type system, tags, decorators
+- [**Functions and Blocks**](docs/function.md) pipelines, dispatch, streams, invocation
+- [**Modules and Imports**](docs/module.md) namespaces, dependencies, schema imports
 
 ## Design
 

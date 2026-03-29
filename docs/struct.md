@@ -14,12 +14,19 @@ shared internals, similar to how Python handles strings.
 
 Structure literals are created with `{}` braces. Named fields use `=` for
 assignment. Positional fields are simply listed. Whitespace separates fields.
+The `|` pipe operator is not valid inside `{}` — use `()` to scope any pipeline
+used as a field value.
 
 ```comp
 user = {name="Alice" age=30}
 coords = {10 20 30}
 mixed = {x=5 10 y=15}
 empty = {}
+processed = {
+    name = (login | uppercase)
+    id = (raw-id | validate | format)
+    simple = 42
+}
 ```
 
 Field access uses dot notation. Positional fields use `#` with an index.
@@ -29,7 +36,7 @@ String field names use double quotes. Computed field names use single quotes.
 user.name                       // named field
 coords.#0                       // first field positionally
 record."Full Name"              // string field name
-data.'[field-name | uppercase]'   // computed field name
+data.'(field-name | uppercase)' // computed field name
 users.#0.name                   // chained access
 ```
 
@@ -53,8 +60,10 @@ default value.
 
 The `~` operator is central to the type system. It appears in shape definitions,
 in function input types (`!pure total ~cart`), in field type annotations
-(`name~text`), and in type union syntax (`~(tree|nil)`). It always means "has
-this shape" or "matches this type."
+(`name~text`), and in type union syntax (`~text|nil`). It always means "has
+this shape" or "matches this type." Union types use `|` directly after `~`
+without requiring parentheses when the meaning is unambiguous:
+`~text|nil`, `~num|text|nil`.
 
 ### Optional Fields and Defaults
 
@@ -65,7 +74,7 @@ defaults are required, missing them causes a build-time or morphing error.
 !shape config ~{
     host~text = "localhost"
     port~num = 8080
-    timeout~(num|nil) = nil
+    timeout~num|nil = nil
     verbose~bool = false
 }
 ```
@@ -91,4 +100,3 @@ the final tiebreaker when scores are equal.
 {x=5 y=10 z=15} | render       // dispatches to 3d overload
 {x=5 y=10} | render            // dispatches to 2d overload
 ```
-

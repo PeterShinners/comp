@@ -1,24 +1,24 @@
 # Functions and Pipelines
 
-Functions are module level definitions that use a `()` statement,
-`{}` structure, or `[]` pipeline to define the body.
+Functions are module level definitions that use a `()` statement block or `{}`
+structure block to define the body.
 
-All statements inside parenthesis or structures inside braces can be
-deferred with a leading colon `:()` and `:{}`. These can take an input
-object through pipelines and define their own parameters. Functions take
-a block and define additional metadata and place it into a module namespace.
+All statements inside parentheses or structures inside braces can be deferred
+with a leading colon `:()` and `:{}`. These can take an input object through
+pipelines and define their own parameters. Functions take a block and define
+additional metadata and place it into a module namespace.
 
 Comp functions are centered on a simple philosophy of operating on input data
 received through the pipeline with parameters to customize how they behave. Data
-flows through `|` definitions inside of `[]` square brackets. Each term in the
-pipeline has an input value from the results of the preceding function. They
-also get a collection of optional parameters, which are like structure fields
-inside the pipeline statement.
+flows through `|` pipe operators inside `()` parentheses. Each step in the
+pipeline has an input value from the results of the preceding function. Steps
+also receive optional parameters, which use space-separated syntax similar to
+structure fields.
 
-Inside of function bodies, deferred statements can be created. These are
-often used to define operations that are managed as a parameter passed to
-a function. This allows flow control and iteration to be managed by
-regular functions. These deferred statements are often called blocks.
+Inside function bodies, deferred statements can be created. These are often
+used to define operations passed as arguments to other functions. This allows
+flow control and iteration to be managed by regular functions. These deferred
+statements are often called blocks.
 
 ## Defining Functions
 
@@ -32,7 +32,7 @@ the input is unused.
 )
 
 !pure lookup-field ~struct (
-    !param field~text 
+    !param field~text
     !param fallback~any
 
     $'field' ?? fallback
@@ -58,7 +58,7 @@ invoked if the parameter is not provided.
 ```comp
 !pure example ~struct (
     !param initial
-    !param resoure ~data = [default-data | prepare]
+    !param resource ~data = (|default-data | prepare)
     // implementation
 )
 ```
@@ -71,29 +71,47 @@ overloaded set of functions that will dispatch when invoked. Shapes are also
 invokable to convert data types, which also means tags can be invoked.
 Deferred blocks and pipelines are also callable values.
 
-To invoke a callable it must be placed in square brackets to define and
-execute a pipeline. If a function requires no inputs or parameters the pipeline
-can be as simple as the callable value, `[runme]`.
+Invocation always happens through pipelines. A function is called by piping
+data into it with `|`, or by using a headless invoke `(|func)` when there is
+no input data. If a function requires no inputs or parameters, the headless
+invoke is as simple as `(|func)`.
+
+```comp
+// Headless invoke — no input
+(|read-lines)
+
+// Invoke with input
+(data | process)
+
+// Invoke with arguments
+(data | process format="json" verbose=true)
+
+// Invoke with deferred block argument
+(data | map :($ + 1))
+```
 
 ## Pipeline Composition
 
 The pipeline `|` operator is Comp's primary composition mechanism. Data flows
 left to right through a chain of functions, each receiving the output result of
-the previous step as input.
+the previous step as input. Pipelines are greedy — the `|` operator fills the
+entire enclosing `()` scope, with each step's arguments terminated by the next
+`|` or closing `)`.
 
 ```comp
-[github.issue-list repo=repo fields=fields
+(gh.issue-list fields=fields
 | where :($.created-at >= cutoff)
-| map :($.thumbs-up = [$.reaction-groups | count :($.content == "thumbs-up")])
-| sort reverse :($.thumbs-up)
+| map :($.thumbs = ($.reaction-groups
+    | count :($.content == "thumbs-up")))
+| sort reverse :($.thumbs)
 | first 5
-]
+)
 ```
 
 Each function in a pipeline receives the previous result as `$`. Parameters
-prefixed with `:` customize the behavior. Block parameters are must still be
-wrapped in `()` or `{}` statements. The pipeline reads as a description of what
-you want, not how to compute it.
+are space-separated after the function name. Block parameters use deferred
+syntax `:()` or `:{}`. The pipeline reads as a description of what you want,
+not how to compute it.
 
 ## Dispatch with `!on`
 
@@ -105,8 +123,8 @@ listed first wins.
 
 ```comp
 !on (value <> $.value)
-~less [$.left | tree-contains :value]
-~greater [$.right | tree-contains :value]
+~less ($.left | tree-contains :value)
+~greater ($.right | tree-contains :value)
 ~equal true
 
 !on ($.id == id)
@@ -127,20 +145,20 @@ the input data's shape. Each overload can define its own parameters and body.
 ```comp
 !pure empty.tree-insert ~nil (
     !param value~num
-    tree :value=value
+    (|tree :value=value)
 )
 !pure some.tree-insert ~tree @update (
     !param value~num
     !on (value <> $.value)
-    ~less {left = [$.left | tree-insert value]}
-    ~greater {right = [$.right | tree-insert value]}
+    ~less {left = ($.left | tree-insert value)}
+    ~greater {right = ($.right | tree-insert value)}
 )
 
 !pure tree-values ~nil {}
 !pure tree-values ~tree @flat (
-    [$.left | tree-values]
+    ($.left | tree-values)
     {$.value}
-    [$.right | tree-values]
+    ($.right | tree-values)
 )
 ```
 
@@ -185,18 +203,19 @@ and can be defined by any library.
     // invoke wrapped, retry on failure up to `times` attempts
 )
 
-// Used as @retry [flaky-fetch times=5 (...)]
+// Used as @retry (|flaky-fetch times=5 (...))
 ```
 
 ## Local Scope
 
-Inside a block, `!my` creates a local binding. It takes an identifier
-name to be assigned to an an expression to generate the value.
+Inside a block, `!my` modifies the scope of the following statement, creating
+a local binding. It takes an identifier name and an expression to generate the
+value.
 
 ```comp
-!my base ($.price * $.quantity)
-!my parent [$ | maya.get-parent]
-!my transform [parent | maya.create-node config.layer-type]
+!my base = $.price * $.quantity
+!my parent = ($ | maya.get-parent)
+!my transform = (parent | maya.create-node config.layer-type)
 ```
 
 Locals are scoped to the function they are defined in. They are shared
@@ -212,7 +231,7 @@ passed through nested calls.
 Values in the local scope will override namespace lookups. Locals can be
 explicitly referenced through the `my.` scope. Namespace references can
 always be referenced through the `mod.` scope, which allows referencing
-shadowed functions tags or shapes.
+shadowed functions, tags, or shapes.
 
 Functions have access to several scope layers. The pipeline input `$` provides
 the data being operated on. Local bindings from `!my` are visible within the
