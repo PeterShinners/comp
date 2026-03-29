@@ -36,16 +36,15 @@ language libraries compare?
 
 !main console (
     !ctx repo "nushell/nushell"
-    !my cutoff [datetime.now] - 1#week
+    !my cutoff (|datetime.now) - 1#week
 
-    [gh.issue-list fields={"created-at" "reaction-groups" "title" "url"}
+    gh.issue-list fields=@w"created-at reaction-groups title url"
     | where :($.created-at >= cutoff)
-    | map :($.thumbs = [$.reaction-groups | count :($.content == "thumbs-up")])
+    | map :($.thumbs = $.reaction-groups | count :($.content == "thumbs-up"))
     | sort reverse :($.thumbs)
     | first 5
-    | select {"thumbs"="👍" "title" "url"}
+    | select "thumbs"="👍" "title" "url"
     | table.markdown
-    ]
 )
 ```
 

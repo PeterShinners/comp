@@ -19,33 +19,34 @@ Highlights:
 !shape stack ~{head~(node|nil)  version~num}
 
 
-!main console [
+!main console (
     {nil 0}
     | push "first"
     | push "second"
     | push "third"
-	| forever :[
+	| forever :(
 		pop | output "Popped: %()" |? break
-	]
-]
+    )
+)
 
 
 /// Push a value onto the stack, retrying on contention
 !func push ~stack (
     !param value ~text
-
-    [$ | atomic.swap :{
+    $ 
+    | atomic.swap :{
         head = {value=value next=$.head}
         version = $.version + 1
-    }]
+    }
 )
 
 
 /// Pop a value from the stack, retrying on contention
 /// Fails if stack is empty
-!func pop ~stack [
-    $ | atomic.swap :{
+!func pop ~stack (
+    $ 
+    | atomic.swap :{
 		head = $.head.next
 		version = $.version + 1
     }
-]
+)
