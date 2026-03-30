@@ -53,11 +53,11 @@
     !on (count > 1)
     ~true (
         /// navigate intermediate dirs, then stat the last segment
-        !my dir =-path (parts | loop.slice 0 (count - 2) | text.join "/")
-        !my final =-name (parts | loop.last)
-        !my dir =-handle ({$&handle dir-path} | py.call "comp.runtime.fs.open_child")
-        !my dir =-path-full (dir-handle | py.call "comp.runtime.fs.handle_path")
-        !my dir =-entry {entry-type=fs.entry-type.dir name=dir-path path=dir-path-full root=$.root}
+        !my dir-path = (parts | loop.slice 0 (count - 2) | text.join "/")
+        !my final-name = (parts | loop.last)
+        !my dir-handle = ({$&handle dir-path} | py.call "comp.runtime.fs.open_child")
+        !my dir-path-full = (dir-handle | py.call "comp.runtime.fs.handle_path")
+        !my dir-entry = {entry-type=fs.entry-type.dir name=dir-path path=dir-path-full root=$.root}
         !stash dir-entry&handle dir-handle
         !stash dir-entry&parent $
         !my info = ({dir-handle final-name} | py.call "comp.runtime.fs.stat_entry")

@@ -57,7 +57,7 @@ Highlights
 }
 
 !pure tree-values ~tree @flat {
-	[$.left | tree-values]
+	($.left | tree-values)
 	{$.value}
-	[$.right | tree-values]
+	($.right | tree-values)
 }

@@ -53,7 +53,7 @@
 /// Equality constraint: value must be one of the given values
 !pure eq ~num (
     !param amount ~num*1+
-    !my in =-set ({amount $} | py.pure-call "operator.contains")
+    !my in-set = ({amount $} | py.pure-call "operator.contains")
     !on in-set
     ~false !fail.value "Value must be one of the allowed values"
     ~true true

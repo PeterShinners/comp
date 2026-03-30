@@ -103,13 +103,17 @@ def _resolve_walk(cop, namespace, locals):
         return _resolve_namefield(cop, namespace, locals)
 
     # --- Local-binding statements: name child is declaration, not reference ---
-    if tag in ("op.my", "op.ctx", "op.deliver"):
+    if tag in ("op.my", "op.ctx", "op.deliver", "statement.my", "statement.ctx"):
         kids = comp.cop_kids(cop)
         if len(kids) >= 2:
             new_value = _resolve_walk(kids[1], namespace, locals)
             if new_value is not kids[1]:
                 return comp.cop_rebuild(cop, [kids[0], new_value])
         return cop
+
+    # --- Pipelines: first stage may introduce locals (signature params) ---
+    if tag == "value.pipeline":
+        return _resolve_pipeline(cop, namespace, locals)
 
     # --- Bindings: binding values are implicit block scopes with $ access ---
     if tag == "value.binding":
@@ -326,6 +330,55 @@ def _resolve_signature(signature_cop, namespace, locals):
     return signature_cop
 
 
+def _resolve_pipeline(cop, namespace, locals):
+    """Resolve a value.pipeline, propagating locals from the first stage.
+
+    If the first stage is a statement.define with a block.signature, param
+    names from that signature are added to locals for all subsequent stages.
+    This handles the PETAL pattern:
+        (!param x ~t  $  | stage-using-x)
+    where the input statement.define introduces 'x' as a local.
+    """
+    kids = comp.cop_kids(cop)
+    if not kids:
+        return cop
+
+    stage_locals = locals.copy()
+    first = kids[0]
+
+    # If the first stage is a statement.define with a leading block.signature,
+    # extract param names so they're visible in later stages.
+    if comp.cop_tag(first) == "statement.define":
+        first_kids = comp.cop_kids(first)
+        if first_kids and comp.cop_tag(first_kids[0]) == "block.signature":
+            for field_cop in comp.cop_kids(first_kids[0]):
+                field_tag = comp.cop_tag(field_cop)
+                if field_tag in ("signature.param", "signature.depend"):
+                    try:
+                        param_name = field_cop.to_python("name")
+                        if param_name:
+                            stage_locals.add(param_name)
+                    except (KeyError, AttributeError):
+                        pass
+        # Also add any op.my / statement.my bindings in the define
+        for field_cop in first_kids:
+            let_name = _extract_let_name(field_cop)
+            if let_name:
+                stage_locals.add(let_name)
+
+    new_kids = []
+    changed = False
+    for kid in kids:
+        new_kid = _resolve_walk(kid, namespace, stage_locals)
+        new_kids.append(new_kid)
+        if new_kid is not kid:
+            changed = True
+
+    if changed:
+        return comp.cop_rebuild(cop, new_kids)
+    return cop
+
+
 def _resolve_sequential(cop, namespace, locals):
     """Resolve a sequential container, tracking bindings across children.
 
@@ -464,7 +517,7 @@ def _extract_let_name(cop):
         if kids:
             return _extract_let_name(kids[0])
         return None
-    if tag in ("op.my", "op.ctx", "op.deliver"):
+    if tag in ("op.my", "op.ctx", "op.deliver", "statement.my", "statement.ctx"):
         kids = comp.cop_kids(cop)
         if kids:
             return _get_ident_name(kids[0])

@@ -294,14 +294,16 @@ class CodeGenContext:
                     body_instructions=body_ctx.instructions,
                 ))
 
-            case "op.my":
-                # !let name expr — evaluate expr, store in frame env, return the value
-                # Supports dotted paths: !let abc.xyz 4  → deep-set abc["xyz"] = 4
+            case "op.my" | "statement.my":
+                # !my expr        — evaluate expr in my-scope, return value (no binding)
+                # !my name = expr — evaluate expr, store as local, return value
+                # Supports dotted paths: !my abc.xyz = 4  → deep-set abc["xyz"] = 4
                 kids = _cop_kids(cop)
-                name_cop = kids[0] if kids else None
-                value_cop = kids[1] if len(kids) > 1 else None
-                if name_cop is None or value_cop is None:
-                    raise comp.CodeError("op.my requires a name and a value expression", cop)
+                if len(kids) == 1:
+                    # Bare expression form — just evaluate and return
+                    return self._build_value_ensure_register(kids[0])
+                name_cop = kids[0]
+                value_cop = kids[1]
                 path = _extract_path_segments(name_cop)
                 value_idx = self._build_value_ensure_register(value_cop)
                 if path and len(path) > 1:
@@ -342,18 +344,18 @@ class CodeGenContext:
                     cop=cop, target_name=target_name, key=key, path=path, value_reg=value_reg
                 ))
 
-            case "op.ctx":
-                # !ctx name expr — like !let but also adds to the running frame context
-                # Supports dotted paths: !ctx abc.xyz 4  → deep-set abc["xyz"] = 4
+            case "op.ctx" | "statement.ctx":
+                # !ctx expr        — evaluate expr in ctx-scope, return value (no binding)
+                # !ctx name = expr — like !my but also adds to the running frame context
+                # Supports dotted paths: !ctx abc.xyz = 4  → deep-set + context update
                 kids = _cop_kids(cop)
-                name_cop = kids[0] if kids else None
-                value_cop = kids[1] if len(kids) > 1 else None
-                if name_cop is None or value_cop is None:
-                    raise comp.CodeError("op.ctx requires a name and a value expression", cop)
+                if len(kids) == 1:
+                    return self._build_value_ensure_register(kids[0])
+                name_cop = kids[0]
+                value_cop = kids[1]
                 path = _extract_path_segments(name_cop)
                 value_idx = self._build_value_ensure_register(value_cop)
                 if path and len(path) > 1:
-                    # Deep ctx: set the path in the base local and update context for base name
                     return self.emit(comp._instructions.DeepSetLocal(
                         cop=cop, base_name=path[0], path=path[1:], value_reg=value_idx,
                         update_context=True,
@@ -895,15 +897,18 @@ class CodeGenContext:
                 if inner:
                     inner_tag = comp.cop_tag(inner[0])
                     result = self._build_value_ensure_register(inner[0])
-                    if inner_tag in ("op.my", "op.deliver"):
+                    if inner_tag in ("op.my", "op.ctx", "op.deliver"):
                         has_trailing_let = True
                     else:
                         expr_result = result
                         has_trailing_let = False
+            elif comp.cop_tag(kid) in ("statement.my", "statement.ctx"):
+                result = self._build_value_ensure_register(kid)
+                has_trailing_let = True
             else:
                 tag = comp.cop_tag(kid)
                 result = self._build_value_ensure_register(kid)
-                if tag in ("op.my", "op.deliver"):
+                if tag in ("op.my", "op.ctx", "op.deliver"):
                     has_trailing_let = True
                 else:
                     expr_result = result
@@ -1155,7 +1160,7 @@ class CodeGenContext:
                 if inner:
                     fields.append((comp.Unnamed(), self._build_callable_ensure_register(inner[0])))
 
-            elif kid_tag in ("op.my", "op.ctx", "op.deliver"):
+            elif kid_tag in ("op.my", "op.ctx", "op.deliver", "statement.my", "statement.ctx"):
                 # Side-effect bindings — must still evaluate with full semantics
                 self._build_value_ensure_register(kid)
 
@@ -1271,14 +1276,14 @@ class CodeGenContext:
                 if inner:
                     inner_tag = comp.cop_tag(inner[0])
                     result = body_ctx._build_value_ensure_register(inner[0])
-                    if inner_tag in ("op.my", "op.deliver"):
+                    if inner_tag in ("op.my", "op.deliver", "statement.my", "statement.ctx"):
                         has_trailing_let = True
                     else:
                         expr_result = result
                         has_trailing_let = False
             else:
                 result = body_ctx._build_value_ensure_register(kid)
-                if comp.cop_tag(kid) in ("op.my", "op.deliver"):
+                if comp.cop_tag(kid) in ("op.my", "op.deliver", "statement.my", "statement.ctx"):
                     has_trailing_let = True
                 else:
                     expr_result = result

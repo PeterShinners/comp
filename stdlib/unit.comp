@@ -48,6 +48,6 @@
 ///       $ | py.pure-call :"str.upper"
 ///   )
 !pure preserve-unit ~invoke-data (
-    !my unit = [$.input | tag.get-unit-tag]
+    !my unit = ($.input | tag.get-unit-tag)
     ($ | invoke)#unit
 )

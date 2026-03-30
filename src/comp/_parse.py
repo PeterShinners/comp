@@ -327,57 +327,7 @@ def lark_to_cop(tree):
             struct = _parsed(tree, "struct.define", [posfield, namefield])
             return _parsed(tree, "op.fail", [struct])
 
-        case "pipeline":
-            # pipeline: BRACKET_OPEN pipeline_body BRACKET_CLOSE
-            # Skip brackets, process body
-            body_cop = lark_to_cop(kids[1])
-            return body_cop
-
-        case "pipeline_body":
-            # pipeline_body: pipe_start (PIPE pipe_stage)* (PIPEFALLBACK pipe_stage)?
-            # Build a value.pipeline COP from the pipe stages
-            stages = []
-            has_fallback = False
-            for kid in kids:
-                if isinstance(kid, lark.Token):
-                    if kid.type == "PIPEFALLBACK":
-                        has_fallback = True
-                    continue
-                cop = lark_to_cop(kid)
-                if has_fallback and isinstance(kid, lark.Tree) and kid.data == "pipe_stage":
-                    # This stage follows |? — wrap in pipeline_fallback
-                    stages.append(_parsed(kid, "value.pipeline_fallback", [cop]))
-                    has_fallback = False
-                else:
-                    stages.append(cop)
-
-            return _parsed(tree, "value.pipeline", stages)
-
-        case "pipe_start":
-            # pipe_start: signature? pipe_start_item+
-            # pipe_start_item is ?-prefixed so kids are pipe_stage/my_assign/ctx_assign directly
-            start_idx = 0
-            sig_cop = None
-            if kids and isinstance(kids[0], lark.Tree) and kids[0].data == "signature":
-                sig_cop = lark_to_cop(kids[0])
-                start_idx = 1
-
-            # Convert statement items
-            field_cops = []
-            for kid in kids[start_idx:]:
-                item_cop = lark_to_cop(kid)
-                field_cops.append(_parsed(kid, "statement.field", [item_cop]))
-
-            if len(field_cops) == 1 and sig_cop is None:
-                # Single expression, no signature — just return it directly
-                return lark_to_cop(kids[start_idx])
-
-            # Multiple items or has signature — wrap in statement.define
-            if sig_cop:
-                block_sig = _parsed(tree, "block.signature", list(comp.cop_kids(sig_cop)))
-                all_kids = [block_sig] + field_cops
-                return _parsed(tree, "statement.define", all_kids)
-            return _parsed(tree, "statement.define", field_cops)
+        # pipeline, pipeline_body, pipe_start removed — pipelines now use paren_body/paren_pipeline
 
         case "pipe_stage":
             # pipe_stage: unary | unary pipe_arg+
@@ -398,39 +348,31 @@ def lark_to_cop(tree):
             name_cop = _parsed(tree, "ident.token", [], value=name_str)
             return _parsed(tree, "struct.namefield", [name_cop, value_cop], op="=")
 
+        case "str_named_binding":
+            # str_named_binding: text EQUALS unary  (e.g. "key"=val in pipe args)
+            name_cop = lark_to_cop(kids[0])
+            value_cop = lark_to_cop(kids[2])
+            return _parsed(tree, "struct.namefield", [name_cop, value_cop], op="=")
+
         case "bare_binding":
             # bare_binding: non_shape_atom
             value_cop = lark_to_cop(kids[0])
             return _parsed(tree, "struct.posfield", [value_cop])
 
-        case "pipe_non_shape_atom":
-            # pipe_non_shape_atom: same structure as atom
-            # Reuse atom handling logic: collect wrappers + base value
-            wrappers = []
-            base_tree = None
-            for kid in kids:
-                if isinstance(kid, lark.Tree):
-                    if kid.data == "wrapper":
-                        wrappers.append(kid)
-                    else:
-                        base_tree = kid
-            if base_tree is None:
-                if not wrappers:
-                    raise ValueError("non_shape_atom has no base value or wrappers")
-                return lark_to_cop(wrappers[0])
-            base_cop = lark_to_cop(base_tree)
-            if wrappers:
-                result = base_cop
-                for wrapper_tree in reversed(wrappers):
-                    wrapper_cop = lark_to_cop(wrapper_tree.children[1])
-                    result = _parsed(tree, "value.wrapper", [wrapper_cop, result])
-                return result
-            return base_cop
-
         case "capture_expr":
             # capture_expr: COLON statement | COLON structure
-            # Skip the COLON, process the statement/structure as a block value
+            # Skip the COLON, process the statement/structure as a block value.
+            # If the body is a statement.define with a leading block.signature,
+            # hoist the signature to produce value.block([block.sig, stripped.define])
+            # so that _build_block can use the standard 2-kid format.
             body_cop = lark_to_cop(kids[1])
+            body_tag = comp.cop_tag(body_cop)
+            if body_tag == "statement.define":
+                body_kids = list(comp.cop_kids(body_cop))
+                if body_kids and comp.cop_tag(body_kids[0]) == "block.signature":
+                    sig_cop = body_kids[0]
+                    stripped = comp.cop_rebuild(body_cop, body_kids[1:])
+                    return _parsed(tree, "value.block", [sig_cop, stripped])
             return _parsed(tree, "value.block", [body_cop])
 
         case "compare_op":
@@ -536,42 +478,93 @@ def lark_to_cop(tree):
             return _parsed(tree, "ident.expr", [expr])
 
         case "statement":
-            # statement: PAREN_OPEN statement_body PAREN_CLOSE
-            # Skip parens, process body
-            body_cop = lark_to_cop(kids[1])
-            return body_cop
+            # statement: PAREN_OPEN paren_body PAREN_CLOSE
+            return lark_to_cop(kids[1])
 
-        case "statement_body":
-            # statement_body: signature statement_item* | statement_item*
-            # Check if first kid is signature
-            start_idx = 0
+        case "paren_body":
+            # paren_body: signature paren_items | paren_items
+            # Produces statement.define (grouping) or value.pipeline (when paren_pipeline present)
             sig_cop = None
-            if kids and isinstance(kids[0], lark.Tree) and kids[0].data == "signature":
-                sig_cop = lark_to_cop(kids[0])
-                start_idx = 1
+            paren_items_tree = None
+            for kid in kids:
+                if isinstance(kid, lark.Tree):
+                    if kid.data == "signature":
+                        sig_cop = lark_to_cop(kid)
+                    elif kid.data == "paren_items":
+                        paren_items_tree = kid
 
-            # Convert statement items - wrap each in statement.field
+            # Extract statement_items and optional paren_pipeline from paren_items
+            item_trees = []
+            pipeline_tree = None
+            if paren_items_tree:
+                for kid in paren_items_tree.children:
+                    if isinstance(kid, lark.Tree):
+                        if kid.data == "paren_pipeline":
+                            pipeline_tree = kid
+                        else:
+                            item_trees.append(kid)  # statement_item trees
+
+            # Convert statement items.
+            # !my / !ctx become statement.my / statement.ctx (direct kids of statement.define)
+            # Everything else is wrapped in statement.field
+            item_cops = [lark_to_cop(t) for t in item_trees]
             field_cops = []
-            for kid in kids[start_idx:]:
-                item_cop = lark_to_cop(kid)
-                field_cops.append(_parsed(tree, "statement.field", [item_cop]))
+            for t, c in zip(item_trees, item_cops):
+                c_tag = comp.cop_tag(c)
+                if c_tag == "op.my":
+                    field_cops.append(_parsed(t, "statement.my", list(comp.cop_kids(c))))
+                elif c_tag == "op.ctx":
+                    field_cops.append(_parsed(t, "statement.ctx", list(comp.cop_kids(c))))
+                else:
+                    field_cops.append(_parsed(t, "statement.field", [c]))
 
-            # Create statement.define with optional block.signature
-            if sig_cop:
-                # Has signature - add block.signature to statement.define kids
-                # sig_cop is already a shape.define with signature.param/signature.block kids
-                # Convert it to block.signature
-                block_sig = _parsed(tree, "block.signature", list(comp.cop_kids(sig_cop)))
-                # Build kids dict with sig and positional fields
-                kids = [block_sig]
-                kids.extend(field_cops)
-                return _parsed(tree, "statement.define", kids)
+            if pipeline_tree:
+                # Has pipeline tail: build value.pipeline
+                # Items before the pipeline become the input (mirrors old pipe_start logic)
+                if not field_cops and sig_cop is None:
+                    # (| stage ...) — no input value
+                    input_cop = None
+                elif (len(field_cops) == 1 and sig_cop is None
+                        and comp.cop_tag(field_cops[0]) == "statement.field"):
+                    # Single bare expression, no signature — use directly as pipeline input
+                    input_cop = item_cops[0]
+                else:
+                    # Multiple items or has signature — wrap in statement.define
+                    if sig_cop:
+                        block_sig = _parsed(tree, "block.signature", list(comp.cop_kids(sig_cop)))
+                        input_cop = _parsed(tree, "statement.define", [block_sig] + field_cops)
+                    else:
+                        input_cop = _parsed(tree, "statement.define", field_cops)
+
+                # Build stages from paren_pipeline:
+                # PIPE pipe_stage (PIPE pipe_stage)* (PIPEFALLBACK pipe_stage)?
+                stages = []
+                has_fallback = False
+                for kid in pipeline_tree.children:
+                    if isinstance(kid, lark.Token):
+                        if kid.type == "PIPEFALLBACK":
+                            has_fallback = True
+                        continue
+                    if isinstance(kid, lark.Tree) and kid.data == "pipe_stage":
+                        stage_cop = lark_to_cop(kid)
+                        if has_fallback:
+                            stage_cop = _parsed(kid, "value.pipeline_fallback", [stage_cop])
+                            has_fallback = False
+                        stages.append(stage_cop)
+
+                all_stages = ([input_cop] if input_cop is not None else []) + stages
+                return _parsed(tree, "value.pipeline", all_stages)
+
             else:
-                # No signature - just statement.define
-                return _parsed(tree, "statement.define", field_cops)
+                # No pipeline — plain grouping: statement.define
+                if sig_cop:
+                    block_sig = _parsed(tree, "block.signature", list(comp.cop_kids(sig_cop)))
+                    return _parsed(tree, "statement.define", [block_sig] + field_cops)
+                else:
+                    return _parsed(tree, "statement.define", field_cops)
 
         case "statement_item":
-            # statement_item: let_assign | expression
+            # statement_item: my_expr | ctx_expr | stash_assign | field_or_expr
             return lark_to_cop(kids[0])
 
         case "structure":
@@ -606,16 +599,9 @@ def lark_to_cop(tree):
             items = _merge_same_name_namefields(items)
 
             if sig_cop:
-                # Has signature - add block.signature to struct.define kids
-                # sig_cop is shape.define, convert to block.signature
                 block_sig = _parsed(tree, "block.signature", list(comp.cop_kids(sig_cop)))
-                # Build kids dict with sig and positional fields
-                kids_dict = {"sig": block_sig}
-                for i, item in enumerate(items):
-                    kids_dict[str(i)] = item
-                return _parsed(tree, "struct.define", kids_dict)
+                return _parsed(tree, "struct.define", [block_sig] + items)
             else:
-                # No signature - just a structure
                 return _parsed(tree, "struct.define", items)
 
         case "structure_item":
@@ -627,20 +613,19 @@ def lark_to_cop(tree):
             # This should just recurse to the child
             return lark_to_cop(kids[0])
 
-        case "named_field":
-            # named_field: TOKENFIELD EQUALS expression
-            # kids[0] is a TOKENFIELD token (simple single-segment name)
-            name_token = kids[0]
-            if isinstance(name_token, lark.Token):
-                name = name_token.value
-            else:
-                # Wrapped in a tree - dig down
-                while isinstance(name_token, lark.Tree) and name_token.children:
-                    name_token = name_token.children[0]
-                name = name_token.value if isinstance(name_token, lark.Token) else str(name_token)
+        case "path_assign":
+            # identifier EQUALS unary -> path_assign
+            # Covers simple names (foo=val), dollar paths ($.field=val), etc.
+            # kids[0] = identifier tree, kids[1] = EQUALS, kids[2] = unary
+            name_cop = lark_to_cop(kids[0])
+            value_cop = lark_to_cop(kids[2])
+            return _parsed(tree, "struct.namefield", [name_cop, value_cop], op="=")
 
-            value_cop = lark_to_cop(kids[2])  # Skip EQUALS at kids[1]
-            name_cop = _parsed(tree, "ident.token", [], value=name)
+        case "text_field":
+            # text EQUALS unary -> text_field  (e.g. "key" = value in structures)
+            # kids[0] = text tree, kids[1] = EQUALS, kids[2] = unary
+            name_cop = lark_to_cop(kids[0])
+            value_cop = lark_to_cop(kids[2])
             return _parsed(tree, "struct.namefield", [name_cop, value_cop], op="=")
 
         case "deep_named_field":
@@ -689,19 +674,23 @@ def lark_to_cop(tree):
             value = lark_to_cop(kids[2])
             return _parsed(tree, "struct.namefield", [name, value], op=op)
 
-        case "my_assign":
-            # my_assign: OP_MY identifier expression
-            # kids[0] = OP_MY, kids[1] = identifier, kids[2] = expression
-            name = lark_to_cop(kids[1])
-            value = lark_to_cop(kids[2])
-            return _parsed(tree, "op.my", [name, value])
+        case "my_expr":
+            # my_expr: OP_MY field_or_expr
+            # !my is a scope prefix on any expression (including assignments)
+            # kids[0] = OP_MY token, kids[1] = field_or_expr tree
+            inner_cop = lark_to_cop(kids[1])
+            # Decompose struct.namefield (assignment form) → op.my(name, value)
+            if comp.cop_tag(inner_cop) == "struct.namefield":
+                return _parsed(tree, "op.my", list(comp.cop_kids(inner_cop)))
+            return _parsed(tree, "op.my", [inner_cop])
 
-        case "ctx_assign":
-            # ctx_assign: OP_CTX identifier expression
-            # kids[0] = OP_CTX, kids[1] = identifier, kids[2] = expression
-            name = lark_to_cop(kids[1])
-            value = lark_to_cop(kids[2])
-            return _parsed(tree, "op.ctx", [name, value])
+        case "ctx_expr":
+            # ctx_expr: OP_CTX field_or_expr
+            # kids[0] = OP_CTX token, kids[1] = field_or_expr tree
+            inner_cop = lark_to_cop(kids[1])
+            if comp.cop_tag(inner_cop) == "struct.namefield":
+                return _parsed(tree, "op.ctx", list(comp.cop_kids(inner_cop)))
+            return _parsed(tree, "op.ctx", [inner_cop])
 
         case "stash_assign":
             # stash_assign: OP_STASH identifier AMPERSAND TOKENFIELD stash_deep* expression
@@ -719,53 +708,7 @@ def lark_to_cop(tree):
             all_kids = [target_cop, key_cop] + deep_cops + [value_cop]
             return _parsed(tree, "op.stash", all_kids)
 
-        case "block":
-            # Signature is shape_fields (all kids except first COLON and last structure)
-            sig_fields = [lark_to_cop(kid) for kid in kids[1:-1]]
-            # For blocks, use block.signature
-            signature = _parsed(tree, "block.signature", sig_fields)
-
-            # Get the structure (last kid) and check for wrappers
-            structure = kids[-1]
-            struct_kids = structure.children[1:-1]  # Skip PAREN_OPEN and PAREN_CLOSE
-
-            # Separate struct_wrapper Lark nodes from regular body kids
-            wrapper_lark_nodes = [k for k in struct_kids if isinstance(k, lark.Tree) and k.data == "struct_wrapper"]
-
-            if wrapper_lark_nodes:
-                # Build body without wrappers
-                body_lark_nodes = [k for k in struct_kids if not (isinstance(k, lark.Tree) and k.data == "struct_wrapper")]
-                body_cops = [lark_to_cop(kid) for kid in body_lark_nodes]
-                body = _parsed(structure, "struct.define", body_cops)
-            else:
-                # No wrappers - use structure as-is
-                body = lark_to_cop(structure)
-
-            # Build the block
-            block_cop = _parsed(tree, "value.block", [signature, body])
-            
-            if not wrapper_lark_nodes:
-                return block_cop
-            
-            # Build wrap identifier node
-            wrap_ident = _parsed(tree, "value.identifier", [
-                _parsed(tree, "ident.token", [], value="wrap")
-            ])
-            
-            # Wrap with each wrapper (innermost first, so reverse order)
-            # :(|outer |inner body) becomes wrap((outer wrap((inner :(body)))))
-            result = block_cop
-            for wrapper_node in reversed(wrapper_lark_nodes):
-                # Extract identifier from struct_wrapper: PIPE identifier
-                wrapper_ident = lark_to_cop(wrapper_node.children[1])
-                # Build args struct with two positional fields: wrapper and inner
-                args_struct = _parsed(tree, "struct.define", [
-                    _parsed(tree, "struct.posfield", [wrapper_ident]),
-                    _parsed(tree, "struct.posfield", [result])
-                ])
-                # Build wrap(args_struct)
-                result = _parsed(tree, "value.invoke", [wrap_ident, args_struct])
-            return result
+        # "block" case removed — old grammar rule replaced by capture_expr
 
         case "mod_field":
             name = lark_to_cop(kids[0])
@@ -998,7 +941,7 @@ def lark_to_cop(tree):
             return lark_to_cop(kids[0])
 
         case "start_startup":
-            # start_startup: startup_deps structure | structure
+            # start_startup: startup_deps func_struct | func_struct
             # Parse optional deps and body into a startup.define COP
             deps = []
             body_cop = None
@@ -1011,7 +954,7 @@ def lark_to_cop(tree):
                                 dep_name = _identifier_to_string(dep_cop)
                                 if dep_name:
                                     deps.append(dep_name)
-                    elif kid.data == "structure":
+                    elif kid.data in ("func_struct", "statement", "structure"):
                         body_cop = lark_to_cop(kid)
             if body_cop is None:
                 body_cop = _parsed(tree, "struct.define", [])
@@ -1033,7 +976,7 @@ def lark_to_cop(tree):
                                     deps.append(dep_name)
                     elif kid.data == "func_struct":
                         body_tree = kid
-                    elif kid.data in ("statement", "structure", "pipeline"):
+                    elif kid.data in ("statement", "structure"):
                         body_tree = kid
             body_cop = lark_to_cop(body_tree) if body_tree else _parsed(tree, "statement.define", [])
             # Wrap body in a function.define

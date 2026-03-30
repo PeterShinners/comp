@@ -29,22 +29,22 @@ Based on https://github.com/TrevisanGMW/gt-tools
     !param outliner-color ~num*3 = {1.0 0.5 0.0}
 
     //x !transact {maya.scene maya.preserve-selection}
-    [maya.selection
+    (maya.selection
 	| map :(
-		!my parent = [$ | maya.get-parent]
-		!my transform = [parent
+		!my parent = ($ | maya.get-parent)
+		!my transform = (parent
 			| maya.create-node
 				layer-type
 				name=@fmt"between%(suffix)"
 			| maya.set-attr use-outliner-color=true
 			| maya.set-attr outliner-color=outliner-color
 			| maya.parent parent
-		]
+		)
 
         !my target = (|pick parent-type) == (|parent parent $)
-        (|if (|target | maya.exists) :(target | maya.constrain transform)
+        (|if (|target | maya.exists) :(target | maya.constrain transform))
         ($ | maya.parent transform)
-	)]
+	))
 )
 
 

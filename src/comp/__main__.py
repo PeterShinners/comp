@@ -79,7 +79,10 @@ def prettycop(cop, field=None, indent=0, show_pos=False):
         if key:
             tokens.append(f"{key}={value.format()}")
         else:
-            tokens.append(value.format())
+            formatted = value.format()
+            if formatted.startswith("cop-type."):
+                formatted = formatted[9:]
+            tokens.append(formatted)
     line = " ".join(tokens)
     print(f"{ind}{line}{pos}")
     for field, child in kids:

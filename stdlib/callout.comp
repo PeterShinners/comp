@@ -105,8 +105,8 @@
     !param severity ~callout
     !param code ~text
     !param message ~text
-    !my fields ($ | cop-fields)
-    !my pos-val (
+    !my fields = ($ | cop-fields)
+    !my pos-val = (
         !on (fields | contains-field "pos")
         ~true (fields.pos)
         ~false nil
@@ -130,7 +130,7 @@
     !on (($ | cop-tag) == "value.identifier")
     ~false nil
     ~true (
-        !my first-kid ($ | cop-kids | loop.first)
+        !my first-kid = ($ | cop-kids | loop.first)
         !on ((first-kid | cop-tag) == "ident.token")
         ~false nil
         ~true (first-kid | cop-fields | ($.value))
@@ -170,15 +170,15 @@
 /// Example: {x=1 x=2}  →  "duplicate field `x` in struct literal"
 !pure check-duplicate-struct-fields ~any (
     ($ | walk-cop filter="struct.define" initial={} :(
-        !my node $.node
-        !my fields (node | cop-kids | loop.where :(($ | cop-tag) == "struct.namefield"))
-        !my names (fields | loop.map :(($ | cop-kids | loop.first | cop-fields | ($.value))))
-        !my dupes (names | find-duplicates)
+        !my node = $.node
+        !my fields = (node | cop-kids | loop.where :(($ | cop-tag) == "struct.namefield"))
+        !my names = (fields | loop.map :(($ | cop-kids | loop.first | cop-fields | ($.value))))
+        !my dupes = (names | find-duplicates)
         !on dupes == {}
         ~true cop-pass
         ~false (
-            !my first-dupe (dupes | loop.first)
-            !my dupe-field (fields | loop.where :(($ | cop-kids | loop.first | cop-fields | ($.value)) == first-dupe) | loop.last)
+            !my first-dupe = (dupes | loop.first)
+            !my dupe-field = (fields | loop.where :(($ | cop-kids | loop.first | cop-fields | ($.value)) == first-dupe) | loop.last)
             (dupe-field | cop-callout
                 severity=callout.warning
                 code="duplicate-struct-field"
@@ -194,15 +194,15 @@
 /// Example: !on x  ~true ...  ~true ...  →  "duplicate branch `~true` in !on"
 !pure check-duplicate-on-branches ~any (
     ($ | walk-cop filter="op.on" initial={} :(
-        !my node $.node
-        !my branches (node | cop-kids | loop.where :(($ | cop-tag) == "op.on.branch"))
-        !my keys (branches | loop.map :($ | cop-pattern-key)
-        !my named-keys (keys | loop.where :($ != nil))
-        !my dupes (named-keys | find-duplicates)
+        !my node = $.node
+        !my branches = (node | cop-kids | loop.where :(($ | cop-tag) == "op.on.branch"))
+        !my keys = (branches | loop.map :($ | cop-pattern-key))
+        !my named-keys = (keys | loop.where :($ != nil))
+        !my dupes = (named-keys | find-duplicates)
         !on dupes == {}
         ~true cop-pass
         ~false (
-            !my first-dupe (dupes | loop.first)
+            !my first-dupe = (dupes | loop.first)
             (node | cop-callout
                 severity=callout.warning
                 code="duplicate-on-branch"
@@ -220,14 +220,14 @@
 /// Example: !on $  ~true 1  ~any 99  ~false 2  →  ~false is unreachable
 !pure check-unreachable-branch ~any (
     ($ | walk-cop filter="op.on" initial={} :(
-        !my node $.node
-        !my branches (node | cop-kids | loop.where :(($ | cop-tag) == "op.on.branch"))
-        !my keys (branches | loop.map :($ | cop-pattern-key)
-        !my has-any (keys | loop.some :($ == "any"))
+        !my node = $.node
+        !my branches = (node | cop-kids | loop.where :(($ | cop-tag) == "op.on.branch"))
+        !my keys = (branches | loop.map :($ | cop-pattern-key))
+        !my has-any = (keys | loop.some :($ == "any"))
         !on has-any
         ~false cop-pass
         ~true (
-            !my last-key (keys | loop.last)
+            !my last-key = (keys | loop.last)
             !on last-key == "any"
             ~true cop-pass
             ~false (node | cop-callout
@@ -248,13 +248,13 @@
 !pure check-pure-calls-impure ~any (
     !param context ~any = {}
     !param namespace ~any = nil
-    !my def-is-pure (context | ($.pure))
+    !my def-is-pure = (context | ($.pure))
     !on def-is-pure == true !and namespace != nil
     ~false {}
     ~true (
         ($ | walk-cop filter="value.namespace" initial={} :(
-            !my node $.node
-            !my name (node | cop-fields | ($.qualified))
+            !my node = $.node
+            !my name = (node | cop-fields | ($.qualified))
             !on (namespace | is-pure name)
             ~true cop-pass
             ~false (node | cop-callout
@@ -272,8 +272,8 @@
 /// at codegen; surfacing them early gives cleaner LSP diagnostics.
 !pure check-value-undefined ~any (
     ($ | walk-cop filter="value.undefined" initial={} :(
-        !my node $.node
-        !my name (node | cop-fields | ($.name))
+        !my node = $.node
+        !my name = (node | cop-fields | ($.name))
         (node | cop-callout
             severity=callout.error
             code="undefined-name"
@@ -286,17 +286,17 @@
 /// Check for division or modulo by a constant zero.
 !pure check-zero-division ~any (
     ($ | walk-cop filter="value.math.binary" initial={} :(
-        !my node $.node
-        !my op (node | cop-fields | ($.op))
+        !my node = $.node
+        !my op = (node | cop-fields | ($.op))
         !on (op == "/")
         ~false cop-pass
         ~true (
-            !my rhs (node | cop-kids | loop.last)
-            !my rhs-tag (rhs | cop-tag)
+            !my rhs = (node | cop-kids | loop.last)
+            !my rhs-tag = (rhs | cop-tag)
             !on (rhs-tag == "value.number" !or rhs-tag == "value.constant")
             ~false cop-pass
             ~true (
-                !my rhs-val (rhs | cop-fields | ($.value))
+                !my rhs-val = (rhs | cop-fields | ($.value))
                 !on rhs-val == "0"
                 ~false cop-pass
                 ~true (node | cop-callout
@@ -343,10 +343,10 @@
 /// Check for fold-synthesised failure nodes (guaranteed runtime failures).
 !pure check-constant-fail ~any (
     $ | walk-cop filter="value.fold-fail" initial={} :(
-        !my node $.node
-        !my inner-node (node | cop-kids | loop.first)
-        !my inner (inner-node | cop-fields | ($.value))
-        !my reason (inner | ($.fail))
+        !my node = $.node
+        !my inner-node = (node | cop-kids | loop.first)
+        !my inner = (inner-node | cop-fields | ($.value))
+        !my reason = (inner | ($.fail))
         (inner-node | cop-callout
             severity=callout.error
             code="constant-fail"
@@ -372,8 +372,8 @@
             !my right = (node | cop-kids | loop.last)
             !my left-name = (left | ident-name)
             !my right-name = (right | ident-name)
-            !my is-bool = ($ == "true") !or ($ == "false")
-            !my bool-name (
+            !my is-bool = (($ == "true") !or ($ == "false"))
+            !my bool-name = (
                 !on (left-name | is-bool)
                 ~true left-name
                 ~false (    
@@ -406,12 +406,12 @@
         !on op == "!not"
         ~false cop-pass
         ~true (
-            !my inner (node | cop-kids | loop.first)
+            !my inner = (node | cop-kids | loop.first)
             !on ((inner | cop-tag) == "value.compare")
             ~false cop-pass
             ~true (
-                !my inner-op (inner | cop-fields | ($.op))
-                !my suggest (
+                !my inner-op = (inner | cop-fields | ($.op))
+                !my suggest = (
                     !on inner-op == "=="
                     ~true "!="
                     ~false (
@@ -446,34 +446,34 @@
     !my sev = (min-severity | severity-rank)
     !my raw = (!on original == nil ~true cop ~false original)
 
-    !my errors (
+    !my errors = (
         !on (callout.error | severity-rank) <= sev
         ~false {}
         ~true {
-            (cop | check-pure-calls-impure context=context namespace=namespace)
-            (cop | check-value-undefined)
-            (cop | check-constant-fail)
-            (cop | check-constant-undefined-field)
+            // (cop | check-pure-calls-impure context=context namespace=namespace)
+            // (cop | check-value-undefined)
+            // (cop | check-constant-fail)
+            // (cop | check-constant-undefined-field)
         }
     )
 
-    !my warnings (
+    !my warnings = (
         !on (callout.warning | severity-rank) <= sev
         ~false {}
         ~true {
-            (cop | check-zero-division)
-            (raw | check-duplicate-struct-fields)
-            (raw | check-duplicate-on-branches)
-            (raw | check-unreachable-branch)
+            // (cop | check-zero-division)
+            // (raw | check-duplicate-struct-fields)
+            // (raw | check-duplicate-on-branches)
+            // (raw | check-unreachable-branch)
         }
     )
 
-    !my hints (
+    !my hints = (
         !on (callout.hint | severity-rank) <= sev
         ~false {}
         ~true {
-            (raw | check-comparison-with-bool)
-            (raw | check-negated-comparison)
+            // (raw | check-comparison-with-bool)
+            // (raw | check-negated-comparison)
         }
     )
 

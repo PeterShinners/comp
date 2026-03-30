@@ -52,8 +52,10 @@ _COP_TAGS = (
     "block.signature",  # (kids) signature for block/statement (!param declarations)
     "statement.define",  # (kids) sequence of statements
     "statement.field",  # (kids) single statement/expression in a sequence
-    "op.my",  # (kids) 2 kids - name and value for !my assignment
-    "op.ctx",  # (kids) 2 kids - name and value for !ctx (like !my, also updates frame context)
+    "statement.my",   # (kids) 1-2 kids — !my prefix at statement level (replaces statement.field(op.my))
+    "statement.ctx",  # (kids) 1-2 kids — !ctx prefix at statement level (replaces statement.field(op.ctx))
+    "op.my",  # (kids) 1-2 kids — !my in non-statement context (e.g. inside struct)
+    "op.ctx",  # (kids) 1-2 kids — !ctx in non-statement context (e.g. inside struct)
     "op.stash",  # (kids) target, key, *path, value — !stash var&key.path val
     "op.defer",  # (kids) 1 kid - expression wrapped in a deferred (zero-arg) Block
     "op.forward",  # (kids) 0 kids - re-dispatch to next less-specific overload
@@ -741,13 +743,24 @@ def cop_unparse(cop):
                 return cop_unparse(kids[0])
             return "<?posfield?>"
         
-        # Local variable assignment
-        case "op.my":
+        # Statement-level scoped expressions (!my / !ctx as statement items)
+        case "statement.my" | "op.my":
             if len(kids) >= 2:
                 name = cop_unparse(kids[0])
                 value = cop_unparse(kids[1])
-                return f"!my {name} {value}"
+                return f"!my {name} = {value}"
+            elif kids:
+                return f"!my {cop_unparse(kids[0])}"
             return "<?my?>"
+
+        case "statement.ctx" | "op.ctx":
+            if len(kids) >= 2:
+                name = cop_unparse(kids[0])
+                value = cop_unparse(kids[1])
+                return f"!ctx {name} = {value}"
+            elif kids:
+                return f"!ctx {cop_unparse(kids[0])}"
+            return "<?ctx?>"
 
         case "op.deliver":
             if len(kids) >= 2:
@@ -931,8 +944,10 @@ _KID_COUNTS = {
     "value.logic.binary": (2, 2),
     "struct.posfield": (1, 1),
     "struct.namefield": (2, 2),
-    "op.my": (2, 2),
-    "op.ctx": (2, 2),
+    "statement.my": (1, 2),
+    "statement.ctx": (1, 2),
+    "op.my": (1, 2),
+    "op.ctx": (1, 2),
     "op.defer": (1, 1),
     "op.forward": (0, 0),
     "op.fail": (1, 1),

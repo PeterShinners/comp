@@ -70,7 +70,7 @@
 
     ({
         rows = (exec | py.load)
-        columns = (vars.description | map :($ | column-description)
+        columns = (vars.description | map :($ | column-description))
         row-id = vars.lastrowid
         rows-affected = vars.rowcount
     } 

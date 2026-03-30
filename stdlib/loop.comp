@@ -320,9 +320,9 @@
     !param start ~num = 0
     !param end ~num = -1
     // Use -1 sentinel to mean "to the end"
-    !my actual =-end end
+    !my actual-end = end
     !on end == -1
-    ~true (!my actual =-end ($ | s.length))
+    ~true (!my actual-end = ($ | s.length))
     ~false nil
     $ | iterate :(
         !on ($.position >= start !and $.position < actual-end)
@@ -369,7 +369,7 @@
 !pure reverse ~struct (
     !my data = $
     !my len = ($ | s.length)
-    !my last =-idx len - 1
+    !my last-idx = len - 1
     range 0 last-idx | map :(
         !my idx = (len - $ - 1)
         (data | item-at idx | field-value)

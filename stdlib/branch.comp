@@ -25,7 +25,7 @@
     )
     !my when = (
         !on has-then
-        ~true [$ | try cond]
+        ~true ($ | try cond)
         ~false $
     )
     !deliver if when
@@ -54,10 +54,10 @@
         $
     )
     ~false (
-        !my when = [$ | try cond]
+        !my when = ($ | try cond)
         !deliver if when
         !on when
-        ~true [$ | try then]
+        ~true ($ | try then)
         ~false $
         ~any !fail.value "if condition must be boolean"
     )
@@ -97,7 +97,7 @@
 !pure match ~any|nil (
     !param target ~any = nil  /// value for matching (defaults to piped input)
     !delivers match ~match-dependency  /// match state for chaining
-    !my actual-target (
+    !my actual-target = (
         !on target == nil
         ~true $
         ~false target
@@ -116,9 +116,9 @@
     !param then ~any  /// block or value invoked with original piped input when case matches
     !depend match ~match-dependency  /// match state from previous case
     !delivers match ~match-dependency  /// updated match state
-    !my when-value [$ | try when]
-    !my was-matched match.matched
-    !my is-match match.target == when-value
+    !my when-value = ($ | try when)
+    !my was-matched = match.matched
+    !my is-match = match.target == when-value
     !deliver match {target=match.target matched=(
         !on was-matched
         ~true true
@@ -153,7 +153,7 @@
 /// [value | try might-call]
 !pure try ~any|nil (
     !param maybe-callable ~any|nil
-    ([$ | maybe-callable] ?? maybe-callable)
+    (($ | maybe-callable) ?? maybe-callable)
 )
 
 

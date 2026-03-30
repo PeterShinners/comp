@@ -9,11 +9,11 @@ start_package: field_default_value                     // !package name value
 start_import: identifier text                          // !import compiler "source"
 start_mod: expression                                  // !mod name value (allow structures)
 start_shape: shape                                     // !shape name ~spec
-start_func: func_body  // !func name ~type [@wrapper] body
-func_body: shape wrapper* func_struct
-func_struct: statement | structure | pipeline
-start_startup: startup_deps structure    // !startup name <deps> { body }
-             | structure                   // !startup name { body }
+start_func: func_body  // !func name [~type] [@wrapper] body
+func_body: shape? wrapper* func_struct
+func_struct: statement | structure
+start_startup: startup_deps func_struct  // !startup name <deps> body
+             | func_struct               // !startup name body
 startup_deps: ANGLE_OPEN identifier* ANGLE_CLOSE
 start_main: main_deps func_struct          // !main name <deps> body
           | func_struct                    // !main name body
@@ -194,13 +194,12 @@ postfield: nextfield (DOT nextfield)*
         | postfix HASH identifier -> cast_unit
         | postfix AMPERSAND TOKENFIELD -> stashaccess
 
-?atom: wrapper* (number | text | identifier | dotted_path_atom | shape | statement | structure | pipeline | capture_expr)
+?atom: wrapper* (number | text | identifier | dotted_path_atom | shape | statement | structure | capture_expr)
      | wrapper+   // Standalone wrapper(s) as a value
      | forward_expr
 
 capture_expr: COLON statement
             | COLON structure
-            | COLON pipeline
 
 dotted_path_atom: DOTTED_PATH
 
@@ -220,40 +219,49 @@ dotted_path_atom: DOTTED_PATH
 
 
 // ===== STRUCTURES & STATEMENTS =====
-// Structures can contain statements
-// Brace structures can contain field statements (named or unnamed)
+// Structures: brace-delimited, contain field assignments and expressions
+// Statements: paren-delimited, act as groupings or pipelines
+//   - (items...)           plain grouping
+//   - (items... | stage*)  inline pipeline: items are input, stages follow
+//   - (| stage*)           no-input pipeline: leading | signals no input value
 
-statement: PAREN_OPEN statement_body PAREN_CLOSE
+statement: PAREN_OPEN paren_body PAREN_CLOSE
 structure: BRACE_OPEN structure_body BRACE_CLOSE
-pipeline: BRACKET_OPEN pipeline_body BRACKET_CLOSE
 
-pipeline_body: pipe_start (PIPE pipe_stage)* (PIPEFALLBACK pipe_stage)?
-pipe_start: signature pipe_start_item+
-           | pipe_start_item+
-?pipe_start_item: my_assign | ctx_assign | stash_assign | pipe_start_expr
-?pipe_start_expr: unary pipe_arg+ -> pipe_stage
-                | expression
+// Paren body: optional signature, then items, then optional pipeline tail
+paren_body: signature paren_items
+           | paren_items
+
+paren_items: statement_item* paren_pipeline?
+
+// Pipeline tail: one or more pipe stages, optional fallback stage
+// Also allows bare fallback: (input |? handler) with no intermediate stages
+paren_pipeline: PIPE pipe_stage (PIPE pipe_stage)* (PIPEFALLBACK pipe_stage)?
+              | PIPEFALLBACK pipe_stage
+
+// Pipeline stages: callable optionally followed by arguments
 pipe_stage: unary
           | unary pipe_arg+
+
 pipe_arg: TOKENFIELD EQUALS unary -> named_binding
+        | text EQUALS unary -> str_named_binding
         | expression -> bare_binding
-
-pipe_non_shape_atom: wrapper* (number | text | identifier | dotted_path_atom | statement | structure | pipeline | capture_expr)
-                   | wrapper+
-                   | forward_expr
-
-statement_body: signature statement_item*
-              | statement_item*
 
 structure_body: signature structure_item*
               | structure_item*
 
-statement_item: my_assign | ctx_assign | stash_assign | expression
-structure_item: my_assign | ctx_assign | stash_assign | field_or_expr
+// Statement items: scope-prefixed expressions, assignments, or bare expressions
+statement_item: my_expr | ctx_expr | stash_assign | field_or_expr
 
-field_or_expr: DOTTED_PATH EQUALS unary -> deep_named_field
-             | TOKENFIELD EQUALS unary -> named_field
-             | QUOTE expression QUOTE EQUALS unary -> expr_named_field
+structure_item: my_expr | ctx_expr | stash_assign | field_or_expr
+
+// Field-or-expression: named field assignment or bare expression
+// identifier EQUALS covers both simple names (foo=val) and path assignments ($.field=val)
+// text EQUALS covers string-keyed fields ("key"=val)
+field_or_expr: DOTTED_PATH EQUALS expression -> deep_named_field
+             | QUOTE expression QUOTE EQUALS expression -> expr_named_field
+             | text EQUALS expression -> text_field
+             | identifier EQUALS expression -> path_assign
              | expression
 
 signature: signature_decl+
@@ -264,8 +272,9 @@ param_decl: OP_PARAM_DECL identifier shape (EQUALS field_default_value)?
 depend_decl: OP_DEPEND_DECL identifier shape (EQUALS field_default_value)?
 delivers_decl: OP_DELIVERS_DECL identifier shape
 
-my_assign: OP_MY identifier expression
-ctx_assign: OP_CTX identifier expression
+// !my and !ctx are scope-prefix operators on any expression (including assignments)
+my_expr: OP_MY field_or_expr
+ctx_expr: OP_CTX field_or_expr
 stash_assign: OP_STASH identifier AMPERSAND TOKENFIELD stash_deep* expression
 stash_deep: DOT TOKENFIELD
 

@@ -90,9 +90,9 @@ Highlights:
 	| if-nil :(
 		!my id = (mod.keys.total | redis.incr | base36-encode)
 		{
-			'[id | fmt mod.keys.target]' = $$
-			'[id | fmt mod.keys.counter]' = 1
-			'[$$ | fmt mod.keys.reverse]' = id
+			'(id | fmt mod.keys.target)' = $$
+			'(id | fmt mod.keys.counter)' = 1
+			'($$ | fmt mod.keys.reverse)' = id
 			//x the single quote field expression needs to be ok for pipelines
 		}
 		| redis.mset

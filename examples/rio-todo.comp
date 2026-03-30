@@ -71,7 +71,7 @@ Highlights:
                     variant = ($ == $$.filter | pick "primary" "outline")
                     on-click = :($ | merge filter=$)
                 }
-            )
+            ))
         }
     }}
 )

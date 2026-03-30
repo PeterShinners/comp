@@ -122,7 +122,7 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
     # --- Let/ctx bindings: name child is a declaration, not a reference ---
     # kids[0] is the binding name (ident.token / value.identifier used as lvalue)
     # kids[1] is the value expression to optimize normally
-    if tag in ("op.my", "op.ctx", "op.deliver"):
+    if tag in ("op.my", "op.ctx", "op.deliver", "statement.my", "statement.ctx"):
         kids = comp.cop_kids(cop)
         if len(kids) >= 2:
             new_value = _coptimize_walk(kids[1], fold, namespace, locals, references, locals_defined)
@@ -394,7 +394,7 @@ def _extract_let_name(cop):
         if kids:
             return _extract_let_name(kids[0])
         return None
-    if tag in ("op.my", "op.ctx", "op.deliver"):
+    if tag in ("op.my", "op.ctx", "op.deliver", "statement.my", "statement.ctx"):
         kids = comp.cop_kids(cop)
         if kids:
             return _get_ident_name(kids[0])
