@@ -843,6 +843,51 @@ class CodeGenContext:
                 body_sig_kids = _cop_kids(body_field_kids[0])
                 sig_kids = sig_kids + list(body_sig_kids)
 
+        # If the body is a value.pipeline whose first stage is a statement.define
+        # with a block.signature, hoist the params to the outer function and
+        # restructure the body.  The first pipeline stage's declarations become
+        # the outer function body, and its trailing expression feeds into the
+        # remaining pipeline stages as the last statement.
+        #
+        # Before:  value.pipeline(statement.define(block.sig, stmts..., stmt.field(E)), S2, S3)
+        # After:   statement.define(stmts..., stmt.field(value.pipeline(E, S2, S3)))
+        elif body_cop and comp.cop_tag(body_cop) == "value.pipeline":
+            pipeline_kids = list(_cop_kids(body_cop))
+            if pipeline_kids and comp.cop_tag(pipeline_kids[0]) == "statement.define":
+                first_stage_kids = list(_cop_kids(pipeline_kids[0]))
+                if first_stage_kids and comp.cop_tag(first_stage_kids[0]) == "block.signature":
+                    # Hoist params into the outer signature
+                    body_sig_kids = _cop_kids(first_stage_kids[0])
+                    sig_kids = sig_kids + list(body_sig_kids)
+                    # Separate the block.signature from the rest of the statement.define kids.
+                    stmt_kids = first_stage_kids[1:]  # everything after block.signature
+                    remaining_pipeline = pipeline_kids[1:]  # stages after the first
+
+                    if remaining_pipeline:
+                        # Find the last statement.field to splice the pipeline into.
+                        # The last kid of statement.define is the trailing expression.
+                        last_kid = stmt_kids[-1] if stmt_kids else None
+                        if last_kid is not None and comp.cop_tag(last_kid) == "statement.field":
+                            # Unwrap: statement.field([inner_expr]) → inner_expr
+                            inner = list(_cop_kids(last_kid))
+                            if inner:
+                                # Build pipeline: inner_expr | stage2 | stage3 ...
+                                new_pipeline = comp.create_cop("value.pipeline", inner + remaining_pipeline)
+                                new_last_field = comp.create_cop("statement.field", [new_pipeline])
+                                stmt_kids = stmt_kids[:-1] + [new_last_field]
+                            else:
+                                # Empty statement.field — just append the pipeline stages
+                                new_pipeline = comp.create_cop("value.pipeline", remaining_pipeline)
+                                new_last_field = comp.create_cop("statement.field", [new_pipeline])
+                                stmt_kids = stmt_kids + [new_last_field]
+                        else:
+                            # No trailing statement.field — wrap remaining pipeline
+                            new_pipeline = comp.create_cop("value.pipeline", remaining_pipeline)
+                            new_last_field = comp.create_cop("statement.field", [new_pipeline])
+                            stmt_kids = stmt_kids + [new_last_field]
+
+                    body_cop = comp.create_cop("statement.define", stmt_kids)
+
         combined_sig = comp.create_cop("block.signature", sig_kids)
 
         if body_cop is None:
@@ -1328,7 +1373,7 @@ def _compile_on_pattern(ctx, pattern_cop):
         if kid_tag == "value.undefined":
             try:
                 name = kids[0].to_python("name")
-            except Exception:
+            except (AttributeError, TypeError, KeyError):
                 name = "?"
             raise comp.CodeError(
                 f"!on branch pattern ~{name} is undefined "

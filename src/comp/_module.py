@@ -95,7 +95,7 @@ class Module:
                 self._no_default = any(
                     s.get("operator") == "no-default" for s in stmts
                 )
-            except Exception:
+            except (comp.ParseError, AttributeError, TypeError, KeyError):
                 self._no_default = False
         return self._no_default
 
@@ -210,7 +210,7 @@ class Module:
                     docs = scan.to_python("docs") or []
                     if docs:
                         info["docs"] = docs[0].get("content", "")
-                except Exception:
+                except (comp.ParseError, AttributeError, TypeError):
                     pass
             result[name] = info
         return result

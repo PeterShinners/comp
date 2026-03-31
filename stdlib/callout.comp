@@ -21,6 +21,9 @@
 
 !import n comp "num"
 !import loop comp "loop"
+!import py comp "py"
+!import cop comp "cop"
+
 
 // ===== Severity =====
 
@@ -83,7 +86,6 @@
     notes~note*
 }
 
-
 // ===== Severity ordering =====
 
 /// Severity ordering: error=0, warning=1, info=2, hint=3 (lower = more severe).
@@ -97,6 +99,22 @@
 )
 
 
+// ===== COP introspection wrappers =====
+// Thin wrappers around comp.runtime.pure that give cop-* functions
+// their natural pipe style. Each wraps the input in {$} so the whole
+// node reaches Python as a single positional argument.
+
+!pure cop-tag ~any ({$} | py.pure-call "comp.runtime.pure.cop_tag")
+!pure cop-kids ~any ({$} | py.pure-call "comp.runtime.pure.cop_kids")
+!pure cop-fields ~any ({$} | py.pure-call "comp.runtime.pure.cop_fields")
+!pure cop-pattern-key ~any ({$} | py.pure-call "comp.runtime.pure.cop_pattern_key")
+!pure find-duplicates ~any ({$} | py.pure-call "comp.runtime.pure.find_duplicates")
+!pure contains-field ~any (
+    !param name ~text
+    ({$ name} | py.pure-call "comp.runtime.pure.contains_field")
+)
+
+
 // ===== Helpers =====
 
 /// Build a walk-cop result with a single callout finding.
@@ -105,36 +123,13 @@
     !param severity ~callout
     !param code ~text
     !param message ~text
-    !my fields = ($ | cop-fields)
-    !my pos-val = (
-        !on (fields | contains-field "pos")
-        ~true (fields.pos)
-        ~false nil
-    )
     {callouts={{
         severity=severity
         code=code
         message=message
         phase=callout.phase.cop
-        pos=pos-val
+        pos=$.pos ?? nil
     }} accum={}}
-)
-
-/// Walk-cop result with no findings.
-!pure cop-pass ~any {callouts={} accum={}}
-
-/// Extract the simple name from a value.identifier COP node, or nil.
-/// Returns the FIRST ident.token value only.
-/// For dotted names ("ord.less"), use cop-pattern-key on the branch node instead.
-!pure ident-name ~any (
-    !on (($ | cop-tag) == "value.identifier")
-    ~false nil
-    ~true (
-        !my first-kid = ($ | cop-kids | loop.first)
-        !on ((first-kid | cop-tag) == "ident.token")
-        ~false nil
-        ~true (first-kid | cop-fields | ($.value))
-    )
 )
 
 
@@ -171,11 +166,11 @@
 !pure check-duplicate-struct-fields ~any (
     ($ | walk-cop filter="struct.define" initial={} :(
         !my node = $.node
-        !my fields = (node | cop-kids | loop.where :(($ | cop-tag) == "struct.namefield"))
+        !my fields = (node | cop-kids | loop.where :($.#0 == "struct.namefield"))
         !my names = (fields | loop.map :(($ | cop-kids | loop.first | cop-fields | ($.value))))
         !my dupes = (names | find-duplicates)
         !on dupes == {}
-        ~true cop-pass
+        ~true nil
         ~false (
             !my first-dupe = (dupes | loop.first)
             !my dupe-field = (fields | loop.where :(($ | cop-kids | loop.first | cop-fields | ($.value)) == first-dupe) | loop.last)
@@ -200,7 +195,7 @@
         !my named-keys = (keys | loop.where :($ != nil))
         !my dupes = (named-keys | find-duplicates)
         !on dupes == {}
-        ~true cop-pass
+        ~true nil
         ~false (
             !my first-dupe = (dupes | loop.first)
             (node | cop-callout
@@ -225,11 +220,11 @@
         !my keys = (branches | loop.map :($ | cop-pattern-key))
         !my has-any = (keys | loop.some :($ == "any"))
         !on has-any
-        ~false cop-pass
+        ~false nil
         ~true (
             !my last-key = (keys | loop.last)
             !on last-key == "any"
-            ~true cop-pass
+            ~true nil
             ~false (node | cop-callout
                 severity=callout.warning
                 code="unreachable-branch"
@@ -256,7 +251,7 @@
             !my node = $.node
             !my name = (node | cop-fields | ($.qualified))
             !on (namespace | is-pure name)
-            ~true cop-pass
+            ~true nil
             ~false (node | cop-callout
                 severity=callout.error
                 code="pure-calls-impure"
@@ -289,16 +284,16 @@
         !my node = $.node
         !my op = (node | cop-fields | ($.op))
         !on (op == "/")
-        ~false cop-pass
+        ~false nil
         ~true (
             !my rhs = (node | cop-kids | loop.last)
             !my rhs-tag = (rhs | cop-tag)
             !on (rhs-tag == "value.number" !or rhs-tag == "value.constant")
-            ~false cop-pass
+            ~false nil
             ~true (
                 !my rhs-val = (rhs | cop-fields | ($.value))
                 !on rhs-val == "0"
-                ~false cop-pass
+                ~false nil
                 ~true (node | cop-callout
                     severity=callout.warning
                     code="zero-division"
@@ -317,18 +312,18 @@
         !my base = (node | cop-kids | loop.first)
         !my base-tag = (base | cop-tag)
         !on base-tag == "value.constant"
-        ~false cop-pass
+        ~false nil
         ~true (
             !my field-kid = (node | cop-kids | loop.last)
             !my field-tag = (field-kid | cop-tag)
             !on field-tag == "ident.token"
-            ~false cop-pass
+            ~false nil
             ~true (
                 !my field-name = (field-kid | cop-fields | ($.value))
                 !my struct-val = (base | cop-fields | ($.value))
                 !my has-field = (struct-val | contains-field field-name)
                 !on has-field
-                ~true cop-pass
+                ~true nil
                 ~false (node | cop-callout
                     severity = callout.error
                     code = "undefined-field"
@@ -362,35 +357,32 @@
 ///   ($ | test) == true   →  use `($ | test)` directly
 ///   result == false      →  use `!not result`
 !pure check-comparison-with-bool ~any (
-    ($ | walk-cop filter="value.compare" initial={} :(
-        !my node = $.node
-        !my op = (node | cop-fields | ($.op))
+    $ | walk-cop filter="value.compare" initial={} :(
+        !my op = $.node.op
         !on (op == "==" !or op == "!=")
-        ~false cop-pass
+        ~false nil
         ~true (
-            !my left = (node | cop-kids | loop.first)
-            !my right = (node | cop-kids | loop.last)
-            !my left-name = (left | ident-name)
-            !my right-name = (right | ident-name)
-            !my is-bool = (($ == "true") !or ($ == "false"))
-            !my bool-name = (
-                !on (left-name | is-bool)
-                ~true left-name
-                ~false (    
-                    !on (right-name | is-bool)
-                    ~true right-name
-                    ~false nil
-                )
-            )
-            !on bool-name == nil
-            ~true cop-pass
-            ~false (node | cop-callout
-                severity=callout.hint
-                code="comparison-with-bool"
-                message=(@fmt"Comparison with `%(bool-name)` — compare the value directly or use !not")
-            )
+            !my kids1 = ($.node.kids)
+            !my kids2 = ($.node.kids | loop.where :(true))
+            (kids2 | output)
+
+            //!my bools = ($.node.kids | where :($.#0 == value.constant))
+            nil
+            // !my kids = (node | cop-kids)
+    //         !my bool-kids = (kids | loop.where :(
+    //             ($ | cop-tag) == "value.namespace"
+    //             !and (($ | cop-fields | ($.qualified)) == "true"
+    //                   !or ($ | cop-fields | ($.qualified)) == "false")
+    //         ))
+    //         !on bool-kids == {}
+    //         ~true nil
+    //         ~false (node | cop-callout
+    //             severity=callout.hint
+    //             code="comparison-with-bool"
+    //             message=("Comparison with bool literal — compare the value directly or use !not")
+    //         )
         )
-    ))
+    )
 )
 
 
@@ -400,15 +392,15 @@
 ///   !not (a == b)  →  use a != b
 ///   !not (a != b)  →  use a == b
 !pure check-negated-comparison ~any (
-    ($ | walk-cop filter="value.logic.unary" initial={} :(
+    $ | walk-cop filter="value.logic.unary" initial={} :(
         !my node = $.node
         !my op = (node | cop-fields | ($.op))
         !on op == "!not"
-        ~false cop-pass
+        ~false nil
         ~true (
             !my inner = (node | cop-kids | loop.first)
             !on ((inner | cop-tag) == "value.compare")
-            ~false cop-pass
+            ~false nil
             ~true (
                 !my inner-op = (inner | cop-fields | ($.op))
                 !my suggest = (
@@ -421,7 +413,7 @@
                     )
                 )
                 !on suggest == nil
-                ~true cop-pass
+                ~true nil
                 ~false (node | cop-callout
                     severity=callout.hint
                     code="negated-comparison"
@@ -429,7 +421,7 @@
                 )
             )
         )
-    ))
+    )
 )
 
 
@@ -440,8 +432,8 @@
 !pure validate ~any (
     !param min-severity ~callout = callout.warning
     !param context ~any = {}
-    !param namespace ~any = nil
-    !param original ~any = nil
+    !param namespace ~any|nil = nil
+    !param original ~any|nil = nil
     !my cop = $
     !my sev = (min-severity | severity-rank)
     !my raw = (!on original == nil ~true cop ~false original)
@@ -469,10 +461,10 @@
     )
 
     !my hints = (
-        !on (callout.hint | severity-rank) <= sev
+        !on true //(callout.hint | severity-rank) <= sev
         ~false {}
         ~true {
-            // (raw | check-comparison-with-bool)
+            (cop | check-comparison-with-bool)
             // (raw | check-negated-comparison)
         }
     )

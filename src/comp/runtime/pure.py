@@ -369,6 +369,102 @@ def _join_path_fields(path, stem, extension):
     return path + "/" + filename
 
 
+def cop_tag(node):
+    """Get the tag name from a COP node dict.
+
+    COP nodes arrive as plain Python dicts where the first unnamed field
+    (integer key 0) holds the "cop-type."-prefixed qualified tag string.
+
+    Args:
+        node: (dict) COP node produced by py.pure-call conversion.
+
+    Returns:
+        (str) Tag name with "cop-type." prefix stripped, or "" if absent.
+    """
+    if not isinstance(node, dict):
+        return ""
+    tag = node.get(0, "")
+    if isinstance(tag, str) and tag.startswith("cop-type."):
+        return tag[9:]
+    return tag if isinstance(tag, str) else ""
+
+
+def cop_kids(node):
+    """Get the children of a COP node dict.
+
+    Args:
+        node: (dict) COP node produced by py.pure-call conversion.
+
+    Returns:
+        (list) List of child COP nodes as plain Python dicts.
+    """
+    if not isinstance(node, dict):
+        return []
+    kids = node.get("kids", [])
+    return kids if isinstance(kids, list) else []
+
+
+def cop_fields(node):
+    """Get named fields of a COP node dict, excluding the tag and kids.
+
+    Args:
+        node: (dict) COP node produced by py.pure-call conversion.
+
+    Returns:
+        (dict) Named fields with string keys.
+    """
+    if not isinstance(node, dict):
+        return {}
+    return {k: v for k, v in node.items() if k != 0 and k != "kids"}
+
+
+def cop_pattern_key(branch_node):
+    """Extract a position-independent string key from an op.on.branch pattern.
+
+    Drills into the pattern shape to extract the identifier path as a
+    dot-joined string (e.g. "true", "false", "any", "ord.less").
+    Returns None (nil) for complex patterns like struct shapes or unions.
+
+    Args:
+        branch_node: (dict) op.on.branch COP node as a plain Python dict.
+
+    Returns:
+        (str or None) Pattern key string, or None for complex patterns.
+    """
+    if not isinstance(branch_node, dict):
+        return None
+    branch_kids = branch_node.get("kids", [])
+    if not branch_kids:
+        return None
+    shape_node = branch_kids[0]  # shape.define
+    if not isinstance(shape_node, dict):
+        return None
+    shape_kids = shape_node.get("kids", [])
+    if not shape_kids:
+        return None
+    first_kid = shape_kids[0]
+    if not isinstance(first_kid, dict):
+        return None
+    tag = first_kid.get(0, "")
+    if isinstance(tag, str) and tag.startswith("cop-type."):
+        tag = tag[9:]
+    if tag == "value.identifier":
+        parts = []
+        for kid in first_kid.get("kids", []):
+            if not isinstance(kid, dict):
+                continue
+            kid_tag = kid.get(0, "")
+            if isinstance(kid_tag, str) and kid_tag.startswith("cop-type."):
+                kid_tag = kid_tag[9:]
+            if kid_tag in ("ident.token", "ident.text"):
+                val = kid.get("value")
+                if isinstance(val, str):
+                    parts.append(val)
+        if parts:
+            return ".".join(parts)
+    return None
+
+
 def _build_authority(fields):
     """Build the authority portion (user:pass@host:port) from fields."""
     host = fields.get("host")

@@ -147,10 +147,17 @@ class Interp:
         self._phase = 0  # 0=modules added, 1=namespaces built, 2=instructions built
         # Guard to avoid recursive callout validation while building callout stdlib.
         self._disable_build_validations = 0
+        self._callout_mod = None
         # Populated by build_namespaces/build_instructions when timing is needed.
         self.timings = {}
         # Set to True to print a line to stderr for every module load/cache-hit.
         self.trace_imports = False
+
+        # Callout validation disabled — the callout stdlib (written in comp)
+        # can't bootstrap reliably yet after the syntax rework. Re-enable
+        # _init_callout() once the language is stable enough to self-host
+        # validation code.
+        # self._init_callout()
 
     def __del__(self):
         for fd in getattr(self, 'search_fds', []):
@@ -577,12 +584,12 @@ class Interp:
         errors = list(self.build_namespaces())
         _tb1 = _time.perf_counter()
         self.timings["build.build_namespaces"] = self.timings.get("build.build_namespaces", 0.0) + (_tb1 - _tb0)
+
         all_modules = self._all_modules()
 
         # Resolve + fold + validate each definition via Definition.callouts()
         # Definitions with error callouts are marked to skip codegen.
-        # Skip validation when building internal dependencies (e.g. callout stdlib)
-        # to avoid recursion.
+        # Skip validation when building the callout stdlib itself.
         failed_defs = set()
         skip_validation = self._disable_build_validations > 0
         _t0 = _time.perf_counter()
@@ -602,21 +609,22 @@ class Interp:
                     )
                 defn.resolved_cop = comp.coptimize(defn.resolved_cop, True, mod_ns)
 
-                if not skip_validation:
-                    defn_callouts = comp._callout.cop_callouts(defn, interp=self, namespace=mod_ns)
-                    for c in defn_callouts:
-                        if c.severity == comp.ERROR:
-                            failed_defs.add(id(defn))
-                            err = comp.CodeError(c.message)
-                            if c.primary and c.primary.span:
-                                s = c.primary.span
-                                err.row = s.line
-                                err.col = s.col
-                                err.end_col = s.col + s.length
-                            err.module = mod
-                            err.callout_code = c.code
-                            errors.append((mod, err))
-                            break
+                # Comp-side callout validation disabled for now — see __init__.
+                # if not skip_validation:
+                #     defn_callouts = comp._callout.cop_callouts(defn, interp=self, namespace=mod_ns)
+                #     for c in defn_callouts:
+                #         if c.severity == comp.ERROR:
+                #             failed_defs.add(id(defn))
+                #             err = comp.CodeError(c.message)
+                #             if c.primary and c.primary.span:
+                #                 s = c.primary.span
+                #                 err.row = s.line
+                #                 err.col = s.col
+                #                 err.end_col = s.col + s.length
+                #             err.module = mod
+                #             err.callout_code = c.code
+                #             errors.append((mod, err))
+                #             break
         _t1 = _time.perf_counter()
         _callout_bootstrap_after = self.timings.get("callout.bootstrap", 0.0)
         self.timings["build.resolve_fold_validate"] = (
@@ -645,8 +653,8 @@ class Interp:
                         result = self._execute(defn.instructions, mod_env, module=mod)
                         defn.value = result
                         mod_env[name] = result
-                    except Exception:
-                        pass
+                    except (comp.CodeError, CompFail):
+                        pass  # definition not yet foldable; codegen pass handles it
         _t2 = _time.perf_counter()
 
         # Codegen — generate instructions for all non-failed definitions
@@ -904,6 +912,37 @@ class Interp:
             walk(mod)
         return result
 
+    def _init_callout(self):
+        """Load and fully build the callout stdlib at interpreter construction time.
+
+        Runs before any user modules exist so callout is never half-initialised
+        while user code is being imported.  Any error in callout.comp raises
+        immediately — a broken stdlib is not something the interpreter can
+        recover from gracefully.
+
+        Sets self._callout_mod on success; resets self._phase to 0 so the
+        subsequent user-module build cycle starts clean.
+        """
+        try:
+            callout_mod = self.module("callout")
+        except comp.ModuleNotFoundError:
+            return  # no callout stdlib; validation degrades gracefully
+
+        self._disable_build_validations += 1
+        try:
+            errors = self.build_instructions()
+        finally:
+            self._disable_build_validations -= 1
+            # Reset phase so the user-module build cycle runs from scratch.
+            self._phase = 0
+
+        # Any error at this point is a stdlib defect — explode loudly.
+        # (Only stdlib modules exist during __init__, so every error is ours.)
+        if errors:
+            raise errors[0][1]
+
+        self._callout_mod = callout_mod
+
     def _new_module(self, module):
         """Internally scan and register module."""
         # module_cache entries (by resource string and abs path) are already
@@ -919,8 +958,8 @@ class Interp:
                 and self.module_cache.get("callout") is None):
             try:
                 self.module("callout")
-            except Exception:
-                pass  # callout unavailable; validation degrades gracefully
+            except comp.ModuleNotFoundError:
+                pass  # callout stdlib not present; validation degrades gracefully
 
         # Eagerly pull in the default module so its aliases are available to
         # every module that doesn't declare !no-default.
@@ -933,8 +972,8 @@ class Interp:
             self._bootstrapping_default = True
             try:
                 self.module("default")
-            except Exception:
-                pass  # default unavailable; degrades gracefully
+            except comp.ModuleNotFoundError:
+                pass  # default stdlib not present; degrades gracefully
             finally:
                 self._bootstrapping_default = False
 

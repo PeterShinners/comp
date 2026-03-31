@@ -106,7 +106,7 @@ def _resolve_pure_callable(qualified, namespace, input_value):
                 if best_score is None or result.score > best_score:
                     best_score = result.score
                     best = callable_obj
-        except Exception:
+        except (TypeError, AttributeError, ValueError):
             pass
     return best
 
@@ -278,7 +278,12 @@ def _try_eval_binding(cop, kids, namespace, interp):
     try:
         result = _execute_pure_block(block, nil_val, args_const, interp)
         return _make_constant(cop, result)
-    except Exception:
+    except comp.CodeError:
+        return None
+    except Exception as _e:
+        from comp._interp import CompFail
+        if not isinstance(_e, CompFail):
+            raise
         return None
 
 
@@ -345,7 +350,12 @@ def _eval_pure_pipeline(cop, namespace, interp):
         try:
             current_value = _execute_pure_block(block, current_value, args_value, interp)
             evaluated_up_to = i
-        except Exception:
+        except comp.CodeError:
+            break
+        except Exception as _e:
+            from comp._interp import CompFail
+            if not isinstance(_e, CompFail):
+                raise
             break
 
     # Build the resulting COP
@@ -541,5 +551,10 @@ def _eval_const_cop(cop, interp):
             return None
         frame = comp.ExecutionFrame(env={}, interp=interp)
         return frame.run(instructions)
-    except Exception:
+    except comp.CodeError:
+        return None
+    except Exception as _e:
+        from comp._interp import CompFail
+        if not isinstance(_e, CompFail):
+            raise
         return None

@@ -45,7 +45,7 @@ def _cop_line_range(cop):
         pos_val = cop.field("pos")
         nums = [int(v.data) for v in pos_val.data.values()]
         return (nums[0], nums[2])  # start_line, end_line
-    except Exception:
+    except (AttributeError, TypeError, KeyError, IndexError, ValueError):
         return None
 
 

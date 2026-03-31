@@ -242,7 +242,7 @@ def _python_to_comp(obj):
             for v in obj:
                 d[comp.Unnamed()] = _python_to_comp(v)
             return comp.Value(d)
-        except Exception:
+        except (TypeError, ValueError):
             pass
     # Fallback: convert to string representation
     return comp.Value(str(obj))

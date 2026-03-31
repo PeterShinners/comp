@@ -474,7 +474,7 @@ def _format_failure_cli(fail_val, source_file=None, source_lines=None, depth=0):
                     span = max(1, end_col - col) if end_col > col else 1
                     caret = " " * (col - 1) + "^" * span
                     parts.append(f"{indent}   | {caret}")
-            except Exception:
+            except (AttributeError, TypeError, KeyError, IndexError, ValueError):
                 pass
 
     # Cause chain
@@ -834,7 +834,8 @@ def main():
         return
 
     if args.callouts:
-        callouts = interp.callouts(module=mod, min_severity=comp.WARNING)
+        interp.build_instructions()
+        callouts = interp.callouts(module=mod, min_severity=comp.INFO)
         if not callouts:
             print("No callouts.")
             return 0

@@ -6,7 +6,7 @@
 ///   forever (builtin) → generate / iterate → range, map, where, reduce
 
 !import s comp "struct"
-
+!import b comp "branch"
 
 
 
@@ -50,9 +50,10 @@
     $ | iterate :(
         !my value = ($.item | field-value)
         // Test the value; keep it or skip
-        !on (value | test)
+        !on (value | try test)
         ~true value
         ~false skip
+        ~any|nil !fail "Where condition must return bool"
     )
 )
 

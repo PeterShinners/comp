@@ -249,10 +249,10 @@ class SystemModule(comp.Module):
         # invoke-data shape — build here to avoid circular-import issues
         _invoke_data = comp.Shape("invoke-data", private=False)
         _invoke_data.fields = [
-            comp.ShapeField(name="statement", shape=comp.shape_any,    default=None),
-            comp.ShapeField(name="input",     shape=comp.shape_any,    default=None),
-            comp.ShapeField(name="locals",    shape=comp.shape_struct, default=None),
-            comp.ShapeField(name="context",   shape=comp.shape_struct, default=None),
+            comp.ShapeField(name="statement", shape=comp.shape_any, default=None),
+            comp.ShapeField(name="input", shape=comp.shape_any, default=None),
+            comp.ShapeField(name="locals", shape=comp.shape_struct, default=None),
+            comp.ShapeField(name="context", shape=comp.shape_struct, default=None),
         ]
         self._add_shape("invoke-data", _invoke_data)
         self._add_shape("failure", comp.shape_failure)
@@ -275,23 +275,17 @@ class SystemModule(comp.Module):
         self._add_callable("fmt", _builtin_fmt, pure=True)
         self._add_callable("invoke", _builtin_invoke, pure=True)
         self._add_callable("namespace-lookup",_builtin_namespace_lookup, pure=True)
-        self._add_callable("dispatch",        _builtin_dispatch)
-        self._add_callable("promote-root",    _builtin_promote_root)
-        self._add_callable("strip-unit",      _builtin_strip_unit,       pure=True)
-        self._add_callable("to-text",         _builtin_to_text,          pure=True)
-        self._add_callable("substitute",      _builtin_substitute,       pure=True)
+        self._add_callable("dispatch", _builtin_dispatch)
+        self._add_callable("promote-root", _builtin_promote_root)
+        self._add_callable("strip-unit", _builtin_strip_unit, pure=True)
+        self._add_callable("to-text", _builtin_to_text, pure=True)
+        self._add_callable("substitute", _builtin_substitute, pure=True)
         self._add_callable("update", _builtin_update)
         self._add_callable("flat", _builtin_flat)
         self._add_callable("reduce", _builtin_reduce)
         self._add_callable("forever", _builtin_forever, pure=True)
-        self._add_callable("cop-tag", _builtin_cop_tag, pure=True)
-        self._add_callable("cop-kids", _builtin_cop_kids, pure=True)
-        self._add_callable("cop-fields", _builtin_cop_fields, pure=True)
         self._add_callable("walk-cop", _builtin_walk_cop, pure=True)
         self._add_callable("is-pure", _builtin_is_pure, pure=True)
-        self._add_callable("contains-field", _builtin_contains_field, pure=True)
-        self._add_callable("find-duplicates", _builtin_find_duplicates, pure=True)
-        self._add_callable("cop-pattern-key", _builtin_cop_pattern_key, pure=True)
         self._add_callable("apply", _builtin_apply, pure=True)
         self._add_callable("collect", _builtin_collect, pure=True, input_shape=comp.shape_struct)
 
@@ -1327,35 +1321,6 @@ def register_internal_module(resource):
     return fn
 
 
-def _builtin_cop_tag(input_val, args_val, frame):
-    """Get the tag name of a COP node as text.
-
-    Usage: cop-node | cop-tag   => "value.constant"
-    """
-    tag_name = comp.cop_tag(input_val)
-    if tag_name is None:
-        return comp.Value.from_python("")
-    return comp.Value.from_python(tag_name)
-
-
-def _builtin_cop_kids(input_val, args_val, frame):
-    """Get the children of a COP node as a struct.
-
-    Usage: cop-node | cop-kids   => {child1 child2 ...}
-    """
-    kids = comp.cop_kids(input_val)
-    return comp.Value.from_python(kids)
-
-
-def _builtin_cop_fields(input_val, args_val, frame):
-    """Get named fields of a COP node (excluding the tag and kids).
-
-    Usage: cop-node | cop-fields   => {name="foo" qualified="mod.foo" ...}
-    """
-    fields = comp.cop_fields(input_val)
-    return comp.Value.from_python(fields)
-
-
 def _builtin_is_pure(input_val, args_val, frame):
     """Check whether a named callable is pure in a given namespace.
 
@@ -1464,14 +1429,17 @@ def _builtin_walk_cop(input_val, args_val, frame):
             })
             result = frame.invoke_block(op_val, _empty_args, piped=context)
 
+            # nil return: no findings, keep accum unchanged
+            if isinstance(result.data, comp.Tag) and result.data is comp.tag_nil:
+                pass
+
             # Handle flow-control skip (skip children)
-            if isinstance(result.data, comp.Tag):
+            elif isinstance(result.data, comp.Tag):
                 if result.data is comp.tag_flow_skip:
                     skip_children = True
-                    result = comp.Value.from_python({})
 
             # Extract callouts and accum from result struct
-            if isinstance(result.data, dict):
+            elif isinstance(result.data, dict):
                 callouts_key = comp.Value.from_python("callouts")
                 accum_key = comp.Value.from_python("accum")
                 recurse_key = comp.Value.from_python("recurse")
@@ -1491,7 +1459,7 @@ def _builtin_walk_cop(input_val, args_val, frame):
 
                 accum = new_accum
             else:
-                # Non-struct, non-skip return: treat as single callout
+                # Non-struct, non-nil, non-skip return: treat as single callout
                 collected.append(result)
 
         # Recurse children
@@ -1509,78 +1477,6 @@ def _builtin_walk_cop(input_val, args_val, frame):
     for item in collected:
         result_data[comp.Unnamed()] = item
     return comp.Value.from_python(result_data)
-
-
-def _builtin_contains_field(input_val, args_val, frame):
-    """Check if a struct contains a named field.
-
-    Usage: struct-val | contains-field "field-name"  =>  true/false
-    """
-    if not isinstance(input_val.data, dict):
-        return comp.Value.from_python(comp.tag_false)
-    field_name = args_val.positional(0)
-    name = field_name.data if isinstance(field_name.data, str) else str(field_name.data)
-    key = comp.Value.from_python(name)
-    if key in input_val.data:
-        return comp.Value.from_python(comp.tag_true)
-    return comp.Value.from_python(comp.tag_false)
-
-
-def _builtin_find_duplicates(input_val, args_val, frame):
-    """Find duplicate values in a struct, returning a struct of duplicated values.
-
-    Usage: {1 2 3 2 1} | find-duplicates  =>  {1 2}
-
-    Compares values by their formatted string representation.
-    Returns an empty struct if no duplicates found.
-    """
-    if not isinstance(input_val.data, dict):
-        return comp.Value.from_python({})
-    seen = {}
-    dupes = {}
-    for val in input_val.data.values():
-        key = val.format()
-        if key in seen:
-            if key not in dupes:
-                dupes[key] = val
-        else:
-            seen[key] = val
-    result = {}
-    for val in dupes.values():
-        result[comp.Unnamed()] = val
-    return comp.Value.from_python(result)
-
-
-def _builtin_cop_pattern_key(input_val, args_val, frame):
-    """Extract a position-independent string key from an op.on.branch pattern.
-
-    Drills into the pattern shape to extract the identifier path as a
-    dot-joined string (e.g. "true", "false", "any", "ord.less").
-    Returns nil for complex patterns like struct shapes or unions.
-
-    Usage: on-branch-node | cop-pattern-key  =>  "true" / "any" / "ord.less" / nil
-    """
-    branch_kids = comp._cop.cop_kids(input_val)
-    if not branch_kids:
-        return comp.Value.from_python(comp.tag_nil)
-    shape_node = branch_kids[0]  # shape.define
-    shape_kids = comp._cop.cop_kids(shape_node)
-    if not shape_kids:
-        return comp.Value.from_python(comp.tag_nil)
-    first_kid = shape_kids[0]
-    tag = comp._cop.cop_tag(first_kid)
-    if tag == "value.identifier":
-        parts = []
-        for kid in comp._cop.cop_kids(first_kid):
-            kid_tag = comp._cop.cop_tag(kid)
-            if kid_tag in ("ident.token", "ident.text"):
-                fields = comp._cop.cop_fields(kid)
-                val_node = fields.get("value")
-                if val_node and isinstance(val_node.data, str):
-                    parts.append(val_node.data)
-        if parts:
-            return comp.Value.from_python(".".join(parts))
-    return comp.Value.from_python(comp.tag_nil)
 
 
 def _builtin_apply(input_val, args_val, frame):

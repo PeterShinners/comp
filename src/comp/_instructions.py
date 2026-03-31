@@ -2137,8 +2137,12 @@ def _ensure_definition_value(defn, frame):
                     if result is not None:
                         defn.value = result
                         return defn.value
-                except Exception:
+                except comp.CodeError:
                     pass
+                except Exception as _e:
+                    from comp._interp import CompFail
+                    if not isinstance(_e, CompFail):
+                        raise
         elif cop_tag == "shape.union":
             # Build instructions for the union and execute them to get the value
             try:
@@ -2148,8 +2152,12 @@ def _ensure_definition_value(defn, frame):
                 if result is not None and isinstance(result.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
                     defn.value = result
                     return defn.value
-            except Exception:
+            except comp.CodeError:
                 pass
+            except Exception as _e:
+                from comp._interp import CompFail
+                if not isinstance(_e, CompFail):
+                    raise
     return None
 
 
