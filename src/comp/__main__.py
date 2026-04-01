@@ -537,18 +537,256 @@ def _context_value_to_dict(context_val):
     return result
 
 
+def _discover_test_files(path):
+    """Return sorted .comp files from a file or directory path."""
+    norm = os.path.abspath(path)
+    if os.path.isfile(norm):
+        if not norm.endswith(".comp"):
+            raise ValueError(f"Not a .comp file: {path}")
+        return [norm]
+
+    if not os.path.isdir(norm):
+        raise ValueError(f"Path not found: {path}")
+
+    files = []
+    for root, _dirs, names in os.walk(norm):
+        for name in names:
+            if name.endswith(".comp"):
+                files.append(os.path.join(root, name))
+    files.sort()
+    return files
+
+
+def _execute_named_startup_context(interp, context_name):
+    """Execute startup providers for a named context plus dependencies."""
+    # Collect all startup definitions across loaded modules.
+    all_startups = {}
+    for mod in interp._unique_modules():
+        for ctx_name, defn in mod.startups().items():
+            all_startups.setdefault(ctx_name, []).append(defn)
+
+    # Build dependency graph from startup definitions.
+    dep_graph = {}
+    for ctx_name, defns in all_startups.items():
+        deps = dep_graph.setdefault(ctx_name, set())
+        for defn in defns:
+            deps.update(defn.startup_deps or [])
+
+    needed = {"default", context_name}
+    visited = set()
+    order = []
+
+    def visit(name, path):
+        if name in path:
+            cycle = " -> ".join(list(path) + [name])
+            raise comp.CodeError(f"Circular startup dependency: {cycle}")
+        if name in visited:
+            return
+        visited.add(name)
+        new_path = path | {name}
+        for dep in dep_graph.get(name, set()):
+            visit(dep, new_path)
+        order.append(name)
+
+    for dep in sorted(needed):
+        visit(dep, set())
+
+    if "default" in order:
+        order.remove("default")
+    order.insert(0, "default")
+
+    merged_context = {}
+    for layer_name in order:
+        providers = interp.collect_startup_providers(layer_name)
+        if not providers:
+            continue
+
+        layer_results = {}
+        for provider_mod, provider_defn in providers:
+            if provider_defn.value is None:
+                continue
+            block_val = provider_defn.value
+            if not isinstance(block_val.data, comp.Callable):
+                continue
+
+            dep_input = {}
+            for dep_name in provider_defn.startup_deps:
+                if dep_name in merged_context:
+                    dep_input[dep_name] = merged_context[dep_name]
+            dollar_val = comp.Value.from_python(dep_input)
+
+            env = {n: d.value for n, d in provider_mod.definitions().items()
+                   if d.value is not None}
+            frame = comp.ExecutionFrame(env, interp=interp, module=provider_mod)
+            result = frame.invoke_block(block_val, dollar_val, piped=None)
+
+            if result is not None and result.shape == comp.shape_struct:
+                for key, val in result.data.items():
+                    if isinstance(key, comp.Unnamed):
+                        continue
+                    field_name = key.data if hasattr(key, "data") else str(key)
+                    qualified_key = f"{layer_name}.{field_name}"
+                    if qualified_key in layer_results:
+                        raise comp.CodeError(
+                            f"Duplicate startup context key: {qualified_key}"
+                        )
+                    layer_results[qualified_key] = val
+
+        merged_context.update(layer_results)
+        layer_struct = {}
+        for qkey, val in layer_results.items():
+            field = qkey.split(".", 1)[1] if "." in qkey else qkey
+            layer_struct[field] = val
+        merged_context[layer_name] = comp.Value.from_python(layer_struct)
+
+    return comp.Value.from_python(merged_context)
+
+
+def _discover_module_tests(module):
+    """Return ordered test definitions from a module."""
+    tests = []
+    for name, definition in sorted(module.definitions().items()):
+        if definition.startup or definition.main:
+            continue
+        if definition.shape is not comp.shape_block:
+            continue
+        parts = name.split(".")
+        if any(part.startswith("test") or part.startswith("fail-") for part in parts):
+            tests.append((name, definition))
+    return tests
+
+
+def _run_module_tests(interp, mod):
+    """Run discovered tests for a single module and return summary counts."""
+    tests = _discover_module_tests(mod)
+    if not tests:
+        print(f"No tests discovered in {mod.source.resource}")
+        return 0, 0
+
+    context_val = _execute_named_startup_context(interp, "test")
+    ctx_dict = _context_value_to_dict(context_val)
+    env = {n: d.value for n, d in mod.definitions().items() if d.value is not None}
+
+    passed = 0
+    failed = 0
+
+    print(f"== {mod.source.resource} ==")
+    for name, definition in tests:
+        parts = name.split(".")
+        expect_fail = any(part.startswith("fail-") for part in parts)
+        try:
+            test_line = definition.original_cop.field("pos").to_python(0)
+        except (AttributeError, KeyError, IndexError, TypeError, ValueError):
+            test_line = 1
+        test_file = os.path.basename(mod.source.resource)
+
+        def summarize_failure(fail_val):
+            if isinstance(getattr(fail_val, "data", None), dict):
+                msg_key = comp.Value.from_python("message")
+                msg_val = fail_val.data.get(msg_key)
+                if isinstance(msg_val, comp.Value) and isinstance(msg_val.data, str) and msg_val.data:
+                    return msg_val.data
+            return fail_val.format()
+
+        frame = comp.ExecutionFrame(
+            env,
+            interp=interp,
+            module=mod,
+            context=ctx_dict,
+            definition_name=name,
+        )
+        try:
+            frame.invoke_block(definition.value, context_val, piped=None)
+            if expect_fail:
+                failed += 1
+                print(f"FAIL {name}, {test_file}:{test_line}, expected failure but passed")
+            else:
+                passed += 1
+                print(f"PASS {name}")
+        except comp.CompFail as e:
+            failure_msg = summarize_failure(e.value)
+            if expect_fail:
+                passed += 1
+                print(f"XFAIL {name}, {test_file}:{test_line}, {failure_msg}")
+            else:
+                failed += 1
+                print(f"FAIL {name}, {test_file}:{test_line}, {failure_msg}")
+        except comp.CodeError as e:
+            failed += 1
+            code_msg = e.message if hasattr(e, "message") else str(e)
+            code_msg = code_msg.splitlines()[0]
+            print(f"FAIL {name}, {test_file}:{test_line}, {code_msg}")
+        except Exception as e:
+            if expect_fail:
+                passed += 1
+                print(f"XFAIL {name}, {test_file}:{test_line}, {type(e).__name__}: {e}")
+            else:
+                failed += 1
+                print(f"FAIL {name}, {test_file}:{test_line}, {type(e).__name__}: {e}")
+
+    return passed, failed
+
+
+def _run_test_harness(path, trace_imports=False):
+    """Run tests from a .comp file or directory tree."""
+    files = _discover_test_files(path)
+    if not files:
+        print(f"No .comp files found in {path}", file=sys.stderr)
+        return 1
+
+    total_passed = 0
+    total_failed = 0
+    modules_with_tests = 0
+
+    for file_path in files:
+        interp = comp.Interp()
+        if trace_imports:
+            interp.trace_imports = True
+
+        try:
+            mod = interp.module(file_path, anchor=os.getcwd())
+            errors = interp.build_instructions()
+            if errors:
+                err_mod, err_exc = errors[0]
+                err_exc.module = err_mod
+                raise err_exc
+            passed, failed = _run_module_tests(interp, mod)
+            if passed + failed > 0:
+                modules_with_tests += 1
+            total_passed += passed
+            total_failed += failed
+        except (comp.ParseError, comp.CodeError) as e:
+            total_failed += 1
+            print(f"== {file_path} ==")
+            if isinstance(e, comp.CodeError):
+                print(_format_code_error(e, "Build failure"), file=sys.stderr)
+            else:
+                msg = e.message if hasattr(e, "message") else str(e)
+                print(msg, file=sys.stderr)
+
+    if modules_with_tests == 0 and total_failed == 0:
+        print("No test functions found.")
+        return 1
+
+    print()
+    print(f"Test summary: {total_passed} passed, {total_failed} failed")
+    return 1 if total_failed else 0
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="comp",
         description="Comp language command-line interface")
-    parser.add_argument("source", help="Comp source to parse")
+    parser.add_argument("source", nargs="?", help="Comp source to parse")
+    parser.add_argument("--test", metavar="PATH",
+                        help="Run test functions from a .comp file or directory")
     parser.add_argument("--text", metavar="ENTRY",
                         help="Parse source as direct text using grammar entry point (shape, func, statement, expression, module)")
     parser.add_argument("--pos", action="store_true", help="Show line:column positions for nodes")
     parser.add_argument("--pure", action="store_true", help="Evaluate pure function invokes at compile time")
     parser.add_argument("--raw", action="store_true", help="Show unresolved/unfolded cop (skip resolve and fold passes)")
 
-    modes = parser.add_mutually_exclusive_group(required=True)
+    modes = parser.add_mutually_exclusive_group(required=False)
     modes.add_argument("--scan", action="store_true", help="Show scan Lark parse tree")
     modes.add_argument("--lark", action="store_true", help="Show Lark parse tree for each parseable statement")
     modes.add_argument("--cop", action="store_true", help="Report parsed cop structure")
@@ -584,6 +822,34 @@ def main():
         pass
 
     args = parser.parse_args(argv)
+
+    mode_selected = any([
+        args.scan,
+        args.lark,
+        args.cop,
+        args.unparse,
+        args.code,
+        args.eval,
+        args.trace,
+        args.module,
+        args.imports,
+        args.namespace,
+        args.definitions,
+        args.describe is not None,
+        args.callouts,
+        args.list_mains,
+        args.context,
+    ])
+
+    if args.test:
+        if mode_selected or args.text:
+            parser.error("--test cannot be combined with parse/eval display modes")
+        return _run_test_harness(args.test, trace_imports=args.trace_imports)
+
+    if not mode_selected:
+        parser.error("one of the mode options is required unless --test is used")
+    if args.source is None:
+        parser.error("source is required unless --test is used")
 
     # Map user-friendly entry point names to grammar start rules
     entry_point_map = {

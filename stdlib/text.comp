@@ -153,27 +153,6 @@
     ({$ times} | py.pure-call "operator.mul")
 )
 
-/// Pad text on left
-!pure pad-left ~text @preserve-unit (
-    !param width ~index
-    !param fill ~letter = " "
-    ({$ width fill} | py.pure-call "str.rjust")
-)
-
-/// Pad text on right
-!pure pad-right ~text @preserve-unit (
-    !param width ~index
-    !param fill ~letter = " "
-    ({$ width fill} | py.pure-call "str.ljust")
-)
-
-/// Center text within width
-!pure pad-center ~text @preserve-unit (
-    !param width ~index
-    !param fill ~letter = " "
-    ({$ width fill} | py.pure-call "str.center")
-)
-
 /// Capitalize first character
 !pure capitalize ~text @preserve-unit (
     $ | py.pure-call "str.capitalize"

@@ -1,0 +1,46 @@
+!no-default
+!import limit comp "limit"
+
+!func ge.test-pass ~nil (
+    5 | ge 5 | is true
+)
+!func le.test-pass ~nil (
+    5 | le 5 | is true
+)
+!func gt.test-pass ~nil (
+    6 | gt 5 | is true
+)
+!func lt.test-pass ~nil (
+    4 | lt 5 | is true
+)
+!func eq.test-pass ~nil (
+    9 | eq 9 | is true
+)
+!func ne.test-pass ~nil (
+    9 | ne 8 | is true
+)
+
+!func non-empty.test-pass ~nil (
+    "x" | non-empty | is true
+)
+!func single-char.test-pass ~nil (
+    "z" | single-char | is true
+)
+
+!func size.test-exact-pass ~nil (
+    "abcd" | size 4 | is true
+)
+!func size.test-range-pass ~nil (
+    "abcd" | size {2 5} | is true
+)
+
+!func match.test-pass ~nil (
+    "abc123" | match "[a-z0-9]+" | is true
+)
+
+
+!func is ~any|nil (
+    !param value ~any|nil = false
+    !on ($ == value) ~false !fail "Result %($) is not %(value)"
+    $
+)

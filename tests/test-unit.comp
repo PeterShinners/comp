@@ -1,0 +1,19 @@
+!no-default
+!import text comp "text"
+!import num comp "num"
+!import unit comp "unit"
+
+!func preserve-unit-test-uppercase-keeps-tag ~nil (
+    "ab"#format.url | uppercase | is "AB"#format.url
+)
+
+!func preserve-unit-test-abs-keeps-tag ~nil (
+    -15#inch | abs | is 15#inch
+)
+
+
+!func is ~any|nil (
+    !param value ~any|nil = false
+    !on ($ == value) ~false !fail "Result %($) is not %(value)"
+    $
+)

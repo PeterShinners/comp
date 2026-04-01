@@ -25,7 +25,7 @@
 ///   range 1 5 -> map :($ * $)
 ///   // {1 4 9 16 25}
 !pure map ~struct (
-    !param transform ~any
+    !param transform ~invokable
     $ | iterate :($.item | field-value | transform)
 )
 
@@ -77,16 +77,16 @@
 !pure some ~struct (
     !param test ~any
     !my found = false
-    $ | iterate :(
+    ($ | iterate :(
         !my value = ($.item | field-value)
         !on (value | test)
-        ~true (!my found = true) // todo what is the value of this thing?
+        ~true (!my found = true)
         ~false nil
         // Last expression: stop on match, skip on no match
         !on found
         ~true stop
         ~false skip
-    )
+    ))
     found
 )
 
@@ -111,7 +111,7 @@
 !pure every ~struct (
     !param test ~any
     !my passed = true
-    $ | iterate :(
+    ($ | iterate :(
         !my value = ($.item | field-value)
         !on (value | test)
         ~true nil
@@ -120,7 +120,7 @@
         !on passed
         ~false stop
         ~true skip
-    )
+    ))
     passed
 )
 
@@ -142,11 +142,22 @@
     !param start ~num = 0
     !param end ~num
     !param step ~num = 1
+    !on step == 0
+    ~true !fail "range step cannot be 0"
+    ~false nil
     // State is the current number; generate collects it before advancing
     start | generate :(
-        !on $ > end
-        ~true stop
-        ~false ($ + step)
+        !on step > 0
+        ~true (
+            !on $ > end
+            ~true stop
+            ~false ($ + step)
+        )
+        ~false (
+            !on $ < end
+            ~true stop
+            ~false ($ + step)
+        )
     )
 )
 
@@ -154,32 +165,37 @@
 /// Fold a struct down to a single accumulated value.
 ///
 /// Iterates each field in order, calling the fold block for each item.
-/// The fold block receives the current item as a positional argument
-/// and the running accumulator as piped input ($).
+/// The fold block receives a piped context struct with:
+///   $.acc   — running accumulator
+///   $.item  — current item value
 ///
 /// Args:
 ///   initial: (any) Starting accumulator value
-///   fold:    (block) Called as `acc -> fold item >>` for each element
+///   fold:    (block) Called once per item with the context struct
 ///
 /// Examples:
 ///   // Sum numbers
-///   {1 2 3 4 5} -> reduce initial=0 :($ + $$.#1)
+///   {1 2 3 4 5} -> reduce initial=0 :($.acc + $.item)
 ///
 ///   // Count items
-///   {a b c} -> reduce initial=0 :($ + 1)
+///   {a b c} -> reduce initial=0 :($.acc + 1)
 !pure reduce ~struct (
     !param initial ~any
     !param fold ~any
     !my items = $
     !my idx = 0
-    // Pipe initial accumulator into forever; $ is the running total
-    initial | forever :(
+    !my acc = initial
+    // Use forever for iteration control; accumulator is kept in `acc`.
+    (nil | forever :(
         !on idx >= (items | length)
         ~true stop
-        // Call fold with current item; $ inside fold is the accumulator
-        ~false (items.#(idx) | fold)
+        ~false (
+            !my acc = ({acc=acc item=(items.#(idx))} | fold)
+            skip
+        )
         !my idx = idx + 1
-    )
+    ))
+    acc
 )
 
 
@@ -217,16 +233,16 @@
     !my items = $
     !my acc = {}
     !my len = (items | s.length)
-    // State struct carries position and previous result through forever
-    {position=0 accum=nil} | forever :(
-        // Extract position from state (needed as a local for item-at arg)
+    // Pipeline in its own () so the function body can return acc afterward.
+    ({position=0 accum=nil} | forever :(
+        // Extract position from state (needed as a local for field-at arg)
         !my pos = $.position
         // Bounds check first — handles empty structs and loop termination
         !on pos < len
         ~false stop
         ~true (
             // Get the single-item struct pair at this index
-            !my entry = (items | item-at pos)
+            !my entry = (items | field-at pos)
             // Call the op block with full context
             !my result = ({position=pos item=entry accum=$.accum} | op)
             // Check if op returned a flow-control tag
@@ -238,7 +254,7 @@
             // Advance position or continue
             {position=(pos + 1) accum=result}
         )
-    )
+    ))
     acc
 )
 
@@ -280,10 +296,10 @@
 ///   )
 ///   /// accumulates $ (the counter), not the fib values
 !pure generate ~any (
-    !param gen ~nil
+    !param gen ~invokable
     !my acc = {}
-    // Pipe initial state into forever; $ is the running state
-    $ | forever :(
+    // Pipeline in its own () so the function body can return acc afterward.
+    ($ | forever :(
         // Call gen with current state to get next state
         !my next = ($ | gen)
         !on next
@@ -292,7 +308,7 @@
         // Accumulate current state ($), then advance to next
         ~any (!my acc = ({acc {$}} | merge))
         next
-    )
+    ))
     acc
 )
 
@@ -344,7 +360,8 @@
 ///   {10 20 30} -> first   // 10
 ///   {x=10 y=20} -> first  // 10
 !pure first ~struct (
-    $ | item-at 0 | field-value
+    !param default ~any|nil = nil
+    $ | field-at 0 | field-value |? :(default)
 )
 
 
@@ -354,8 +371,9 @@
 ///   {10 20 30} -> last    // 30
 ///   {x=10 y=20} -> last   // 20
 !pure last ~struct (
+    !param default ~any|nil = nil
     !my idx = ($ | s.length) - 1
-    $ | item-at idx | field-value
+    $ | field-at idx | field-value |? :(default)
 )
 
 
@@ -368,20 +386,11 @@
 ///   {1 2 3} -> reverse       // {3 2 1}
 ///   {a=1 b=2 c=3} -> reverse // {3 2 1}
 !pure reverse ~struct (
-    !my data = $
-    !my len = ($ | s.length)
-    !my last-idx = len - 1
-    range 0 last-idx | map :(
-        !my idx = (len - $ - 1)
-        (data | item-at idx | field-value)
+    $ | reduce {} :(
+        {{$.item} $.acc} | merge
     )
 )
 
-
-
-// apply is now a builtin — spreads a struct as arguments onto a callable.
-// Usage: params | apply myfunc          — call myfunc with params spread as args
-//        params | apply myfunc input    — also pipe input as $ to myfunc
 
 // Future:
 //   group-by  — classify values into named sub-structs (needs dynamic field naming)

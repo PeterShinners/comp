@@ -66,7 +66,7 @@ def item_at(struct, index):
 
     The result is a single-item list (for unnamed fields) or single-item
     dict (for named fields), mirroring the Comp single-item struct format
-    that item-at produces.
+    that field-at produces.
 
     Args:
         struct: (dict or list) The Comp struct as a Python object.
@@ -416,6 +416,152 @@ def cop_fields(node):
     if not isinstance(node, dict):
         return {}
     return {k: v for k, v in node.items() if k != 0 and k != "kids"}
+
+
+# ---------------------------------------------------------------------------
+# Number helpers for tuple-backed Comp numbers
+# ---------------------------------------------------------------------------
+
+import math
+from fractions import Fraction
+
+
+def _as_fraction(value):
+    if isinstance(value, tuple) and len(value) >= 2:
+        n, d = int(value[0]), int(value[1])
+        return Fraction(n, d)
+    if isinstance(value, Fraction):
+        return value
+    if isinstance(value, int):
+        return Fraction(value, 1)
+    if isinstance(value, float):
+        return Fraction(str(value))
+    raise TypeError(f"expected number-like value, got {type(value).__name__}")
+
+
+def _dp_hint(*values):
+    dp = 0
+    for v in values:
+        if isinstance(v, tuple) and len(v) >= 3:
+            dp = max(dp, int(v[2]))
+    return dp
+
+
+def _make_num(n, d, dp=0):
+    n = int(n)
+    d = int(d)
+    if d == 0:
+        raise ZeroDivisionError("division by zero")
+    if d < 0:
+        n, d = -n, -d
+    g = math.gcd(abs(n), d)
+    if g > 1:
+        n //= g
+        d //= g
+    return (n, d, int(dp))
+
+
+def _from_fraction(frac, dp=0):
+    return _make_num(frac.numerator, frac.denominator, dp=dp)
+
+
+def _from_float(value, places=12):
+    text = f"{value:.{places}f}".rstrip("0").rstrip(".")
+    if not text:
+        text = "0"
+    if "." in text:
+        whole, frac = text.split(".", 1)
+        sign = -1 if whole.startswith("-") else 1
+        whole_abs = whole[1:] if whole.startswith("-") else whole
+        n = int((whole_abs or "0") + frac) * sign
+        d = 10 ** len(frac)
+        return _make_num(n, d, dp=len(frac) + 1)
+    return _make_num(int(text), 1, dp=0)
+
+
+def num_round(value, digits=0):
+    frac = _as_fraction(value)
+    digits_i = int(_as_fraction(digits))
+    scaled = frac * (10 ** digits_i)
+    rounded = int(round(float(scaled)))
+    result = Fraction(rounded, 10 ** digits_i)
+    dp = 0 if digits_i <= 0 else (digits_i + 1)
+    return _from_fraction(result, dp=dp)
+
+
+def num_floor(value):
+    frac = _as_fraction(value)
+    return _make_num(math.floor(float(frac)), 1, dp=0)
+
+
+def num_ceil(value):
+    frac = _as_fraction(value)
+    return _make_num(math.ceil(float(frac)), 1, dp=0)
+
+
+def num_trunc(value):
+    frac = _as_fraction(value)
+    return _make_num(math.trunc(float(frac)), 1, dp=0)
+
+
+def num_abs(value):
+    frac = _as_fraction(value)
+    return _from_fraction(abs(frac), dp=_dp_hint(value))
+
+
+def num_divmod(value, divisor):
+    left = _as_fraction(value)
+    right = _as_fraction(divisor)
+    if right == 0:
+        raise ZeroDivisionError("division by zero")
+    q = math.floor(left / right)
+    r = left - (Fraction(q, 1) * right)
+    return {
+        "quotient": _make_num(q, 1, dp=0),
+        "remainder": _from_fraction(r, dp=_dp_hint(value, divisor)),
+    }
+
+
+def num_pow(value, exp):
+    base = _as_fraction(value)
+    exponent = _as_fraction(exp)
+    if exponent.denominator == 1:
+        n = exponent.numerator
+        if n >= 0:
+            return _from_fraction(base ** n, dp=_dp_hint(value, exp))
+        return _from_fraction(Fraction(1, 1) / (base ** abs(n)), dp=_dp_hint(value, exp))
+    return _from_float(math.pow(float(base), float(exponent)))
+
+
+def num_sqrt(value):
+    frac = _as_fraction(value)
+    if frac < 0:
+        raise ValueError("sqrt requires non-negative input")
+    return _from_float(math.sqrt(float(frac)))
+
+
+def num_log(value, base=None):
+    v = float(_as_fraction(value))
+    if base is None:
+        return _from_float(math.log(v))
+    b = float(_as_fraction(base))
+    return _from_float(math.log(v, b))
+
+
+def num_log2(value):
+    return _from_float(math.log2(float(_as_fraction(value))))
+
+
+def num_log10(value):
+    return _from_float(math.log10(float(_as_fraction(value))))
+
+
+def num_sin(value):
+    return _from_float(math.sin(float(_as_fraction(value))))
+
+
+def num_cos(value):
+    return _from_float(math.cos(float(_as_fraction(value))))
 
 
 def cop_pattern_key(branch_node):

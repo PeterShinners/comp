@@ -121,7 +121,7 @@ def _unwrap_py_object(handle_val):
 # Conversion helpers
 # ---------------------------------------------------------------------------
 
-def _comp_to_python(value, _seen=None):
+def _comp_to_python(value, _seen=None, preserve_numbers=False):
     """Recursively convert a Comp Value to a Python object.
 
     Args:
@@ -158,6 +158,8 @@ def _comp_to_python(value, _seen=None):
 
     # Numbers
     if isinstance(data, tuple):
+        if preserve_numbers:
+            return data
         return data[0] if data[1] == 1 else data[0] / data[1]
 
     # Strings
@@ -171,7 +173,7 @@ def _comp_to_python(value, _seen=None):
             all(isinstance(k, comp.Unnamed) for k in data)
         )
         if all_unnamed:
-            return [_comp_to_python(v, _seen) for v in data.values()]
+            return [_comp_to_python(v, _seen, preserve_numbers=preserve_numbers) for v in data.values()]
         result = {}
         unnamed_idx = 0
         for k, v in data.items():
@@ -179,10 +181,10 @@ def _comp_to_python(value, _seen=None):
                 py_key = unnamed_idx
                 unnamed_idx += 1
             elif isinstance(k, comp.Value):
-                py_key = _comp_to_python(k, _seen)
+                py_key = _comp_to_python(k, _seen, preserve_numbers=preserve_numbers)
             else:
                 py_key = str(k)
-            result[py_key] = _comp_to_python(v, _seen)
+            result[py_key] = _comp_to_python(v, _seen, preserve_numbers=preserve_numbers)
         return result
 
     if isinstance(data, comp.HandleInstance):
@@ -220,6 +222,13 @@ def _python_to_comp(obj):
         return comp.Value.from_python(obj)
     if isinstance(obj, str):
         return comp.Value(obj)
+    if (
+        isinstance(obj, tuple)
+        and len(obj) == 3
+        and all(isinstance(x, int) for x in obj)
+    ):
+        return comp.Value(obj)
+
     if isinstance(obj, dict):
         d = {}
         for k, v in obj.items():
@@ -248,7 +257,7 @@ def _python_to_comp(obj):
     return comp.Value(str(obj))
 
 
-def _extract_call_args(args_value):
+def _extract_call_args(args_value, preserve_numbers=False):
     """Convert a Comp args Value into Python positional and keyword args.
 
     Unnamed struct fields become positional args (in order).
@@ -267,10 +276,10 @@ def _extract_call_args(args_value):
         return pos, kwargs
 
     if not isinstance(args_value.data, dict):
-        return [_comp_to_python(args_value)], {}
+        return [_comp_to_python(args_value, preserve_numbers=preserve_numbers)], {}
 
     for k, v in args_value.data.items():
-        py_val = _comp_to_python(v)
+        py_val = _comp_to_python(v, preserve_numbers=preserve_numbers)
         if isinstance(k, comp.Unnamed):
             pos.append(py_val)
         elif isinstance(k, comp.Value) and isinstance(k.data, str):
@@ -293,7 +302,7 @@ def _smart_return(result, py_tag, module):
     """
     if result is None or isinstance(result, (bool, int, float, str)):
         return _python_to_comp(result)
-    if isinstance(result, (list, dict)):
+    if isinstance(result, (list, dict, tuple)):
         return _python_to_comp(result)
     # Complex object — wrap as handle
     return _wrap_py_object(result, py_tag, module)
@@ -408,10 +417,11 @@ def _create_py_module(module):
         if func_obj is None:
             raise comp.CodeError(f"Could not locate Python callable: {name!r}")
 
+        preserve_num = name.startswith("comp.runtime.pure.num_")
         if input_val is not None and not (
             isinstance(input_val.data, comp.Tag) and input_val.data.qualified == "nil"
         ):
-            pos, kwargs = _extract_call_args(input_val)
+            pos, kwargs = _extract_call_args(input_val, preserve_numbers=preserve_num)
         else:
             pos, kwargs = [], {}
 
@@ -419,7 +429,7 @@ def _create_py_module(module):
             for i, (k, v) in enumerate(args_val.data.items()):
                 if i == 0:
                     continue
-                py_val = _comp_to_python(v)
+                py_val = _comp_to_python(v, preserve_numbers=preserve_num)
                 if isinstance(k, comp.Unnamed):
                     pos.append(py_val)
                 elif isinstance(k, comp.Value) and isinstance(k.data, str):

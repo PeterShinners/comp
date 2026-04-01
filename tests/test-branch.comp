@@ -1,0 +1,94 @@
+!no-default
+!import branch comp "branch"
+
+!func if.test-condition-true ~nil (
+    3 | if :($ > 2) :("yes") | is "yes"
+)
+!func if.test-condition-false ~nil (
+    3 | if :($ > 5) :("yes") | is 3
+)
+
+
+!func else.test-runs-when-no-branch-hit ~nil (
+    3
+    | if :($ > 5) :("if")
+    | elif :($ > 4) :("elif")
+    | else :("else")
+    | is "else"
+)
+!func else.test-skips-when-branch-hit ~nil (
+    3
+    | if :($ > 2) :("if")
+    | else :("else")
+    | is "if"
+)
+
+!func match.test-case-hit ~nil (
+    "b"
+    | match
+    | case "a" :("A")
+    | case "b" :("B")
+    | default :("Z")
+    | is "B"
+)
+!func match.test-default-hit ~nil (
+    "x"
+    | match
+    | case "a" :("A")
+    | case "b" :("B")
+    | default :("Z")
+    | is "Z"
+)
+
+!func case.test-computed-when ~nil (
+    4
+    | match
+    | case :($ - 1) :("three")
+    | case :($) :("four")
+    | default :("other")
+    | is "four"
+)
+!func case.test-first-match-wins ~nil (
+    2
+    | match
+    | case 2 :("first")
+    | case 2 :("second")
+    | default :("other")
+    | is "first"
+)
+
+!func default.test-pass-through-when-matched ~nil (
+    "k"
+    | match
+    | case "k" :("hit")
+    | default :("miss")
+    | is "hit"
+)
+!func default.test-executes-when-not-matched ~nil (
+    "k"
+    | match
+    | case "z" :("hit")
+    | default :("miss")
+    | is "miss"
+)
+
+!func try.test-invokes-callable ~nil (
+    3 | try :($ + 2) | is 5
+)
+!func try.test-falls-back-to-value ~nil (
+    3 | try "plain" | is "plain"
+)
+
+!func pick.test-then-branch ~nil (
+    5 | pick :($ > 2) :("high") :("low") | is "high"
+)
+!func pick.test-else-branch ~nil (
+    1 | pick :($ > 2) :("high") :("low") | is "low"
+)
+
+
+!func is ~any|nil (
+    !param value ~any|nil = false
+    !on ($ == value) ~false !fail "Result %($) is not %(value)"
+    $
+)

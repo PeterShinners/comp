@@ -1333,6 +1333,7 @@ class ExecutionFrame:
             invoke_data = comp.Value({
                 _key("statement"): stmt_val,
                 _key("input"):     input_for_data,
+                _key("params"):    args,
                 _key("locals"):    locals_val,
                 _key("context"):   context_val,
             })

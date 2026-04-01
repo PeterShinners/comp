@@ -266,7 +266,7 @@ class SystemModule(comp.Module):
         self._add_callable("morph", _builtin_morph, pure=True)
         self._add_callable("mask", _builtin_mask, pure=True)
 
-        self._add_callable("item-at", _builtin_item_at, pure=True)
+        self._add_callable("field-at", _builtin_item_at, pure=True)
         self._add_callable("field-name", _builtin_field_name, pure=True)
         self._add_callable("field-value", _builtin_field_value, pure=True)
         self._add_callable("merge", _builtin_merge, pure=True)
@@ -352,9 +352,9 @@ def _builtin_fit(input_val, args_val, frame):
     Use this when you know the value may be out of range and want C-style
     overflow behaviour rather than a morph failure.
 
-    Usage: 1000 | fit :uint8   => 232
-           -1   | fit :uint8   => 255
-           200  | fit :int8    => -56
+    Usage: 1000 | fit uint8   => 232
+           -1   | fit uint8   => 255
+           200  | fit int8    => -56
 
     The target shape must have both ge= and le= limits defined.
     The value is first truncated to remove any fractional part, then wrapped.
@@ -507,19 +507,19 @@ def _builtin_item_at(input_val, args_val, frame):
     
     """
     if input_val.shape != comp.shape_struct:
-        raise comp.CodeError("item-at requires struct input")
+        raise comp.CodeError("field-at requires struct input")
 
     indexval = args_val.positional(0)
     if indexval.shape != comp.shape_num:   # needs to be an index integer, maybe allows negative lookup?
-        raise comp.CodeError("item-at param must be an integer number")
+        raise comp.CodeError("field-at param must be an integer number")
     indexnum = indexval.to_python()
     index = int(indexnum)
     if index != indexnum:
-        raise comp.CodeError("item-at param must be an integer")
+        raise comp.CodeError("field-at param must be an integer")
     if index < 0:
-        raise comp.CodeError(f"item-at index {index} cannot be negative")
+        raise comp.CodeError(f"field-at index {index} cannot be negative")
     if index >= len(input_val.data):
-        raise comp.CodeError(f"item-at index {index} outside struct length")
+        raise comp.CodeError(f"field-at index {index} outside struct length")
 
     items = list(input_val.data.items())
     item = items[index]
@@ -535,7 +535,7 @@ def _builtin_field_name(input_val, args_val, frame):
     """Get the name for a simple single item struct.
 
     This is expected to work on a simple, single-item structure, as returned
-    by `item-at`.
+    by `field-at`.
     
     This will fail if the field has no name or the struct doesn't have a
     single value.
@@ -558,7 +558,7 @@ def _builtin_field_value(input_val, args_val, frame):
     """Get the value for a simple single item struct.
 
     This is expected to work on a simple, single-item structure, as returned
-    by `item-at`.
+    by `field-at`.
     
     This will fail if the struct doesn't have a single value.
         

@@ -38,22 +38,22 @@
 /// Uses Decimal arithmetic — respects the current decimal context rounding mode
 !pure round ~num @preserve-unit (
     !param digits ~num<integer> = 0
-    {$ digits} | py.pure-call "round"
+    {$ digits} | py.pure-call "comp.runtime.pure.num_round"
 )
 
 /// Round down toward negative infinity
 !pure floor ~num @preserve-unit (
-    $ | py.pure-call "math.floor"
+    $ | py.pure-call "comp.runtime.pure.num_floor"
 )
 
 /// Round up toward positive infinity
 !pure ceiling ~num @preserve-unit (
-    $ | py.pure-call "math.ceil"
+    $ | py.pure-call "comp.runtime.pure.num_ceil"
 )
 
 /// Round toward zero, discarding any fractional part
 !pure truncate ~num @preserve-unit (
-    $ | py.pure-call "math.trunc"
+    $ | py.pure-call "comp.runtime.pure.num_trunc"
 )
 
 
@@ -61,7 +61,7 @@
 
 /// Absolute value — uses Decimal.copy_abs to avoid any sign-bit twiddling
 !pure abs ~num @preserve-unit (
-    $ | py.pure-call "decimal.Decimal.copy_abs"
+    $ | py.pure-call "comp.runtime.pure.num_abs"
 )
 
 /// Sign of a number: ord.less for negative, ord.equal for zero, ord.greater for positive
@@ -76,19 +76,18 @@
 /// Returns {quotient remainder} — quotient is floor division, remainder is modulo.
 !pure divmod ~num (
     !param divisor ~num<ne=0>
-    !my parts = ({$ divisor} | py.pure-call "divmod")
-    {quotient=parts.#0 remainder=parts.#1}
+    {$ divisor} | py.pure-call "comp.runtime.pure.num_divmod"
 )
 
 /// Raise base to an exponent
 !pure pow ~num (
     !param exp ~num
-    {$ exp} | py.pure-call "math.pow"
+    {$ exp} | py.pure-call "comp.runtime.pure.num_pow"
 )
 
 /// Square root — full precision via Decimal.sqrt, fails on negative input
 !pure sqrt ~num (
-    $ | py.pure-call "decimal.Decimal.sqrt"
+    $ | py.pure-call "comp.runtime.pure.num_sqrt"
 )
 
 
@@ -98,18 +97,18 @@
 !pure log ~num (
     !param base ~(num<gt=1>|nil) = nil
     !on (base == nil)
-    ~true ($ | py.pure-call "math.log")
-    ~false ({$ base} | py.pure-call "math.log")
+    ~true ($ | py.pure-call "comp.runtime.pure.num_log")
+    ~false ({$ base} | py.pure-call "comp.runtime.pure.num_log")
 )
 
 /// Base-2 logarithm
 !pure log2 ~num (
-    $ | py.pure-call "math.log2"
+    $ | py.pure-call "comp.runtime.pure.num_log2"
 )
 
 /// Base-10 logarithm
 !pure log10 ~num (
-    $ | py.pure-call "math.log10"
+    $ | py.pure-call "comp.runtime.pure.num_log10"
 )
 
 
@@ -117,12 +116,12 @@
 
 /// Sine of an angle in radians
 !pure sin ~num (
-    $ | py.pure-call "math.sin"
+    $ | py.pure-call "comp.runtime.pure.num_sin"
 )
 
 /// Cosine of an angle in radians
 !pure cos ~num (
-    $ | py.pure-call "math.cos"
+    $ | py.pure-call "comp.runtime.pure.num_cos"
 )
 
 

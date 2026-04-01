@@ -1,0 +1,116 @@
+!no-default
+!import loop comp "loop"
+
+
+!func normal.test-first ~nil (
+    {a="one" "two" "three"} | first | is "one"
+)
+!func empty.test-first ~nil (
+    {} | first "four" | is "four"
+)
+
+!func normal.test-last ~nil (
+    {a="one" "two" "three"} | last | is "three"
+)
+!func empty.test-last ~nil (
+    {} | last "four" | is "four"
+)
+
+
+!func map.test-double ~nil (
+    {1 2 3} | map :($ * 2) | is {2 4 6}
+)
+!func map.test-from-named-struct ~nil (
+    {a=1 b=2 c=3} | map :($ + 10) | is {11 12 13}
+)
+
+
+!func where.test-filter-values ~nil (
+    {1 2 3 4} | where :($ > 2) | is {3 4}
+)
+!func where.test-filter-named-struct ~nil (
+    {a=1 b=20 c=3 d=40} | where :($ >= 10) | is {20 40}
+)
+
+
+!func some.test-match-found ~nil (
+    {1 2 3} | some :($ > 2) | is true
+)
+!func some.test-no-match ~nil (
+    {1 2 3} | some :($ > 10) | is false
+)
+
+
+!func every.test-all-pass ~nil (
+    {2 4 6} | every :($ > 0) | is true
+)
+!func every.test-one-fails ~nil (
+    {2 -3 6} | every :($ > 0) | is false
+)
+
+
+!func range.test-zero-start ~nil (
+    nil | range 0 3 | is {0 1 2 3}
+)
+!func range.test-custom-step ~nil (
+    nil | range 2 8 3 | is {2 5 8}
+)
+
+
+!func reduce.test-sum ~nil (
+    {1 2 3 4} | reduce 0 :($.acc + $.item) | is 10
+)
+!func reduce.test-single-item ~nil (
+    {7} | reduce 0 :($.acc + $.item) | is 7
+)
+
+
+!func iterate.test-transform-items ~nil (
+    {1 2 3} | iterate :($.item | field-value | ($ * 2)) | is {2 4 6}
+)
+!func iterate.test-stop-early ~nil (
+    {10 20 30 40} | iterate :(
+        !on $.position < 2
+        ~true ($.item | field-value)
+        ~false stop
+    ) | is {10 20}
+)
+
+
+!func generate.test-count-up ~nil (
+    1 | generate :(
+        !on $ > 3
+        ~true stop
+        ~false ($ + 1)
+    ) | is {1 2 3}
+)
+!func generate.test-step-by-two ~nil (
+    0 | generate :(
+        !on $ >= 4
+        ~true stop
+        ~false ($ + 2)
+    ) | is {0 2}
+)
+
+
+!func slice.test-leading-items ~nil (
+    {10 20 30 40} | slice 0 2 | is {10 20}
+)
+!func slice.test-middle-range ~nil (
+    {10 20 30 40} | slice 1 3 | is {20 30}
+)
+
+
+!func reverse.test-reverse-values ~nil (
+    {1 2 3} | reverse | is {3 2 1}
+)
+!func reverse.test-reverse-named-struct ~nil (
+    {a=1 b=2 c=3} | reverse | is {3 2 1}
+)
+
+
+!func is& ~any|nil (
+    !param value ~any|nil = false
+    !on ($ == value) ~false !fail "Result %($) is not %(value)"
+    $
+)

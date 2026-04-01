@@ -1,0 +1,95 @@
+!no-default
+!import text comp "text"
+
+!func length.test-basic ~nil (
+    "hello" | length | is 5
+)
+!func is-empty.test-both-states ~nil (
+    {("" | is-empty) ("x" | is-empty)} | is {true false}
+)
+
+!func uppercase.test-basic ~nil (
+    "abC-" | uppercase | is "ABC-"
+)
+!func lowercase.test-basic ~nil (
+    "AbC!" | lowercase | is "abc!"
+)
+
+!func trim.test-both ~nil (
+    "  hi  " | trim | is "hi"
+)
+!func trim.test-start-only ~nil (
+    "abcd" | trim trim-mode.whitespace target.start | is "abcd"
+)
+
+!func is-blank.test-empty-and-space ~nil (
+    {("" | is-blank) ("   " | is-blank)} | is {true true}
+)
+!func is-blank.test-non-blank ~nil (
+    " a " | is-blank | is false
+)
+
+!func is-numeric.test-basic ~nil (
+    "123" | is-numeric | is true
+)
+!func is-alpha.test-basic ~nil (
+    "abc" | is-alpha | is true
+)
+!func is-alphanumeric.test-basic ~nil (
+    "abc123" | is-alphanumeric | is true
+)
+!func is-lowercase.test-basic ~nil (
+    "abc" | is-lowercase | is true
+)
+!func is-uppercase.test-basic ~nil (
+    "ABC" | is-uppercase | is true
+)
+
+!func contains.test-sensitive ~nil (
+    "Hello" | contains "he" case.sensitive | is false
+)
+!func contains.test-insensitive ~nil (
+    "Hello" | contains "he" case.insensitive | is true
+)
+
+!func starts-with.test-basic ~nil (
+    "banana" | starts-with "ban" | is true
+)
+!func ends-with.test-basic ~nil (
+    "banana" | ends-with "ana" | is true
+)
+
+!func find.test-found-and-missing ~nil (
+    {("banana" | find "na") ("banana" | find "zz")} | is {2 nil}
+)
+!func count.test-basic ~nil (
+    "banana" | count "na" | is 2
+)
+
+!func split.test-basic ~nil (
+    "a,b,c" | split "," | is {"a" "b" "c"}
+)
+!func lines.test-basic ~nil (
+    "a\nb\n" | lines | is {"a\nb\n"}
+)
+
+!func join.test-basic ~nil (
+    {"a" "b" "c"} | join "," | is "a,b,c"
+)
+!func repeat.test-basic ~nil (
+    "ha" | repeat 3 | is "hahaha"
+)
+
+!func capitalize.test-basic ~nil (
+    "hello world" | capitalize | is "Hello world"
+)
+!func title.test-basic ~nil (
+    "hello world" | title | is "Hello World"
+)
+
+
+!func is ~any|nil (
+    !param value ~any|nil = false
+    !on ($ == value) ~false !fail "Result %($) is not %(value)"
+    $
+)

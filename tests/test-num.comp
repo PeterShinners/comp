@@ -1,0 +1,74 @@
+!no-default
+!import num comp "num"
+
+!func round.test-nearest ~nil (
+    2.6 | round | is 3
+)
+!func round.test-digits ~nil (
+    3.14159 | round 2 | is 3.14
+)
+
+!func floor.test-basic ~nil (
+    2.9 | floor | is 2
+)
+!func ceiling.test-basic ~nil (
+    2.1 | ceiling | is 3
+)
+!func truncate.test-basic ~nil (
+    -2.9 | truncate | is -2
+)
+
+!func abs.test-negative ~nil (
+    -7 | abs | is 7
+)
+!func sign.test-negative-zero-positive ~nil (
+    {( -1 | sign ) (0 | sign) (9 | sign)} | is {-1 0 1}
+)
+
+!func divmod.test-basic ~nil (
+    10 | divmod 3 | is {quotient=3 remainder=1}
+)
+!func pow.test-basic ~nil (
+    3 | pow 2 | is 9
+)
+!func sqrt.test-basic ~nil (
+    49 | sqrt | is 7
+)
+
+!func log.test-natural ~nil (
+    (| num.e) | log | is 1
+)
+!func log.test-with-base ~nil (
+    8 | log 2 | is 3
+)
+!func log2.test-basic ~nil (
+    8 | log2 | is 3
+)
+!func log10.test-basic ~nil (
+    1000 | log10 | is 3
+)
+
+!func sin.test-zero ~nil (
+    0 | sin | is 0
+)
+!func cos.test-zero ~nil (
+    0 | cos | is 1
+)
+
+!func clamp.test-low-bound ~nil (
+    -2 | clamp 0 10 | is 0
+)
+!func clamp.test-high-bound ~nil (
+    12 | clamp 0 10 | is 10
+)
+
+!func constants.test-pi-e-tau-relationship ~nil (
+    (((| num.pi) * 2) == (| num.tau) !and (| num.e) > 2) | is true
+)
+
+
+!func is ~any|nil (
+    !param value ~any|nil = false
+    !on ($ == value) ~false !fail "Result %($) is not %(value)"
+    $
+)
