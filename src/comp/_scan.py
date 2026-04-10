@@ -80,6 +80,17 @@ def _scan_mod_statement(node, source):
     if not isinstance(operator_token, lark.Token):
         return None
 
+    # Ignore statements that are commented out with //... on the same line,
+    # e.g. `//!no-default` or `// !import x comp "y"`.
+    # The scan grammar token priorities can still surface !operators after
+    # LINE_OPEN; this guard keeps commented directives out of statement_list.
+    line_index = (operator_token.line or 1) - 1
+    source_lines = source.split('\n')
+    if 0 <= line_index < len(source_lines):
+        prefix = source_lines[line_index][:max(0, (operator_token.column or 1) - 1)]
+        if prefix.lstrip().startswith("//"):
+            return None
+
     # Extract operator name (remove the ! prefix)
     operator = operator_token.value[1:]  # Remove '!' prefix
 
@@ -166,7 +177,6 @@ def _scan_mod_statement(node, source):
     body = ""
     if name_end_line and name_end_col:
         # Convert to 0-indexed
-        source_lines = source.split('\n')
         body_start_line = name_end_line - 1
         body_start_col = name_end_col
         body_end_line = pos[2] - 1  # pos is (line, col, end_line, end_col)

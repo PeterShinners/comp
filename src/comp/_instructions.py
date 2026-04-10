@@ -124,7 +124,9 @@ class LoadLocal(Instruction):
         self.name = name
 
     def execute(self, frame):
-        value = frame._dollar_vars.get(self.name) or frame.env.get(self.name)
+        value = frame._dollar_vars.get(self.name)
+        if value is None:
+            value = frame.env.get(self.name)
         if value is None:
             raise comp.CodeError(f"Undefined local variable: '{self.name}'")
         return frame.set_result(value)
@@ -565,7 +567,13 @@ class GetField(Instruction):
         field_key = comp.Value.from_python(self.field)
         result = struct_val.data.get(field_key)
         if result is None:
-            raise comp.CodeError(f"Field '{self.field}' not found in struct", self.cop)
+            fail_val = comp._interp._make_fail_value(
+                f"Field '{self.field}' not found in struct",
+                tag=comp.tag_fail_field,
+                cop_val=self.cop
+            )
+            frame.failure = fail_val
+            return frame.set_result(fail_val)
         return frame.set_result(result)
 
     def format(self, idx):
@@ -585,7 +593,13 @@ class GetIndex(Instruction):
         # Get field by position
         items = list(struct_val.data.items())
         if self.index < 0 or self.index >= len(items):
-            raise comp.CodeError(f"Index {self.index} out of range for struct with {len(items)} fields", self.cop)
+            fail_val = comp._interp._make_fail_value(
+                f"Index {self.index} out of range for struct with {len(items)} fields",
+                tag=comp.tag_fail_field,
+                cop_val=self.cop
+            )
+            frame.failure = fail_val
+            return frame.set_result(fail_val)
         _, result = items[self.index]
         return frame.set_result(result)
 
@@ -605,18 +619,62 @@ class GetDynamicIndex(Instruction):
         struct_val = frame.get_value(self.struct_reg)
         index_val = frame.get_value(self.index_reg)
         if not isinstance(index_val.data, tuple):
-            raise comp.CodeError(f"Index expression must be a number, got {type(index_val.data).__name__}", self.cop)
+            fail_val = comp._interp._make_fail_value(
+                f"Index expression must be a number, got {type(index_val.data).__name__}",
+                tag=comp.tag_fail_value,
+                cop_val=self.cop
+            )
+            frame.failure = fail_val
+            return frame.set_result(fail_val)
         if index_val.data[1] != 1:
-            raise comp.CodeError(f"Index must be a whole number", self.cop)
+            fail_val = comp._interp._make_fail_value(
+                f"Index must be a whole number",
+                tag=comp.tag_fail_value,
+                cop_val=self.cop
+            )
+            frame.failure = fail_val
+            return frame.set_result(fail_val)
         index = index_val.data[0]
         items = list(struct_val.data.items())
         if index < 0 or index >= len(items):
-            raise comp.CodeError(f"Index {index} out of range for struct with {len(items)} fields", self.cop)
+            fail_val = comp._interp._make_fail_value(
+                f"Index {index} out of range for struct with {len(items)} fields",
+                tag=comp.tag_fail_field,
+                cop_val=self.cop
+            )
+            frame.failure = fail_val
+            return frame.set_result(fail_val)
         _, result = items[index]
         return frame.set_result(result)
 
     def format(self, idx):
         return f"%{idx}  GetDynamicIndex %{self.struct_reg}.#(%{self.index_reg})"
+
+
+class GetDynamicField(Instruction):
+    """Get a field from a struct by a runtime-computed key value."""
+
+    def __init__(self, cop, struct_reg, field_reg):
+        super().__init__(cop)
+        self.struct_reg = struct_reg
+        self.field_reg = field_reg
+
+    def execute(self, frame):
+        struct_val = frame.get_value(self.struct_reg)
+        field_val = frame.get_value(self.field_reg)
+        result = struct_val.data.get(field_val)
+        if result is None:
+            fail_val = comp._interp._make_fail_value(
+                f"Field {field_val} not found in struct",
+                tag=comp.tag_fail_field,
+                cop_val=self.cop
+            )
+            frame.failure = fail_val
+            return frame.set_result(fail_val)
+        return frame.set_result(result)
+
+    def format(self, idx):
+        return f"%{idx}  GetDynamicField %{self.struct_reg}.(%{self.field_reg})"
 
 
 def _stash_deep_set(struct_val, path, value):
@@ -853,6 +911,10 @@ class BuildBlock(Instruction):
     def execute(self, frame):
         # Create a Block object and store the execution data
         block = comp.Block(self.dispatch_own_name or "anonymous")
+        block.origin_name = frame.definition_name
+        # Blocks defined while a function is executing share that function's
+        # local scope. Module-built blocks get a fresh invocation scope later.
+        block.share_closure_env = frame.definition_name is not None
         block.module = frame.module  # Capture the defining module
         block.body_instructions = self.body_instructions
         block.closure_env = frame.env
@@ -915,6 +977,31 @@ class BuildBlock(Instruction):
                             param_default = frame.eval(default_kids[0])
                     elif fkid_tag == "shape.define":
                         param_type_shape = self._build_shape_from_cop(fkid, frame)
+                    elif fkid_tag == "shape.union":
+                        # Build ShapeUnion from the alternative member shapes.
+                        # Each union member is a shape.field node wrapping the type reference.
+                        shapes = []
+                        for union_kid in comp.cop_kids(fkid):
+                            union_kid_tag = comp.cop_tag(union_kid)
+                            if union_kid_tag == "shape.field":
+                                # Unwrap shape.field: first non-default child is the type
+                                for field_inner in comp.cop_kids(union_kid):
+                                    if comp.cop_tag(field_inner) == "shape.default":
+                                        continue
+                                    resolved = self._resolve_shape_ref(field_inner, frame)
+                                    if resolved is not None:
+                                        shapes.append(resolved)
+                                    break
+                            elif union_kid_tag == "shape.define":
+                                resolved = self._build_shape_from_cop(union_kid, frame)
+                                if resolved is not None:
+                                    shapes.append(resolved)
+                            else:
+                                resolved = self._resolve_shape_ref(union_kid, frame)
+                                if resolved is not None:
+                                    shapes.append(resolved)
+                        if shapes:
+                            param_type_shape = comp.ShapeUnion(shapes)
                     else:
                         resolved = self._resolve_shape_ref(fkid, frame)
                         if resolved is not None:

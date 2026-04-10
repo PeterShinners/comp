@@ -87,6 +87,12 @@
     "hello world" | title | is "Hello World"
 )
 
+!func field-expression.test-dynamic-name ~nil (
+    !my data = {dog=1 cat=2}
+    !my key = "cat"
+    data.'key' | is 2
+)
+
 
 !func is ~any|nil (
     !param value ~any|nil = false

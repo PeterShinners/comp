@@ -165,58 +165,6 @@ def _format_lark_error(exc, source_text, line_offset):
     return comp.ParseError(message, position=position)
 
 
-def _readable_expected(expected):
-    """Convert Lark's expected token set into readable names.
-
-    Args:
-        expected: (set) Set of expected token/rule names from Lark
-
-    Returns:
-        (str) Comma-separated readable names, or empty string
-    """
-    # Map internal Lark names to user-friendly descriptions
-    name_map = {
-        "TOKENFIELD": "identifier",
-        "DUBQUOTE": "string",
-        "SIXQUOTE": "string",
-        "NUMBER": "number",
-        "NEWLINE": "newline",
-        "INDENT": "indentation",
-        "DEDENT": "dedent",
-        "_NL": "newline",
-        "LPAR": "'('",
-        "RPAR": "')'",
-        "LBRACE": "'{'",
-        "RBRACE": "'}'",
-        "LBRACKET": "'['",
-        "RBRACKET": "']'",
-        "COLON": "':'",
-        "EQUALS": "'='",
-        "PIPE": "'|'",
-        "TILDE": "'~'",
-        "BANG": "'!'",
-        "DOT": "'.'",
-        "COMMA": "','",
-        "$END": "end of input",
-    }
-
-    readable = set()
-    for name in expected:
-        mapped = name_map.get(name)
-        if mapped:
-            readable.add(mapped)
-        elif not name.startswith("_") and not name.startswith("__"):
-            # Show non-internal names as-is but lowercase
-            readable.add(name.lower().replace("_", " "))
-
-    if not readable:
-        return ""
-    items = sorted(readable)
-    if len(items) > 4:
-        items = items[:4] + ["..."]
-    return " or ".join(items)
-
-
 def _parsed(treetoken, tag, kids, **fields):
     """Create a cop node with position from tree/token."""
     if isinstance(treetoken, lark.Token):

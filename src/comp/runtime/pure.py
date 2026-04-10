@@ -28,6 +28,121 @@ Mixing int keys in a returned dict will produce integer-keyed struct fields,
 *not* unnamed/positional fields — avoid this for now.
 """
 
+import math
+import fractions
+
+
+def cop_tag(node):
+    """Return the stripped COP tag name from a Python COP-node dict."""
+    if not isinstance(node, dict):
+        return None
+    tag = node.get(0)
+    if isinstance(tag, str) and tag.startswith("cop-type."):
+        return tag[9:]
+    return tag if isinstance(tag, str) else None
+
+
+def walk_cop(node, filter=None, fields=None, order="all", recurse="deep", stop_on_match=True):
+    """Walk a Python COP-node tree and return matching contexts.
+
+    The return value is a list of dicts. Each dict contains:
+      - path: list[int] path from root to the matching node
+      - parent: list[int] path from root to the parent, or None at root
+      - depth: integer depth
+      - position: index among siblings
+      - order: one of "all", "first", "last"
+    """
+
+    def _norm_tag_name(value):
+        if value is None:
+            return None
+        qualified = value if isinstance(value, str) else str(value)
+        if qualified.startswith("cop-type."):
+            return qualified[9:]
+        prefix = "copwalk.order."
+        if qualified.startswith(prefix):
+            return qualified[len(prefix):]
+        prefix = "copwalk.recurse."
+        if qualified.startswith(prefix):
+            return qualified[len(prefix):]
+        return qualified
+
+    def _boolish(value, default=False):
+        if value is None:
+            return default
+        return bool(value)
+
+    def _kids_for(current):
+        kids = current.get("kids", []) if isinstance(current, dict) else []
+        if isinstance(kids, list):
+            return kids
+        if isinstance(kids, dict):
+            if all(isinstance(k, int) for k in kids):
+                return [kids[k] for k in sorted(kids)]
+            return list(kids.values())
+        return []
+
+    def _matches_fields(current, expected_fields):
+        if not isinstance(expected_fields, dict) or not expected_fields:
+            return True
+        if not isinstance(current, dict):
+            return False
+        for key, expected in expected_fields.items():
+            if isinstance(key, int):
+                continue
+            if current.get(key) != expected:
+                return False
+        return True
+
+    def _mode_allows_descend(mode, depth, tag_name):
+        if mode == "shallow":
+            return depth == 0
+        if mode == "near":
+            return depth == 0 or tag_name in ("statement.define", "statement.field")
+        return True
+
+    def _order_matches(which, position, sibling_count):
+        if which == "first":
+            return position == 0
+        if which == "last":
+            return position == (sibling_count - 1)
+        return True
+
+    filter_name = _norm_tag_name(filter)
+    order_name = _norm_tag_name(order) or "all"
+    recurse_mode = _norm_tag_name(recurse) or "deep"
+    stop = _boolish(stop_on_match, default=True)
+    found = []
+
+    def _walk(current, path, parent_path, depth, position, sibling_count):
+        tag_name = cop_tag(current)
+        matches = (
+            (filter_name is None or filter_name == tag_name)
+            and _order_matches(order_name, position, sibling_count)
+            and _matches_fields(current, fields)
+        )
+
+        skip_children = False
+        if matches:
+            found.append({
+                "path": list(path),
+                "parent": None if parent_path is None else list(parent_path),
+                "depth": depth,
+                "position": position,
+                "order": "first" if position == 0 else "last" if position == (sibling_count - 1) else "all",
+            })
+            if stop:
+                skip_children = True
+
+        if _mode_allows_descend(recurse_mode, depth, tag_name) and not skip_children:
+            kids = _kids_for(current)
+            count = len(kids)
+            for idx, kid in enumerate(kids):
+                _walk(kid, path + [idx], path, depth + 1, idx, count)
+
+    _walk(node, [], None, 0, 0, 1)
+    return found
+
 
 def merge(*structs):
     """Merge any number of structs into one, in left-to-right order.
@@ -368,74 +483,20 @@ def _join_path_fields(path, stem, extension):
         return path + filename
     return path + "/" + filename
 
-
-def cop_tag(node):
-    """Get the tag name from a COP node dict.
-
-    COP nodes arrive as plain Python dicts where the first unnamed field
-    (integer key 0) holds the "cop-type."-prefixed qualified tag string.
-
-    Args:
-        node: (dict) COP node produced by py.pure-call conversion.
-
-    Returns:
-        (str) Tag name with "cop-type." prefix stripped, or "" if absent.
-    """
-    if not isinstance(node, dict):
-        return ""
-    tag = node.get(0, "")
-    if isinstance(tag, str) and tag.startswith("cop-type."):
-        return tag[9:]
-    return tag if isinstance(tag, str) else ""
-
-
-def cop_kids(node):
-    """Get the children of a COP node dict.
-
-    Args:
-        node: (dict) COP node produced by py.pure-call conversion.
-
-    Returns:
-        (list) List of child COP nodes as plain Python dicts.
-    """
-    if not isinstance(node, dict):
-        return []
-    kids = node.get("kids", [])
-    return kids if isinstance(kids, list) else []
-
-
-def cop_fields(node):
-    """Get named fields of a COP node dict, excluding the tag and kids.
-
-    Args:
-        node: (dict) COP node produced by py.pure-call conversion.
-
-    Returns:
-        (dict) Named fields with string keys.
-    """
-    if not isinstance(node, dict):
-        return {}
-    return {k: v for k, v in node.items() if k != 0 and k != "kids"}
-
-
 # ---------------------------------------------------------------------------
 # Number helpers for tuple-backed Comp numbers
 # ---------------------------------------------------------------------------
 
-import math
-from fractions import Fraction
-
-
 def _as_fraction(value):
     if isinstance(value, tuple) and len(value) >= 2:
         n, d = int(value[0]), int(value[1])
-        return Fraction(n, d)
-    if isinstance(value, Fraction):
+        return fractions.Fraction(n, d)
+    if isinstance(value, fractions.Fraction):
         return value
     if isinstance(value, int):
-        return Fraction(value, 1)
+        return fractions.Fraction(value, 1)
     if isinstance(value, float):
-        return Fraction(str(value))
+        return fractions.Fraction(str(value))
     raise TypeError(f"expected number-like value, got {type(value).__name__}")
 
 
@@ -484,7 +545,7 @@ def num_round(value, digits=0):
     digits_i = int(_as_fraction(digits))
     scaled = frac * (10 ** digits_i)
     rounded = int(round(float(scaled)))
-    result = Fraction(rounded, 10 ** digits_i)
+    result = fractions.Fraction(rounded, 10 ** digits_i)
     dp = 0 if digits_i <= 0 else (digits_i + 1)
     return _from_fraction(result, dp=dp)
 
@@ -515,7 +576,7 @@ def num_divmod(value, divisor):
     if right == 0:
         raise ZeroDivisionError("division by zero")
     q = math.floor(left / right)
-    r = left - (Fraction(q, 1) * right)
+    r = left - (fractions.Fraction(q, 1) * right)
     return {
         "quotient": _make_num(q, 1, dp=0),
         "remainder": _from_fraction(r, dp=_dp_hint(value, divisor)),
@@ -529,7 +590,7 @@ def num_pow(value, exp):
         n = exponent.numerator
         if n >= 0:
             return _from_fraction(base ** n, dp=_dp_hint(value, exp))
-        return _from_fraction(Fraction(1, 1) / (base ** abs(n)), dp=_dp_hint(value, exp))
+        return _from_fraction(fractions.Fraction(1, 1) / (base ** abs(n)), dp=_dp_hint(value, exp))
     return _from_float(math.pow(float(base), float(exponent)))
 
 

@@ -192,6 +192,9 @@ class Value:
                             # Need to quote the key
                             fields.append(f'"{key}"={val}')
                     else:
+                        val = v.format()
+                        if len(val) > 20:
+                            val = val[:17] + "..."
                         fields.append(f"'{k.format()}'={val}")
             return "{" + " ".join(fields) + "}"
         else:

@@ -15,17 +15,13 @@ Phases (in pipeline order):
     PHASE_COP      — cop node resolution and folding
     PHASE_CODEGEN  — instruction generation
 
-Notes are leaf attachments on a Callout — a message with an optional source
-location. They have no severity or code of their own; they enrich the parent
-(e.g. "did you mean X?", "first defined here").
+Callouts currently carry a single primary location plus core metadata.
 """
 
 __all__ = [
     "Span",
     "Location",
-    "Note",
     "Callout",
-    "Collector",
     "ERROR",
     "WARNING",
     "INFO",
@@ -41,19 +37,10 @@ WARNING = "warning"
 INFO = "info"
 HINT = "hint"
 
-_SEVERITY_ORDER = {ERROR: 0, WARNING: 1, INFO: 2, HINT: 3}
-
 # Pipeline phase constants
 PHASE_PARSE = "parse"
 PHASE_COP = "cop"
 PHASE_CODEGEN = "codegen"
-
-_PHASE_ORDER = {PHASE_PARSE: 0, PHASE_COP: 1, PHASE_CODEGEN: 2}
-
-
-def _severity_passes(severity, min_severity):
-    """True if severity is at least as severe as min_severity."""
-    return _SEVERITY_ORDER.get(severity, 99) <= _SEVERITY_ORDER.get(min_severity, 99)
 
 
 class Span:
@@ -83,8 +70,8 @@ class Span:
 class Location:
     """A span with an optional descriptive label.
 
-    Used for the primary location and each entry in a callout's related list,
-    where the label contextualises the location (e.g. "first defined here").
+    Used for a callout's primary source location, where the label can provide
+    extra context when needed.
 
     Attributes:
         span:  (Span) Source location
@@ -102,28 +89,6 @@ class Location:
         return f"Location({self.span!r}{label_part})"
 
 
-class Note:
-    """An attached enrichment on a Callout — no severity or code of its own.
-
-    Notes are leaves: they cannot contain further notes. Used for suggestions
-    and secondary context like "did you mean X?" or "declared here".
-
-    Attributes:
-        message:  (str) Human-readable note text
-        location: (Location | None) Optional source location for this note
-    """
-
-    __slots__ = ("message", "location")
-
-    def __init__(self, message, location=None):
-        self.message = message
-        self.location = location
-
-    def __repr__(self):
-        loc = f" {self.location!r}" if self.location else ""
-        return f"Note({self.message!r}{loc})"
-
-
 class Callout:
     """A single validation result from any phase of the build pipeline.
 
@@ -133,136 +98,21 @@ class Callout:
         message:  (str) Human-readable description
         phase:    (str | None) Pipeline phase that produced this callout
         primary:  (Location | None) Primary source location
-        related:  (list[Location]) Secondary labeled locations
-        notes:    (list[Note]) Attached notes/suggestions (leaves, no severity)
     """
 
-    __slots__ = ("severity", "code", "message", "phase", "primary", "related", "notes", "definition_name")
+    __slots__ = ("severity", "code", "message", "phase", "primary", "definition_name")
 
-    def __init__(self, severity, code, message, phase=None, primary=None,
-                 related=(), notes=()):
+    def __init__(self, severity, code, message, phase=None, primary=None):
         self.severity = severity
         self.code = code
         self.message = message
         self.phase = phase
         self.primary = primary
-        self.related = list(related)
-        self.notes = list(notes)
         self.definition_name = None
 
     def __repr__(self):
         loc = f" {self.primary!r}" if self.primary else ""
         return f"Callout({self.severity} {self.code!r}{loc})"
-
-
-class Collector:
-    """Accumulates callouts across analysis phases and definition scopes.
-
-    Scopes map to definition boundaries — push one per definition being
-    analysed so that errors can be scoped. scope_has_errors() lets callers
-    bail out of deeper analysis without stopping work on sibling definitions.
-
-    The phase gate enforces pipeline ordering: once a phase has produced
-    errors, higher-ordinal phases are suppressed to prevent phantom cascades.
-
-    Usage:
-        col = Collector()
-        col.push_scope("my-func")
-        col.report(Callout(ERROR, "bad-syntax", "...", phase=PHASE_PARSE))
-        if col.scope_has_errors():
-            col.pop_scope()
-            # skip further analysis of this definition
-        col.pop_scope()
-    """
-
-    def __init__(self):
-        self._callouts = []
-        self._scope_stack = []    # list[str] — current scope path
-        self._scope_errors = {}   # scope_name -> bool
-        self._max_phase = None    # ordinal of earliest phase that has errors
-
-    def report(self, callout):
-        """Add a callout to the collection.
-
-        Suppresses callouts from phases later than the earliest phase with
-        errors — prevents phantom cascades like C++'s missing-include floods.
-
-        Args:
-            callout: (Callout) The callout to record
-        """
-        if callout.phase is not None and self._max_phase is not None:
-            incoming = _PHASE_ORDER.get(callout.phase, 99)
-            if incoming > self._max_phase:
-                return  # suppress — earlier phase already has errors
-
-        self._callouts.append(callout)
-
-        if callout.severity == ERROR:
-            if callout.phase is not None:
-                phase_ord = _PHASE_ORDER.get(callout.phase, 99)
-                if self._max_phase is None or phase_ord < self._max_phase:
-                    self._max_phase = phase_ord
-            if self._scope_stack:
-                self._scope_errors[self._scope_stack[-1]] = True
-
-    def push_scope(self, name):
-        """Enter a new definition scope.
-
-        Args:
-            name: (str) Scope identifier, typically the definition name
-        """
-        self._scope_stack.append(name)
-        self._scope_errors.setdefault(name, False)
-
-    def pop_scope(self):
-        """Leave the current definition scope."""
-        if self._scope_stack:
-            self._scope_stack.pop()
-
-    def scope_has_errors(self):
-        """True if the current scope has any ERROR-severity callouts.
-
-        Returns:
-            (bool) Whether to bail out of deeper analysis for this scope
-        """
-        if not self._scope_stack:
-            return False
-        return self._scope_errors.get(self._scope_stack[-1], False)
-
-    def has_errors(self):
-        """True if any collected callout has ERROR severity.
-
-        Returns:
-            (bool)
-        """
-        return any(c.severity == ERROR for c in self._callouts)
-
-    @property
-    def callouts(self):
-        """(list[Callout]) All collected callouts in order."""
-        return list(self._callouts)
-
-    def by_severity(self, severity):
-        """Return callouts matching the given severity.
-
-        Args:
-            severity: (str) ERROR | WARNING | INFO | HINT
-
-        Returns:
-            (list[Callout])
-        """
-        return [c for c in self._callouts if c.severity == severity]
-
-    def by_phase(self, phase):
-        """Return callouts from the given phase.
-
-        Args:
-            phase: (str) PHASE_PARSE | PHASE_COP | PHASE_CODEGEN
-
-        Returns:
-            (list[Callout])
-        """
-        return [c for c in self._callouts if c.phase == phase]
 
 
 # ---------------------------------------------------------------------------
@@ -273,23 +123,6 @@ class Collector:
 # callouts at the requested severity — e.g. normal execution passes ERROR
 # so INFO/HINT validators are never invoked.
 # ---------------------------------------------------------------------------
-
-def _location_from_cop(cop):
-    """Extract a Location from a COP node's pos field, if available."""
-    if cop is None:
-        return None
-    try:
-        pos = cop.field("pos")
-        if pos is not None:
-            row = pos.to_python(0)
-            col = pos.to_python(1)
-            end_col = pos.to_python(3)
-            length = max(1, end_col - col) if end_col and end_col > col else 1
-            return Location(Span(None, row, col, length))
-    except (KeyError, AttributeError, IndexError, TypeError):
-        pass
-    return None
-
 
 def _source_line_snippet(callout_mod, row, col, end_col):
     """Format a source-line snippet from callout.comp for error output."""
@@ -380,7 +213,7 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, namespace=None):
         (list) List of Callout objects found, or empty list
     """
     if interp is None:
-        return []
+        raise ValueError("cop_callouts requires an initialized Interp")
 
     cop = definition.resolved_cop or definition.original_cop
     if cop is None:
@@ -390,27 +223,33 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, namespace=None):
 
     # Map severity string to the callout tag
     severity_tags = {
-        ERROR: "callout.error",
-        WARNING: "callout.warning",
-        INFO: "callout.info",
-        HINT: "callout.hint",
+        ERROR: "callout.severity.error",
+        WARNING: "callout.severity.warning",
+        INFO: "callout.severity.info",
+        HINT: "callout.severity.hint",
     }
-    severity_tag_name = severity_tags.get(min_severity, "callout.warning")
+    severity_tag_name = severity_tags.get(min_severity, "callout.severity.warning")
 
-    callout_mod = getattr(interp, "_callout_mod", None)
+    callout_mod = interp._callout_mod
     if callout_mod is None:
-        return []  # callout not built; validation unavailable
+        err = comp.CodeError("Validation runtime is not initialized (callout module missing)")
+        err.callout_code = "validator-not-initialized"
+        raise err
 
     # Resolve the severity tag from the callout module
     callout_defs = callout_mod.definitions()
     severity_def = callout_defs.get(severity_tag_name)
     if severity_def is None or severity_def.value is None:
-        raise CodeError("Callout severity tag not found")
+        err = comp.CodeError("Validation runtime is corrupted: callout severity tag not found")
+        err.callout_code = "validator-runtime-corrupt"
+        raise err
     severity_val = severity_def.value
 
     validator_def = callout_defs.get("validate")
     if validator_def is None or validator_def.value is None:
-        raise CodeError("Callout validation function not found")
+        err = comp.CodeError("Validation runtime is corrupted: callout validate function not found")
+        err.callout_code = "validator-runtime-corrupt"
+        raise err
 
     # Build context struct from Definition metadata
     context_val = comp.Value.from_python({"pure": definition.pure})
@@ -446,25 +285,29 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, namespace=None):
             msg_val = fail_val.data.get(msg_key)
             if msg_val is not None and isinstance(msg_val.data, str):
                 msg = msg_val.data
-        # Try to locate the crash site inside the validator (callout.comp),
-        # not the user-definition being validated.
         validator_info = _extract_validator_location(fail_val, callout_mod)
         defn_name = definition.qualified or getattr(definition, "token", None) or "?"
-        return [Callout(ERROR, "validator-failure",
-                        f"Callout validator crashed while checking `{defn_name}`: {msg}{validator_info}",
-                        phase="validate")]
+        err = comp.CodeError(
+            f"Validation execution failed while checking `{defn_name}`: {msg}{validator_info}"
+        )
+        err.callout_code = "validator-failure"
+        raise err from e
     except Exception as e:
         defn_name = definition.qualified or getattr(definition, "token", None) or "?"
-        # Extract validator-side crash location from the exception's cop_node
         validator_info = _extract_validator_location_from_exc(e, callout_mod)
-        return [Callout(ERROR, "validator-exception",
-                        f"Callout validator exception while checking `{defn_name}`: "
-                        f"{type(e).__name__}: {e}{validator_info}",
-                        phase="validate")]
+        err = comp.CodeError(
+            f"Validation execution raised {type(e).__name__} while checking `{defn_name}`: {e}{validator_info}"
+        )
+        err.callout_code = "validator-exception"
+        raise err from e
     finally:
         interp._disable_build_validations = max(getattr(interp, "_disable_build_validations", 1) - 1, 0)
 
     all_callouts.extend(_extract_callouts(result))
+    if all_callouts:
+        import sys as _sys
+        print(f"[CALLOUT-COUNT] {definition.qualified}: {len(all_callouts)} callouts found", file=_sys.stderr)
+
     return all_callouts
 
 
@@ -480,14 +323,39 @@ def _extract_callouts(result):
 
     Returns:
         (list) Flat list of Callout objects
+
+    Raises:
+        comp.CodeError: If the result contains failure values instead of
+            valid callout structs (indicates a bug in the validators)
     """
+    import comp
+
     if not isinstance(result.data, dict):
         return []
 
     found = []
     for val in result.data.values():
         if not isinstance(val.data, dict):
+            # Detect failure strings or other non-struct junk — these indicate
+            # the validator pipeline itself broke (e.g. complete-callouts
+            # couldn't morph the result).
+            if isinstance(val.data, str):
+                import sys as _sys
+                print(f"[EXTRACT-DEBUG] Found failure string: {val.data!r} in defn result", file=_sys.stderr)
+                raise comp.CodeError(
+                    f"Validation pipeline produced a failure instead of callouts: {val.data}"
+                )
             continue
+        # Check for fail structs (have a "fail" key with a Tag value)
+        fail_key = comp.Value.from_python("fail")
+        fail_val = val.data.get(fail_key)
+        if fail_val is not None and isinstance(fail_val.data, comp.Tag):
+            msg_key = comp.Value.from_python("message")
+            msg_val = val.data.get(msg_key)
+            msg = msg_val.data if msg_val and isinstance(msg_val.data, str) else "(no message)"
+            raise comp.CodeError(
+                f"Validation pipeline failed: {fail_val.data.qualified}: {msg}"
+            )
         callout = _value_to_callout(val)
         if callout is not None:
             found.append(callout)
@@ -592,16 +460,3 @@ def exception_to_callout(exc, stmt=None, source_file=None):
     )
 
 
-def callout_to_exception(callout):
-    """Promote an error Callout to the appropriate Python exception.
-
-    Args:
-        callout: (Callout) The callout to convert
-
-    Returns:
-        (Exception) ParseError or CodeError
-    """
-    import comp
-    if callout.phase == PHASE_PARSE:
-        return comp.ParseError(callout.message)
-    return comp.CodeError(callout.message)

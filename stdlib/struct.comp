@@ -5,6 +5,7 @@
 !no-default
 !import py comp "py"
 !import loop comp "loop"
+!import branch comp "branch"
 
 !tag undefined&
 
@@ -45,6 +46,22 @@
     | merge
     )
 )
+
+/// Check of all arg fields match values of input struct
+///
+/// Examples:
+///   ({one=1 two=2} | match {two=2}) // true
+///   ({one=1 two=2} | match {two=2 three=3}) // false
+!pure matches ~struct (
+    !param fields ~struct
+    fields
+    | iterate 
+    | every :(
+        !my name = ($.item | field-name)
+        ($$.'name' == $.item.#0) ?? false
+    )
+)
+
 
 /// Generate struct without any field names
 ///

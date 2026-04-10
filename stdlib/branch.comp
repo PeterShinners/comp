@@ -1,8 +1,10 @@
 /// Branching helpers built on pipeline dependencies.
-!no-default
 ///
 /// These operators are meant to be used in pipelines so adjacent stages can
 /// coordinate through !delivers / !deliver / !depend declarations.
+
+!no-default
+!import loop comp "loop"
 
 
 /// Conditional branch entry point.
@@ -175,4 +177,74 @@
     ~true ($ | try then)
     ~false ($ | try else)
     ~any !fail.value "pick condition must be boolean"
+)
+
+
+
+/// Test if any element in a struct satisfies a predicate.
+///
+/// Short-circuits: returns true as soon as the first match is found
+/// without processing remaining elements.
+///
+/// This is similar to Python's `any` builtin function.
+///
+/// Examples:
+///   {1 2 3} -> some :($ > 2)
+///   // true
+///
+///   {1 2 3} -> some :($ > 10)
+///   // false
+///
+///   {false false true false} -> some :pass
+///   // true
+!pure some ~struct (
+    !param test ~invokable=pass
+    !my found = false
+    ($ | iterate :(
+        !my value = ($.item | field-value)
+        !on (value | test)
+        ~true (!my found = true)
+        ~false nil
+        // Last expression: stop on match, skip on no match
+        !on found
+        ~true stop
+        ~false skip
+        ~any !fail.value "Operation for some is not bool"
+    ))
+    found
+)
+
+
+/// Test if all elements in a struct satisfy a predicate.
+///
+/// Short-circuits: returns false as soon as the first non-match is found
+/// without processing remaining elements.
+///
+///
+/// This is similar to Python's `all` builtin function.
+///
+/// Examples:
+///   {2 4 6} -> every :($ > 0)
+///   // true
+///
+///   {2 -3 6} -> every :($ > 0)
+///   // false
+///
+///   {true true true} -> every :pass
+///   // true
+!pure every ~struct (
+    !param test ~invokable=pass
+    !my passed = true
+    ($ | iterate :(
+        !my value = ($.item | field-value)
+        !on (value | test)
+        ~true nil
+        ~false (!my passed = false)
+        // Last expression: stop on failure, skip on pass
+        !on passed
+        ~false stop
+        ~true skip
+        ~any !fail.value "Operation for every is not bool"
+    ))
+    passed
 )

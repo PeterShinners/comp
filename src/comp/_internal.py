@@ -270,6 +270,7 @@ class SystemModule(comp.Module):
         self._add_callable("field-name", _builtin_field_name, pure=True)
         self._add_callable("field-value", _builtin_field_value, pure=True)
         self._add_callable("merge", _builtin_merge, pure=True)
+        self._add_callable("collect", _builtin_collect, pure=True, input_shape=comp.shape_struct)
 
         self._add_callable("wrap", _builtin_wrap)
         self._add_callable("fmt", _builtin_fmt, pure=True)
@@ -284,10 +285,9 @@ class SystemModule(comp.Module):
         self._add_callable("flat", _builtin_flat)
         self._add_callable("reduce", _builtin_reduce)
         self._add_callable("forever", _builtin_forever, pure=True)
-        self._add_callable("walk-cop", _builtin_walk_cop, pure=True)
         self._add_callable("is-pure", _builtin_is_pure, pure=True)
+        self._add_callable("walk-cop", _builtin_walk_cop, pure=True)
         self._add_callable("apply", _builtin_apply, pure=True)
-        self._add_callable("collect", _builtin_collect, pure=True, input_shape=comp.shape_struct)
 
     def _add_definition(self, name, value, shape):
         """Add a builtin definition with proper value and COP setup.
@@ -586,7 +586,7 @@ def _builtin_merge(input_val, args_val, frame):
     if input_val.shape != comp.shape_struct:
         raise comp.CodeError("merge requires struct input")
     if len(input_val.data) == 0:
-        raise comp.CodeError("merge input must not be empty")
+        return comp.Value.from_python({})
 
     result = {}
     for container in input_val.data.values():
@@ -1366,117 +1366,81 @@ def _builtin_is_pure(input_val, args_val, frame):
 
 
 def _builtin_walk_cop(input_val, args_val, frame):
-    """Walk a COP tree depth-first, calling a block on each node.
+    """Walk a native COP value and return native match contexts.
 
-    The block receives piped ($) a struct:
-        $.node   - the current COP node
-        $.depth  - tree depth (0 for root)
-        $.accum  - accumulated value from parent
-
-    The block should return a struct:
-        $.callouts - struct of callout values to collect (or {} for none)
-        $.accum    - value to pass to child traversals
-    Returning ~flow-control.skip skips recursion into children.
-    Any non-struct return is treated as a single callout to collect.
-
-    Args (positional):
-        op:      (block) Called on each matching node
-    Named args:
-        filter:  (text) COP tag to filter for ("" means all nodes)
-        initial: (any)  Initial accumulator value
-
-    Usage:
-        cop-node | walk-cop filter="value.constant" initial=nil :(... block ...)
+    This keeps the Comp-facing contract as native COP nodes while delegating
+    the actual path discovery to comp.runtime.pure.walk_cop.
     """
-    args_data = args_val.data if isinstance(args_val.data, dict) else {}
+    from comp._py import _comp_to_python
+    from comp.runtime import pure as _runtime_pure
 
-    # Extract the block from the first positional arg
-    op_val = None
-    for k, v in args_data.items():
-        if isinstance(k, comp.Unnamed):
-            op_val = v
-            break
+    if input_val is None or not isinstance(input_val.data, dict):
+        raise comp.CodeError("walk-cop requires a COP struct as piped input")
 
-    if op_val is None:
-        raise comp.CodeError("walk-cop requires a callable as positional argument")
+    def _named_arg(name, default=None):
+        if not isinstance(args_val.data, dict):
+            return default
+        return args_val.data.get(comp.Value.from_python(name), default)
 
-    # Extract named args
-    filter_text = ""
-    initial_accum = comp.Value.from_python(comp.tag_nil)
-    for k, v in args_data.items():
-        if not isinstance(k, comp.Unnamed):
-            key_str = k.data if hasattr(k, "data") else str(k)
-            if key_str == "filter":
-                filter_text = v.data if isinstance(v.data, str) else ""
-            elif key_str == "initial":
-                initial_accum = v
+    def _follow_path(root, path):
+        current = root
+        for index in path:
+            kids = current.data.get(comp.Value.from_python("kids"))
+            if kids is None or not isinstance(kids.data, dict):
+                raise comp.CodeError("walk-cop: invalid COP path traversal")
+            current = kids.positional(index)
+        return current
 
-    _empty_args = comp.Value.from_python({})
-    collected = []
+    def _as_text(value):
+        if value is None:
+            return None
+        converted = _comp_to_python(value)
+        if converted is None:
+            return None
+        return converted if isinstance(converted, str) else str(converted)
 
-    def walk(node, depth, accum):
-        tag_name = comp.cop_tag(node)
+    def _as_fields(value):
+        if value is None:
+            return {}
+        converted = _comp_to_python(value)
+        return converted if isinstance(converted, dict) else {}
 
-        # Check filter
-        matches = (not filter_text) or (tag_name == filter_text)
+    def _as_bool(value, default=True):
+        if value is None:
+            return default
+        converted = _comp_to_python(value)
+        if converted is None:
+            return default
+        return bool(converted)
 
-        skip_children = False
-        if matches:
-            context = comp.Value.from_python({
-                "node": node,
-                "depth": comp.Value((depth, 1, 0)),
-                "accum": accum,
-            })
-            result = frame.invoke_block(op_val, _empty_args, piped=context)
+    filter_val = _named_arg("filter")
+    fields_val = _named_arg("fields", comp.Value.from_python({}))
+    order_val = _named_arg("order")
+    recurse_val = _named_arg("recurse")
+    stop_val = _named_arg("stop-on-match", comp.Value.from_python(True))
 
-            # nil return: no findings, keep accum unchanged
-            if isinstance(result.data, comp.Tag) and result.data is comp.tag_nil:
-                pass
+    matches = _runtime_pure.walk_cop(
+        _comp_to_python(input_val),
+        filter=_as_text(filter_val),
+        fields=_as_fields(fields_val),
+        order=_as_text(order_val) or "all",
+        recurse=_as_text(recurse_val) or "deep",
+        stop_on_match=_as_bool(stop_val),
+    )
 
-            # Handle flow-control skip (skip children)
-            elif isinstance(result.data, comp.Tag):
-                if result.data is comp.tag_flow_skip:
-                    skip_children = True
+    native_matches = []
+    for match in matches:
+        path = match.get("path") or []
+        parent_path = match.get("parent")
+        native_matches.append({
+            "node": _follow_path(input_val, path),
+            "parent": comp.Value.from_python(None) if parent_path is None else _follow_path(input_val, parent_path),
+            "depth": match.get("depth", 0),
+            "position": match.get("position", 0),
+            "order": match.get("order", "all"),
+        })
 
-            # Extract callouts and accum from result struct
-            elif isinstance(result.data, dict):
-                callouts_key = comp.Value.from_python("callouts")
-                accum_key = comp.Value.from_python("accum")
-                recurse_key = comp.Value.from_python("recurse")
-
-                callouts_val = result.data.get(callouts_key)
-                new_accum = result.data.get(accum_key, accum)
-
-                recurse_val = result.data.get(recurse_key)
-                if recurse_val is not None and isinstance(recurse_val.data, comp.Tag):
-                    if recurse_val.data is comp.tag_false:
-                        skip_children = True
-
-                # Collect callouts
-                if callouts_val is not None and isinstance(callouts_val.data, dict):
-                    for cv in callouts_val.data.values():
-                        collected.append(cv)
-
-                accum = new_accum
-            else:
-                # Non-struct, non-nil, non-skip return: treat as single callout
-                collected.append(result)
-
-        # Recurse children
-        if not skip_children:
-            kids = comp.cop_kids(node)
-            for kid in kids:
-                accum = walk(kid, depth + 1, accum)
-
-        return accum
-
-    walk(input_val, 0, initial_accum)
-
-    # Build result struct from collected callouts
-    result_data = {}
-    for item in collected:
-        result_data[comp.Unnamed()] = item
-    return comp.Value.from_python(result_data)
+    return comp.Value.from_python(native_matches)
 
 
 def _builtin_apply(input_val, args_val, frame):

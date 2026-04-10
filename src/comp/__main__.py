@@ -1100,8 +1100,11 @@ def main():
         return
 
     if args.callouts:
-        interp.build_instructions()
-        callouts = interp.callouts(module=mod, min_severity=comp.INFO)
+        try:
+            interp.build_instructions()
+        except comp.CodeError:
+            pass  # Callout validation should continue even if there are build errors
+        callouts = interp.callouts(module=mod, min_severity=comp.HINT)
         if not callouts:
             print("No callouts.")
             return 0
@@ -1155,8 +1158,10 @@ def main():
         except (comp.ParseError, comp.CodeError) as e:
             if isinstance(e, comp.CodeError):
                 callout_code = getattr(e, "callout_code", None)
-                if callout_code in ("validator-exception", "validator-failure"):
-                    label = "Internal callout failure"
+                if callout_code in ("validator-exception", "validator-failure", "validator-runtime-corrupt", "validator-not-initialized"):
+                    label = "Internal validation failure"
+                elif callout_code is not None:
+                    label = "Validation failure"
                 else:
                     label = "Build failure"
                 print(_format_code_error(e, label), file=sys.stderr)

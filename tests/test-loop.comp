@@ -33,22 +33,6 @@
 )
 
 
-!func some.test-match-found ~nil (
-    {1 2 3} | some :($ > 2) | is true
-)
-!func some.test-no-match ~nil (
-    {1 2 3} | some :($ > 10) | is false
-)
-
-
-!func every.test-all-pass ~nil (
-    {2 4 6} | every :($ > 0) | is true
-)
-!func every.test-one-fails ~nil (
-    {2 -3 6} | every :($ > 0) | is false
-)
-
-
 !func range.test-zero-start ~nil (
     nil | range 0 3 | is {0 1 2 3}
 )

@@ -381,6 +381,19 @@ def _resolve_raw_tag(raw_tag, shape_tag):
     return defn.value, None
 
 
+def _get_tag_constraints(constraint):
+    """Extract Tag members from a shape constraint for Phase 2 tag matching.
+
+    Returns a list of Tag objects to try. A direct Tag yields [tag].
+    A ShapeUnion yields all Tag members. Anything else yields [].
+    """
+    if isinstance(constraint, comp.Tag):
+        return [constraint]
+    if isinstance(constraint, comp.ShapeUnion):
+        return [s for s in constraint.shapes if isinstance(s, comp.Tag)]
+    return []
+
+
 def _check_type(value, shape_constraint, frame):
     """Check if a value matches a shape constraint.
 
@@ -566,14 +579,12 @@ def _morph_core(value, shape, frame):
             return MorphResult.failed(f"Value does not match any member of {_shape_name(shape)}")
         return best_result
 
-    # ~nil is a universal sink: any value morphed to ~nil produces nil
-    # Score is as low as possible so any specific shape match wins.
+    # ~nil only matches nil values
     if isinstance(shape, comp.Tag) and shape is comp.tag_nil:
         nil_val = comp.Value(comp.tag_nil)
-        # If the value is already nil, it's an exact match — normal score
         if isinstance(value.data, comp.Tag) and value.data is comp.tag_nil:
             return MorphResult(nil_val, 0, 0, 4, 1)
-        return MorphResult(nil_val, -1, 0, 0, 0)
+        return MorphResult.failed("Value is not nil")
 
     # Get shape fields (Tags have no fields, they just act as type constraints)
     shape_fields = getattr(shape, "fields", None) or []
@@ -675,8 +686,9 @@ def _morph_core(value, shape, frame):
             continue  # Already matched
 
         constraint = _resolve_shape_field(shape_field, frame)
-        if not isinstance(constraint, comp.Tag):
-            continue  # Only tag constraints participate in tag matching
+        tag_constraints = _get_tag_constraints(constraint)
+        if not tag_constraints:
+            continue  # Only tag constraints (direct or via ShapeUnion) participate
 
         best_match = None
         best_depth = None
@@ -688,15 +700,17 @@ def _morph_core(value, shape, frame):
             if inp["tag"] is None:
                 continue
 
-            depth = _tag_matches_shape(inp["tag"], constraint)
-            if depth is not None:
-                us = _unit_match_score(inp["value"].unit, shape_field.unit)
-                if us == -1:
-                    continue
-                if best_depth is None or depth < best_depth:
-                    best_match = inp
-                    best_depth = depth
-                    best_us = us
+            for tag_con in tag_constraints:
+                depth = _tag_matches_shape(inp["tag"], tag_con)
+                if depth is not None:
+                    us = _unit_match_score(inp["value"].unit, shape_field.unit)
+                    if us == -1:
+                        break
+                    if best_depth is None or depth < best_depth:
+                        best_match = inp
+                        best_depth = depth
+                        best_us = us
+                    break  # matched one tag constraint; no need to try others for this input
 
         if best_match and best_depth is not None:
             shape_matches[i] = best_match
@@ -711,6 +725,7 @@ def _morph_core(value, shape, frame):
 
         # No direct Tag match. Try promoting RawTag values to Tag for this
         # tag-constrained field. This keeps regular Tag values as higher priority.
+        # Try each Tag member of the constraint (direct Tag or ShapeUnion members).
         promoted_match = None
         promoted_depth = None
         promoted_value = None
@@ -722,27 +737,29 @@ def _morph_core(value, shape, frame):
             if not isinstance(inp["value"].data, comp.RawTag):
                 continue
 
-            resolved, _reason = _resolve_raw_tag(inp["value"].data, constraint)
-            if resolved is None:
-                continue
-
-            resolved_tag = resolved.data
-            if resolved_tag.qualified == constraint.qualified:
-                depth = 0
-            else:
-                depth = _tag_matches_shape(resolved_tag, constraint)
-                if depth is None:
+            for tag_con in tag_constraints:
+                resolved, _reason = _resolve_raw_tag(inp["value"].data, tag_con)
+                if resolved is None:
                     continue
 
-            us = _unit_match_score(resolved.unit, shape_field.unit)
-            if us == -1:
-                continue
+                resolved_tag = resolved.data
+                if resolved_tag.qualified == tag_con.qualified:
+                    depth = 0
+                else:
+                    depth = _tag_matches_shape(resolved_tag, tag_con)
+                    if depth is None:
+                        continue
 
-            if promoted_depth is None or depth < promoted_depth:
-                promoted_match = inp
-                promoted_depth = depth
-                promoted_value = resolved
-                promoted_us = us
+                us = _unit_match_score(resolved.unit, shape_field.unit)
+                if us == -1:
+                    break
+
+                if promoted_depth is None or depth < promoted_depth:
+                    promoted_match = inp
+                    promoted_depth = depth
+                    promoted_value = resolved
+                    promoted_us = us
+                break  # matched one tag constraint; no need to try others for this input
 
         if promoted_match and promoted_depth is not None and promoted_value is not None:
             promoted_inp = dict(promoted_match, value=promoted_value)
@@ -881,9 +898,11 @@ def mask(value, shape, frame):
                 return result_val, None
         return None, f"Value does not match any member of {_shape_name(shape)}"
 
-    # ~nil is a universal sink: any value masked to ~nil produces nil
+    # ~nil only matches nil values
     if isinstance(shape, comp.Tag) and shape is comp.tag_nil:
-        return comp.Value(comp.tag_nil), None
+        if isinstance(value.data, comp.Tag) and value.data is comp.tag_nil:
+            return comp.Value(comp.tag_nil), None
+        return None, "Value is not nil"
 
     # Get shape fields (Tags have no fields, they just act as type constraints)
     shape_fields = getattr(shape, "fields", None) or []
@@ -948,8 +967,9 @@ def mask(value, shape, frame):
             continue
 
         constraint = _resolve_shape_field(shape_field, frame)
-        if not isinstance(constraint, comp.Tag):
-            continue
+        tag_constraints = _get_tag_constraints(constraint)
+        if not tag_constraints:
+            continue  # Only tag constraints (direct or via ShapeUnion) participate
 
         best_match = None
         best_depth = None
@@ -960,15 +980,53 @@ def mask(value, shape, frame):
             if inp["tag"] is None:
                 continue
 
-            depth = _tag_matches_shape(inp["tag"], constraint)
-            if depth is not None:
-                if best_depth is None or depth < best_depth:
-                    best_match = inp
-                    best_depth = depth
+            for tag_con in tag_constraints:
+                depth = _tag_matches_shape(inp["tag"], tag_con)
+                if depth is not None:
+                    if best_depth is None or depth < best_depth:
+                        best_match = inp
+                        best_depth = depth
+                    break  # matched one tag constraint; no need to try others for this input
 
         if best_match:
             shape_matches[i] = best_match
             best_match["matched"] = True
+            continue
+
+        # No direct Tag match. Try promoting RawTag values to Tag for this
+        # tag-constrained field. This keeps regular Tag values as higher priority.
+        promoted_match = None
+        promoted_depth = None
+        promoted_value = None
+
+        for inp in input_fields:
+            if inp["matched"]:
+                continue
+            if not isinstance(inp["value"].data, comp.RawTag):
+                continue
+
+            for tag_con in tag_constraints:
+                resolved, _reason = _resolve_raw_tag(inp["value"].data, tag_con)
+                if resolved is None:
+                    continue
+
+                resolved_tag = resolved.data
+                if resolved_tag.qualified == tag_con.qualified:
+                    depth = 0
+                else:
+                    depth = _tag_matches_shape(resolved_tag, tag_con)
+                    if depth is None:
+                        continue
+
+                if promoted_depth is None or depth < promoted_depth:
+                    promoted_match = inp
+                    promoted_depth = depth
+                    promoted_value = resolved
+                break  # matched one tag constraint; no need to try others for this input
+
+        if promoted_match and promoted_depth is not None and promoted_value is not None:
+            shape_matches[i] = dict(promoted_match, value=promoted_value)
+            promoted_match["matched"] = True
 
     # Phase 3: Positional matching
     # Only match positional (unnamed) input fields - named fields that didn't match are dropped

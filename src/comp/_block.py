@@ -34,6 +34,8 @@ class Block:
 
     __slots__ = (
         "qualified",
+        "origin_name",
+        "share_closure_env",
         "module",
         "pure",
         "input_shape",
@@ -55,6 +57,8 @@ class Block:
 
     def __init__(self, qualified):
         self.qualified = qualified
+        self.origin_name = None
+        self.share_closure_env = False
         self.module = None
         self.pure = False
         self.input_shape = None
@@ -188,7 +192,18 @@ class Callable:
     def format(self):
         """Format for display."""
         if self.entries:
-            names = [getattr(b, "qualified", getattr(b, "name", "?")) for b in self.entries]
+            names = []
+            for entry in self.entries:
+                name = getattr(entry, "qualified", getattr(entry, "name", "?"))
+                if name == "anonymous":
+                    origin = getattr(entry, "origin_name", None) or getattr(entry, "dispatch_set_name", None)
+                    if isinstance(origin, str) and origin:
+                        pretty = origin
+                        if origin.startswith("!main."):
+                            pretty = origin.split(".", 1)[1]
+                        names.append(f"block from '{pretty}'")
+                        continue
+                names.append(name)
             return f"callable({', '.join(names)})"
         if self.shape:
             return f"callable(~{getattr(self.shape, 'qualified', str(self.shape))})"

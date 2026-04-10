@@ -8,6 +8,7 @@ stack for instruction execution.
 import hashlib
 import os
 import sys
+from collections import ChainMap
 from pathlib import Path
 
 import comp
@@ -148,16 +149,16 @@ class Interp:
         # Guard to avoid recursive callout validation while building callout stdlib.
         self._disable_build_validations = 0
         self._callout_mod = None
+        self._bootstrapping_callout = False
+        self._run_build_validations = True
         # Populated by build_namespaces/build_instructions when timing is needed.
         self.timings = {}
         # Set to True to print a line to stderr for every module load/cache-hit.
         self.trace_imports = False
 
-        # Callout validation disabled — the callout stdlib (written in comp)
-        # can't bootstrap reliably yet after the syntax rework. Re-enable
-        # _init_callout() once the language is stable enough to self-host
-        # validation code.
-        # self._init_callout()
+        # Bootstrap callout stdlib immediately so startup fails early and
+        # loudly if validation infrastructure is broken.
+        self._init_callout()
 
     def __del__(self):
         for fd in getattr(self, 'search_fds', []):
@@ -587,11 +588,13 @@ class Interp:
 
         all_modules = self._all_modules()
 
-        # Resolve + fold + validate each definition via Definition.callouts()
-        # Definitions with error callouts are marked to skip codegen.
+        # Resolve + fold each definition. Validation remains disabled in normal
+        # builds, but callout bootstrap still happens at interpreter startup.
+        # When enabled in the future, definitions with error callouts are
+        # marked to skip codegen.
         # Skip validation when building the callout stdlib itself.
         failed_defs = set()
-        skip_validation = self._disable_build_validations > 0
+        skip_validation = (not self._run_build_validations) or (self._disable_build_validations > 0)
         _t0 = _time.perf_counter()
         _callout_bootstrap_before = self.timings.get("callout.bootstrap", 0.0)
         for mod in all_modules:
@@ -609,22 +612,28 @@ class Interp:
                     )
                 defn.resolved_cop = comp.coptimize(defn.resolved_cop, True, mod_ns)
 
-                # Comp-side callout validation disabled for now — see __init__.
-                # if not skip_validation:
-                #     defn_callouts = comp._callout.cop_callouts(defn, interp=self, namespace=mod_ns)
-                #     for c in defn_callouts:
-                #         if c.severity == comp.ERROR:
-                #             failed_defs.add(id(defn))
-                #             err = comp.CodeError(c.message)
-                #             if c.primary and c.primary.span:
-                #                 s = c.primary.span
-                #                 err.row = s.line
-                #                 err.col = s.col
-                #                 err.end_col = s.col + s.length
-                #             err.module = mod
-                #             err.callout_code = c.code
-                #             errors.append((mod, err))
-                #             break
+                if not skip_validation:
+                    defn_callouts = comp._callout.cop_callouts(
+                        defn,
+                        min_severity=comp.ERROR,
+                        interp=self,
+                        namespace=mod_ns,
+                    )
+                    for c in defn_callouts:
+                        if c.severity == comp.ERROR:
+                            failed_defs.add(id(defn))
+                            err = comp.CodeError(
+                                f"Validation failed before codegen while checking `{defn.qualified}`: {c.message}"
+                            )
+                            if c.primary and c.primary.span:
+                                s = c.primary.span
+                                err.row = s.line
+                                err.col = s.col
+                                err.end_col = s.col + s.length
+                            err.module = mod
+                            err.definition_name = defn.qualified
+                            err.callout_code = c.code
+                            raise err
         _t1 = _time.perf_counter()
         _callout_bootstrap_after = self.timings.get("callout.bootstrap", 0.0)
         self.timings["build.resolve_fold_validate"] = (
@@ -923,25 +932,31 @@ class Interp:
         Sets self._callout_mod on success; resets self._phase to 0 so the
         subsequent user-module build cycle starts clean.
         """
+        self._bootstrapping_callout = True
         try:
-            callout_mod = self.module("callout")
-        except comp.ModuleNotFoundError:
-            return  # no callout stdlib; validation degrades gracefully
+            try:
+                callout_mod = self.module("callout")
+            except comp.ModuleNotFoundError as exc:
+                raise comp.CodeError("Required stdlib module 'callout' was not found") from exc
 
-        self._disable_build_validations += 1
-        try:
-            errors = self.build_instructions()
+            self._disable_build_validations += 1
+            try:
+                errors = self.build_instructions()
+            finally:
+                self._disable_build_validations -= 1
+                # Reset phase so the user-module build cycle runs from scratch.
+                self._phase = 0
+
+            # Any error at this point is a stdlib defect — explode loudly.
+            # (Only stdlib modules exist during __init__, so every error is ours.)
+            if errors:
+                raise errors[0][1]
+
+            self._callout_mod = callout_mod
+            if self._callout_mod is None:
+                raise comp.CodeError("Callout bootstrap completed without a callout module")
         finally:
-            self._disable_build_validations -= 1
-            # Reset phase so the user-module build cycle runs from scratch.
-            self._phase = 0
-
-        # Any error at this point is a stdlib defect — explode loudly.
-        # (Only stdlib modules exist during __init__, so every error is ours.)
-        if errors:
-            raise errors[0][1]
-
-        self._callout_mod = callout_mod
+            self._bootstrapping_callout = False
 
     def _new_module(self, module):
         """Internally scan and register module."""
@@ -951,15 +966,18 @@ class Interp:
         # Adding a module invalidates completed phases — force rebuild
         self._phase = 0
 
-        # Eagerly pull in the callout module so it's part of _all_modules() from
-        # the very first build pass, rather than being bootstrapped mid-validation.
-        # Guard: don't recurse when we're registering callout itself.
-        if (module.source.resource != "callout"
-                and self.module_cache.get("callout") is None):
-            try:
-                self.module("callout")
-            except comp.ModuleNotFoundError:
-                pass  # callout stdlib not present; validation degrades gracefully
+        # Callout must be bootstrapped during interpreter initialization.
+        # If this invariant is broken, fail immediately.
+        _resource = getattr(module.source, "resource", "") or ""
+        _is_callout_resource = (
+            _resource in ("callout", "callout.comp")
+            or _resource.endswith("/callout.comp")
+            or _resource.endswith("\\callout.comp")
+        )
+        if (not _is_callout_resource
+            and not self._bootstrapping_callout
+            and self._callout_mod is None):
+            raise comp.CodeError("Callout module is not initialized")
 
         # Eagerly pull in the default module so its aliases are available to
         # every module that doesn't declare !no-default.
@@ -1344,9 +1362,15 @@ class ExecutionFrame:
                 source_cop=source_cop,
             )
 
-        # Share the closure environment directly — StoreLocal mutations
-        # persist across invocations (e.g. a counter's !let count count+1).
-        new_env = block.closure_env
+        # Named/module-built blocks get a fresh invocation scope each call.
+        # Blocks created during a function invocation share that function's
+        # scope so nested blocks still see and mutate the same locals.
+        if getattr(block, "share_closure_env", False):
+            new_env = block.closure_env
+        else:
+            # Per-call locals overlay the captured scope without cloning the
+            # entire module/function environment for every invocation.
+            new_env = ChainMap({}, block.closure_env)
         # Bind __self__ so !forward can locate the current Callable
         _self_callable = comp.Callable(block.qualified)
         _self_callable.add(block)

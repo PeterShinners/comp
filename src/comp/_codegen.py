@@ -702,6 +702,14 @@ class CodeGenContext:
                     struct_reg=result,
                     field=field_name
                 ))
+            elif field_tag == "ident.text":
+                # Quoted text field access: struct."fieldname"
+                field_name = field_token.to_python("value")
+                result = self.emit(comp._instructions.GetField(
+                    cop=cop,
+                    struct_reg=result,
+                    field=field_name
+                ))
             elif field_tag == "ident.index":
                 # Positional field access: struct.#N (0-based)
                 index_str = field_token.to_python("value")
@@ -721,6 +729,17 @@ class CodeGenContext:
                     cop=cop,
                     struct_reg=result,
                     index_reg=index_reg
+                ))
+            elif field_tag == "ident.expr":
+                # Dynamic field access: struct.'(expr)'
+                expr_kids = _cop_kids(field_token)
+                if not expr_kids:
+                    raise comp.CodeError("expr field has no expression", cop)
+                field_reg = self._build_value_ensure_register(expr_kids[0])
+                result = self.emit(comp._instructions.GetDynamicField(
+                    cop=cop,
+                    struct_reg=result,
+                    field_reg=field_reg
                 ))
             else:
                 # Produce a helpful message for namespace references in field position
@@ -922,8 +941,7 @@ class CodeGenContext:
         """Build statement.define instructions.
 
         Each kid is a statement.field; evaluate the last one as the result.
-        The result is auto-invoked: if callable it is called with empty args,
-        otherwise it is returned as-is. This is how (four) calls four.
+        The final result is returned as-is (including callables).
         An empty statement produces an empty struct.
         """
         field_kids = _cop_kids(cop)
@@ -1566,6 +1584,9 @@ def _apply_field_access(ctx, cop, result, field_kids):
         if field_tag == "ident.token":
             field_name = kid.to_python("value")
             result = ctx.emit(comp._instructions.GetField(cop=cop, field=field_name, struct_reg=result))
+        elif field_tag == "ident.text":
+            field_name = kid.to_python("value")
+            result = ctx.emit(comp._instructions.GetField(cop=cop, field=field_name, struct_reg=result))
         elif field_tag == "ident.index":
             index_str = kid.to_python("value")
             result = ctx.emit(comp._instructions.GetIndex(cop=cop, struct_reg=result, index=int(index_str)))
@@ -1575,6 +1596,12 @@ def _apply_field_access(ctx, cop, result, field_kids):
                 raise comp.CodeError("indexpr has no expression", cop)
             index_reg = ctx._build_value_ensure_register(expr_kids[0])
             result = ctx.emit(comp._instructions.GetDynamicIndex(cop=cop, struct_reg=result, index_reg=index_reg))
+        elif field_tag == "ident.expr":
+            expr_kids = _cop_kids(kid)
+            if not expr_kids:
+                raise comp.CodeError("expr field has no expression", cop)
+            field_reg = ctx._build_value_ensure_register(expr_kids[0])
+            result = ctx.emit(comp._instructions.GetDynamicField(cop=cop, struct_reg=result, field_reg=field_reg))
         else:
             raise comp.CodeError(f"Unsupported field access token: {field_tag}", cop)
     return result

@@ -92,3 +92,57 @@
     !on ($ == value) ~false !fail "Result %($) is not %(value)"
     $
 )
+
+
+!func some.test-match-found ~nil (
+    {1 2 3} | some :($ > 2) | is true
+)
+!func some.test-no-match ~nil (
+    {1 2 3} | some :($ > 10) | is false
+)
+
+
+!func every.test-all-pass ~nil (
+    {2 4 6} | every :($ > 0) | is true
+)
+!func every.test-one-fails ~nil (
+    {2 -3 6} | every :($ > 0) | is false
+)
+
+
+!func fallback-operator.test-field-access ~nil (
+    !my data = {x=1}
+    (data.missing-field ?? "default") | is "default"
+)
+!func fallback-operator.test-nested-in-statement ~nil (
+    !my data = {y=2}
+    (data.missing ?? 99) | is 99
+)
+
+
+!func scope.test-recursive-function-locals-isolated ~nil (
+    6 | countdown-check | is 0
+)
+
+!func scope.test-nested-block-shares-function-locals ~nil (
+    !my total = 0
+    !my done = ({1 2 3} | every :(
+        !my total = (total + $)
+        true
+    ))
+    total | is 6
+)
+
+!func countdown-check ~num (
+    !my n = $
+    !on n == 0
+    ~true 0
+    ~false (
+        !my original = n
+        !my child = ((n - 1) | countdown-check)
+        !on original == n
+        ~true child
+        ~false !fail @fmt"recursive local changed from %(original) to %(n)"
+    )
+)
+
