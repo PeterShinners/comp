@@ -51,15 +51,16 @@ def prettylark(node, indent=0, show_positions=False):
         print(f"{prefix}??? {type(node).__name__}: {node!r}")
 
 
-def prettycop(cop, field=None, indent=0, show_pos=False):
+def prettycop(cop, field=None, indent=0, show_pos=False, preserved=False):
     """Pretty-print a cop structure."""
     ind = '  ' * indent
+    marker = "/ " if preserved else ""
     if field:
         ind += f"{field}="
     if cop.shape is not comp.shape_struct or (
                 cop.data and not isinstance(cop.positional(0).data, comp.Tag)):
         valcop = cop.cop.format() if cop.cop else ""
-        print(f"{ind}{cop.format()} <{cop.shape.qualified}> {valcop}")
+        print(f"{ind}{marker}{cop.format()} <{cop.shape.qualified}> {valcop}")
         return
 
     items = list(cop.data.items())
@@ -84,10 +85,11 @@ def prettycop(cop, field=None, indent=0, show_pos=False):
                 formatted = formatted[9:]
             tokens.append(formatted)
     line = " ".join(tokens)
-    print(f"{ind}{line}{pos}")
+    print(f"{ind}{marker}{line}{pos}")
+    next_preserved = comp.cop_tag(cop) == "value.constant" and bool(kids)
     for field, child in kids:
         field = field.to_python() if not isinstance(field, comp.Unnamed) else None
-        prettycop(child, field=field, indent=indent + 1, show_pos=show_pos)
+        prettycop(child, field=field, indent=indent + 1, show_pos=show_pos, preserved=next_preserved)
 
 
 def prettymodule(module):

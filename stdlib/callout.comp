@@ -14,18 +14,13 @@
 /// Pipeline phases (in order):
 ///   callout.phase.parse    — lark grammar / token errors
 ///   callout.phase.cop      — raw cop node construction
-///   callout.phase.resolve  — name resolution
 ///   callout.phase.codegen  — instruction generation
 
 
 !no-default
-!import n comp "num"
-!import loop comp "loop"
-!import s comp "struct"
-!import py comp "py"
-!import cop comp "cop"
 !import branch comp "branch"
-
+!import loop comp "loop"
+!import cop comp "cop"
 
 /// Severity level tags for callouts
 !tag callout.severity { error warning info hint }
@@ -33,11 +28,8 @@
 /// Pipeline phase tags — which build stage produced a callout.
 !tag callout.phase { parse cop codegen }
 
-/// Selector controls for COP walking.
-!tag copwalk.order { all first last }
-!tag copwalk.recurse { deep shallow near }
-
 /// Severity ordering: error=0, warning=1, info=2, hint=3 (lower = more severe).
+// todo eventually want a tag value/naming concept that makes this easier
 !pure severity-rank ~callout.severity (
     !on $
     ~callout.severity.error   0
@@ -45,20 +37,6 @@
     ~callout.severity.info    2
     ~callout.severity.hint    3
     ~any 4
-)
-
-
-// ===== COP introspection wrappers =====
-// Thin wrappers around comp.runtime.pure that give cop-* functions
-// their natural pipe style. Each wraps the input in {$} so the whole
-// node reaches Python as a single positional argument.
-
-!pure cop-tag ~any ({$} | py.pure-call "comp.runtime.pure.cop_tag")
-!pure cop-pattern-key ~any (!fail "never call pattern-key ever")
-!pure find-duplicates ~any (!fail "never call find-duplicates ever")
-!pure contains-field ~any (
-    !param name ~text
-    ({$ name} | py.pure-call "comp.runtime.pure.contains_field")
 )
 
 
@@ -71,246 +49,106 @@
 }
 
 /// used by validations that just want a generic callout
-!shape simple-callout ~{
-    cop~cop-node
+!shape simple-callout& ~{
+    cop~cop.cop-node
     code~text
     message~text
 }
 
 /// Promote simple callouts data into full callout structs
-!pure complete-callouts ~struct (
+!pure complete-callouts& ~struct (
     !param severity~callout.severity
-    $ | map :(
+    $ 
+    | merge
+    | map :(
         !on $
         ~callout $
-        ~simple-callout {
+        ~simple-callout ($ | simple-callout | :{
             severity=severity
             code = $.code
             message= $.message
             phase = phase.cop
             pos = $.cop.pos ?? nil
-        }
+        })
         ~nil skip
         ~any skip
     )
 )
 
-/// Build a cop-walk result with a single callout finding.
-/// Pipe the COP node as input ($). Returns the {callouts={...} accum={}} struct.
-!pure cop-callout ~any (
-    !param severity ~callout.severity
+
+!pure cops-find& ~cop-node (
+    !param filter ~(cop.cop-type | nil) = nil
+    !param recurse ~cop.copwalk.recurse = cop.copwalk.recurse.deep
+    !param where ~invokable = true
+    !param order ~cop.copwalk.order = cop.copwalk.order.all
+    $
+    | cop-walk filter=filter order=order recurse=recurse stop-on-match=false visit=:($.node)
+    | loop.where where
+)
+
+
+!pure cops-with& ~cop-node* (
+    !param filter ~(cop.cop-type | nil) = nil
+    !param recurse ~cop.copwalk.recurse = cop.copwalk.recurse.deep
+    !param where ~invokable
+    !param order ~cop.copwalk.order = cop.copwalk.order.all
+    $ | loop.where :(
+        $
+        | cop-walk filter=filter order=order recurse=recurse visit=where
+        | some
+    )
+)
+
+!pure cops-callout& ~cop-node* (
     !param code ~text
     !param message ~text
-    {callouts={{
-        severity=severity
-        code=code
-        message=message
-        phase=callout.phase.cop
-        pos=$.pos ?? nil
-    }} accum={}}
-)
-
-
-!shape cop-node ~{
-    type~cop-type
-    // optional kids
-    // recommended position
-}
-
-!pure copwalk-order-tag ~text (
-    !on $ == "first"
-    ~true first
-    ~false (
-        !on $ == "last"
-        ~true last
-        ~false all
-    )
-)
-
-!pure cop-walk-step ~cop-node (
-    !param filter ~(cop-type | nil) = nil
-    !param fields ~struct = {}
-    !param order ~copwalk.order = copwalk.order.all
-    !param recurse ~copwalk.recurse = copwalk.recurse.deep
-    !param stop-on-match ~any = false
-    !param depth ~num = 0
-    !param parent ~any|nil = nil
-    !param position ~num = 0
-    !param sibling-count ~num = 1
-    // !param accum ~any = nil
-    !param visit ~invokable
-
-    !my node = $
-    !my tag = node.#0
-
-    !my mode-allows-descend = (
-        !on recurse
-        ~copwalk.recurse.deep true
-        ~copwalk.recurse.shallow (depth == 0)
-        ~copwalk.recurse.near (
-            depth == 0 !or tag == statement.define !or tag == statement.field
-        )
-        ~any true
-    )
-
-    !my matches-order = (
-        !on order
-        ~copwalk.order.first (position == 0)
-        ~copwalk.order.last (position == (sibling-count - 1))
-        ~any true
-    )
-
-    !my matches-filter = (
-        !on filter
-        ~nil true
-        ~any (filter == tag)
-    )
-
-    !my s-matches-result = (node | s.matches fields=fields)
-    
-    !my matches = (
-        matches-filter
-        !and matches-order
-        !and s-matches-result
-    )
-
-    // !my next-accum = accum
-    !my collected = {}
-    !my skip-children = false
-
-    !on matches
-    ~true (
-        !my order-tag = (
-            !on position == 0
-            ~true first
-            ~false (
-                !on position == (sibling-count - 1)
-                ~true last
-                ~false all
-            )
-        )
-        !my send = {
-            node=node
-            parent=parent
-            depth=depth
-            // accum=next-accum
-            position=position
-            order=order-tag
-        }
-        !my result = (send | visit)
-        !on result
-        ~nil nil
-        ~flow-control.skip (!my skip-children = true)
-        ~any (!my collected = {result})
-        !on stop-on-match
-        ~true (!my skip-children = true)
-        ~false nil
-    )
-    ~false nil
-
-    !my should-descend = (mode-allows-descend !and skip-children == false)
-    !on should-descend
-    ~false (
-        collected
-        // {callouts=collected accum=next-accum}
-    )
-    ~true (
-        !my kids = (node.kids ?? {})
-        !my count = (kids | s.length)
-        !my child-callouts = (kids | loop.iterate :(
-            !my idx = $.position
-            !my kid = ($.item | field-value)
-            !my next-depth = (depth + 1)
-            !my result = (kid | cop-walk-step
-                filter=filter
-                fields=fields
-                order=order
-                recurse=recurse
-                stop-on-match=stop-on-match
-                depth=next-depth
-                parent=node
-                position=idx
-                sibling-count=count
-                // accum=next-accum
-                visit=visit
-            )
-            result
-        ))
-        !my flatkids = (child-callouts | merge)
-        !my merged = ({collected flatkids} | merge)
-        merged
-    )
+    $ | map :{
+        $ code=code message=($ | fmt message)
+    }
 )
 
 
 /// Walk COP with defaults so validators only specify what they need.
-!pure cop-walk ~cop-node (
+!pure cop-walk& ~cop.cop-node (
     !param fields ~struct = {}
-    !param filter ~(cop-type | nil) = nil
-    !param initial ~any = {}
-    !param order ~copwalk.order = all
-    !param recurse ~copwalk.recurse = deep
+    !param filter ~(cop.cop-type | nil) = nil
+    !param order ~cop.copwalk.order = cop.copwalk.order.all
+    !param recurse ~cop.copwalk.recurse = cop.copwalk.recurse.deep
     !param stop-on-match ~bool = true
-    !param visit ~invokable
-    !my matches = ($ | walk-cop
+    !param visit ~invokable = pass
+    $ 
+    | cop.walk-cop
         filter=filter
         fields=fields
         order=order
         recurse=recurse
         stop-on-match=stop-on-match
-    )
-    matches | loop.iterate :(
+    | loop.iterate :(
         !my match = ($.item | field-value)
         !my send = {
             node=(match.node ?? nil)
             parent=(match.parent ?? nil)
             depth=(match.depth ?? 0)
             position=(match.position ?? 0)
-            order=((match.order ?? "all") | copwalk-order-tag)
+            order=((match.order ?? "all") | cop.copwalk-order-tag)
         }
         !my result = (send | visit)
-        !on result
-        ~nil skip
-        ~flow-control.skip skip
-        ~any result
+        !on result ~nil skip~flow-control.skip skip ~any result
     )
 )
-
-
-// ===== COP tree walking =====
-
-/// Walk a COP tree depth-first, calling a block on each node.
-///
-/// cop-walk delegates traversal to the runtime walker, then dispatches the
-/// visit block once per native matching node. The block receives piped ($)
-/// a struct:
-///   $.node   — the current COP node
-///   $.parent — the parent COP node, or nil at the root
-///   $.depth  — tree depth (0 for root)
-///   $.position — index among siblings
-///   $.order    — all / first / last
-///
-/// Args:
-///   filter:  (cop-type|text|nil) COP tag value (preferred) or tag text
-///   fields:  (struct) Named field constraints to match on COP node fields
-///   visit:   (block) Called on each matching node
-
-
-// ===== Early validators =====
-// Run on raw COP before name resolution. Structural and scope-local checks only.
 
 
 /// Check for duplicate field names within a single struct literal.
 ///
 /// Example: {x=1 x=2}  →  "duplicate field `x` in struct literal"
-!pure check-duplicate-struct-fields ~cop-node (
+!pure check-duplicate-struct-fields ~cop.cop-node (
 )
 
 
 /// Check for duplicate pattern branches in a single !on dispatch.
 ///
 /// Example: !on x  ~true ...  ~true ...  →  "duplicate branch `~true` in !on"
-!pure check-duplicate-on-branches ~cop-node (
+!pure check-duplicate-on-branches ~cop.cop-node (
 )
 
 
@@ -319,7 +157,7 @@
 /// Any branches written after ~any can never be reached at runtime.
 ///
 /// Example: !on $  ~true 1  ~any 99  ~false 2  →  ~false is unreachable
-!pure check-unreachable-branch ~cop-node (
+!pure check-unreachable-branch ~cop.cop-node (
 )
 
 
@@ -328,24 +166,24 @@
 
 
 /// Check that pure functions do not call impure functions.
-!pure check-pure-calls-impure ~cop-node (
+!pure check-pure-calls-impure ~cop.cop-node (
     !param context ~any = {}
-    !param namespace ~any = nil
+    !param namespace ~any = {}
     !my def-is-pure = (context | ($.pure))
     !on def-is-pure == true !and namespace != nil
     ~false {}
     ~true (
-        ($ | cop-walk filter=cop.cop-type.value.namespace visit=:(
+        $ | cop-walk filter=cop.cop-type.value.namespace visit=:(
             !my node = $.node
             !my name = (node.qualified)
             !on (namespace | is-pure name)
             ~true nil
-            ~false (node | cop-callout
-                severity=callout.severity.error
+            ~false {
+                cop=node
                 code="pure-calls-impure"
-                message=(@fmt"Pure function calls impure function, `%(name)`")
-            )
-        ))
+                message="pure calls impure"
+            }
+        )
     )
 )
 
@@ -353,40 +191,40 @@
 /// Check for unresolved identifier references in the resolved COP tree.
 /// These nodes are planted by the name-resolver as grenades that explode
 /// at codegen; surfacing them early gives cleaner LSP diagnostics.
-!pure check-value-undefined ~cop-node (
-    $ | cop-walk filter=value.undefined visit=:(
-        {cop=$.node code="undefined-name" message="Undefined identifier"}
-    )
+!pure check-value-undefined ~cop.cop-node (
+    $ 
+    | cops-find value.undefined
+    | cops-callout "undefined-name" "Indentifier '%(name)' not defined in namespace"
 )
 
 
 /// Check for division by a constant zero.
-!pure check-zero-division ~cop-node (
-    $ | cop-walk math.binary fields={op="/"} visit=:(
-        $.node | cop-walk value.constant {value=0} last visit=:(
+!pure check-zero-division ~cop.cop-node (
+    ($ | cop-walk filter=math.binary fields={op="/"} visit=:(
+        $.node | cop-walk filter=value.constant fields={value=0} order=cop.copwalk.order.last visit=:(
             {$$.node "zero-division" "Division by zero"}
         )
-    )
+    )) 
+    | merge
 )
 
-
 /// Check for field access on a constant struct where the field is absent.
-!pure check-constant-undefined-field ~cop-node (
+!pure check-constant-undefined-field ~cop.cop-node (
 )
 
 
 /// Check for fold-synthesised failure nodes (guaranteed runtime failures).
-!pure check-constant-fail ~cop-node (
+!pure check-constant-fail ~cop.cop-node (
 
 )
 
 
-/// Check for redundant comparison with bool literals ~true or ~false (hint).
-///
-/// Examples:
-///   ($ | test) == true   →  use `($ | test)` directly
-///   result == false      →  use `!not result`
-!pure check-comparison-with-bool ~cop-node (
+
+!pure check-comparison-with-bool ~cop.cop-node (
+    $ 
+    | cops-find value.compare cop.copwalk.recurse.full :($.op == "==" !or $.op == "!=")
+    | cops-with value.constant cop.copwalk.recurse.shallow :($.node.value | is bool)
+    | cops-callout "bool-equality" "Comparing boolean with %(op) not nessary"
 )
 
 
@@ -395,53 +233,44 @@
 /// Examples:
 ///   !not (a == b)  →  use a != b
 ///   !not (a != b)  →  use a == b
-!pure check-negated-comparison ~cop-node (
+!pure check-negated-comparison ~cop.cop-node (
 )
 
 
 /// Entry point: run all validators on a resolved-and-folded COP tree.
 ///
-/// Severity gating: runs error-level checks first, then warning-level,
-/// then info/hint. Skips tiers below the requested min-severity.
-!pure validate ~cop-node (
+/// Severity gating: runs error-level checks first, then warning-level.
+/// Skips tiers below the requested min-severity.
+!pure validate ~cop.cop-node (
     !param min-severity ~callout.severity = callout.severity.warning
     !param context ~any = {}
     !param namespace ~any|nil = nil
     !param original ~any|nil = nil
     !my cop = $
-    !my sev = (min-severity | severity-rank)
-    !my raw = (!on original == nil ~true cop ~false original)
+    !my rank = (min-severity | severity-rank)
 
     !my errors = (
-        !on (callout.severity.error | severity-rank) <= sev
-        ~false {}
-        ~true ({
+        !on (callout.severity.error | severity-rank) <= rank ~false {} ~true {
             (cop | check-value-undefined)
             // (cop | check-constant-fail)
             // (cop | check-constant-undefined-field)
-        } | merge)
+        }
         | complete-callouts severity.error
     )
-    // ({"ERRORS" errors} | output)
 
     !my warnings = (
-        !on (callout.severity.warning | severity-rank) <= sev
-        ~false {}
-        ~true ({
-            (raw | check-zero-division)
-            // (raw | check-duplicate-struct-fields)
-            // (raw | check-duplicate-on-branches)
-            // (raw | check-unreachable-branch)
-        } | merge)
+        !on (callout.severity.warning | severity-rank) <= rank ~false {} ~true {
+            (cop | check-zero-division)
+            // (cop | check-duplicate-struct-fields)
+            // (cop | check-duplicate-on-branches)
+            // (cop | check-unreachable-branch)
+        }
         | complete-callouts severity.warning
     )
 
     !my hints = (
-        !on (callout.severity.hint | severity-rank) <= sev
-        ~false {}
-        ~true {
-            // (raw | check-negated-comparison)
-            nil
+        !on (callout.severity.hint | severity-rank) <= rank ~false {} ~true {
+            (cop | check-comparison-with-bool)
         }
         | complete-callouts severity.hint
     )

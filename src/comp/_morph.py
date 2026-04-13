@@ -201,13 +201,13 @@ def _resolve_shape_field(field, frame):
         frame: (ExecutionFrame) Frame for evaluation
 
     Returns:
-        (Shape | Tag | None) The resolved shape, or None if no constraint
+        (Shape | ShapeUnion | ShapeCollection | Tag | None) The resolved shape, or None if no constraint
     """
     if field.shape is None:
         return None
 
     # Check if already resolved (from BuildShape instruction)
-    if isinstance(field.shape, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+    if isinstance(field.shape, (comp.Shape, comp.ShapeUnion, comp.ShapeCollection, comp.Tag)):
         return field.shape
 
     # String name reference — look up at morph time (deferred resolution)
@@ -226,10 +226,10 @@ def _resolve_shape_field(field, frame):
         if shape_val and isinstance(shape_val.data, comp.Callable):  # type: ignore[union-attr]
             for defn in shape_val.data.entries:  # type: ignore[union-attr]
                 dv = comp._instructions._ensure_definition_value(defn, frame)
-                if dv and isinstance(dv.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):  # type: ignore[union-attr]
+                if dv and isinstance(dv.data, (comp.Shape, comp.ShapeUnion, comp.ShapeCollection, comp.Tag)):  # type: ignore[union-attr]
                     field.shape = dv.data  # type: ignore[union-attr]
                     return field.shape
-        if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):  # type: ignore[union-attr]
+        if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.ShapeCollection, comp.Tag)):  # type: ignore[union-attr]
             field.shape = shape_val.data  # type: ignore[union-attr]
             return field.shape
         return None
@@ -245,7 +245,7 @@ def _resolve_shape_field(field, frame):
         defn = frame.lookup(name)
         if defn and defn.value:
             val = defn.value.data
-            if isinstance(val, (comp.Shape, comp.Tag)):
+            if isinstance(val, (comp.Shape, comp.ShapeUnion, comp.ShapeCollection, comp.Tag)):
                 return val
         return None
 
@@ -443,6 +443,9 @@ def _check_type(value, shape_constraint, frame):
         ))
     if shape_constraint is comp.shape_handle:
         return isinstance(value.data, comp.HandleInstance)
+
+    if isinstance(shape_constraint, comp.ShapeCollection):
+        return not _morph_collection(value, shape_constraint, frame).failure_reason
 
     # Check tag matching
     if isinstance(shape_constraint, comp.Tag):
@@ -783,7 +786,6 @@ def _morph_core(value, shape, frame):
         # Find next unmatched positional input
         while unmatched_input_idx < len(unmatched_positional):
             inp = unmatched_positional[unmatched_input_idx]
-            unmatched_input_idx += 1
 
             # Validate type
             constraint = _resolve_shape_field(shape_field, frame)
@@ -796,6 +798,7 @@ def _morph_core(value, shape, frame):
                     )
                 shape_matches[i] = inp
                 inp["matched"] = True
+                unmatched_input_idx += 1
                 positional_matches += 1
                 unit_score_total += us
                 # Invoke limits on the matched value
@@ -815,11 +818,16 @@ def _morph_core(value, shape, frame):
                         )
                     shape_matches[i] = dict(inp, value=coerced)
                     inp["matched"] = True
+                    unmatched_input_idx += 1
                     positional_matches += 1
                     unit_score_total += us
                     limit_fail_val = _invoke_limits(shape_field, coerced, frame)
                     if limit_fail_val is not None:
                         return MorphResult.failed(_extract_fail_message(limit_fail_val), failure_value=limit_fail_val)
+                    break
+                if shape_field.default is not None or (
+                    isinstance(constraint, comp.ShapeUnion) and constraint.default is not None
+                ):
                     break
                 return MorphResult.failed(
                     f"Positional field has wrong type for shape field '{shape_field.name or i}'"
@@ -1037,22 +1045,30 @@ def mask(value, shape, frame):
         if i in shape_matches:
             continue
 
+        constraint = _resolve_shape_field(shape_field, frame)
         if unmatched_input_idx < len(unmatched_positional):
             inp = unmatched_positional[unmatched_input_idx]
-            unmatched_input_idx += 1
 
             # Validate type
-            constraint = _resolve_shape_field(shape_field, frame)
             if not _check_type(inp["value"], constraint, frame):
                 # Try recursive coercion (e.g. RawTag → Tag via sub-shape)
                 sub_result = morph(inp["value"], constraint, frame)
                 if sub_result.failure_reason:
+                    if shape_field.default is not None or (
+                        isinstance(constraint, comp.ShapeUnion) and constraint.default is not None
+                    ):
+                        continue
                     field_name = shape_field.name or f"positional {i}"
                     return None, f"Positional field has wrong type for shape field '{field_name}'"
                 inp = dict(inp, value=sub_result.value)
 
             shape_matches[i] = inp
             inp["matched"] = True
+            unmatched_input_idx += 1
+        elif shape_field.default is not None or (
+            isinstance(constraint, comp.ShapeUnion) and constraint.default is not None
+        ):
+            continue
 
     # Apply defaults for unmatched shape fields
     for i, shape_field in enumerate(shape_fields):

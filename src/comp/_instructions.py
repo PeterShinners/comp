@@ -1154,7 +1154,7 @@ class BuildBlock(Instruction):
         # Check frame env first
         if hasattr(frame, "env") and ref_name in frame.env:
             env_val = frame.env[ref_name]
-            if hasattr(env_val, "data") and isinstance(env_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+            if hasattr(env_val, "data") and isinstance(env_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion, comp.ShapeCollection)):
                 return env_val.data
             if hasattr(env_val, "data") and isinstance(env_val.data, comp.Callable):
                 if env_val.data.shape is not None:
@@ -1168,7 +1168,7 @@ class BuildBlock(Instruction):
                 defn = defs[0] if defs else None
             if defn is not None and hasattr(defn, "value") and defn.value is not None:
                 resolved = defn.value.data
-                if isinstance(resolved, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                if isinstance(resolved, (comp.Shape, comp.Tag, comp.ShapeUnion, comp.ShapeCollection)):
                     return resolved
                 if isinstance(resolved, comp.Callable) and resolved.shape is not None:
                     return resolved.shape
@@ -1195,7 +1195,7 @@ class BuildBlock(Instruction):
                 if kid_tag == "value.constant":
                     try:
                         const_val = kid.field("value")
-                        if isinstance(const_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                        if isinstance(const_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion, comp.ShapeCollection)):
                             return const_val.data
                     except (KeyError, AttributeError):
                         pass
@@ -1217,12 +1217,12 @@ class BuildBlock(Instruction):
                     # Check frame env first (evaluated definitions live here)
                     if hasattr(frame, "env") and ref_name in frame.env:
                         env_val = frame.env[ref_name]
-                        if hasattr(env_val, "data") and isinstance(env_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                        if hasattr(env_val, "data") and isinstance(env_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion, comp.ShapeCollection)):
                             return env_val.data
                     # Fall back to namespace / system lookup via _load_name
                     try:
                         name_val = _load_name(ref_name, frame)
-                        if hasattr(name_val, "data") and isinstance(name_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                        if hasattr(name_val, "data") and isinstance(name_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion, comp.ShapeCollection)):
                             return name_val.data
                     except (NameError, Exception):
                         pass
@@ -1241,47 +1241,78 @@ class BuildBlock(Instruction):
                 pass
             if field_name is None:
                 field_kids = list(comp.cop_kids(field_cop))
-                has_limits = any(comp.cop_tag(fk) == "value.limit" for fk in field_kids)
-                if has_limits:
-                    # Extract the base shape reference and limits
-                    base_shape = None
-                    limits = []
-                    for fk in field_kids:
-                        fk_tag = comp.cop_tag(fk)
-                        if fk_tag == "value.limit":
-                            lk = list(comp.cop_kids(fk))
-                            if lk:
-                                # Resolve the limit function by qualified name
-                                ref_name = None
+                base_shape = None
+                unit_constraint = None
+                limits = []
+                repeat_bounds = None
+                field_default = None
+                for fk in field_kids:
+                    fk_tag = comp.cop_tag(fk)
+                    if fk_tag == "shape.unit":
+                        unit_kids = list(comp.cop_kids(fk))
+                        if unit_kids:
+                            unit_ref = self._resolve_shape_ref(unit_kids[0], frame)
+                            if isinstance(unit_ref, comp.Tag):
+                                unit_constraint = unit_ref
+                    elif fk_tag == "shape.default":
+                        default_kids = list(comp.cop_kids(fk))
+                        if default_kids:
+                            field_default = self._eval_simple_value(default_kids[0])
+                    elif fk_tag == "value.limit":
+                        lk = list(comp.cop_kids(fk))
+                        if lk:
+                            ref_name = None
+                            try:
+                                ref_name = lk[0].to_python("qualified")
+                                if isinstance(ref_name, list):
+                                    ref_name = ref_name[0]
+                            except (KeyError, AttributeError):
+                                pass
+                            limit_func = None
+                            if ref_name:
                                 try:
-                                    ref_name = lk[0].to_python("qualified")
-                                    if isinstance(ref_name, list):
-                                        ref_name = ref_name[0]
-                                except (KeyError, AttributeError):
+                                    limit_func = _load_name(ref_name, frame)
+                                except NameError:
                                     pass
-                                limit_func = None
-                                if ref_name:
-                                    try:
-                                        limit_func = _load_name(ref_name, frame)
-                                    except NameError:
-                                        pass
-                                limit_param = None
-                                if len(lk) >= 2:
-                                    limit_param = frame.eval(lk[1])
-                                if limit_func is not None:
-                                    limits.append((limit_func, limit_param))
-                        elif base_shape is None:
-                            resolved = self._resolve_shape_ref(fk, frame)
-                            if resolved is not None:
-                                base_shape = resolved
-                    if base_shape is not None and limits:
-                        if isinstance(base_shape, comp.Shape):
-                            limited = comp.Shape(base_shape.qualified, base_shape.private)
-                            limited.module = base_shape.module
-                            limited.fields = base_shape.fields
-                            limited.limits = limits
-                            return limited
-                        # For non-Shape types, fall through to default handling
+                            limit_param = None
+                            if len(lk) >= 2:
+                                limit_param = frame.eval(lk[1])
+                            if limit_func is not None:
+                                limits.append((limit_func, limit_param))
+                    elif fk_tag == "shape.repeat":
+                        repeat_op = fk.to_python("op")
+                        rk = list(comp.cop_kids(fk))
+                        if repeat_op == "*":
+                            repeat_bounds = (0, None)
+                        elif repeat_op == "=":
+                            n = int(rk[0].to_python("value"))
+                            repeat_bounds = (n, n)
+                        elif repeat_op == "+":
+                            n = int(rk[0].to_python("value"))
+                            repeat_bounds = (n, None)
+                        elif repeat_op == "-":
+                            lo = int(rk[0].to_python("value"))
+                            hi = int(rk[1].to_python("value"))
+                            repeat_bounds = (lo, hi)
+                    elif base_shape is None:
+                        resolved = self._resolve_shape_ref(fk, frame)
+                        if resolved is not None:
+                            base_shape = resolved
+
+                if repeat_bounds is not None:
+                    min_c, max_c = repeat_bounds
+                    element = comp.ShapeField(name=None, shape=base_shape, unit=unit_constraint, limits=limits)
+                    return comp.ShapeCollection(element, min_c, max_c)
+
+                if base_shape is not None and unit_constraint is None and field_default is None:
+                    if limits and isinstance(base_shape, comp.Shape):
+                        limited = comp.Shape(base_shape.qualified, base_shape.private)
+                        limited.module = base_shape.module
+                        limited.fields = base_shape.fields
+                        limited.limits = limits
+                        return limited
+                    if not limits:
+                        return base_shape
 
         shape = comp.Shape("anonymous", private=False)
 
@@ -1299,11 +1330,28 @@ class BuildBlock(Instruction):
             # Get shape constraint and default from children
             field_shape = None
             field_default = None
+            repeat_bounds = None
             field_kids = comp.cop_kids(kid)
 
             for j, fkid in enumerate(field_kids):
                 fkid_tag = comp.cop_tag(fkid)
-                if fkid_tag.startswith("value."):
+                if fkid_tag == "shape.repeat":
+                    repeat_op = fkid.to_python("op")
+                    rk = list(comp.cop_kids(fkid))
+                    if repeat_op == "*":
+                        repeat_bounds = (0, None)
+                    elif repeat_op == "=":
+                        n = int(rk[0].to_python("value"))
+                        repeat_bounds = (n, n)
+                    elif repeat_op == "+":
+                        n = int(rk[0].to_python("value"))
+                        repeat_bounds = (n, None)
+                    elif repeat_op == "-":
+                        lo = int(rk[0].to_python("value"))
+                        hi = int(rk[1].to_python("value"))
+                        repeat_bounds = (lo, hi)
+                    continue
+                if fkid_tag and fkid_tag.startswith("value."):
                     if field_shape is None:
                         # First value is shape reference
                         if fkid_tag == "value.identifier":
@@ -1312,7 +1360,7 @@ class BuildBlock(Instruction):
                                 ref_name = id_kids[0].to_python("value")
                                 try:
                                     name_val = _load_name(ref_name, frame)
-                                    if hasattr(name_val, "data") and isinstance(name_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion)):
+                                    if hasattr(name_val, "data") and isinstance(name_val.data, (comp.Shape, comp.Tag, comp.ShapeUnion, comp.ShapeCollection)):
                                         field_shape = name_val.data
                                 except (NameError, Exception):
                                     pass
@@ -1322,6 +1370,14 @@ class BuildBlock(Instruction):
                     else:
                         # Second value is default - evaluate simple constants
                         field_default = self._eval_simple_value(fkid)
+
+            if repeat_bounds is not None:
+                min_c, max_c = repeat_bounds
+                field_shape = comp.ShapeCollection(
+                    comp.ShapeField(name=None, shape=field_shape),
+                    min_count=min_c,
+                    max_count=max_c,
+                )
 
             field_obj = comp.ShapeField(name=field_name, shape=field_shape, default=field_default)
             shape.fields.append(field_obj)
@@ -1490,7 +1546,7 @@ class BuildShape(Instruction):
                     if shape_val and isinstance(shape_val.data, comp.Callable):
                         if shape_val.data.shape is not None:
                             shape_val = comp.Value.from_python(shape_val.data.shape)
-                    if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                    if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag, comp.ShapeCollection)):
                         shape_constraint = shape_val.data
                     else:
                         # Not resolved yet (forward ref or unresolvable) — store
@@ -1498,7 +1554,7 @@ class BuildShape(Instruction):
                         shape_constraint = shape_ref
                 else:
                     shape_val = frame.get_value(shape_ref)
-                    if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                    if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag, comp.ShapeCollection)):
                         shape_constraint = shape_val.data
 
             # Get unit constraint if provided
@@ -1620,11 +1676,11 @@ class BuildShapeUnion(Instruction):
                 if shape_val and isinstance(shape_val.data, comp.Callable):
                     if shape_val.data.shape is not None:
                         shape_val = comp.Value.from_python(shape_val.data.shape)
-                if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag, comp.ShapeCollection)):
                     shapes.append(shape_val.data)
             else:
                 val = frame.get_value(ref)
-                if val and isinstance(val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                if val and isinstance(val.data, (comp.Shape, comp.ShapeUnion, comp.Tag, comp.ShapeCollection)):
                     shapes.append(val.data)
 
         default_val = None
@@ -1671,13 +1727,13 @@ class BuildShapeCollection(Instruction):
                 if shape_val and isinstance(shape_val.data, comp.Callable):
                     if shape_val.data.shape is not None:
                         shape_val = comp.Value.from_python(shape_val.data.shape)
-                if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag, comp.ShapeCollection)):
                     shape_constraint = shape_val.data  # type: ignore[union-attr]
                 else:
                     shape_constraint = self.shape_ref  # keep name for deferred resolution
             else:
                 shape_val = frame.get_value(self.shape_ref)
-                if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag)):
+                if shape_val and isinstance(shape_val.data, (comp.Shape, comp.ShapeUnion, comp.Tag, comp.ShapeCollection)):
                     shape_constraint = shape_val.data
 
         # Resolve unit

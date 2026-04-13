@@ -759,7 +759,8 @@ class Interp:
 
         Scoping:
             - ``callouts()`` — all modules in the interpreter
-            - ``callouts(module=m)`` — one module and its imports
+                        - ``callouts(module=m)`` — requested severity for that module,
+                            error-only diagnostics for its imports
             - ``callouts(module=m, definition=d)`` — one definition only
 
         When *definition* is given, *module* must also be given and the
@@ -791,7 +792,15 @@ class Interp:
             return self._definition_callouts(definition, ns, min_severity, source_file=source_file)
 
         all_callouts = []
-        modules = self._collect_modules(module) if module else self._all_modules()
+        if module is not None:
+            modules = self._collect_modules(module)
+            root_id = id(module)
+            for mod in modules:
+                effective_min_severity = min_severity if id(mod) == root_id else comp.ERROR
+                all_callouts.extend(self._module_callouts(mod, effective_min_severity))
+            return all_callouts
+
+        modules = self._all_modules()
         for mod in modules:
             all_callouts.extend(self._module_callouts(mod, min_severity))
         return all_callouts
@@ -1405,7 +1414,7 @@ class ExecutionFrame:
         args_val = args
 
         # Morph piped input to input shape
-        if block.input_shape and isinstance(block.input_shape, comp.Shape):
+        if block.input_shape and isinstance(block.input_shape, (comp.Shape, comp.ShapeUnion, comp.ShapeCollection, comp.Tag)):
             morph_result = comp.morph(input_val, block.input_shape, self)
             if morph_result.failure_reason:
                 block_name = block.qualified or "?"

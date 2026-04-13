@@ -159,6 +159,8 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
         if new_kid is not kid:
             changed = True
 
+    fold_source = comp.cop_rebuild(cop, new_kids) if changed else cop
+
     # --- Folding: evaluate constant expressions ---
     if fold:
         if tag == "value.math.unary":
@@ -169,9 +171,9 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
             if operand is not None:
                 try:
                     result = comp.math_unary(op, operand)
-                    return _make_constant(cop, result)
+                    return _make_constant(fold_source, result)
                 except (TypeError, ValueError, ZeroDivisionError, ArithmeticError) as e:
-                    return _make_fail_cop(cop, str(e))
+                    return _make_fail_cop(fold_source, str(e))
 
         if tag == "value.math.binary":
             op = cop.to_python("op")
@@ -180,9 +182,9 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
             if left is not None and right is not None:
                 try:
                     result = comp.math_binary(op, left, right)
-                    return _make_constant(cop, result)
+                    return _make_constant(fold_source, result)
                 except (TypeError, ValueError, ZeroDivisionError, ArithmeticError) as e:
-                    return _make_fail_cop(cop, str(e))
+                    return _make_fail_cop(fold_source, str(e))
 
         if tag == "value.logic.unary":
             op = cop.to_python("op")
@@ -190,9 +192,9 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
             if operand is not None:
                 try:
                     result = comp.logic_unary(op, operand)
-                    return _make_constant(cop, result)
+                    return _make_constant(fold_source, result)
                 except (TypeError, ValueError) as e:
-                    return _make_fail_cop(cop, str(e))
+                    return _make_fail_cop(fold_source, str(e))
 
         if tag == "value.logic.binary":
             op = cop.to_python("op")
@@ -201,9 +203,9 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
             if left is not None and right is not None:
                 try:
                     result = comp.logic_binary(op, left, right)
-                    return _make_constant(cop, result)
+                    return _make_constant(fold_source, result)
                 except (TypeError, ValueError) as e:
-                    return _make_fail_cop(cop, str(e))
+                    return _make_fail_cop(fold_source, str(e))
 
         if tag == "value.compare":
             op = cop.to_python("op")
@@ -212,9 +214,9 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
             if left is not None and right is not None:
                 try:
                     result = comp.compare(op, left, right)
-                    return _make_constant(cop, result)
+                    return _make_constant(fold_source, result)
                 except (TypeError, ValueError) as e:
-                    return _make_fail_cop(cop, str(e))
+                    return _make_fail_cop(fold_source, str(e))
 
         if tag == "value.field":
             # Field access: struct.field or struct.#N or struct.#(expr)
@@ -288,7 +290,7 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
                         break  # Unsupported field type, can't fold
                 else:
                     # Successfully extracted all fields
-                    return _make_constant(cop, result)
+                    return _make_constant(fold_source, result)
 
         if tag == "value.cast_unit":
             val = _get_constant(new_kids[0])
@@ -296,13 +298,13 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
             if val is not None and unit_val is not None:
                 if isinstance(unit_val.data, comp.Tag):
                     if unit_val.data is comp.tag_nil:
-                        return _make_constant(cop, val.with_unit(None))
-                    return _make_constant(cop, val.with_unit(unit_val.data))
+                        return _make_constant(fold_source, val.with_unit(None))
+                    return _make_constant(fold_source, val.with_unit(unit_val.data))
 
         if tag == "value.strip_unit":
             val = _get_constant(new_kids[0])
             if val is not None:
-                return _make_constant(cop, val.with_unit(None))
+                return _make_constant(fold_source, val.with_unit(None))
 
         if tag == "struct.define":
             return _fold_struct(cop, new_kids)
@@ -366,7 +368,7 @@ def _optimize_sequential(cop, fold, namespace, locals, references, locals_define
                 if len(field_kids) == 1:
                     const = _get_constant(field_kids[0])
                     if const is not None:
-                        return _make_constant(cop, const)
+                        return _make_constant(comp.cop_rebuild(cop, new_kids), const)
         elif tag == "struct.define":
             return _fold_struct(cop, new_kids)
 
@@ -716,18 +718,18 @@ def _fold_struct(cop, kids):
             return comp.cop_rebuild(cop, kids)
         struct[key] = value
 
-    return _make_constant(cop, comp.Value.from_python(struct))
+    return _make_constant(comp.cop_rebuild(cop, kids), comp.Value.from_python(struct))
 
 
 def _make_constant(original, value):
-    """Create a value.constant COP node preserving position info.
+    """Create a value.constant COP node preserving position and replaced COP.
 
     Args:
         original: (Value) Original COP node for position
         value: (Value) Constant value
 
     Returns:
-        (Value) Constant COP node
+        (Value) Constant COP node whose kids contain the replaced COP node
     """
     fields = {"value": value}
     if original:
@@ -743,7 +745,8 @@ def _make_constant(original, value):
                 fields["qualified"] = qualified
         except (KeyError, AttributeError):
             pass
-    return comp.create_cop("value.constant", [], **fields)
+    kids = [original] if original is not None else []
+    return comp.create_cop("value.constant", kids, **fields)
 
 
 def _make_fail_cop(original, message):

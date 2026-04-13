@@ -7,6 +7,17 @@
 !import loop comp "loop"
 
 
+/// Check if a value can be morphed into a shape
+///
+/// Examples
+///   (12 | is text)   // false
+///   (12 | is num)    // true
+!pure is ~any|nil (
+    !param type ~shape
+    (!on ($ | type) ~any true ~nil true) ?? false
+)
+
+
 /// Conditional branch entry point.
 ///
 /// Call styles:

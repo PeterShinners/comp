@@ -31,6 +31,9 @@ __all__ = [
     "PHASE_CODEGEN",
 ]
 
+import sys
+import comp
+
 # Severity level constants
 ERROR = "error"
 WARNING = "warning"
@@ -139,25 +142,24 @@ def _source_line_snippet(callout_mod, row, col, end_col):
 
 
 def _extract_validator_location(fail_val, callout_mod):
-    """Extract validator crash location from a CompFail's structured value.
+    """Extract validator crash location from a comp.CompFail's structured value.
 
     The fail value may carry a 'cop' field pointing at the COP node where
     the failure originated (inside the validator), plus a 'frame' field
     naming the executing function.
     """
-    import comp as _comp
     info = ""
     if not isinstance(fail_val.data, dict):
         return info
     # Check for frame info (which validator function was running)
-    frame_key = _comp.Value.from_python("frame")
+    frame_key = comp.Value.from_python("frame")
     frame_val = fail_val.data.get(frame_key)
     if frame_val is not None and isinstance(frame_val.data, str):
         info += f"\n  in validator: {frame_val.data}"
     # Check for cop node with position info
-    cop_key = _comp.Value.from_python("cop")
+    cop_key = comp.Value.from_python("cop")
     cop_val = fail_val.data.get(cop_key)
-    if cop_val is not None and not isinstance(cop_val.data, _comp.Tag):
+    if cop_val is not None and not isinstance(cop_val.data, comp.Tag):
         try:
             pos = cop_val.field("pos")
             if pos is not None:
@@ -219,8 +221,6 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, namespace=None):
     if cop is None:
         return []
 
-    import comp
-
     # Map severity string to the callout tag
     severity_tags = {
         ERROR: "callout.severity.error",
@@ -271,17 +271,14 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, namespace=None):
     all_callouts = []
     interp._disable_build_validations = getattr(interp, "_disable_build_validations", 0) + 1
     try:
-        from comp._interp import ExecutionFrame, CompFail
-
         # Run validators on resolved (post-fold) COP
-        frame = ExecutionFrame(env, interp=interp, module=callout_mod)
+        frame = comp.ExecutionFrame(env, interp=interp, module=callout_mod)
         result = frame.invoke_block(validator_def.value, args, piped=cop)
-    except CompFail as e:
+    except comp.CompFail as e:
         fail_val = e.value
         msg = "(unknown)"
-        import comp as _comp
         if isinstance(fail_val.data, dict):
-            msg_key = _comp.Value.from_python("message")
+            msg_key = comp.Value.from_python("message")
             msg_val = fail_val.data.get(msg_key)
             if msg_val is not None and isinstance(msg_val.data, str):
                 msg = msg_val.data
@@ -304,10 +301,6 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, namespace=None):
         interp._disable_build_validations = max(getattr(interp, "_disable_build_validations", 1) - 1, 0)
 
     all_callouts.extend(_extract_callouts(result))
-    if all_callouts:
-        import sys as _sys
-        print(f"[CALLOUT-COUNT] {definition.qualified}: {len(all_callouts)} callouts found", file=_sys.stderr)
-
     return all_callouts
 
 
@@ -328,8 +321,6 @@ def _extract_callouts(result):
         comp.CodeError: If the result contains failure values instead of
             valid callout structs (indicates a bug in the validators)
     """
-    import comp
-
     if not isinstance(result.data, dict):
         return []
 
@@ -340,8 +331,7 @@ def _extract_callouts(result):
             # the validator pipeline itself broke (e.g. complete-callouts
             # couldn't morph the result).
             if isinstance(val.data, str):
-                import sys as _sys
-                print(f"[EXTRACT-DEBUG] Found failure string: {val.data!r} in defn result", file=_sys.stderr)
+                #print(f"[EXTRACT-DEBUG] Found failure string: {val.data!r} in defn result", file=sys.stderr)
                 raise comp.CodeError(
                     f"Validation pipeline produced a failure instead of callouts: {val.data}"
                 )
@@ -374,8 +364,6 @@ def _value_to_callout(val):
     Returns:
         (Callout | None) The converted callout, or None on failure
     """
-    import comp
-
     try:
         severity_key = comp.Value.from_python("severity")
         code_key = comp.Value.from_python("code")
@@ -439,7 +427,6 @@ def exception_to_callout(exc, stmt=None, source_file=None):
     Returns:
         (Callout) An error-severity callout
     """
-    import comp
     message = getattr(exc, "message", None) or str(exc)
     if isinstance(exc, comp.ParseError):
         code = "parse-error"
@@ -458,5 +445,4 @@ def exception_to_callout(exc, stmt=None, source_file=None):
         severity=ERROR, code=code, message=message,
         phase=phase, primary=primary,
     )
-
 

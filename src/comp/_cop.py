@@ -121,6 +121,16 @@ def _create_cop_module(module):
     for tag_name in _COP_TAGS:
         module.add_tag("cop-type." + tag_name, private=False)
 
+    module.add_tag("copwalk.order", private=False)
+    module.add_tag("copwalk.order.all", private=False)
+    module.add_tag("copwalk.order.first", private=False)
+    module.add_tag("copwalk.order.last", private=False)
+    module.add_tag("copwalk.recurse", private=False)
+    module.add_tag("copwalk.recurse.deep", private=False)
+    module.add_tag("copwalk.recurse.full", private=False)
+    module.add_tag("copwalk.recurse.shallow", private=False)
+    module.add_tag("copwalk.recurse.near", private=False)
+
     # Define the recursive cop-node shape
     cop_shape = comp.Shape("cop-node", private=False)
     module.add_shape("cop-node", cop_shape)
@@ -137,6 +147,205 @@ def _create_cop_module(module):
     )
     cop_shape.fields.append(kids_field)
 
+    module.add_callable("walk-cop", _builtin_walk_cop, pure=True)
+    module.add_callable("copwalk-order-tag", _builtin_copwalk_order_tag, pure=True)
+
+
+def _python_cop_tag(node):
+    """Return the stripped COP tag name from a Python COP-node dict."""
+    if not isinstance(node, dict):
+        return None
+    tag = node.get(0)
+    if isinstance(tag, str) and tag.startswith("cop-type."):
+        return tag[9:]
+    return tag if isinstance(tag, str) else None
+
+
+def _python_walk_cop(node, filter=None, fields=None, order="all", recurse="deep", stop_on_match=True):
+    """Walk a Python COP-node tree and return matching contexts."""
+
+    def _norm_tag_name(value):
+        if value is None:
+            return None
+        qualified = value if isinstance(value, str) else str(value)
+        if qualified.startswith("cop-type."):
+            return qualified[9:]
+        prefix = "copwalk.order."
+        if qualified.startswith(prefix):
+            return qualified[len(prefix):]
+        prefix = "copwalk.recurse."
+        if qualified.startswith(prefix):
+            return qualified[len(prefix):]
+        return qualified
+
+    def _boolish(value, default=False):
+        if value is None:
+            return default
+        return bool(value)
+
+    def _kids_for(current):
+        kids = current.get("kids", []) if isinstance(current, dict) else []
+        if isinstance(kids, list):
+            return kids
+        if isinstance(kids, dict):
+            if all(isinstance(k, int) for k in kids):
+                return [kids[k] for k in sorted(kids)]
+            return list(kids.values())
+        return []
+
+    def _matches_fields(current, expected_fields):
+        if not isinstance(expected_fields, dict) or not expected_fields:
+            return True
+        if not isinstance(current, dict):
+            return False
+        for key, expected in expected_fields.items():
+            if isinstance(key, int):
+                continue
+            if current.get(key) != expected:
+                return False
+        return True
+
+    def _mode_allows_descend(mode, depth, tag_name):
+        if tag_name == "value.constant" and mode != "full":
+            return False
+        if mode == "shallow":
+            return depth == 0
+        if mode == "near":
+            return depth == 0 or tag_name in ("statement.define", "statement.field")
+        return True
+
+    def _order_matches(which, position, sibling_count):
+        if which == "first":
+            return position == 0
+        if which == "last":
+            return position == (sibling_count - 1)
+        return True
+
+    filter_name = _norm_tag_name(filter)
+    order_name = _norm_tag_name(order) or "all"
+    recurse_mode = _norm_tag_name(recurse) or "deep"
+    stop = _boolish(stop_on_match, default=True)
+    found = []
+
+    def _walk(current, path, parent_path, depth, position, sibling_count):
+        tag_name = _python_cop_tag(current)
+        matches = (
+            (filter_name is None or filter_name == tag_name)
+            and _order_matches(order_name, position, sibling_count)
+            and _matches_fields(current, fields)
+        )
+
+        skip_children = False
+        if matches:
+            found.append({
+                "path": list(path),
+                "parent": None if parent_path is None else list(parent_path),
+                "depth": depth,
+                "position": position,
+                "order": "first" if position == 0 else "last" if position == (sibling_count - 1) else "all",
+            })
+            if stop:
+                skip_children = True
+
+        if _mode_allows_descend(recurse_mode, depth, tag_name) and not skip_children:
+            kids = _kids_for(current)
+            count = len(kids)
+            for idx, kid in enumerate(kids):
+                _walk(kid, path + [idx], path, depth + 1, idx, count)
+
+    _walk(node, [], None, 0, 0, 1)
+    return found
+
+
+def _builtin_copwalk_order_tag(input_val, args_val, frame):
+    """Convert order text returned by walk-cop into a copwalk.order tag."""
+    value = input_val.data
+    if isinstance(value, comp.Tag) and value.qualified.startswith("copwalk.order."):
+        return input_val
+
+    name = value if isinstance(value, str) else "all"
+    if name.startswith("copwalk.order."):
+        name = name[14:]
+    if name not in ("all", "first", "last"):
+        name = "all"
+
+    cop_module = comp.get_internal_module("cop")
+    if cop_module is None:
+        raise comp.CodeError("cop module is not initialized")
+    cop_defs = cop_module.definitions()
+    return cop_defs[f"copwalk.order.{name}"].value
+
+
+def _builtin_walk_cop(input_val, args_val, frame):
+    """Walk a native COP value and return native match contexts."""
+    if input_val is None or not isinstance(input_val.data, dict):
+        raise comp.CodeError("walk-cop requires a COP struct as piped input")
+
+    def _named_arg(name, default=None):
+        if not isinstance(args_val.data, dict):
+            return default
+        return args_val.data.get(comp.Value.from_python(name), default)
+
+    def _follow_path(root, path):
+        current = root
+        for index in path:
+            kids = current.data.get(comp.Value.from_python("kids"))
+            if kids is None or not isinstance(kids.data, dict):
+                raise comp.CodeError("walk-cop: invalid COP path traversal")
+            current = kids.positional(index)
+        return current
+
+    def _as_text(value):
+        if value is None:
+            return None
+        converted = comp._py._comp_to_python(value)
+        if converted is None:
+            return None
+        return converted if isinstance(converted, str) else str(converted)
+
+    def _as_fields(value):
+        if value is None:
+            return {}
+        converted = comp._py._comp_to_python(value)
+        return converted if isinstance(converted, dict) else {}
+
+    def _as_bool(value, default=True):
+        if value is None:
+            return default
+        converted = comp._py._comp_to_python(value)
+        if converted is None:
+            return default
+        return bool(converted)
+
+    filter_val = _named_arg("filter")
+    fields_val = _named_arg("fields", comp.Value.from_python({}))
+    order_val = _named_arg("order")
+    recurse_val = _named_arg("recurse")
+    stop_val = _named_arg("stop-on-match", comp.Value.from_python(True))
+
+    matches = _python_walk_cop(
+        comp._py._comp_to_python(input_val),
+        filter=_as_text(filter_val),
+        fields=_as_fields(fields_val),
+        order=_as_text(order_val) or "all",
+        recurse=_as_text(recurse_val) or "deep",
+        stop_on_match=_as_bool(stop_val),
+    )
+
+    native_matches = []
+    for match in matches:
+        path = match.get("path") or []
+        parent_path = match.get("parent")
+        native_matches.append({
+            "node": _follow_path(input_val, path),
+            "parent": comp.Value.from_python(None) if parent_path is None else _follow_path(input_val, parent_path),
+            "depth": match.get("depth", 0),
+            "position": match.get("position", 0),
+            "order": match.get("order", "all"),
+        })
+
+    return comp.Value.from_python(native_matches)
+
 
 def create_cop(tag_name, kids, **fields):
     """Create a COP node with the given tag and children.
@@ -151,6 +360,8 @@ def create_cop(tag_name, kids, **fields):
     """
     # Get the Tag object from the cop internal module
     cop_module = comp.get_internal_module("cop")
+    if cop_module is None:
+        raise ValueError("cop module is not initialized")
 
     # Add cop-type prefix for internal tag lookup
     prefixed_tag_name = "cop-type." + tag_name if not tag_name.startswith("cop-type.") else tag_name
@@ -160,7 +371,7 @@ def create_cop(tag_name, kids, **fields):
 
     tag = tag_definition.value.data  # Extract the Tag from the Definition
 
-    data = {comp.Unnamed(): tag}
+    data: dict[object, comp.Value] = {comp.Unnamed(): comp.Value(tag)}
     for key, value in fields.items():
         data[key] = value
     data["kids"] = comp.Value.from_python(kids)

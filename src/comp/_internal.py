@@ -286,7 +286,6 @@ class SystemModule(comp.Module):
         self._add_callable("reduce", _builtin_reduce)
         self._add_callable("forever", _builtin_forever, pure=True)
         self._add_callable("is-pure", _builtin_is_pure, pure=True)
-        self._add_callable("walk-cop", _builtin_walk_cop, pure=True)
         self._add_callable("apply", _builtin_apply, pure=True)
 
     def _add_definition(self, name, value, shape):
@@ -1363,84 +1362,6 @@ def _builtin_is_pure(input_val, args_val, frame):
         return comp.Value.from_python(comp._pure._is_pure_definition(defn))
 
     return comp.Value.from_python(False)
-
-
-def _builtin_walk_cop(input_val, args_val, frame):
-    """Walk a native COP value and return native match contexts.
-
-    This keeps the Comp-facing contract as native COP nodes while delegating
-    the actual path discovery to comp.runtime.pure.walk_cop.
-    """
-    from comp._py import _comp_to_python
-    from comp.runtime import pure as _runtime_pure
-
-    if input_val is None or not isinstance(input_val.data, dict):
-        raise comp.CodeError("walk-cop requires a COP struct as piped input")
-
-    def _named_arg(name, default=None):
-        if not isinstance(args_val.data, dict):
-            return default
-        return args_val.data.get(comp.Value.from_python(name), default)
-
-    def _follow_path(root, path):
-        current = root
-        for index in path:
-            kids = current.data.get(comp.Value.from_python("kids"))
-            if kids is None or not isinstance(kids.data, dict):
-                raise comp.CodeError("walk-cop: invalid COP path traversal")
-            current = kids.positional(index)
-        return current
-
-    def _as_text(value):
-        if value is None:
-            return None
-        converted = _comp_to_python(value)
-        if converted is None:
-            return None
-        return converted if isinstance(converted, str) else str(converted)
-
-    def _as_fields(value):
-        if value is None:
-            return {}
-        converted = _comp_to_python(value)
-        return converted if isinstance(converted, dict) else {}
-
-    def _as_bool(value, default=True):
-        if value is None:
-            return default
-        converted = _comp_to_python(value)
-        if converted is None:
-            return default
-        return bool(converted)
-
-    filter_val = _named_arg("filter")
-    fields_val = _named_arg("fields", comp.Value.from_python({}))
-    order_val = _named_arg("order")
-    recurse_val = _named_arg("recurse")
-    stop_val = _named_arg("stop-on-match", comp.Value.from_python(True))
-
-    matches = _runtime_pure.walk_cop(
-        _comp_to_python(input_val),
-        filter=_as_text(filter_val),
-        fields=_as_fields(fields_val),
-        order=_as_text(order_val) or "all",
-        recurse=_as_text(recurse_val) or "deep",
-        stop_on_match=_as_bool(stop_val),
-    )
-
-    native_matches = []
-    for match in matches:
-        path = match.get("path") or []
-        parent_path = match.get("parent")
-        native_matches.append({
-            "node": _follow_path(input_val, path),
-            "parent": comp.Value.from_python(None) if parent_path is None else _follow_path(input_val, parent_path),
-            "depth": match.get("depth", 0),
-            "position": match.get("position", 0),
-            "order": match.get("order", "all"),
-        })
-
-    return comp.Value.from_python(native_matches)
 
 
 def _builtin_apply(input_val, args_val, frame):
