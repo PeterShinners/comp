@@ -79,6 +79,20 @@ def _make_fail_value(message, tag=None, cause=None, cop_val=None):
     })
 
 
+def _shape_display(shape):
+    """Format a shape-like runtime constraint for diagnostics."""
+    if shape is None:
+        return "?"
+    if hasattr(shape, "format"):
+        try:
+            return shape.format()
+        except TypeError:
+            pass
+    if hasattr(shape, "qualified"):
+        return f"~{shape.qualified}"
+    return str(shape)
+
+
 def _build_delivery_struct(delivery_map):
     """Convert a Python name->Value map into a Comp struct Value."""
     fields = {}
@@ -642,6 +656,7 @@ class Interp:
         )
 
         # Pure evaluation (optional — always enabled for build_instructions)
+        precompiled_pure_defs = []
         for mod in all_modules:
             if mod._definitions_error is not None:
                 continue
@@ -662,8 +677,32 @@ class Interp:
                         result = self._execute(defn.instructions, mod_env, module=mod)
                         defn.value = result
                         mod_env[name] = result
+                        precompiled_pure_defs.append(defn)
                     except (comp.CodeError, CompFail):
                         pass  # definition not yet foldable; codegen pass handles it
+
+        for mod in all_modules:
+            if mod._definitions_error is not None:
+                continue
+            mod_all_defs = mod.all_definitions()
+            mod_ns = mod.namespace()
+            for _name, defn in mod_all_defs:
+                if id(defn) in failed_defs:
+                    continue
+                if defn.resolved_cop is None:
+                    continue
+                defn.resolved_cop = comp.coptimize(
+                    defn.resolved_cop,
+                    True,
+                    mod_ns,
+                    pure=True,
+                    defs=mod_ns,
+                    interp=self,
+                )
+
+        for defn in precompiled_pure_defs:
+            defn.instructions = None
+            defn.value = None
         _t2 = _time.perf_counter()
 
         # Codegen — generate instructions for all non-failed definitions
@@ -1270,7 +1309,7 @@ class ExecutionFrame:
                     # Compose a detailed error message
                     input_val = piped if piped is not None else args
                     input_shape = getattr(input_val, "shape", None)
-                    input_shape_str = input_shape.qualified if input_shape and hasattr(input_shape, "qualified") else str(type(input_val))
+                    input_shape_str = _shape_display(input_shape)
                     cop_info = f" at {source_cop}" if source_cop is not None else ""
                     msg = (
                         f"No matching overload found for dispatch{cop_info}:\n"
@@ -1421,13 +1460,14 @@ class ExecutionFrame:
                 cop_node = source_cop or getattr(block_val, "cop", None)
                 err = comp.CodeError(
                     f"Input morph failed: {morph_result.failure_reason}"
-                    f"\n  block: {block_name}, input_shape: {block.input_shape.qualified}"
+                    f"\n  block: {block_name}, input_shape: {_shape_display(block.input_shape)}"
                     f", input: {input_val.format()}"
-                    f" ({input_val.shape.qualified if input_val.shape else '?'})",
+                    f" ({_shape_display(input_val.shape)})",
                     cop_node)
                 err.module = self.module or block.module
                 err.definition_name = self.definition_name
                 raise err
+            input_val = morph_result.value
 
         # Inject context values as implicit defaults for named arg-shape fields
         # not explicitly provided by the caller.  The mask step that follows will
@@ -1549,12 +1589,22 @@ class ExecutionFrame:
             fail = new_frame.failure
             if isinstance(fail.data, dict):
                 frame_key = comp.Value.from_python("frame")
-                block_name = block.dispatch_set_name or block.qualified
+                resource_key = comp.Value.from_python("source_resource")
+                file_key = comp.Value.from_python("source_file")
+                block_name = block.dispatch_set_name or block.origin_name or block.qualified
                 if frame_key not in fail.data and block_name:
                     operator = "pure" if block.pure else "func"
                     fail.data[frame_key] = comp.Value.from_python(
                         f"!{operator} `{block_name}`"
                     )
+                if block.module is not None:
+                    source = getattr(block.module, "source", None)
+                    resource = getattr(source, "resource", None)
+                    location = getattr(source, "location", None)
+                    if resource_key not in fail.data and resource:
+                        fail.data[resource_key] = comp.Value.from_python(resource)
+                    if file_key not in fail.data and location:
+                        fail.data[file_key] = comp.Value.from_python(location)
             raise CompFail(fail)
 
         self._last_delivery = outgoing_coupling

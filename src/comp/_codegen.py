@@ -377,11 +377,11 @@ class CodeGenContext:
                 value_idx = self._build_value_ensure_register(kids[0])
                 return self.emit(comp._instructions.RaiseFail(cop=cop, value_reg=value_idx))
 
-            case "value.fold-fail":
-                # Fold-time failure — same codegen as op.fail
+            case "value.fold-fail" | "value.eval-fail":
+                # Compile-time failure proof — same codegen as op.fail
                 kids = _cop_kids(cop)
                 if not kids:
-                    raise comp.CodeError("value.fold-fail requires a value expression", cop)
+                    raise comp.CodeError("compile-fail COP requires a value expression", cop)
                 value_idx = self._build_value_ensure_register(kids[0])
                 return self.emit(comp._instructions.RaiseFail(cop=cop, value_reg=value_idx))
 
@@ -467,17 +467,26 @@ class CodeGenContext:
         kids = _cop_kids(cop)
         self._validate_pipeline_dependencies(kids)
 
-        # First stage: try-invoke with nil as implicit piped input.
-        # If kids[0] is not callable, PipeInvoke returns it as-is (try semantics).
-        nil_idx = self.emit(comp._instructions.Const(cop=cop, value=comp.Value.from_python(comp.tag_nil)))
-        callable_idx = self._build_callable_ensure_register(kids[0])
-        args_idx = self.emit(comp._instructions.BuildStruct(cop=kids[0], fields=[]))
-        result = self.emit(comp._instructions.PipeInvoke(
-            cop=kids[0],
-            callable=callable_idx,
-            piped=nil_idx,
-            args=args_idx,
-        ))
+        first_stage = kids[0]
+        first_tag = comp.cop_tag(first_stage)
+
+        # A raw statement.define in first-stage position is a grouped expression,
+        # not an implicit callable. Evaluate it in the current frame so any use
+        # of $ still refers to the enclosing pipeline/function input.
+        if first_tag == "statement.define":
+            result = self._build_value_ensure_register(first_stage)
+        else:
+            # First stage: try-invoke with nil as implicit piped input.
+            # If kids[0] is not callable, PipeInvoke returns it as-is (try semantics).
+            nil_idx = self.emit(comp._instructions.Const(cop=cop, value=comp.Value.from_python(comp.tag_nil)))
+            callable_idx = self._build_callable_ensure_register(first_stage)
+            args_idx = self.emit(comp._instructions.BuildStruct(cop=first_stage, fields=[]))
+            result = self.emit(comp._instructions.PipeInvoke(
+                cop=first_stage,
+                callable=callable_idx,
+                piped=nil_idx,
+                args=args_idx,
+            ))
 
         # Each subsequent stage receives the previous result as piped input
         for stage_cop in kids[1:]:
@@ -1026,12 +1035,26 @@ class CodeGenContext:
                 # Kids: [0]=name identifier, [1]=value expression
                 field_kids = _cop_kids(kid)
                 if len(field_kids) >= 2:
-                    name = _extract_name(field_kids[0])
-                    if name is not None:
+                    field_key = self._build_struct_field_key(field_kids[0])
+                    if field_key is not None:
                         value_idx = self._build_value_ensure_register(field_kids[1])
-                        fields.append((name, value_idx))
+                        fields.append((field_key, value_idx))
 
         return self.emit(comp._instructions.BuildStruct(cop=cop, fields=fields))
+
+    def _build_struct_field_key(self, key_cop):
+        """Build a struct field key from either a static name or ident.expr."""
+        name = _extract_name(key_cop)
+        if name is not None:
+            return name
+
+        if comp.cop_tag(key_cop) == "ident.expr":
+            key_kids = _cop_kids(key_cop)
+            if not key_kids:
+                raise comp.CodeError("ident.expr field has no expression", key_cop)
+            return self._build_value_ensure_register(key_kids[0])
+
+        return None
 
     def _build_shape(self, cop):
         """Build shape construction instructions.
@@ -1238,12 +1261,12 @@ class CodeGenContext:
             elif kid_tag == "struct.namefield":
                 field_kids = _cop_kids(kid)
                 if len(field_kids) >= 2:
-                    name = _extract_name(field_kids[0])
-                    if name is not None:
+                    field_key = self._build_struct_field_key(field_kids[0])
+                    if field_key is not None:
                         # Use _build_callable_ensure_register so that a callable
                         # value (Block) is NOT auto-invoked before being passed
                         value_idx = self._build_callable_ensure_register(field_kids[1])
-                        fields.append((name, value_idx))
+                        fields.append((field_key, value_idx))
 
         return self.emit(comp._instructions.BuildStruct(cop=cop, fields=fields))
 

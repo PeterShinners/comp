@@ -41,6 +41,8 @@
 !alias first
 !alias last
 !alias reverse
+!alias uniques
+!alias duplicates
 
 !import num comp "./num"
 !alias pi
@@ -53,7 +55,7 @@
 !alias pow
 !alias sqrt
 
-!import loop comp "./struct"
+!import struct comp "./struct"
 !alias length
 !alias is-empty
 
@@ -89,10 +91,10 @@
 !alias measure
 !alias preserve-unit
 
-!import unit comp "cob"
+!import cob comp "cob"
 !export cob
 //!import unit comp "cop"
-!import unit comp "py"
+!import py comp "py"
 !export py
 
 // Nothing directly exposed through callout, but it's a bootstrappy module

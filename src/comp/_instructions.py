@@ -795,13 +795,19 @@ class BuildStruct(Instruction):
 
     def __init__(self, cop, fields):
         super().__init__(cop)
-        self.fields = fields  # List of (key, source_idx) tuples
+        self.fields = fields  # List of (key|key_reg, source_idx) tuples
 
     def execute(self, frame):
         struct_data = {}
         for key, source in self.fields:
             value = frame.get_value(source)
-            struct_data[key] = value
+            if isinstance(key, int):
+                field_key = frame.get_value(key)
+            elif isinstance(key, comp.Unnamed):
+                field_key = key
+            else:
+                field_key = comp.Value.from_python(key)
+            struct_data[field_key] = value
         result = comp.Value.from_python(struct_data)
         return frame.set_result(result)
 
@@ -810,6 +816,8 @@ class BuildStruct(Instruction):
         for key, src in self.fields:
             if isinstance(key, comp.Unnamed):
                 parts.append(f"%{src}")
+            elif isinstance(key, int):
+                parts.append(f"(%{key})=%{src}")
             else:
                 parts.append(f"{key}=%{src}")
         return f"%{idx}  BuildStruct ({' '.join(parts)})"

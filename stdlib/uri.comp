@@ -204,11 +204,11 @@ choose which side you are on
 !pure authority ~uri (
     !on $.host ~text (
         !my credentials = ($.user | non-nil-joins ":" $.password)
-        $.host
+        ($.host
         | non-nil-joins ":" $.port
         | if (credentials != nil) :(
             credentials | non-nil-joins "@" $
-        )
+        ))
     )
 )
 

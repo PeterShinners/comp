@@ -22,6 +22,22 @@ __all__ = [
 ]
 
 
+def _shape_display(shape):
+    """Format a shape-like object within shape literals."""
+    if shape is None:
+        return "~any"
+    if hasattr(shape, "format"):
+        try:
+            return shape.format()
+        except TypeError:
+            pass
+    if hasattr(shape, "qualified"):
+        return f"~{shape.qualified}"
+    if isinstance(shape, str):
+        return f"~{shape}"
+    return str(shape)
+
+
 class Shape:
     """A shape definition.
 
@@ -172,7 +188,7 @@ class ShapeField:
             if isinstance(self.shape, ShapeUnion):
                 result += self.shape.format()
             else:
-                result += f"~{self.shape.qualified}"
+                result += _shape_display(self.shape)
         if self.unit:
             result += f"[{self.unit.qualified}]"
         if self.default:
@@ -205,14 +221,7 @@ class ShapeCollection:
 
     def format(self):
         elem = self.element
-        if elem.shape is None:
-            elem_str = "~any"
-        elif isinstance(elem.shape, str):
-            elem_str = f"~{elem.shape}"
-        elif hasattr(elem.shape, "qualified"):
-            elem_str = f"~{elem.shape.qualified}"
-        else:
-            elem_str = "~?"
+        elem_str = _shape_display(elem.shape)
         if elem.unit:
             elem_str += f"[{elem.unit.qualified}]"
 

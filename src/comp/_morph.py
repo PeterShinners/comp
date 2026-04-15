@@ -482,6 +482,23 @@ def _morph_collection(value, shape, frame):
     Returns:
         MorphResult: Result with morphed struct and positional match score
     """
+    constraint = _resolve_shape_field(shape.element, frame)
+
+    # If the incoming value is itself a struct-shaped element (for example a
+    # single cop-node passed to ~cop-node*), prefer treating it as a singleton
+    # collection before interpreting its fields as collection elements. Avoid
+    # doing this for the generic ~any* / ~struct* cases where every struct
+    # should remain a container of its field values.
+    if isinstance(value.data, dict) and constraint not in (comp.shape_any, comp.shape_struct):
+        single_ok = _check_type(value, constraint, frame)
+        if single_ok:
+            us = _unit_match_score(value.unit, shape.element.unit)
+            if us != -1:
+                limit_fail = _invoke_limits(shape.element, value, frame)
+                if limit_fail is None:
+                    if shape.min_count <= 1 and (shape.max_count is None or shape.max_count >= 1):
+                        return MorphResult(comp.Value({comp.Unnamed(): value}), 0, 0, us, 1)
+
     # Collect elements: struct → list of values, scalar → single-element list
     if isinstance(value.data, dict):
         elements = list(value.data.values())
@@ -498,7 +515,6 @@ def _morph_collection(value, shape, frame):
             f"Collection allows at most {shape.max_count} element(s), got {count}"
         )
 
-    constraint = _resolve_shape_field(shape.element, frame)
     unit_score_total = 0
     result_data = {}
 

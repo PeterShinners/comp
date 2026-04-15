@@ -16,13 +16,13 @@
 /// Field names are not preserved — the output is a positional struct.
 ///
 /// Examples:
-///   {1 2 3} -> map :($ * 10)
+///   {1 2 3} | map :($ * 10)
 ///   // {10 20 30}
 ///
-///   {a=1 b=2 c=3} -> map :($ + 100)
+///   {a=1 b=2 c=3} | map :($ + 100)
 ///   // {101 102 103}
 ///
-///   range 1 5 -> map :($ * $)
+///   range 1 5 | map :($ * $)
 ///   // {1 4 9 16 25}
 !pure map ~struct (
     !param transform ~invokable
@@ -37,13 +37,13 @@
 /// others are excluded. Field names are not preserved.
 ///
 /// Examples:
-///   {1 2 3 4 5} -> where :($ > 3)
+///   {1 2 3 4 5} | where :($ > 3)
 ///   // {4 5}
 ///
-///   range 1 10 -> where :($ > 5)
+///   range 1 10 | where :($ > 5)
 ///   // {6 7 8 9 10}
 ///
-///   {a=1 b=20 c=3 d=40} -> where :($ >= 10)
+///   {a=1 b=20 c=3 d=40} | where :($ >= 10)
 ///   // {20 40}
 !pure where ~struct (
     !param test ~any
@@ -109,10 +109,10 @@
 ///
 /// Examples:
 ///   // Sum numbers
-///   {1 2 3 4 5} -> reduce initial=0 :($.acc + $.item)
+///   {1 2 3 4 5} | reduce initial=0 :($.acc + $.item)
 ///
 ///   // Count items
-///   {a b c} -> reduce initial=0 :($.acc + 1)
+///   {a b c} | reduce initial=0 :($.acc + 1)
 !pure reduce ~struct (
     !param initial ~any
     !param fold ~any
@@ -150,15 +150,15 @@
 ///
 /// Examples:
 ///   // Double each value, collecting results
-///   {1 2 3} -> iterate :(
-///       $.item -> field-value -> ($ * 2) >>
+///   {1 2 3} | iterate :(
+///       $.item | field-value | ($ * 2) >>
 ///   )
 ///   // {2 4 6}
 ///
 ///   // Collect only the first 3 items using position
-///   {10 20 30 40 50} -> iterate :(
+///   {10 20 30 40 50} | iterate :(
 ///       !on $.position < 3
-///       ~true ($.item -> field-value >>)
+///       ~true ($.item | field-value >>)
 ///       ~false stop
 ///   )
 ///   // {10 20 30}
@@ -210,7 +210,7 @@
 ///
 /// Examples:
 ///   // Generate squares: state is the current number
-///   1 -> generate :(
+///   1 | generate :(
 ///       !on $ > 5
 ///       ~true stop
 ///       ~false ($ + 1)
@@ -220,7 +220,7 @@
 ///   // Fibonacci-like: state is just a counter, use closure for real state
 ///   !my a = 0
 ///   !my b = 1
-///   0 -> generate :(
+///   0 | generate :(
 ///       !my temp = b
 ///       !my b = a + b
 ///       !my a = temp
@@ -259,13 +259,13 @@
 ///   end:   (num) Position to stop before (exclusive), default length
 ///
 /// Examples:
-///   {10 20 30 40 50} -> slice end=3
+///   {10 20 30 40 50} | slice end=3
 ///   // {10 20 30}
 ///
-///   {10 20 30 40 50} -> slice start=2
+///   {10 20 30 40 50} | slice start=2
 ///   // {30 40 50}
 ///
-///   {10 20 30 40 50} -> slice start=1 end=4
+///   {10 20 30 40 50} | slice start=1 end=4
 ///   // {20 30 40}
 !pure slice ~struct (
     !param start ~num = 0
@@ -275,7 +275,7 @@
     !on end == -1
     ~true (!my actual-end = ($ | s.length))
     ~false nil
-    $ | iterate :(
+    ($ | iterate :(
         !on ($.position >= start !and $.position < actual-end)
         ~true ($.item | field-value)
         ~false (
@@ -284,15 +284,15 @@
             ~true stop
             ~false skip
         )
-    )
+    ))
 )
 
 
 /// Get the first value from a struct.
 ///
 /// Examples:
-///   {10 20 30} -> first   // 10
-///   {x=10 y=20} -> first  // 10
+///   {10 20 30} | first   // 10
+///   {x=10 y=20} | first  // 10
 !pure first ~struct (
     !param default ~any|nil = nil
     $ | field-at 0 | field-value |? :(default)
@@ -302,12 +302,12 @@
 /// Get the last value from a struct.
 ///
 /// Examples:
-///   {10 20 30} -> last    // 30
-///   {x=10 y=20} -> last   // 20
+///   {10 20 30} | last    // 30
+///   {x=10 y=20} | last   // 20
 !pure last ~struct (
     !param default ~any|nil = nil
     !my idx = ($ | s.length) - 1
-    $ | field-at idx | field-value |? :(default)
+    ($ | field-at idx | field-value |? :(default))
 )
 
 
@@ -317,14 +317,59 @@
 /// with values in reverse order.
 ///
 /// Examples:
-///   {1 2 3} -> reverse       // {3 2 1}
-///   {a=1 b=2 c=3} -> reverse // {3 2 1}
+///   {1 2 3} | reverse       // {3 2 1}
+///   {a=1 b=2 c=3} | reverse // {3 2 1}
 !pure reverse ~struct (
     $ | reduce {} :(
         {{$.item} $.acc} | merge
     )
 )
 
+
+/// The first unique value from a struct of values
+///
+/// Any field names will be lost
+/// Examples:
+///   {1 2 3 2} | uniques  // {1 2 3}
+///   {-1 1 2 3 (-2)} | uniques :{$ | abs}  // {-1 2 3}
+!pure uniques ~(any|nil)* (
+    !param transform ~invokable = pass
+    !my keys = {}
+    !my items = {}
+    ($ | output)
+    ($ | map :(
+        !my key = ($ | transform)
+        !on (keys.'key' ?? false)
+        ~true skip
+        ~false (
+            !my keys = ({keys {'key'=true}} | merge)
+            !my items = {items $}
+        )
+    ))
+    (items | collect)
+)
+
+
+/// The each duplicated value from a struct of values
+///
+/// Any field names will be lost. This can return items multiple times
+/// based on how many times they were found in the list.
+/// Examples:
+///   {1 2 3 2} | uniques  // {1 2 3}
+///   {-1 1 2 3 (-2)} | uniques :{$ | abs}  // {1 2 3}
+!pure duplicates ~(any|nil)* (
+    !param transform ~invokable = pass
+    !my keys = {}
+    !my items = {}
+    ($ | map :(
+        !my key = ($ | transform)
+        !on (keys.'key' ?? false)
+        ~true (!my items = {items $})
+        ~false (!my keys = ({keys {'key'=true}} | merge) skip)
+    ))
+
+    (items | collect)
+)
 
 /// Walk a tree with full control over yielded values and recursion.
 ///
@@ -384,15 +429,16 @@
         ~false map
     )
 
-    $ | walk-iterate op=: (
+    ($ | walk-iterate op=: (
         !my node = $.node
         !my emit = (node | mapper)
         !my child-kids = (node | pick-kids)
         !on emit == skip
         ~true {nodes={} kids=child-kids}
         ~false {nodes={{emit}} kids=child-kids}
-    )
+    ))
 )
+
 
 
 // Future:

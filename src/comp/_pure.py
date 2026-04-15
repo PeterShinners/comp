@@ -278,13 +278,13 @@ def _try_eval_binding(cop, kids, namespace, interp):
     try:
         result = _execute_pure_block(block, nil_val, args_const, interp)
         return _make_constant(cop, result)
-    except comp.CodeError:
-        return None
+    except comp.CodeError as e:
+        return _make_eval_fail_cop(cop, str(e))
     except Exception as _e:
         from comp._interp import CompFail
         if not isinstance(_e, CompFail):
             raise
-        return None
+        return _make_eval_fail_cop(cop, _extract_fail_message(_e.value))
 
 
 def _eval_pure_pipeline(cop, namespace, interp):
@@ -350,13 +350,13 @@ def _eval_pure_pipeline(cop, namespace, interp):
         try:
             current_value = _execute_pure_block(block, current_value, args_value, interp)
             evaluated_up_to = i
-        except comp.CodeError:
-            break
+        except comp.CodeError as e:
+            return _make_eval_fail_cop(cop, str(e))
         except Exception as _e:
             from comp._interp import CompFail
             if not isinstance(_e, CompFail):
                 raise
-            break
+            return _make_eval_fail_cop(cop, _extract_fail_message(_e.value))
 
     # Build the resulting COP
     if evaluated_up_to == len(stages) - 1:
@@ -493,15 +493,59 @@ def _execute_pure_block(block, input_value, args_value, interp):
 
 
 def _make_constant(original, value):
-    """Create a value.constant COP node, preserving position info from original."""
+    """Create a value.constant COP node preserving position and replaced COP."""
     fields = {"value": value}
-    try:
-        pos = original.field("pos")
-        if pos is not None:
-            fields["pos"] = pos
-    except (KeyError, AttributeError):
-        pass
-    return comp.create_cop("value.constant", [], **fields)
+    if original:
+        try:
+            pos = original.field("pos")
+            if pos is not None:
+                fields["pos"] = pos
+        except (KeyError, AttributeError):
+            pass
+        try:
+            qualified = original.field("qualified")
+            if qualified is not None:
+                fields["qualified"] = qualified
+        except (KeyError, AttributeError):
+            pass
+    kids = [original] if original is not None else []
+    return comp.create_cop("value.constant", kids, **fields)
+
+
+def _make_eval_fail_cop(original, message):
+    """Create a value.eval-fail COP node wrapping a {fail: message} constant."""
+    fail_val = comp.Value.from_python({"fail": message})
+    inner = _make_constant(original, fail_val)
+    fields = {"reason": message}
+    if original:
+        try:
+            pos = original.field("pos")
+            if pos is not None:
+                fields["pos"] = pos
+        except (KeyError, AttributeError):
+            pass
+        try:
+            qualified = original.field("qualified")
+            if qualified is not None:
+                fields["qualified"] = qualified
+        except (KeyError, AttributeError):
+            pass
+    return comp.create_cop("value.eval-fail", [inner], **fields)
+
+
+def _extract_fail_message(fail_value):
+    """Extract a readable message from a CompFail value."""
+    data = getattr(fail_value, "data", None)
+    if isinstance(data, dict):
+        message = data.get(comp.Value.from_python("message"))
+        if message is not None and isinstance(message.data, str):
+            return message.data
+        fail_field = data.get(comp.Value.from_python("fail"))
+        if fail_field is not None:
+            if isinstance(fail_field.data, str):
+                return fail_field.data
+            return str(fail_field.data)
+    return str(fail_value)
 
 
 def _get_constant(cop):

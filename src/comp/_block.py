@@ -6,6 +6,20 @@ import comp
 __all__ = ["Block", "Callable", "Pipeline", "create_blockdef"]
 
 
+def _shape_display(shape):
+    """Format a shape-like object for block signatures."""
+    if shape is None:
+        return ""
+    if hasattr(shape, "format"):
+        try:
+            return shape.format()
+        except TypeError:
+            pass
+    if hasattr(shape, "qualified"):
+        return f"~{shape.qualified}"
+    return str(shape)
+
+
 class Block:
     """A single function body — the unit of computation in Comp.
 
@@ -91,7 +105,7 @@ class Block:
         """
         sig = []
         if self.input_shape:
-            sig.append(f"~{self.input_shape.qualified}")
+            sig.append(_shape_display(self.input_shape))
         if self.pure:
             sig.append("pure")
 

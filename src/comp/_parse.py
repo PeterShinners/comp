@@ -191,6 +191,39 @@ def _parsed(treetoken, tag, kids, **fields):
     return comp.create_cop("cop-type." + tag, kids, **fields)
 
 
+def _tree_parse_error(tree, summary):
+    """Create a ParseError anchored to a Lark tree/token position."""
+    line = None
+    col = None
+    if isinstance(tree, lark.Token):
+        line = getattr(tree, "line", None)
+        col = getattr(tree, "column", None)
+    elif isinstance(tree, lark.Tree):
+        meta = tree.meta
+        line = getattr(meta, "line", None)
+        col = getattr(meta, "column", None)
+
+    parts = [f"Parse failure; {summary}"]
+    if line is not None and col is not None:
+        parts.append(f"  --> line {line}, col {col}")
+    position = ((line or 0) - 1) * 1000 + (col or 0) if line else None
+    return comp.ParseError("\n".join(parts), position=position)
+
+
+def _pipeline_has_direct_scope_binding(cop):
+    """Return True for direct !my/!ctx use in pipeline item/stage position."""
+    if cop is None:
+        return False
+    tag = comp.cop_tag(cop)
+    if tag in ("op.my", "op.ctx", "statement.my", "statement.ctx"):
+        return True
+    if tag == "statement.define":
+        for kid in comp.cop_kids(cop):
+            if comp.cop_tag(kid) in ("statement.my", "statement.ctx", "op.my", "op.ctx"):
+                return True
+    return False
+
+
 def _identifier_to_string(ident_cop):
     """Extract dotted name string from a value.identifier COP node."""
     parts = []
@@ -467,6 +500,13 @@ def lark_to_cop(tree):
                     field_cops.append(_parsed(t, "statement.field", [c]))
 
             if pipeline_tree:
+                for item_tree, item_cop in zip(item_trees, item_cops):
+                    if _pipeline_has_direct_scope_binding(item_cop):
+                        raise _tree_parse_error(
+                            item_tree,
+                            "!my and !ctx are not allowed inside a pipeline expression; wrap the pipeline in its own () statement",
+                        )
+
                 # Has pipeline tail: build value.pipeline
                 # Items before the pipeline become the input (mirrors old pipe_start logic)
                 if not field_cops and sig_cop is None:
@@ -495,6 +535,11 @@ def lark_to_cop(tree):
                         continue
                     if isinstance(kid, lark.Tree) and kid.data == "pipe_stage":
                         stage_cop = lark_to_cop(kid)
+                        if _pipeline_has_direct_scope_binding(stage_cop):
+                            raise _tree_parse_error(
+                                kid,
+                                "!my and !ctx are not allowed inside a pipeline expression; wrap the pipeline in its own () statement",
+                            )
                         if has_fallback:
                             stage_cop = _parsed(kid, "value.pipeline_fallback", [stage_cop])
                             has_fallback = False

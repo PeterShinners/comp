@@ -31,6 +31,7 @@ __all__ = [
     "PHASE_CODEGEN",
 ]
 
+import os
 import sys
 import comp
 
@@ -127,21 +128,53 @@ class Callout:
 # so INFO/HINT validators are never invoked.
 # ---------------------------------------------------------------------------
 
-def _source_line_snippet(callout_mod, row, col, end_col):
-    """Format a source-line snippet from callout.comp for error output."""
+def _source_line_snippet(source_label, source_text, row, col, end_col):
+    """Format a source-line snippet from the validator source for error output."""
     try:
-        csrc = callout_mod.source.content.splitlines()
+        csrc = source_text.splitlines()
         if 1 <= row <= len(csrc):
             src_line = csrc[row - 1].rstrip("\n")
             span = max(1, end_col - col) if end_col and end_col > col else 1
             caret = " " * (col - 1) + "^" * span
-            return f"\n  --> callout.comp:{row}:{col}\n   | {src_line}\n   | {caret}"
+            return f"\n  --> {source_label}:{row}:{col}\n   | {src_line}\n   | {caret}"
     except (AttributeError, TypeError, IndexError):
         pass
-    return f"\n  --> callout.comp:{row}:{col}"
+    return f"\n  --> {source_label}:{row}:{col}"
 
 
-def _extract_validator_location(fail_val, callout_mod):
+def _validator_source_context(source_file, source_resource, interp, fallback_mod):
+    """Find the best source label and text for a validator failure."""
+    if source_file:
+        try:
+            if os.path.exists(source_file):
+                with open(source_file, "r", encoding="utf-8") as handle:
+                    return source_file, handle.read()
+        except OSError:
+            pass
+
+    if interp is not None:
+        seen = set()
+        for mod in getattr(interp, "module_cache", {}).values():
+            mod_id = id(mod)
+            if mod_id in seen:
+                continue
+            seen.add(mod_id)
+            source = getattr(mod, "source", None)
+            resource = getattr(source, "resource", None)
+            location = getattr(source, "location", None)
+            if source_file and location == source_file:
+                label = source_file
+                return label, getattr(source, "content", "") or ""
+            if source_resource and resource == source_resource:
+                label = source_resource
+                return label, getattr(source, "content", "") or ""
+
+    fallback_label = getattr(getattr(fallback_mod, "source", None), "resource", "callout.comp")
+    fallback_text = getattr(getattr(fallback_mod, "source", None), "content", "") or ""
+    return fallback_label, fallback_text
+
+
+def _extract_validator_location(fail_val, interp, callout_mod):
     """Extract validator crash location from a comp.CompFail's structured value.
 
     The fail value may carry a 'cop' field pointing at the COP node where
@@ -156,6 +189,12 @@ def _extract_validator_location(fail_val, callout_mod):
     frame_val = fail_val.data.get(frame_key)
     if frame_val is not None and isinstance(frame_val.data, str):
         info += f"\n  in validator: {frame_val.data}"
+    source_file_key = comp.Value.from_python("source_file")
+    source_resource_key = comp.Value.from_python("source_resource")
+    source_file_val = fail_val.data.get(source_file_key)
+    source_resource_val = fail_val.data.get(source_resource_key)
+    source_file = source_file_val.data if source_file_val is not None and isinstance(source_file_val.data, str) else None
+    source_resource = source_resource_val.data if source_resource_val is not None and isinstance(source_resource_val.data, str) else None
     # Check for cop node with position info
     cop_key = comp.Value.from_python("cop")
     cop_val = fail_val.data.get(cop_key)
@@ -166,13 +205,14 @@ def _extract_validator_location(fail_val, callout_mod):
                 vrow = pos.to_python(0)
                 vcol = pos.to_python(1)
                 vend_col = pos.to_python(3)
-                info += _source_line_snippet(callout_mod, vrow, vcol, vend_col)
+                source_label, source_text = _validator_source_context(source_file, source_resource, interp, callout_mod)
+                info += _source_line_snippet(source_label, source_text, vrow, vcol, vend_col)
         except (KeyError, AttributeError, IndexError, TypeError):
             pass
     return info
 
 
-def _extract_validator_location_from_exc(exc, callout_mod):
+def _extract_validator_location_from_exc(exc, interp, callout_mod):
     """Extract validator crash location from an exception's cop_node."""
     info = ""
     cop_node = getattr(exc, "cop_node", None)
@@ -183,7 +223,12 @@ def _extract_validator_location_from_exc(exc, callout_mod):
                 vrow = pos.to_python(0)
                 vcol = pos.to_python(1)
                 vend_col = pos.to_python(3)
-                info += _source_line_snippet(callout_mod, vrow, vcol, vend_col)
+                module = getattr(exc, "module", None)
+                source = getattr(module, "source", None)
+                source_file = getattr(source, "location", None)
+                source_resource = getattr(source, "resource", None)
+                source_label, source_text = _validator_source_context(source_file, source_resource, interp, callout_mod)
+                info += _source_line_snippet(source_label, source_text, vrow, vcol, vend_col)
         except (KeyError, AttributeError, IndexError, TypeError):
             pass
     return info
@@ -282,18 +327,18 @@ def cop_callouts(definition, min_severity=ERROR, interp=None, namespace=None):
             msg_val = fail_val.data.get(msg_key)
             if msg_val is not None and isinstance(msg_val.data, str):
                 msg = msg_val.data
-        validator_info = _extract_validator_location(fail_val, callout_mod)
+        validator_info = _extract_validator_location(fail_val, interp, callout_mod)
         defn_name = definition.qualified or getattr(definition, "token", None) or "?"
         err = comp.CodeError(
-            f"Validation execution failed while checking `{defn_name}`: {msg}{validator_info}"
+            f"Validation execution failed while validating definition `{defn_name}`: {msg}{validator_info}"
         )
         err.callout_code = "validator-failure"
         raise err from e
     except Exception as e:
         defn_name = definition.qualified or getattr(definition, "token", None) or "?"
-        validator_info = _extract_validator_location_from_exc(e, callout_mod)
+        validator_info = _extract_validator_location_from_exc(e, interp, callout_mod)
         err = comp.CodeError(
-            f"Validation execution raised {type(e).__name__} while checking `{defn_name}`: {e}{validator_info}"
+            f"Validation execution raised {type(e).__name__} while validating definition `{defn_name}`: {e}{validator_info}"
         )
         err.callout_code = "validator-exception"
         raise err from e

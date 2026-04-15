@@ -36,7 +36,7 @@
     !my result = {entry-type=fs.entry-type.dir name=actual-name path=path root=nil vfs=vfs.native}
     !stash result&handle handle
     !stash result&parent nil
-    result | promote-root
+    (result | promote-root)
 )
 
 
@@ -61,11 +61,11 @@
         !stash dir-entry&handle dir-handle
         !stash dir-entry&parent $
         !my info = ({dir-handle final-name} | py.call "comp.runtime.fs.stat_entry")
-        dir-entry | make-child final-name info
+        (dir-entry | make-child final-name info)
     )
     ~false (
         !my info = ({$&handle name} | py.call "comp.runtime.fs.stat_entry")
-        $ | make-child name info
+        ($ | make-child name info)
     )
 )
 
@@ -73,7 +73,7 @@
 /// Read file content as UTF-8 text.
 !func vfs-read ~fs.entry (
     !my parent-handle = $&parent&handle
-    {parent-handle $.name} | py.call "comp.runtime.fs.read_file"
+    ({parent-handle $.name} | py.call "comp.runtime.fs.read_file")
 )
 
 
@@ -90,10 +90,10 @@
 !func vfs-list ~fs.entry (
     !my parent = $
     !my raw-entries = ($&handle | py.call "comp.runtime.fs.list_dir")
-    raw-entries | loop.map :(
+    (raw-entries | loop.map :(
         !my info = $
-        (parent | make-child info.name info)
-    )
+        ((parent | make-child info.name info))
+    ))
 )
 
 

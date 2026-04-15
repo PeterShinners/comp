@@ -71,6 +71,12 @@ def _coptimize_walk(cop, fold, namespace, locals, references, locals_defined=Non
 
     tag = comp.cop_tag(cop)
 
+    # Preserved kids under folded/eval-failed nodes are source context only.
+    # Do not recursively optimize them again or repeated passes will wrap
+    # already-folded originals in nested value.constant nodes.
+    if tag in ("value.constant", "value.fold-fail", "value.eval-fail"):
+        return cop
+
     # --- Literals: always convert to constants ---
     if tag == "value.text":
         literal = cop.to_python("value")
@@ -710,15 +716,21 @@ def _fold_struct(cop, kids):
                         key = ident_kids[0].field("value").data
                     except (KeyError, AttributeError):
                         pass
+            elif key_cop_tag == "ident.expr":
+                ident_kids = comp.cop_kids(key_cop)
+                if len(ident_kids) == 1:
+                    key = _get_constant(ident_kids[0])
             value = _get_constant(value_cop)
         else:
             return comp.cop_rebuild(cop, kids)
 
         if key is None or value is None:
             return comp.cop_rebuild(cop, kids)
+        if not isinstance(key, (comp.Value, comp.Unnamed)):
+            key = comp.Value.from_python(key)
         struct[key] = value
 
-    return _make_constant(comp.cop_rebuild(cop, kids), comp.Value.from_python(struct))
+    return _make_constant(comp.cop_rebuild(cop, kids), comp.Value(struct))
 
 
 def _make_constant(original, value):
@@ -767,7 +779,21 @@ def _make_fail_cop(original, message):
     """
     fail_val = comp.Value.from_python({"fail": message})
     inner = _make_constant(original, fail_val)
-    return comp.create_cop("value.fold-fail", [inner])
+    fields = {"reason": message}
+    if original:
+        try:
+            pos = original.field("pos")
+            if pos is not None:
+                fields["pos"] = pos
+        except (KeyError, AttributeError):
+            pass
+        try:
+            qualified = original.field("qualified")
+            if qualified is not None:
+                fields["qualified"] = qualified
+        except (KeyError, AttributeError):
+            pass
+    return comp.create_cop("value.fold-fail", [inner], **fields)
 
 
 def _make_local(original, name, remaining_kids):

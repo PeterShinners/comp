@@ -235,7 +235,7 @@
 ///   !my name = ("/home/user/docs" | fs.basename)  // => "docs"
 !pure basename ~text (
     !my parts = ($ | text.split "/")
-    parts | loop.last
+    (parts | loop.last)
 )
 
 

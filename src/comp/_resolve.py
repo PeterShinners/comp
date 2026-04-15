@@ -438,7 +438,7 @@ def _resolve_sequential(cop, namespace, locals):
 
 
 def _resolve_namefield(cop, namespace, locals):
-    """Resolve a namefield, only processing the value child.
+    """Resolve a namefield, processing the value and dynamic key child.
 
     Args:
         cop: (Value) Namefield COP node
@@ -455,12 +455,20 @@ def _resolve_namefield(cop, namespace, locals):
     name_cop = kids[0]
     value_cop = kids[1]
 
+    new_name = name_cop
+    if comp.cop_tag(name_cop) == "ident.expr":
+        name_kids = comp.cop_kids(name_cop)
+        if name_kids:
+            new_expr = _resolve_walk(name_kids[0], namespace, locals)
+            if new_expr is not name_kids[0]:
+                new_name = comp.cop_rebuild(name_cop, [new_expr])
+
     new_value = _resolve_walk(value_cop, namespace, locals)
 
-    if new_value is value_cop:
+    if new_name is name_cop and new_value is value_cop:
         return cop
 
-    return comp.cop_rebuild(cop, [name_cop, new_value])
+    return comp.cop_rebuild(cop, [new_name, new_value])
 
 
 def _resolve_binding(cop, namespace, locals):

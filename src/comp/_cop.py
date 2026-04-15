@@ -106,6 +106,7 @@ _COP_TAGS = (
     "value.private_tag",  # (kids) 1 kid - identifier for a private tag child (& suffix)
     "value.undefined",  # (name, pos) grenade node for unresolved identifiers — errors at codegen
     "value.fold-fail",  # (kids) 1 kid — fold-time failure (distinct from user-written op.fail)
+    "value.eval-fail",  # (kids) 1 kid — pure-eval failure discovered during compile-time evaluation
     "startup.define",  # (deps, body) context preparation block; deps=list of name strings, body=struct
     "main.define",  # (deps, body) entry point; deps=list of startup name strings, body=function.define
 )
@@ -1163,6 +1164,7 @@ _KID_COUNTS = {
     "op.forward": (0, 0),
     "op.fail": (1, 1),
     "value.fold-fail": (1, 1),
+    "value.eval-fail": (1, 1),
     "op.deliver": (2, 2),
     "op.on.branch": (2, 2),
     "statement.field": (1, 1),

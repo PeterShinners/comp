@@ -21,6 +21,7 @@
 !import branch comp "branch"
 !import loop comp "loop"
 !import cop comp "cop"
+!import s comp "struct"
 
 /// Severity level tags for callouts
 !tag callout.severity { error warning info hint }
@@ -55,114 +56,46 @@
     message~text
 }
 
-/// Promote simple callouts data into full callout structs
-!pure complete-callouts& ~struct (
-    !param severity~callout.severity
-    $ 
-    | merge
-    | map :(
-        !on $
-        ~callout $
-        ~simple-callout ($ | simple-callout | :{
-            severity=severity
-            code = $.code
-            message= $.message
-            phase = phase.cop
-            pos = $.cop.pos ?? nil
-        })
-        ~nil skip
-        ~any skip
-    )
-)
 
+/// Run all validators on a resolved-and-folded COP tree.
+///
+/// Severity gating: runs error-level checks first, then warning-level.
+/// Skips tiers below the requested min-severity.
+!pure validate ~cop.cop-node (
+    !param min-severity ~callout.severity = callout.severity.warning
+    !param context ~any = {}
+    !param namespace ~any|nil = nil
+    !param original ~any|nil = nil
+    !my cop = $
+    !my rank = (min-severity | severity-rank)
 
-!pure cops-find& ~cop-node (
-    !param filter ~(cop.cop-type | nil) = nil
-    !param recurse ~cop.copwalk.recurse = cop.copwalk.recurse.deep
-    !param where ~invokable = true
-    !param order ~cop.copwalk.order = cop.copwalk.order.all
-    $
-    | cop-walk filter=filter order=order recurse=recurse stop-on-match=false visit=:($.node)
-    | loop.where where
-)
-
-
-!pure cops-with& ~cop-node* (
-    !param filter ~(cop.cop-type | nil) = nil
-    !param recurse ~cop.copwalk.recurse = cop.copwalk.recurse.deep
-    !param where ~invokable
-    !param order ~cop.copwalk.order = cop.copwalk.order.all
-    $ | loop.where :(
-        $
-        | cop-walk filter=filter order=order recurse=recurse visit=where
-        | some
-    )
-)
-
-!pure cops-callout& ~cop-node* (
-    !param code ~text
-    !param message ~text
-    $ | map :{
-        $ code=code message=($ | fmt message)
-    }
-)
-
-
-/// Walk COP with defaults so validators only specify what they need.
-!pure cop-walk& ~cop.cop-node (
-    !param fields ~struct = {}
-    !param filter ~(cop.cop-type | nil) = nil
-    !param order ~cop.copwalk.order = cop.copwalk.order.all
-    !param recurse ~cop.copwalk.recurse = cop.copwalk.recurse.deep
-    !param stop-on-match ~bool = true
-    !param visit ~invokable = pass
-    $ 
-    | cop.walk-cop
-        filter=filter
-        fields=fields
-        order=order
-        recurse=recurse
-        stop-on-match=stop-on-match
-    | loop.iterate :(
-        !my match = ($.item | field-value)
-        !my send = {
-            node=(match.node ?? nil)
-            parent=(match.parent ?? nil)
-            depth=(match.depth ?? 0)
-            position=(match.position ?? 0)
-            order=((match.order ?? "all") | cop.copwalk-order-tag)
+    !my errors = (
+        !on (callout.severity.error | severity-rank) <= rank ~false {} ~true {
+            (cop | check-value-undefined)
+            (cop | check-constant-fail)
+            (cop | check-constant-undefined-field)
         }
-        !my result = (send | visit)
-        !on result ~nil skip~flow-control.skip skip ~any result
+        | complete-callouts severity.error
     )
+
+    !my warnings = (
+        !on (callout.severity.warning | severity-rank) <= rank ~false {} ~true {
+            (cop | check-zero-division)
+            (cop | check-duplicate-struct-fields)
+        }
+        | complete-callouts severity.warning
+    )
+
+    !my hints = (
+        !on (callout.severity.hint | severity-rank) <= rank ~false {} ~true {
+            (cop | check-comparison-with-bool)
+            (cop | check-negated-comparison)
+        }
+        | complete-callouts severity.hint
+    )
+
+    ({errors warnings hints} | merge)
 )
-
-
-/// Check for duplicate field names within a single struct literal.
-///
-/// Example: {x=1 x=2}  →  "duplicate field `x` in struct literal"
-!pure check-duplicate-struct-fields ~cop.cop-node (
-)
-
-
-/// Check for duplicate pattern branches in a single !on dispatch.
-///
-/// Example: !on x  ~true ...  ~true ...  →  "duplicate branch `~true` in !on"
-!pure check-duplicate-on-branches ~cop.cop-node (
-)
-
-
-/// Check for unreachable branches after a catch-all ~any in !on dispatch.
-///
-/// Any branches written after ~any can never be reached at runtime.
-///
-/// Example: !on $  ~true 1  ~any 99  ~false 2  →  ~false is unreachable
-!pure check-unreachable-branch ~cop.cop-node (
-)
-
-
-// ===== Validators =====
-// Run after name resolution and constant folding.
 
 
 /// Check that pure functions do not call impure functions.
@@ -200,31 +133,40 @@
 
 /// Check for division by a constant zero.
 !pure check-zero-division ~cop.cop-node (
-    ($ | cop-walk filter=math.binary fields={op="/"} visit=:(
-        $.node | cop-walk filter=value.constant fields={value=0} order=cop.copwalk.order.last visit=:(
-            {$$.node "zero-division" "Division by zero"}
-        )
-    )) 
-    | merge
+    $ 
+    | cops-find math.binary 
+    | cops-with value.constant order.last recurse.shallow :($.node.value == 0)
+    | cops-callout "zero-division" "Division by zero"
 )
+
 
 /// Check for field access on a constant struct where the field is absent.
 !pure check-constant-undefined-field ~cop.cop-node (
+    $ 
+    // This will only field constant fields that didn't resolve, thus are known to be invalid
+    | cops-find value.field
+    | cops-with value.constant order.first recurse.shallow always-true
+    | map :($.kids | last)
+    | cops-callout "undefined field" "Field %(value) not found"
 )
 
 
 /// Check for fold-synthesised failure nodes (guaranteed runtime failures).
 !pure check-constant-fail ~cop.cop-node (
-
+    {
+        ($ | cops-find value.fold-fail recurse.deep)
+        ($ | cops-find value.eval-fail recurse.deep)
+    }
+    | merge
+    | cops-callout "constant-fail" "Compile-time evaluation failed: %(reason)"
 )
-
 
 
 !pure check-comparison-with-bool ~cop.cop-node (
     $ 
-    | cops-find value.compare cop.copwalk.recurse.full :($.op == "==" !or $.op == "!=")
-    | cops-with value.constant cop.copwalk.recurse.shallow :($.node.value | is bool)
-    | cops-callout "bool-equality" "Comparing boolean with %(op) not nessary"
+    | cops-find value.compare recurse.full :($.op == "==" !or $.op == "!=")
+    | cops-with value.constant recurse.shallow :($.node.value | is bool)
+    | cops-callout "bool-equality" "Comparing boolean with %(op) unnecessary"
 )
 
 
@@ -234,46 +176,230 @@
 ///   !not (a == b)  →  use a != b
 ///   !not (a != b)  →  use a == b
 !pure check-negated-comparison ~cop.cop-node (
+    $
+    | cops-find value.logic.unary recurse.full :($.op == "!not")
+    | cops-only-child statement.define
+    | cops-only-child statement.field
+    | cops-only-child value.compare :($.op == "==" !or $.op == "!=")
+    | cops-callout "negated-comparison" "Negated comparison can use the opposite operator"
 )
 
 
-/// Entry point: run all validators on a resolved-and-folded COP tree.
+/// Check for duplicate field names within a single struct literal.
 ///
-/// Severity gating: runs error-level checks first, then warning-level.
-/// Skips tiers below the requested min-severity.
-!pure validate ~cop.cop-node (
-    !param min-severity ~callout.severity = callout.severity.warning
-    !param context ~any = {}
-    !param namespace ~any|nil = nil
-    !param original ~any|nil = nil
-    !my cop = $
-    !my rank = (min-severity | severity-rank)
-
-    !my errors = (
-        !on (callout.severity.error | severity-rank) <= rank ~false {} ~true {
-            (cop | check-value-undefined)
-            // (cop | check-constant-fail)
-            // (cop | check-constant-undefined-field)
+/// Example: {x=1 x=2}  →  "duplicate field `x` in struct literal"
+!pure xcheck-duplicate-struct-fields ~cop.cop-node (
+    $
+    | cop-walk filter=struct.namefield recurse.full stop-on-match=false visit=:(
+        !my node = $.node
+        !my parent = ($.parent ?? nil)
+        !my pos = ($.position ?? 0)
+        !on ((parent.#0 ?? nil) == cop.cop-type.struct.define) !and (node | duplicate-struct-namefield parent=parent position=pos)
+        ~true {
+            cop=node
+            code="duplicate-struct-field"
+            message=({name=(node | struct-namefield-name)} | fmt "Duplicate field %(name) in struct literal")
         }
-        | complete-callouts severity.error
+        ~false nil
     )
-
-    !my warnings = (
-        !on (callout.severity.warning | severity-rank) <= rank ~false {} ~true {
-            (cop | check-zero-division)
-            // (cop | check-duplicate-struct-fields)
-            // (cop | check-duplicate-on-branches)
-            // (cop | check-unreachable-branch)
-        }
-        | complete-callouts severity.warning
-    )
-
-    !my hints = (
-        !on (callout.severity.hint | severity-rank) <= rank ~false {} ~true {
-            (cop | check-comparison-with-bool)
-        }
-        | complete-callouts severity.hint
-    )
-
-    ({errors warnings hints} | merge)
 )
+
+
+!pure check-duplicate-struct-fields ~cop.cop-node (
+    !my used = {}
+    ($
+    | cop-walk filter=struct.define recurse.full stop-on-match=false
+    | map :(
+        $.node.kids
+        | where :($.#0 == struct.namefield)
+        | map :($.kids.#0)
+        | where :($.#0 == value.identifier)
+        | map :($.kids.#0)
+        | where :($.#0 == ident.token)
+    )
+    | merge
+    | duplicates :($.value)
+    | output
+    // | map :(
+    //     !on (used.'$.value' ?? false)
+    //     ~true $
+    //     ~false (!my used = ({used {'$.value'=true}} | merge | output ) skip)
+    // )
+    | cops-callout "duplicate-field" "Duplicate field %(value) in struct literal"
+    )
+)
+
+
+!pure struct-namefield-name& ~cop-node (
+    !my kids = ($.kids ?? {})
+    !on (kids | s.length) < 1
+    ~true nil
+    ~false (
+        !my name-node = ((kids | field-at 0) | field-value)
+        !on name-node == nil
+        ~true nil
+        ~false (
+            !on ((name-node.#0 ?? nil) == cop.cop-type.value.identifier)
+            ~true (
+                !my name-kids = (name-node.kids ?? {})
+                !on (name-kids | s.length) < 1
+                ~true nil
+                ~false ((((name-kids | field-at 0) | field-value).value) ?? nil)
+            )
+            ~false (name-node.value ?? nil)
+        )
+    )
+)
+
+
+!pure duplicate-struct-namefield& ~cop-node (
+    !param parent ~cop-node
+    !param position ~num
+    !my name = ($ | struct-namefield-name)
+    !on name == nil
+    ~true false
+    ~false (
+        ((parent.kids ?? {})
+        | loop.iterate :(
+            !on $.position >= position
+            ~true stop
+            ~false (
+                !my sibling = ($.item | field-value)
+                !on ((sibling.#0 ?? nil) == cop.cop-type.struct.namefield) !and ((sibling | struct-namefield-name) == name)
+                ~true true
+                ~false skip
+            )
+        )
+        | some)
+    )
+)
+
+
+/// Promote simple callouts data into full callout structs
+!pure complete-callouts& ~struct (
+    !param severity~callout.severity
+    $ 
+    | merge
+    | map :(
+        !on $
+        ~callout $
+        ~simple-callout ($ | simple-callout | :{
+            severity=severity
+            code = $.code
+            message= $.message
+            phase = phase.cop
+            pos = $.cop.pos ?? nil
+        })
+        ~nil skip
+        ~any skip
+    )
+)
+
+
+/// Walk COP with defaults so validators only specify what they need.
+!pure cop-walk& ~cop.cop-node (
+    !param fields ~struct = {}
+    !param filter ~(cop.cop-type | nil) = nil
+    !param order ~cop.copwalk.order = cop.copwalk.order.all
+    !param recurse ~cop.copwalk.recurse = cop.copwalk.recurse.deep
+    !param stop-on-match ~bool = true
+    !param visit ~invokable = pass
+    $ 
+    | cop.walk-cop
+        filter=filter
+        fields=fields
+        order=order
+        recurse=recurse
+        stop-on-match=stop-on-match
+    | loop.iterate :(
+        !my match = ($.item | field-value)
+        !my send = {
+            node=(match.node ?? nil)
+            parent=(match.parent ?? nil)
+            depth=(match.depth ?? 0)
+            position=(match.position ?? 0)
+            order=((match.order ?? "all") | cop.copwalk-order-tag)
+        }
+        !my result = (send | visit)
+        !on result ~nil skip~flow-control.skip skip ~any result
+    )
+)
+
+
+!pure always-true& ~any (true)
+
+!pure cops-only-child-node& ~cop-node (
+    !param filter ~(cop.cop-type | nil) = nil
+    !my kids = ($.kids ?? {})
+    !on (kids | s.length) == 1
+    ~false nil
+    ~true (
+        !my child = (kids | loop.first)
+        !my child-tag = (child.#0 ?? nil)
+        !on child-tag == cop.cop-type.value.constant
+        ~true (child | cops-only-child-node filter=filter)
+        ~false (
+            !on child-tag == cop.cop-type.statement.define !and filter != cop.cop-type.statement.define
+            ~true (
+                !my define-kids = (child.kids ?? {})
+                !on (define-kids | s.length) == 1 !and (((define-kids | loop.first).#0 ?? nil) == cop.cop-type.statement.field)
+                ~true (child | cops-only-child-node filter=filter)
+                ~false child
+            )
+            ~false child
+        )
+    )
+)
+
+!pure cops-only-child& ~cop-node* (
+    !param filter ~(cop.cop-type | nil) = nil
+    !param where ~invokable = always-true
+    $ | map :(
+        !my node = ($ | cops-only-child-node filter=filter)
+        !on node == nil
+        ~true skip
+        ~false (
+            !on filter != nil !and ((node.#0 ?? nil) != filter)
+            ~true skip
+            ~false (
+                !on (node | where)
+                ~true node
+                ~false skip
+            )
+        )
+    )
+)
+
+!pure cops-find& ~cop-node (
+    !param filter ~(cop.cop-type | nil) = nil
+    !param recurse ~cop.copwalk.recurse = cop.copwalk.recurse.deep
+    !param where ~invokable = always-true
+    !param order ~cop.copwalk.order = cop.copwalk.order.all
+    $
+    | cop-walk filter=filter order=order recurse=recurse stop-on-match=false visit=:($.node)
+    | loop.where where
+)
+
+
+!pure cops-with& ~cop-node* (
+    !param filter ~(cop.cop-type | nil) = nil
+    !param recurse ~cop.copwalk.recurse = cop.copwalk.recurse.deep
+    !param where ~invokable = always-true
+    !param order ~cop.copwalk.order = cop.copwalk.order.all
+    $ | loop.where :(
+        $
+        | cop-walk filter=filter order=order recurse=recurse visit=where
+        | some
+    )
+)
+
+!pure cops-callout& ~cop-node* (
+    !param code ~text
+    !param message ~text
+    $ | map :{
+        $ code=code message=($ | fmt message)
+    }
+)
+
+
+
